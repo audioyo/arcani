@@ -1,0 +1,9 @@
+# Personal and machine-local settings
+.claude/settings.local.json
+_bmad/config.user.toml
+_bmad/custom/*.user.toml
+
+# Python
+__pycache__/
+*.pyc
+.venv/
