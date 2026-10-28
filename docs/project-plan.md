@@ -51,7 +51,7 @@ Reviewer feedback, as received:
 | Mistake | Cause | Rule now | Guard |
 | --- | --- | --- | --- |
 | Binaural carriers became a monaural beat | Carriers routed through the ambisonic HRTF decoder, which mixed each ear into the other | Binaural carriers never enter any spatial, reverb, or stereo-width stage | CI isolation test: each ear's spectrum holds only its own carrier, cross-leakage below a set threshold |
-| Trough coupling could not be verified | Theta existed only as a binaural beat, which has no waveform in the file to align to | PAC always couples to a theta wave that exists in the file (monaural or isochronic theta, or the engine's own theta clock driving both) | Test measures gamma envelope peaks against the in-file theta trough, within a set timing tolerance |
+| Trough coupling could not be verified | Theta existed only as a binaural beat, which has no waveform in the file to align to | PAC always couples to a theta wave that exists in the file (monaural or isochronic theta, or the engine's own theta clock driving both) | Test measures gamma envelope peaks against the recipe's coupling phase on the in-file theta reference, within a set timing tolerance |
 | 60 Hz carrier modulated at 60 Hz | Gamma rate and gamma carrier were the same frequency | Gamma is a separate audible carrier, amplitude-modulated at the gamma rate; the carrier must be several times the rate | Recipe validator rejects a carrier below a minimum multiple of the modulation rate |
 
 One wording lesson too: v5 described the gamma layer as a "60 Hz isochronic tone", which can be read as a 60 Hz carrier or a 60 Hz pulse rate. Rule 7 exists so no signal is described that way again.
@@ -128,7 +128,7 @@ The defaults above are provisional. Each is checked in Phase 0 with spectrum ana
 
 The 120 Hz audibility harmonic is retired. It existed because a 60 Hz sine is hard to hear on small drivers; a 450 Hz carrier solves that directly.
 
-Automated checks for this section: the binaural isolation test, a coupling test that measures gamma envelope peaks against the in-file theta troughs within a set tolerance, a carrier-to-modulation ratio check, and the carrier spacing check. A recipe that fails any of them cannot be exported.
+Automated checks for this section: the binaural isolation test, a coupling test that measures gamma envelope peaks against the recipe's coupling phase on the in-file theta reference within a set tolerance, a carrier-to-modulation ratio check, and the carrier spacing check. A recipe that fails any of them cannot be exported.
 
 ## Spatial motion layer
 
@@ -301,7 +301,7 @@ The agent loop:
 2. **Tests before code.** In BMAD, a QA agent with fresh context turns each story's acceptance criteria into tests before the dev agent writes code, so the dev agent never grades its own work.
 3. **Signal assertions** on every render:
    - Binaural isolation: only the left binaural carrier in the left ear and only the right one in the right, with cross-leakage far below audibility
-   - Gamma modulation depth peaks at the in-file theta trough, and the envelope shape matches the recipe; carrier spacing and carrier-to-rate ratio pass
+   - Gamma modulation depth peaks at the recipe's coupling phase on the in-file theta reference, and the envelope shape matches the recipe; carrier spacing and carrier-to-rate ratio pass
    - Loudness and true-peak targets met
    - No clicks at loop seams or envelope edges, no dropouts, no NaN values
    - Renders faster than real time on target hardware

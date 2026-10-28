@@ -25,13 +25,13 @@ The stack is decided in the BMAD architecture step. Until then, keep the engine 
 - **Theta reference:** a carrier amplitude-modulated at the theta rate. It exists in the file, so its phase is measurable. It is the only thing PAC couples to.
 - **Gamma PAC layer:** a separate carrier, amplitude-modulated at the gamma rate. Its modulation depth follows the shared engine clock and peaks at the recipe's coupling phase.
 - **Carrier rule:** every modulated carrier is at least 4 times its modulation rate.
-- **Spacing rule:** at least 50 Hz between any two active spectral components, including modulation side frequencies.
+- **Spacing rule:** in each ear, at least 50 Hz between any spectral component of one layer and any of another layer, including modulation side frequencies. A layer's own components and the binaural pair are exempt. 50 Hz is a placeholder (design log 2026-10-27 (e)).
 
 ## Never
 
 - Route binaural carriers through any spatial or width stage. This exact bug broke an earlier project.
 - Couple gamma to a binaural beat. It has no waveform in the file.
-- Use Monroe, Hemi-Sync, Gateway, Focus-level, or SAM names or terms anywhere: code, comments, docs, UI, or store copy.
+- Use Monroe, Hemi-Sync, Gateway, Focus-level, or SAM names or terms anywhere: code, comments, docs, UI, or store copy. Research files (the research library, research runs, competitor scans) are exempt when citing or describing sources.
 - Model session arcs on Monroe or Gateway programs.
 - Write health, therapy, treatment, or "neurostimulation" claims in UI or store copy. Describe the sound, not outcomes.
 - Use em dashes in docs, comments, or UI copy.

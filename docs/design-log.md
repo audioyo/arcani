@@ -17,22 +17,82 @@ Sources point to `docs/research-library.md`, a research run under `_bmad-output/
 | Gamma AM rate, locked range | 30 to 60 Hz | proposed | 2026-10-27 (a) |
 | Coupling phase, definition | 0 to 360 degrees on the in-file theta reference envelope, 0 degrees at its maximum | proposed | 2026-10-27 (b) |
 | Coupling phase, default | 0 degrees (peak), with an uncoupled option | proposed | 2026-10-27 (b) |
+| Learn mode coupling phase | 0 degrees (peak), was trough | proposed | 2026-10-27 (d) |
 | Theta rate, default | open (6 Hz or slower) | open | project plan, Open decisions |
-| Binaural layer on by default | open | open | project plan, Open decisions |
-| Binaural carrier | open (200/206 Hz or higher, listener-adjustable) | open | project plan, Open decisions |
-| Binaural locked ranges | carriers below 1000 Hz, difference under about 35 Hz | in plan | 2026-10-21 |
+| Binaural layer in v0.1 starter recipes | off in Focus, Learn, Relax; on in Sleep (100 Hz, 3 Hz to 0 sweep) | proposed | 2026-10-27 (i) |
+| Binaural carrier | open (200/206 Hz or higher), set per recipe; not listener-adjustable | open | project plan, Open decisions; 2026-10-27 (g) |
+| Binaural locked ranges | carriers below 1000 Hz; beat rate below 30 Hz (perception limit about 35 Hz) | proposed | 2026-10-21; 2026-10-27 (f) |
 | Carrier-to-rate ratio | at least 4 times | provisional | project plan, Test thresholds |
-| Carrier spacing | at least 50 Hz, including side frequencies | provisional (placeholder) | project plan, Test thresholds |
+| Carrier spacing | at least 50 Hz per ear between components of different layers, including side frequencies | provisional (value is a placeholder) | project plan, Test thresholds; 2026-10-27 (e) |
+| Gamma carrier range, theta carrier, levels | 200 to 500 Hz; 450 Hz; tones -36, master -16 LUFS-I | engineering defaults | 2026-10-27 (g) |
+| v0.1 provisional ranges | theta rate 1 to 6 Hz; theta carrier 100 to 500 Hz; depth 0 to 100 percent; burst 50 ms fixed | provisional | 2026-10-27 (h) |
+| Spectral component threshold (spacing rule) | within 40 dB of the layer's strongest line | provisional (placeholder) | 2026-10-27 (i) |
+| Dropout threshold | more than 1 ms of all-zero samples where signal is expected | provisional | 2026-10-27 (i) |
+| Determinism scope | byte-identical per platform and build; within -100 dBFS across platforms; bit-exact synthesis core is the target | provisional | 2026-10-27 (i) |
 | All other test thresholds | see project plan, Test thresholds (provisional) | provisional | project plan |
 
 ## Entries
+
+### 2026-10-27 (i): Starter binaural choice, spacing component threshold, dropouts, determinism scope
+
+- **Binaural in v0.1 starters:** off in Focus, Learn, and Relax; on in Sleep with a 100 Hz carrier and a beat sweeping 3 Hz to 0 (Lee et al., 2024). Relax keeps low-depth gamma, and gamma plus a 250/256 Hz binaural pair would break the spacing rule (256 Hz sits 4 Hz from gamma's 260 Hz side frequency). No starter runs gamma and binaural together.
+- **Spectral component:** for the spacing rule, any spectral line within 40 dB of the layer's strongest line, including harmonics from bursts, envelope shapes, and non-sine carriers. Placeholder, confirmed in Phase 0 with the 50 Hz value.
+- **Dropout:** more than 1 ms of all-zero samples in a channel where the recipe sets a non-zero level. Placeholder.
+- **Determinism scope:** byte-identical on one platform and build; within -100 dBFS (the reference-match tolerance) across platforms as the provisional floor; a bit-exact synthesis core across platforms as the target, confirmed or dropped in the architecture step and Phase 0 spike.
+- **Source:** PRD reviewer pass, 2026-10-27 (`review-architecture-readiness.md`, `review-rubric.md`).
+- **Decided by:** Audio, during the PRD session.
+- **Status:** provisional.
+
+### 2026-10-27 (h): Provisional v0.1 ranges
+
+- **Decision:** v0.1's validator uses these provisional ranges, spanning the values the starter recipes and their cited studies use. Phase 0 widens or locks each one.
+  - Theta reference rate, including delta and rate curves: 1 to 6 Hz. Lee et al. (2024) 0 to 3 Hz sweep; Lega et al. (2016) 2.5 to 5 Hz; Roberts et al. (2018) 5.5 Hz; Jirakittayakorn and Wongsawat (2017) 6 Hz.
+  - Theta reference carrier: 100 to 500 Hz. Chaieb et al. (2017) about 107 to 220 Hz; Orozco Perez et al. (2020) about 400 Hz; 450 Hz engineering default (entry (g)).
+  - Coupling depth: 0 to 100 percent. Ross et al. (2003): the response scales with depth.
+  - Burst width: 50 ms, fixed in v0.1. Alekseichuk et al. (2016).
+- **Why:** v0.1 is Phase 0 part 1, so the validator and starter recipes need testable ranges before Phase 0 research finishes.
+- **Decided by:** Audio, during the PRD session.
+- **Status:** provisional.
+
+### 2026-10-27 (g): Engineering defaults, and no listener binaural control
+
+- **Decision:** the 200 to 500 Hz gamma PAC carrier range, the 450 Hz theta reference carrier, and the -36 (tones) and -16 (master) LUFS-I levels are engineering defaults, not science claims. They came from an earlier internal reference and private review feedback, which the clean-room rules do not accept as sources.
+  - Supporting public context: lower carriers give larger gamma responses (Ross et al., 2003), and -16 LUFS is a common streaming convention (research library, Standards).
+  - They stay until Phase 0 replaces or confirms them.
+- **Decision:** listeners cannot change the binaural layer on or off or its carrier. The designer sets both per recipe. This closes the "listener-adjustable carrier" option in the plan's open decisions.
+- **Decided by:** Audio, during the PRD session.
+- **Status:** proposed.
+
+### 2026-10-27 (f): Binaural beat-rate limit is 30 Hz
+
+- **Decision:** the binaural beat rate's locked range is below 30 Hz.
+- **Why:** binaural beats are perceived with differences under about 35 Hz (Licklider et al., 1950, cited by López-Caballero and Escera, 2017). 30 Hz keeps a margin inside that limit.
+- **Decided by:** Audio, during the PRD session.
+- **Status:** proposed.
+
+### 2026-10-27 (e): Spacing rule applies between layers, per ear
+
+- **Change:** the spacing rule compares spectral components of different layers in the same ear. A layer's own components (carrier and its modulation side frequencies) are exempt, and so is the binaural pair, whose carriers never share an ear.
+- **Why:** read literally, the old wording rejected every recipe: a 300 Hz carrier modulated at 40 Hz has side frequencies at 260 and 340 Hz, and the binaural carriers sit a beat rate apart. The rule exists to stop unintended beating and roughness between layers, and to stop one layer from placing the other ear's binaural carrier in this ear.
+- **Value:** 50 Hz is still a placeholder. A critical-band source, checked in Phase 0, may replace it with a frequency-dependent minimum.
+- **Source:** PRD reconciliation, 2026-10-27; project plan, Signal architecture (carrier spacing rule).
+- **Decided by:** Audio, during the PRD session.
+- **Status:** proposed. CLAUDE.md spacing rule wording updated to match, 2026-10-27.
+
+### 2026-10-27 (d): Learn mode coupling phase changed from trough to peak
+
+- **Change:** the Learn starter recipe's gamma PAC layer peaks at 0 degrees (theta reference peak) instead of the theta trough. `docs/listening-modes.md` is updated to match.
+- **Why:** the Learn table predates the research run. Its trough rationale was Lega et al. (2016), brain recordings that are region-specific and biphasic in the hippocampus. The only coupled-stimulation evidence (tACS) favors peak, and sound phase does not map onto brain phase. Learn now follows the general default in entry (b) rather than being an exception.
+- **Source:** research run `academic-lit-gamma-rate-and-coupling-phase-2026-10-27`, refs [13], [14], [17], [21], [23]; entry (b).
+- **Decided by:** Audio, during the PRD session.
+- **Status:** proposed. Locks with entry (b) after independent review. The Phase 1 peak vs trough vs uncoupled comparison can revisit it.
 
 ### 2026-10-27 (c): Plan doc wording for the coupling assertion
 
 - **Change:** `docs/project-plan.md`, Build and test workflow, signal assertion 3 says gamma depth "peaks at the in-file theta trough". It should say "peaks at the recipe's coupling phase", matching CLAUDE.md.
 - **Why:** trough coupling in the brain is region- and task-specific. Stimulation evidence leans away from trough, and the sound phase does not map onto the brain phase.
 - **Source:** research run `academic-lit-gamma-rate-and-coupling-phase-2026-10-27`, recommendation 4.
-- **Status:** proposed. Apply the change when the PRD is written.
+- **Status:** applied 2026-10-27 during the PRD session, in signal assertion 3, the Lessons table guard, and the Signal architecture automated-checks line.
 
 ### 2026-10-27 (b): Coupling phase definition and default
 
