@@ -19,7 +19,7 @@ Sources point to `docs/research-library.md`, a research run under `_bmad-output/
 | Coupling phase, default | 0 degrees (peak), with an uncoupled option | proposed | 2026-10-27 (b) |
 | Learn mode coupling phase | 0 degrees (peak), was trough | proposed | 2026-10-27 (d) |
 | Theta rate, default | open (6 Hz or slower) | open | project plan, Open decisions |
-| Binaural layer in v0.1 starter recipes | off in Focus, Learn, Relax; on in Sleep (100 Hz, 3 Hz to 0 sweep) | proposed | 2026-10-27 (i) |
+| Binaural layer in v0.1 starter recipes | off in Focus, Learn, Relax; on in Sleep (100 Hz, beat rate cycling sinusoidally over 0 to 3 Hz every 60 s) | proposed | 2026-10-27 (i), (n) |
 | Binaural carrier | open (200/206 Hz or higher), set per recipe; not listener-adjustable | open | project plan, Open decisions; 2026-10-27 (g) |
 | Binaural locked ranges | carriers below 1000 Hz; beat rate below 30 Hz (perception limit about 35 Hz) | proposed | 2026-10-21; 2026-10-27 (f) |
 | Carrier-to-rate ratio | at least 4 times | provisional | project plan, Test thresholds |
@@ -36,9 +36,39 @@ Sources point to `docs/research-library.md`, a research run under `_bmad-output/
 | Visualizer | no more than 3 flashes per second; never pulses at theta, gamma, or beat rates; smoothing rate open | proposed | 2026-10-27 (k) |
 | Tone zone time-varying rates (stem motion, effect LFOs, gates) | locked ranges required; values open | open | 2026-10-27 (k) |
 | Seed policy | recipe seed for tooling and tests; fresh seed per play in consumer app, stored on device | proposed | 2026-10-27 (l) |
+| v0.1 starter values | gamma PAC 250 Hz carrier, AM at 40 Hz; theta reference 450 Hz carrier; Learn 5.5 Hz; Relax 30 min, depth 25 percent; Sleep 45 min with 5 min fade, steady 2 Hz delta | provisional | 2026-10-27 (m), (n) |
+| Looping max run time (v0.1) | Focus 45 min, Learn 20 min | engineering default | 2026-10-27 (m) |
+| v0.1 starter loudness target | -36 LUFS-I | engineering default | 2026-10-27 (m) |
 | All other test thresholds | see project plan, Test thresholds (provisional) | provisional | project plan |
 
 ## Entries
+
+### 2026-10-27 (n): Sleep beat rate cycles, correcting the Lee et al. reading
+
+- **Correction:** Lee et al. (2024) did not sweep the beat rate once from 3 Hz to 0 Hz. The right-ear carrier "continuously fluctuated between 100 and 103 Hz over a duration of one minute", so the beat rate cycled over 0 to 3 Hz every 60 s, played before sleep onset and in 20 minute windows after it. The waveform of the change is not stated, and the authors say pattern and form were not optimized. Entries (i) and (m), `docs/listening-modes.md`, the project plan, PRD FR-16, and the addendum carried the misreading; all are corrected.
+- **Decision:** Sleep's binaural beat rate cycles over 0 to 3 Hz every 60 s for the session body, as a sinusoid. The range and cycle come from Lee et al.; the sinusoid shape and its start phase are engineering defaults. Supersedes the Sleep binaural sweep in entries (i) and (m).
+- **Decision:** Sleep's theta reference holds a steady 2 Hz delta rate (450 Hz carrier, sine AM). Engineering default; no study sets it. Supersedes the 3 Hz to 1 Hz sweep in entry (m).
+- **Unchanged:** 100 Hz left carrier; 45 min with a 5 min fade; no sound after the session ends. Arcani has no counterpart to Lee's post-onset windows (PRD non-goals).
+- **Source:** research run `academic-lit-lee-2024-dynamic-binaural-beat-sweep-law-2026-10-27` (Lee et al. 2024, Sleep 47(10) zsae097; Thomas 2024 editorial, zsae190).
+- **Decided by:** Audio, during the v0.1 spec session.
+- **Status:** provisional.
+
+### 2026-10-27 (m): v0.1 starter recipe values and loudness target
+
+- **Decision:** the four v0.1 starters use these values. All are provisional; Phase 0 may change them, and affected golden files are re-approved by ear.
+  - Gamma PAC layer (Focus, Learn, Relax): 250 Hz carrier, AM at 40 Hz. 40 Hz per entry (a). 250 Hz because the gamma response falls about 30% per octave of carrier (Ross et al., 2003); it passes the carrier rule at 40 and 60 Hz, and its 210 to 290 Hz side frequencies sit far from the 450 Hz theta reference.
+  - Focus: 450 Hz carrier, sine AM at 6 Hz; gamma as 50 ms bursts at 0 degrees, depth 100 percent; 5 min ramp-in, then looping.
+  - Learn: 450 Hz carrier, sine AM at 5.5 Hz (Roberts et al., 2018); gamma as a smooth swell at 0 degrees (entry (d)), depth 100 percent; 5 min ramp-in, then looping.
+  - Relax: 450 Hz carrier, sine AM at 6 Hz, building over the first 10 min; gamma as a smooth swell at 0 degrees, depth 25 percent; 30 min (Jirakittayakorn and Wongsawat, 2017, ran 30 min sessions).
+  - Sleep: 450 Hz carrier, sine AM on a delta rate curve from 3 Hz to 1 Hz; binaural 100 Hz left, 100 Hz plus beat rate right, beat rate 3 Hz to 0 Hz (Lee et al., 2024); 45 min, the last 5 min a fade to silence. The theta reference carrier must be at least 156 Hz to clear the binaural pair by 50 Hz.
+  - Looping max run time: Focus 45 min, Learn 20 min, the top of each mode's length range in `docs/listening-modes.md`. Phase 0 sets the value from the WHO-ITU safe listening standard.
+  - Loudness target: -36 LUFS-I for every v0.1 starter (tones level, entry (g)), so sign-off judges the tones at the level they will have in the product.
+- **Engineering defaults (no study sets them):** Relax depth 25 percent, Sleep length and fade, Learn ramp-in, loop max run times, the 450 Hz theta reference carrier, -36 LUFS-I.
+- **Assumed:** a sine theta reference envelope in every starter, and 100 percent gamma depth in Focus and Learn; `docs/listening-modes.md` names neither.
+- **Open:** the law and timing of Sleep's two rate curves.
+- **Source:** v0.1 spec session (`_bmad-output/specs/spec-arcani-v0-1/`); research library entries named above.
+- **Decided by:** Audio, during the v0.1 spec session.
+- **Status:** provisional.
 
 ### 2026-10-27 (l): Seed policy
 

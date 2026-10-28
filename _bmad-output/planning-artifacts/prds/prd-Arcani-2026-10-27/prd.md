@@ -69,7 +69,7 @@ Downstream documents use these terms exactly.
 - **Theta reference:** a carrier amplitude-modulated at the theta rate. It exists in the file, so its phase is measurable. It is the only thing PAC couples to. In Sleep its rate is a delta rate (below 4 Hz); the term still applies.
 - **Gamma PAC layer:** a separate carrier, amplitude-modulated at the gamma rate, whose modulation depth follows the theta reference phase (computed from the engine clock) and peaks at the coupling phase.
 - **Coupling phase:** where in each theta reference cycle the gamma modulation depth peaks; 0 to 360 degrees on the theta reference envelope, 0 degrees at its maximum. Per envelope shape, 0 degrees is: the peak (sine), the center of the on plateau (smoothed on-off), the top just before the drop (sawtooth), the top just after the rise (reverse saw), or the curve's maximum (custom). A recipe can also set gamma uncoupled.
-- **Binaural layer:** two steady sines, one per ear, whose difference is the beat rate. Dichotic only. The beat exists only in the listener's brain, so nothing couples to it.
+- **Binaural layer:** two pure sines, one per ear, whose frequencies may follow a recipe rate curve; their difference is the beat rate. Dichotic only. The beat exists only in the listener's brain, so nothing couples to it.
 - **Monaural beat / isochronic:** a rhythm that exists in the file.
 - **PAC (here):** gamma PAC layer strength rising and falling with the theta reference.
 - **Orbit layer:** working name for spatial motion applied to the gamma PAC layer only. Public name TBD.
@@ -83,7 +83,7 @@ Downstream documents use these terms exactly.
 - **Spacing rule:** in each ear, at least 50 Hz between any spectral component of one layer and any spectral component of another layer, counting modulation side frequencies. A layer's own components are exempt, and so is the binaural pair, whose carriers never share an ear. 50 Hz is a placeholder pending a critical-band source.
 - **Golden file:** a render Audio has approved by ear; later renders of the same recipe must match it.
 - **Engineering default:** a starting value chosen by engineering judgment, not by a study. Logged as such in the design log and never presented as a science claim.
-- **Rate curve:** a scheduled change of a rate over the session, such as Sleep's delta sweep.
+- **Rate curve:** a scheduled change of a rate over the session, such as Sleep's cycling binaural beat rate.
 - **Master chain:** the stages after the layers are mixed: master gain and the final limiter. It processes left and right without mixing them.
 - **Synthesis core:** the engine parts that generate and mix tone layers (clock, oscillators, AM, ramps, master chain). Excludes stem decoding and Orbit spatialization.
 - **Core zone:** the theta reference, gamma PAC layer, and binaural layer, with wiring fixed in the engine. Recipes set their parameters, never their routing.
@@ -116,7 +116,7 @@ The engine generates a separate carrier amplitude-modulated at the gamma rate, w
 - Carrier waveform selectable: sine, triangle, softened square.
 
 #### FR-4: Binaural layer on an isolated path
-The engine generates two steady sines, one per ear, and routes them to the output on a dichotic path that bypasses every spatial, HRTF, ambisonic, reverb, and stereo-width stage.
+The engine generates two pure sines, one per ear, whose frequencies may follow a recipe rate curve, and routes them to the output on a dichotic path that bypasses every spatial, HRTF, ambisonic, reverb, and stereo-width stage.
 - The binaural layer joins the mix after every spatial, reverb, and width stage; only the master chain follows it.
 - In each ear, the other ear's binaural carrier is at least 90 dB below its own at the engine output and at least 60 dB below after the master chain. Measured by rendering with one ear's binaural oscillator muted and measuring that carrier in the other channel, so the test works at any beat rate, including 0 Hz.
 - The engine never sums or downmixes its output channels, on any device or output.
@@ -153,7 +153,7 @@ v0.1 uses these provisional ranges (design log 2026-10-27 (h)). Phase 0 widens o
 
 | Parameter | v0.1 range | Basis |
 | --- | --- | --- |
-| Theta reference rate (including delta, and along rate curves) | 1 to 6 Hz | Span of the cited studies: Lee et al. 2024 (0 to 3 Hz sweep), Lega et al. 2016 (2.5 to 5 Hz), Roberts et al. 2018 (5.5 Hz), Jirakittayakorn and Wongsawat 2017 (6 Hz) |
+| Theta reference rate (including delta, and along rate curves) | 1 to 6 Hz | Span of the cited studies: Lee et al. 2024 (0 to 3 Hz beat range), Lega et al. 2016 (2.5 to 5 Hz), Roberts et al. 2018 (5.5 Hz), Jirakittayakorn and Wongsawat 2017 (6 Hz) |
 | Theta reference carrier | 100 to 500 Hz | Chaieb et al. 2017 (about 107 to 220 Hz), Orozco Perez et al. 2020 (about 400 Hz); 450 Hz engineering default |
 | Gamma rate | 30 to 60 Hz | Design log 2026-10-27 (a) |
 | Gamma PAC carrier | 200 to 500 Hz | Engineering default; the carrier rule raises the floor to 4 times the gamma rate (240 Hz at 60 Hz) |
@@ -204,7 +204,7 @@ Fast tests run after every change locally and on every push in CI. The full suit
 #### FR-16: Four starter recipes
 v0.1 ships Focus, Learn, Relax, and Sleep recipes that pass every assertion and the validator.
 - Focus and Learn are looping recipes (`docs/listening-modes.md`).
-- Binaural layer: off in Focus, Learn, and Relax; on in Sleep (100 Hz carrier, beat rate sweeping from 3 Hz to 0 Hz; Lee et al. 2024). Relax keeps its low-depth gamma PAC layer, so no starter recipe runs gamma and binaural together.
+- Binaural layer: off in Focus, Learn, and Relax; on in Sleep (100 Hz carrier, beat rate cycling over 0 to 3 Hz every 60 s; Lee et al. 2024). Relax keeps its low-depth gamma PAC layer, so no starter recipe runs gamma and binaural together.
 - Sleep fades to silence at its end; no rhythmic signal plays after the session ends.
 - Each recipe's values are logged in the design log with sources.
 - Each recipe carries a plain description of when to use it, what the sound is, and how strong its evidence is, matching `docs/listening-modes.md`.

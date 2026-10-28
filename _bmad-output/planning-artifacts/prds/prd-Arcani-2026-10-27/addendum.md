@@ -70,7 +70,7 @@ Codecs: Ogg Vorbis or Opus, or carefully looped AAC. Avoid MP3, whose encoder pa
 | Focus | 6 Hz | 40 Hz rate (60 Hz selectable), 50 ms bursts at the theta reference peak | Off | 30 to 45 min, layers at full level within 5 min; looping |
 | Learn | 5.5 Hz (4 to 5 Hz selectable) | 40 or 60 Hz rate, smooth swell peaking at coupling phase 0 degrees (theta reference peak) | Off | 15 to 20 min; looping |
 | Relax | 6 Hz | Off or low depth | Off in v0.1 (gamma PAC layer is on); later option: 6 Hz beat rate on a 250 Hz carrier, spacing-checked | 20 to 30 min, theta reference builds over the first 10 min |
-| Sleep | Delta rate: 3 Hz sweeping to about 1 Hz | Off | On in v0.1: beat rate sweeping from 3 Hz to 0 Hz on a 100 Hz carrier | 30 to 45 min, then silence |
+| Sleep | Delta rate: steady 2 Hz | Off | On in v0.1: beat rate cycling over 0 to 3 Hz every 60 s (sinusoid) on a 100 Hz carrier | 30 to 45 min, then silence |
 
 Each value is checked against the design log before it goes into a starter recipe. Learn's coupling phase moved from trough to peak (0 degrees) after the coupling-phase research; see design log 2026-10-27 (d).
 

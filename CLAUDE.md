@@ -21,7 +21,7 @@ The stack is decided in the BMAD architecture step. Until then, keep the engine 
 
 ## Signal facts
 
-- **Binaural layer:** two steady sines, one per ear. It must reach the output on its own dichotic path. It never passes through spatial, HRTF, ambisonic, reverb, or stereo-width processing.
+- **Binaural layer:** two pure sines, one per ear, whose frequencies may follow a recipe rate curve. It must reach the output on its own dichotic path. It never passes through spatial, HRTF, ambisonic, reverb, or stereo-width processing.
 - **Theta reference:** a carrier amplitude-modulated at the theta rate. It exists in the file, so its phase is measurable. It is the only thing PAC couples to.
 - **Gamma PAC layer:** a separate carrier, amplitude-modulated at the gamma rate. Its modulation depth follows the shared engine clock and peaks at the recipe's coupling phase.
 - **Carrier rule:** every modulated carrier is at least 4 times its modulation rate.

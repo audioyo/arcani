@@ -81,7 +81,7 @@ Added October 21 for the Sleep mode.
 
 | Source | What it actually tested and found | Use in this app | Status |
 | --- | --- | --- | --- |
-| [Lee et al. (2024)](https://pure.korea.ac.kr/en/publications/effect-of-dynamic-binaural-beats-on-sleep-quality-a-proof-of-conc/), Sleep | 10 healthy adults, two nights each with polysomnography: a binaural beat whose difference swept between 0 and 3 Hz (100 Hz left; 100 to 103 Hz right) shortened time to fall asleep versus no sound | Basis for the Sleep mode sweep | Verified (added); small proof-of-concept |
+| [Lee et al. (2024)](https://pure.korea.ac.kr/en/publications/effect-of-dynamic-binaural-beats-on-sleep-quality-a-proof-of-conc/), Sleep | 10 healthy adults, two nights each with polysomnography: a binaural beat whose difference cycled over 0 to 3 Hz every 60 s (100 Hz left; 100 to 103 Hz right), played before sleep onset and in 20 minute windows after it, shortened time to fall asleep versus no sound. Waveform of the change not stated | Basis for the Sleep mode beat cycle | Verified (added); small proof-of-concept |
 | [Ngo et al. (2013)](https://research.uni-luebeck.de/en/publications/auditory-closed-loop-stimulation-of-the-sleep-slow-oscillation-en/), Neuron | Sound timed to the brain's slow-wave up states during sleep boosted slow waves, spindles, and memory; sound out of phase did nothing | Why the app stops after sleep onset instead of playing rhythms all night | Verified (added); closed-loop with EEG |
 
 ## Monroe Institute public materials
