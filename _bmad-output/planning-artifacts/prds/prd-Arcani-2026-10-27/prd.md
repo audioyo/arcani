@@ -18,6 +18,8 @@ It builds on, and does not repeat:
 - `docs/design-log.md`: the current state of every default and range.
 - `research-comparables.md` in this folder: the comparable-app scan.
 
+**Updated after the architecture step (2026-10-27):** FR-6, FR-15, FR-24, FR-27, FR-39 (new), the glossary, and §11 Q5 and Q6 reflect decisions in `_bmad-output/planning-artifacts/architecture/architecture-Arcani-2026-10-27/ARCHITECTURE-SPINE.md`. Where the two differ, the spine's AD IDs are cited.
+
 Features are grouped, with FRs numbered globally (FR-1 to FR-N). Inferred items carry `[ASSUMPTION]` tags and are indexed in §12. Implementation detail (stack candidates, recipe file shape, stem metadata) lives in `addendum.md`.
 
 ## 1. Vision
@@ -84,6 +86,8 @@ Downstream documents use these terms exactly.
 - **Rate curve:** a scheduled change of a rate over the session, such as Sleep's delta sweep.
 - **Master chain:** the stages after the layers are mixed: master gain and the final limiter. It processes left and right without mixing them.
 - **Synthesis core:** the engine parts that generate and mix tone layers (clock, oscillators, AM, ramps, master chain). Excludes stem decoding and Orbit spatialization.
+- **Core zone:** the theta reference, gamma PAC layer, and binaural layer, with wiring fixed in the engine. Recipes set their parameters, never their routing.
+- **Tone zone:** the stem bed plus built-in effects, routed freely per recipe. It never reads Core timing and never feeds the Core zone or the binaural path.
 - **Designer:** the desktop authoring tool. **App:** the mobile listener app. **Engine:** the shared C++ DSP core both use.
 - **Gate:** the pass condition that ends a phase (§8).
 
@@ -127,7 +131,8 @@ The engine applies per-layer gain ramps from the recipe and a final limiter that
 #### FR-6: Deterministic synthesis
 Same recipe, engine version, seed, and sample rate produce byte-identical output on the same platform and build. No unseeded randomness anywhere in the engine, including the stem sequencer (FR-24), and output does not depend on the audio buffer size.
 - Across platforms (PC, Android, iOS), renders match within the reference tolerance (-100 dBFS). This is the provisional floor.
-- Target: the synthesis core is bit-exact across platforms. The architecture step and the Phase 0 spike confirm or drop this target. Retrofitting it is costly, so the engine is designed for it from the start (see `addendum.md`).
+- Decided in the architecture step: the whole engine (synthesis core, stem decoder, resampler, built-in effects, 3D renderer) is bit-exact across platforms. A component the Phase 0 spike proves cannot be exact falls back to the -100 dBFS floor, logged in the design log (spine AD-9; design log 2026-10-27 (j)).
+- The engine renders natively at 44.1 and 48 kHz; byte identity holds per sample rate (spine AD-10).
 
 **Notes:** Current proposed values: gamma rate default 40 Hz, locked range 30 to 60 Hz; coupling phase default 0 degrees (peak). Theta rate default is open. All are in the design log and need independent review before they lock (§11).
 
@@ -190,7 +195,7 @@ The suite checks every render for: binaural isolation, coupling timing, envelope
 A render Audio approves by ear becomes a golden file; any change that alters it fails until Audio re-approves after listening.
 
 #### FR-15: Local and CI runs
-Fast tests run after every change locally; the full suite runs on every push in CI. Failing code does not merge.
+Fast tests run after every change locally and on every push in CI. The full suite (8-hour drift, full-length starters, both sample rates) runs on every pull request into main and nightly. A failure in either blocks merge (spine AD-17).
 
 ### 4.5 Starter recipes
 
@@ -235,13 +240,16 @@ Audio can publish a recipe or stem pack to the content server. Publishing runs t
 
 ### 4.7 Stem bed (Phase 1)
 
-**Description:** The musical and ambient bed. Stems are audio files; no entrainment signal lives in them. AI stems are generated offline and curated by ear first; human stems join the same library later without code changes. Details in `addendum.md`.
+**Description:** The musical and ambient bed, which forms the Tone zone. Stems are audio files; no entrainment signal lives in them. AI stems are generated offline and curated by ear first; human stems join the same library later without code changes. The Tone zone sets each track's character, while the Core zone does the entrainment work. Details in `addendum.md`.
 
 #### FR-24: Stem sequencer
 The engine picks stems per slot by metadata (role, key, tempo, mode fit, energy), seeded, so the same recipe and seed pick the same stems.
 - Playback is gapless at loop points.
 - Sessions evolve with no audible seams (Phase 1 gate).
 - A pink or white noise option is available in the stem bed for any mode.
+- Audio can route stems through a free-form chain of built-in effects per recipe. Third-party plugins are applied offline and printed into the stem file; they never run at playback (spine AD-7).
+- No Tone zone parameter that varies over time (stem motion, effect LFOs, gates) runs outside its locked range, so the stem bed carries no rhythm at entrainment rates (spine AD-6).
+- Tooling and tests use the recipe seed. The consumer app draws a fresh seed for each play and keeps it on the device, so stem choices vary between listens and any play can be reproduced (spine AD-25).
 
 #### FR-25: Carrier notching
 The stem bed is notch-filtered at every active carrier, so no stem masks a carrier.
@@ -251,11 +259,13 @@ Every stem carries source (AI or human), tool or artist, date, and license, and 
 
 ### 4.8 Orbit layer (Phase 2)
 
-**Description:** Spatial motion on the gamma PAC layer only.
+**Description:** 3D placement and motion, rendered by the engine. The gamma PAC layer and stems can move; the theta reference and binaural layer never do.
 
-#### FR-27: Orbit layer on gamma only
-The engine can move the gamma PAC layer along a path (arc, full orbit, figure-eight, drift) with set period, width, depth, elevation, and anchor mix. The theta reference and binaural layer never move; the stem bed gets width without motion.
-- The isolation test (FR-4) still passes with the Orbit layer active.
+#### FR-27: Orbit layer and 3D stems
+The engine can move the gamma PAC layer along a path (arc, full orbit, figure-eight, drift) with set period, width, depth, elevation, and anchor mix. Stems can be placed in 3D, static or moving, per recipe. The theta reference and binaural layer never move.
+- The isolation test (FR-4) still passes with the Orbit layer and moving stems active.
+- 3D rendering happens inside the engine, which outputs plain stereo. The app never relies on Dolby Atmos or a device spatializer, since those process the binaural pair (spine AD-8).
+- Motion adds no Doppler or pitch shift. No head tracking in v1.
 
 #### FR-28: Orbit A/B test
 A blind A/B of static versus moving gamma PAC layer at the same settings decides whether motion stays (Phase 2 gate).
@@ -288,6 +298,11 @@ The app tells the listener to turn off phone or headphone spatial-audio features
 
 #### FR-35: Cross-platform identity
 The iOS engine renders the same recipe identically to the Android engine (Phase 3 gate).
+
+#### FR-39: Visualizer
+The app shows a simple, calm visualizer during a session. It looks the same on Android and iOS.
+- Motion is slow and follows the session arc. It never flashes or pulses at theta, gamma, or beat rates, and never flashes more than 3 times in any one second (WCAG 2.2, 2.3.1; spine AD-18).
+- It stops drawing when the screen is off.
 
 ### 4.10 Accounts, monetization, analytics (Phases 3 and 4)
 
@@ -359,7 +374,7 @@ Each phase ships only after its gate passes. No dates until the Phase 0 spike sh
 | **Phase 0: Foundations**, part 2: stack spike | Framework confirmed by the architecture step; background playback with screen off and battery check on a real Android phone | Background audio holds a full session on Android; isolation test passes on device |
 | **Phase 1: Procedural core** | Designer (FR-18 to FR-23), stem bed with curated AI stems (FR-24 to FR-26), modes refined by listening, peak versus trough versus uncoupled comparison | Blind listening tests pass; sessions evolve with no audible seams; designer usability session held |
 | **Phase 2: Spatial** | Orbit layer (FR-27, FR-28). Isochronic-only speaker modes and headphone detection deferred (§7) | A/B result supports keeping motion; freedom-to-operate review cleared |
-| **Phase 3: Android release** | Mobile app (FR-29 to FR-34), accounts and freemium (FR-36 to FR-38); closed beta, then Play Store with outcome-free copy; first human stems | Stable Android release; iOS test build matches Android DSP output (FR-35) |
+| **Phase 3: Android release** | Mobile app (FR-29 to FR-34, FR-39), accounts and freemium (FR-36 to FR-38); closed beta, then Play Store with outcome-free copy; first human stems | Stable Android release; iOS test build matches Android DSP output (FR-35) |
 | **Phase 4: iOS release** | App Store launch from the shared engine | Stable iOS release |
 
 **Out of scope for v0.1:** designer, mobile apps, stem bed, Orbit layer, accounts, analytics, payments, content server, encryption.
@@ -398,8 +413,8 @@ Each question names the gate it blocks.
 2. Binaural carrier for Relax if its binaural layer is turned on later (200/206 Hz or higher); Sleep uses 100 Hz. Blocks the Phase 1 gate.
 3. Final locked ranges, the minimum spacing value (50 Hz placeholder), and the spectral component threshold (40 dB placeholder), from Phase 0 research; a critical-band source may make spacing frequency-dependent. Blocks the end of Phase 0.
 4. Gamma rate 40 Hz default and coupling phase 0 degrees default: independent review before lock. Blocks the end of Phase 0.
-5. Whether the synthesis core can be bit-exact across platforms (FR-6 target). Blocks the architecture step.
-6. How file-master loudness targets map to live rendering with on-the-fly gain. Blocks the Phase 1 gate.
+5. Resolved in the architecture step: the whole engine targets bit-exact output across platforms, with a logged -100 dBFS fallback per component (FR-6, spine AD-9).
+6. Resolved in the architecture step: loudness gain is measured at export and stored in the recipe, the same live and offline (spine AD-13, design log 2026-10-27 (k)).
 7. Public name for the Orbit layer. Blocks the Phase 3 gate.
 8. Minimum OS versions, pricing, trial length, safety and wellness messaging, first-run headphone check. Blocks the Phase 3 gate.
 9. Whether a stem-bed modulation option for Focus is used, pending a patent check on the published method. Blocks the Phase 1 gate.

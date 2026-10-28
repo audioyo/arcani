@@ -102,6 +102,7 @@ Checked October 21: nothing Monroe has published describes PAC or theta-gamma ne
 | --- | --- | --- |
 | [FDA General Wellness guidance (January 6, 2026)](https://www.fda.gov/media/90652/download) | Audio software for relaxation and stress is general wellness; disease claims are not | Verified (added) |
 | [WHO-ITU safe listening standard (2019)](https://who.int/publications/i/item/9789241515276) | 80 dB for 40 hours a week for adults | Verified (added) |
+| [WCAG 2.2, Success Criterion 2.3.1, Three Flashes or Below Threshold](https://www.w3.org/WAI/WCAG22/Understanding/three-flashes-or-below-threshold.html) | No content flashes more than 3 times in any one second; basis for the visualizer flash limit | Added (architecture step) |
 | EBU R128 | Broadcast loudness standard; reference for the -16 LUFS-I choice | Context |
 | Apple Music at -16 LUFS | A widely used mastering target; no official Apple specification found | Context: describe as convention, not a standard |
 | Monroe patents and the SAM application | See IP and clean-room rules | Verified earlier |

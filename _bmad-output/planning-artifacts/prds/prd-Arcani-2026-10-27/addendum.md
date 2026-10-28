@@ -4,6 +4,8 @@ This addendum holds detail that belongs downstream (architecture, stories) rathe
 
 ## Stack candidates (for the architecture step)
 
+**Decided 2026-10-27:** plain C++ engine with a C API; miniaudio for device audio in hosts; Flutter for the designer and both apps through dart:ffi. JUCE and separate native apps were weighed and not chosen. See the architecture spine, Stack and AD-12. The table below is kept as the record of the candidates.
+
 | Option | Role | Note |
 | --- | --- | --- |
 | JUCE (C++) | Engine, designer UI, Android and iOS builds from one codebase | Leading candidate; verify current license terms |

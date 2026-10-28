@@ -28,10 +28,44 @@ Sources point to `docs/research-library.md`, a research run under `_bmad-output/
 | v0.1 provisional ranges | theta rate 1 to 6 Hz; theta carrier 100 to 500 Hz; depth 0 to 100 percent; burst 50 ms fixed | provisional | 2026-10-27 (h) |
 | Spectral component threshold (spacing rule) | within 40 dB of the layer's strongest line | provisional (placeholder) | 2026-10-27 (i) |
 | Dropout threshold | more than 1 ms of all-zero samples where signal is expected | provisional | 2026-10-27 (i) |
-| Determinism scope | byte-identical per platform and build; within -100 dBFS across platforms; bit-exact synthesis core is the target | provisional | 2026-10-27 (i) |
+| Determinism scope | bit-exact across PC, Android, and iOS for the whole engine; a component proven unable falls back to -100 dBFS | proposed | 2026-10-27 (j), supersedes (i) on this point |
+| Sample rates | Core renders natively at 44.1 and 48 kHz, never resampled; stems use an engine-owned deterministic resampler | proposed | 2026-10-27 (j) |
+| WAV output dither | none in v0.1 (24-bit rounding) | engineering default | 2026-10-27 (j) |
+| Loudness gain | measured at export, stored in the recipe, same live and offline | proposed | 2026-10-27 (k) |
+| Limiter at stored gain | stays idle; gain-reduction bound open | open | 2026-10-27 (k) |
+| Visualizer | no more than 3 flashes per second; never pulses at theta, gamma, or beat rates; smoothing rate open | proposed | 2026-10-27 (k) |
+| Tone zone time-varying rates (stem motion, effect LFOs, gates) | locked ranges required; values open | open | 2026-10-27 (k) |
+| Seed policy | recipe seed for tooling and tests; fresh seed per play in consumer app, stored on device | proposed | 2026-10-27 (l) |
 | All other test thresholds | see project plan, Test thresholds (provisional) | provisional | project plan |
 
 ## Entries
+
+### 2026-10-27 (l): Seed policy
+
+- **Decision:** the CLI, tests, golden files, and designer audition and export use the recipe seed, so every check is reproducible. Consumer app builds draw a fresh seed for each play, so stem choices vary between listens. The play's seed stays on the device with the play record, so any play can be re-rendered exactly. It is never sent in analytics (FR-38). Internal app builds may pin a seed.
+- **Note:** the Core zone draws no random values, so the entrainment signals are identical on every play; only Tone zone choices vary.
+- **Source:** architecture step, spine AD-25.
+- **Decided by:** Audio, during the architecture session.
+- **Status:** proposed.
+
+### 2026-10-27 (k): Loudness gain, limiter, visualizer, and Tone zone rates
+
+- **Loudness gain:** the exporting tool (the CLI in v0.1, the designer from Phase 1) measures integrated loudness and stores the gain in the recipe with a hash of the loudness-relevant fields. Live and offline playback use the same gain. Resolves PRD Q6. Targets stay at the engineering defaults in entry (g).
+- **Limiter:** at the stored gain, the master limiter must stay idle, so it never adds gain changes to the binaural pair. The allowed gain-reduction bound is open and is set from the v0.1 starter renders.
+- **Visualizer (new scope, Phase 3):** no more than 3 flashes in any one second (WCAG 2.2, 2.3.1, research library Standards), and no flashing or pulsing at theta, gamma, or beat rates, so it never adds a visual flicker stimulus. Its smoothing rate is open.
+- **Tone zone rates:** every time-varying Tone parameter (stem motion, effect LFOs, gates) needs a locked range so ambience cannot carry rhythm at entrainment rates. Values are open; set from research in Phase 1 or 2.
+- **Source:** architecture step, spine AD-4, AD-6, AD-13, AD-18; reviewer gate.
+- **Decided by:** Audio, during the architecture session.
+- **Status:** proposed for the rules; open for the values.
+
+### 2026-10-27 (j): Determinism scope, sample rates, and dither
+
+- **Determinism:** the whole engine (Core, stem decoder, resampler, built-in effects, 3D renderer) targets identical samples on PC, Android, and iOS. Method: engine-owned math, 64-bit integer phase, strict compiler flags, and CI hash checks on x64 and ARM. A component the Phase 0 spike proves cannot be exact falls back to the -100 dBFS tolerance, logged here with the reason. Supersedes the determinism scope in entry (i). Resolves PRD Q5.
+- **Sample rates:** the Core renders natively at 44.1 and 48 kHz and is never resampled. Stems whose rate differs from the output pass through an engine-owned deterministic resampler, since Opus decodes only at 48 kHz-family rates. Tests and golden files cover both rates. The plan's 48 kHz CLI default stays.
+- **Dither:** v0.1 WAV output rounds to 24 bits with no dither. Engineering default, chosen so renders stay byte-identical; any later dither draws from a named seeded stream.
+- **Source:** architecture step, spine AD-9, AD-10, AD-14; freshness review (Opus decode rates).
+- **Decided by:** Audio, during the architecture session.
+- **Status:** proposed. The bit-exact target needs the independent review in CLAUDE.md rule 4 before it locks.
 
 ### 2026-10-27 (i): Starter binaural choice, spacing component threshold, dropouts, determinism scope
 
