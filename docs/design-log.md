@@ -39,9 +39,24 @@ Sources point to `docs/research-library.md`, a research run under `_bmad-output/
 | v0.1 starter values | gamma PAC 250 Hz carrier, AM at 40 Hz; theta reference 450 Hz carrier; Learn 5.5 Hz; Relax 30 min, depth 25 percent; Sleep 45 min with 5 min fade, steady 2 Hz delta | provisional | 2026-10-27 (m), (n) |
 | Looping max run time (v0.1) | Focus 45 min, Learn 20 min | engineering default | 2026-10-27 (m) |
 | v0.1 starter loudness target | -36 LUFS-I | engineering default | 2026-10-27 (m) |
+| Reference renderer sine | ideal sine; engine approximation error at most -120 dBFS against it | engineering default | 2026-10-28 (o) |
+| Gamma bursts and swells | depth-gated: the gamma PAC carrier plays continuously, only AM depth is gated | proposed | 2026-10-28 (o) |
+| Gamma burst edges | raised cosine, 10 ms each, inside the 50 ms full width (30 ms plateau) | engineering default | 2026-10-28 (o) |
+| Non-sine binaural waveform (v0.1) | rejected with a named rule; a warning applies once the signal spec models it | proposed | 2026-10-28 (o) |
 | All other test thresholds | see project plan, Test thresholds (provisional) | provisional | project plan |
 
 ## Entries
+
+### 2026-10-28 (o): Reference sine, depth-gated bursts, burst edges, non-sine binaural
+
+- **Decision:** the Python reference renders the ideal sine. The signal spec states the ideal waveform plus the engine approximation's error bound: at most -120 dBFS against the ideal. Reason: a reference that implements the engine's own polynomial cannot catch a bad sine. Margin arithmetic: three layers' errors adding coherently gain about 9.5 dB, leaving about 10 dB under the -100 dBFS reference match. This refines AD-19 (one formula source) while it is REVIEW PENDING; the independent reviewer should check it.
+- **Decision:** gamma bursts and swells are depth-gated. The gamma PAC carrier plays continuously; bursts and swells gate only its AM depth, matching the CAP-4 wording. Audio: it "would sound better and be less abrupt." Carrier-gated rectangular bursts at 40 Hz fail spacing against the 450 Hz theta reference (worst line -21 dB).
+- **Decision:** the 50 ms burst width (Alekseichuk et al. 2016) is the full width. Each edge is a 10 ms raised cosine inside it, leaving a 30 ms plateau. Computed spectra: worst line at or above 394 Hz is -51.3 dB at 60 Hz gamma, the worst case checked across 40, 45, and 60 Hz. 10 ms is the top of the 5 to 10 ms rise-time convention in auditory physiology. No acoustic study sets burst edges.
+- **Decision:** a non-sine binaural waveform is rejected in v0.1 with a named rule (parameter `binaural.waveform`, rule "non-sine binaural not modeled", limit sine). The CAP-5 compile warning applies once the signal spec models non-sine binaural. Resolves a contradiction between SPEC CAP-5 and the SPEC Assumptions.
+- **Confidence:** weak for the burst edges (engineering default from computed spectra and a physiology convention); the -120 dBFS bound is an engineering default.
+- **Source:** research run `burst-edge-taper-2026-10-28` (literature notes and `burst_spectra.py`); Alekseichuk et al. 2016 methods.
+- **Decided by:** Audio, during the v0.1 story breakdown session (sine reference and margin, depth-gated, burst width and edges). The non-sine binaural rule was delegated by Audio to the build agents.
+- **Status:** engineering defaults and proposed, as listed in Current state. Phase 0 may replace any value; S2.4 must reproduce the burst figures through the signal spec, reference, and validator.
 
 ### 2026-10-27 (n): Sleep beat rate cycles, correcting the Lee et al. reading
 

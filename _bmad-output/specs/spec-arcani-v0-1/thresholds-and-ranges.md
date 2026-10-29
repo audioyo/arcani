@@ -38,7 +38,7 @@ The repo's threshold table and locked-range table (spine Conventions) are built 
 | Gamma PAC carrier | 200 to 500 Hz; carrier rule raises the floor to 4 times the gamma rate | Engineering default; design log (g) |
 | Coupling phase | 0 to 360 degrees, or uncoupled (default 0 degrees, proposed) | Design log (b) |
 | Coupling depth | 0 to 100 percent | Ross et al. 2003; design log (h) |
-| Burst width | 50 ms, fixed | Alekseichuk et al. 2016; design log (h) |
+| Burst width | 50 ms full width, fixed; 10 ms raised-cosine edges inside it, depth-gated | Alekseichuk et al. 2016; design log (h), (o) |
 | Binaural carriers | Below 1000 Hz | Licklider et al. 1950, cited by Lopez-Caballero and Escera 2017 |
 | Binaural beat rate | 0 to below 30 Hz | Design log (f) |
 | Looping max run time | Required on every looping recipe; v0.1 starters: Focus 45 min, Learn 20 min | Engineering default, top of each mode's length range (listening-modes.md); design log (m); Phase 0 sets the WHO-ITU-based value |
