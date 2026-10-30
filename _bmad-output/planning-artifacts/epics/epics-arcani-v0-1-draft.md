@@ -1,6 +1,6 @@
 # Arcani v0.1 Story Breakdown (working draft)
 
-From the v0.1 story breakdown session (party mode, Winston, Amelia, Murat, with Audio), 2026-10-27 to 2026-10-28. Contract: `_bmad-output/specs/spec-arcani-v0-1/`. E0 to E3 are drafted; E4 to E6 are still in discussion. Story files and full acceptance criteria come after the epic list is locked.
+From the v0.1 story breakdown session (party mode, Winston, Amelia, Murat, with Audio), 2026-10-27 to 2026-10-29. Contract: `_bmad-output/specs/spec-arcani-v0-1/`. E0 to E6 are drafted. Story files and full acceptance criteria come after the epic list is locked.
 
 ## Rules for every story
 
@@ -48,14 +48,34 @@ From the v0.1 story breakdown session (party mode, Winston, Amelia, Murat, with 
 - **S3.2** Carrier rule (at least 4 times the modulation rate), analytic, whole session including rate curves.
 - **S3.3** Spectral component table per shape (AD-20) and the spacing rule, per ear, whole session. Rate curves become interval checks (worst case over the curve's range), closed form. Analytic model cross-checked against the reference render's spectrum. Must-fail: a 250/256 Hz binaural pair beside gamma's 260 Hz side frequency is rejected.
 
-## E4 to E6 (to discuss)
+## E4 Master (order fixed)
 
-- **E4 Master:** gain ramps, loudness measure and store, true peak, limiter. Limiter is measure-first: render starters at stored gain and report gain reduction as MEASURED, never PASS; the data proposes the open idle bound; nothing goes golden until it is logged.
-- **E5 Long runs and robustness:** 8-hour drift, clicks, dropouts, NaN, render speed. Loop seams move into E2 (Focus and Learn loop).
-- **E6 Ship:** four starters, listening checklist, golden files in Git LFS with sign-off.
+- **S4.1 Loudness meter** (BS.1770 gating). Must-pass fixtures: the EBU Tech 3341 compliance signals. Runs first: stored gain, true peak, and the limiter all depend on it.
+- **S4.2 Loudness gain** measured at export, stored in the recipe, same live and offline. Must-fail: a stored gain 1.5 LU off target.
+- **S4.3 True peak** with oversampling, at or below -1 dBTP. Must-fail: an inter-sample peak that a sample-peak check misses.
+- **S4.4 Gain ramps:** no layer or master ramp completes in under 10 ms. Must-fail: a 5 ms layer fade. Runs before S4.5 so a ramp cannot trip the limiter.
+- **S4.5 Limiter idle:** gain-reduction tap exactly unity on every sample; master chain output equals input times master gain, bit for bit (design log 2026-10-28 (p)). Must-fail: a recipe driven hot enough to make the limiter act.
+
+## E5 Long runs and robustness
+
+Two tiers. Fast tier, every change: drift checked analytically from integer increments; clicks, dropouts, and NaN checked on 60 s renders. Full tier, nightly and before sign-off: real 8-hour renders (about 24 minutes each at 20 times real time). Loop seams move into E2 (Focus and Learn loop).
+
+- **S5.1 Whole-session 8-hour drift:** rate curves, loop seams, and theta and gamma timing at hour eight (S0.2 already covers the sine alone). Must-fail: a theta clock that loses one sample per hour fails at hour eight and passes at minute one.
+- **S5.2 Clicks, dropouts, NaN and infinite values,** per the threshold table.
+- **S5.3 Render speed,** at least 20 times real time, dev PC only.
+
+## E6 Ship
+
+- **S6.1 to S6.4 The four starters,** one story each: renders, passes every E2 to E5 check, gets a provisional golden.
+- **S6.5 Listening checklist,** usable by an alpha tester with no signal background. It asks about the sound only (clicks, harshness, one ear too loud, unevenness), never about feelings or outcomes; UI and store copy rules apply.
+- **S6.6 Golden sign-off records and Git LFS.** Each golden carries a record: stage (`provisional` or `full`), who signed, date, and the SHA-256 of the file heard. CI accepts both stages. A golden whose hash changes reverts to unsigned. Must-fail: one byte changed in a `full` golden is reported unsigned. (Design log 2026-10-29 (q).)
+
+v0.1 closes on Audio's provisional sign-off. Full sign-off follows when alpha testers have listened; anything they catch is fixed during Phase 1.
 
 ## Doc changes made in this session
 
 - Design log 2026-10-28 (o): reference ideal sine and -120 dBFS bound; depth-gated bursts; 10 ms burst edges; non-sine binaural rejected in v0.1.
 - SPEC CAP-4 and CAP-5 and the range table's burst row updated to match.
 - Research run `burst-edge-taper-2026-10-28`.
+- Design log 2026-10-28 (p): limiter idle bound is zero (2026-10-29 session: E4 rewritten to match).
+- Design log 2026-10-29 (q): two-stage golden sign-off; v0.1 closes on provisional sign-off.

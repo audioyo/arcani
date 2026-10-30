@@ -43,9 +43,19 @@ Sources point to `docs/research-library.md`, a research run under `_bmad-output/
 | Gamma bursts and swells | depth-gated: the gamma PAC carrier plays continuously, only AM depth is gated | proposed | 2026-10-28 (o) |
 | Gamma burst edges | raised cosine, 10 ms each, inside the 50 ms full width (30 ms plateau) | engineering default | 2026-10-28 (o) |
 | Non-sine binaural waveform (v0.1) | rejected with a named rule; a warning applies once the signal spec models it | proposed | 2026-10-28 (o) |
+| Golden sign-off | two stages: provisional (Audio), full (second listener); bound to file hash; v0.1 closes on provisional | proposed | 2026-10-29 (q) |
 | All other test thresholds | see project plan, Test thresholds (provisional) | provisional | project plan |
 
 ## Entries
+
+### 2026-10-29 (q): Two-stage golden sign-off; v0.1 closes on provisional sign-off
+
+- **Decision:** a golden file's listening sign-off has two stages. Provisional: Audio has listened. Full: a second listener (alpha testers Audio will recruit) has also listened. Each golden carries a record of stage, signer, date, and the SHA-256 of the file heard. CI accepts both stages. A golden whose hash changes reverts to unsigned, whatever its stage was. v0.1 closes on Audio's provisional sign-off; full sign-off may land during Phase 1, and anything the testers catch is fixed there.
+- **Reason:** a second listener catches what Audio no longer hears after weeks with these tones, but recruiting testers should not block Phase 1. Binding the sign-off to the file hash stops a re-render from inheriting a sign-off for audio nobody heard.
+- **Refines:** CLAUDE.md "Golden files change only after a human listening sign-off" and the v0.1 sign-off in the project plan.
+- **Source:** v0.1 story breakdown session, 2026-10-29.
+- **Decided by:** Audio.
+- **Status:** proposed.
 
 ### 2026-10-28 (p): Limiter idle bound for v0.1 is zero
 
