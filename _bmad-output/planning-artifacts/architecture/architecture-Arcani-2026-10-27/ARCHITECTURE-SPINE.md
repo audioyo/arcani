@@ -333,9 +333,9 @@ arcani/
 
 | Question | Owner | Blocks |
 | --- | --- | --- |
-| Limiter idle bound value (AD-4) | Audio with build agents | v0.1 limiter story |
+| Limiter idle bound value (AD-4): resolved for v0.1 as zero gain reduction, design log 2026-10-28 (p); revisit when the Phase 1 master level and stems arrive | Audio with build agents | Phase 1 master chain |
 | Tone zone rate ranges and visualizer smoothing rate (AD-6, AD-18) | Audio | Phase 1 gate |
-| Loudness target values per recipe for v0.1 (tones only; PRD lists -36 tones, -16 master as engineering defaults) | Audio | v0.1 loudness story |
+| Loudness target values per recipe for v0.1: resolved, -36 LUFS-I for every starter, design log 2026-10-27 (m) | Audio | none |
 | Independent review of AD-4, AD-5, AD-9, AD-19, AD-20 and the Stack (CLAUDE.md rule 4) | Audio | End of Phase 0 |
 
 ## Deferred

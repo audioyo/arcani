@@ -117,4 +117,4 @@ Arcani is a vision to realize: procedural entrainment audio whose signal design 
 
 ## Open Questions
 
-- What is the limiter idle gain-reduction bound (AD-4)? Blocks the limiter story.
+- None open. The limiter idle bound is zero gain reduction in v0.1 (design log 2026-10-28 (p)).

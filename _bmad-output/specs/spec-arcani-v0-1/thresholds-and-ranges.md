@@ -23,7 +23,7 @@ The repo's threshold table and locked-range table (spine Conventions) are built 
 | Dropouts | No run of all-zero samples longer than 1 ms in a channel where the recipe sets a non-zero level | Design log (i) |
 | NaN or infinite values | Zero tolerance | FR-13 |
 | Gain ramps | No layer or master gain ramp completes in under 10 ms. Modulation envelopes and limiter gain reduction exempt | Plan Test thresholds; FR-5 |
-| Limiter idle | Gain reduction under the bound set in the design log (value open) | AD-4; design log (k) |
+| Limiter idle | Zero gain reduction on every v0.1 render: master chain output equals input times master gain, bit for bit | AD-4; design log (k), (p) |
 | Loudness | Integrated loudness within 1 LU of the recipe target | Plan Test thresholds; FR-5 |
 | True peak | At or below -1 dBTP | Plan Test thresholds; FR-5 |
 | Render speed | At least 20 times real time, on the dev PC only | Plan Test thresholds; FR-11 |

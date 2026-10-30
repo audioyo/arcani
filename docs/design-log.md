@@ -32,7 +32,7 @@ Sources point to `docs/research-library.md`, a research run under `_bmad-output/
 | Sample rates | Core renders natively at 44.1 and 48 kHz, never resampled; stems use an engine-owned deterministic resampler | proposed | 2026-10-27 (j) |
 | WAV output dither | none in v0.1 (24-bit rounding) | engineering default | 2026-10-27 (j) |
 | Loudness gain | measured at export, stored in the recipe, same live and offline | proposed | 2026-10-27 (k) |
-| Limiter at stored gain | stays idle; gain-reduction bound open | open | 2026-10-27 (k) |
+| Limiter at stored gain | stays idle; v0.1 bound is zero gain reduction (any render where it acts fails) | proposed | 2026-10-27 (k), 2026-10-28 (p) |
 | Visualizer | no more than 3 flashes per second; never pulses at theta, gamma, or beat rates; smoothing rate open | proposed | 2026-10-27 (k) |
 | Tone zone time-varying rates (stem motion, effect LFOs, gates) | locked ranges required; values open | open | 2026-10-27 (k) |
 | Seed policy | recipe seed for tooling and tests; fresh seed per play in consumer app, stored on device | proposed | 2026-10-27 (l) |
@@ -46,6 +46,16 @@ Sources point to `docs/research-library.md`, a research run under `_bmad-output/
 | All other test thresholds | see project plan, Test thresholds (provisional) | provisional | project plan |
 
 ## Entries
+
+### 2026-10-28 (p): Limiter idle bound for v0.1 is zero
+
+- **Decision:** in v0.1 the stereo-linked limiter never acts. Any render where it applies gain reduction fails. The assertion checks that the limiter's gain-reduction tap is exactly unity on every sample, and that master chain output equals input times master gain, bit for bit.
+- **Reason:** every v0.1 starter is tones only at -36 LUFS-I (entry (m)). Pure tones at that level peak far below the limiter's -1 dBTP ceiling, so the limiter has nothing to do. Zero is the strictest bound and is testable now; loosening it later needs its own entry.
+- **Revisit:** when the Phase 1 master level (-16 LUFS-I) and stems arrive, with measured gain-reduction data.
+- **Closes:** the SPEC and spine open questions on the limiter idle bound (AD-4). The spine's v0.1 loudness target question is closed by entry (m).
+- **Source:** v0.1 story breakdown session arithmetic; entries (k), (m).
+- **Decided by:** Audio, during the v0.1 story breakdown session.
+- **Status:** proposed.
 
 ### 2026-10-28 (o): Reference sine, depth-gated bursts, burst edges, non-sine binaural
 
