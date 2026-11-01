@@ -34,6 +34,7 @@ The repo's threshold table and locked-range table (spine Conventions) are built 
 | --- | --- | --- |
 | Theta reference rate (incl. delta and along rate curves) | 1 to 6 Hz | Lee et al. 2024 (0 to 3 Hz beat range), Lega et al. 2016 (2.5 to 5 Hz), Roberts et al. 2018 (5.5 Hz), Jirakittayakorn and Wongsawat 2017 (6 Hz); design log (h) |
 | Theta reference carrier | 100 to 500 Hz | Chaieb et al. 2017 (about 107 to 220 Hz), Orozco Perez et al. 2020 (about 400 Hz); 450 Hz engineering default; design log (h), (g) |
+| Theta reference AM depth | 0 to 100 percent; every v0.1 starter uses 75 percent | Engineering default; design log 2026-10-29 (s) |
 | Gamma rate | 30 to 60 Hz (default 40 Hz, proposed) | Design log (a) |
 | Gamma PAC carrier | 200 to 500 Hz; carrier rule raises the floor to 4 times the gamma rate | Engineering default; design log (g) |
 | Coupling phase | 0 to 360 degrees, or uncoupled (default 0 degrees, proposed) | Design log (b) |

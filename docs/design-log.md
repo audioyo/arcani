@@ -43,10 +43,30 @@ Sources point to `docs/research-library.md`, a research run under `_bmad-output/
 | Gamma bursts and swells | depth-gated: the gamma PAC carrier plays continuously, only AM depth is gated | proposed | 2026-10-28 (o) |
 | Gamma burst edges | raised cosine, 10 ms each, inside the 50 ms full width (30 ms plateau) | engineering default | 2026-10-28 (o) |
 | Non-sine binaural waveform (v0.1) | rejected with a named rule; a warning applies once the signal spec models it | proposed | 2026-10-28 (o) |
+| Theta reference AM depth | locked range 0 to 100 percent; 75 percent in every v0.1 starter | engineering default | 2026-10-29 (s) |
+| Relax theta reference build | level ramp from silence to full over the first 10 min; AM depth and rate unchanged | engineering default | 2026-10-29 (r) |
 | Golden sign-off | two stages: provisional (Audio), full (second listener); bound to file hash; v0.1 closes on provisional | proposed | 2026-10-29 (q) |
 | All other test thresholds | see project plan, Test thresholds (provisional) | provisional | project plan |
 
 ## Entries
+
+### 2026-10-29 (s): Theta reference AM depth range and starter value
+
+- **Decision:** the theta reference AM depth has a locked range of 0 to 100 percent. Every v0.1 starter uses 75 percent: each theta cycle dips the theta reference carrier to a quarter of its peak amplitude, never to silence.
+- **Reason:** no doc set a theta depth range or value, yet the validator needs a range (S2.1) and coupled gamma is rejected at zero theta depth (AD-5). 0 to 100 percent is the full physical span, matching the coupling depth range. Audio chose 75 percent over 100 percent for a gentler pulse that keeps the tone present, while leaving a deep, measurable theta phase.
+- **Engineering default:** both the range and the 75 percent value. No study sets either for the sound. Revisit by ear at the Epic 6 sign-off.
+- **Source:** epics and stories session, 2026-10-29.
+- **Decided by:** Audio.
+- **Status:** engineering default.
+
+### 2026-10-29 (r): Relax theta reference "builds" means a level ramp
+
+- **Decision:** in the Relax starter, "building over the first 10 min" means the theta reference layer's level ramps from silence to full level over the first 10 minutes. Its AM depth and rate do not change. The ramp follows the signal spec's gain ramp law. The gamma PAC layer's level is unchanged by this ramp.
+- **Reason:** the phrase came from `docs/listening-modes.md`, where it described the study's finding (EEG theta rose within 10 minutes, Jirakittayakorn and Wongsawat 2017), not a property of the sound. The starter tables carried it over without saying what changes in the sound. A level ramp matches the ramp-ins in Focus and Learn.
+- **Engineering default:** starting from silence; 10 minutes kept from the study's time frame. No study sets either for the sound.
+- **Source:** epics and stories session, 2026-10-29.
+- **Decided by:** Audio.
+- **Status:** engineering default.
 
 ### 2026-10-29 (q): Two-stage golden sign-off; v0.1 closes on provisional sign-off
 
