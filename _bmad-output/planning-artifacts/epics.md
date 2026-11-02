@@ -1,6 +1,6 @@
 ---
-status: draft
-stepsCompleted: [1, 2]
+status: final
+stepsCompleted: [1, 2, 3, 4]
 scope: v0.1
 inputDocuments:
   - _bmad-output/specs/spec-arcani-v0-1/SPEC.md
@@ -646,8 +646,12 @@ So that the Focus layer has its burst shape without clicks or spectral spread in
 **When** §bursts merges
 **Then** it defines a 50 ms full-width burst with 10 ms raised-cosine edges inside it (30 ms plateau), depth-gated so the carrier plays continuously, centered on the coupling phase (design log 2026-10-28 (o)), with worked test vectors
 
+**Given** the spectrum tool, introduced in this story and first calibrated on Python-synthesized multi-tone signals with known lines and levels, within the frequency and level tolerances in the threshold table
+**When** it reports those lines
+**Then** every known line is found within tolerance, and a must-fail signal with one line moved outside tolerance is caught
+
 **Given** burst renders at gamma rates of 40, 45, and 60 Hz on a 250 Hz carrier beside a 450 Hz theta reference
-**When** the spectrum is measured from the reference render
+**When** the spectrum tool measures the reference render
 **Then** the worst gamma line at or above 394 Hz reproduces the research run `burst-edge-taper-2026-10-28` figures (about -51 dB at 60 Hz), within the tolerance stated in that run
 **And** a must-fail carrier-gated rectangular 40 Hz burst made in the harness shows about -21 dB there and fails the click test
 
@@ -695,7 +699,7 @@ So that every rate is variable, as rule 2 requires, with no new formula.
 ### Story 2.7: Looping body and seams
 
 As Audio,
-I want looping recipes to play the ramp-in once and repeat the body seamlessly until the max run time,
+I want looping recipes to play an opening section once and repeat the body seamlessly until the max run time,
 So that Focus and Learn can run as long as needed with no click and no phase jump.
 
 **Acceptance Criteria:**
@@ -709,9 +713,9 @@ So that Focus and Learn can run as long as needed with no click and no phase jum
 **Then** it is rejected with a named rule
 **And** a max run time outside its locked-range row is rejected
 
-**Given** a looping fixture with a ramp-in and coupled gamma
+**Given** a looping fixture with an opening section (a theta rate curve that settles to the body's rate; level ramp-ins arrive in S4.4) and coupled gamma
 **When** it is rendered across several seams to the max run time
-**Then** the ramp-in plays once, the click tool finds no discontinuity above -60 dBFS at any seam or at the end, theta and gamma phase recovered from the taps show no jump at any seam, and coupling timing stays within 2 ms across seams
+**Then** the opening section plays once, the join from opening section to body is click-free with continuous phase, the click tool finds no discontinuity above -60 dBFS at any seam or at the end, theta and gamma phase recovered from the taps show no jump at any seam, and coupling timing stays within 2 ms across seams
 
 **Given** a looping plan
 **When** a seek lands inside a later loop iteration
@@ -742,7 +746,7 @@ So that the validator and the tests agree on exactly what each layer puts in eac
 **Then** it lists, per ear and per layer, every component's frequency or frequency interval (for rate curves) and level relative to the layer's strongest line
 **And** a shape with no component model is rejected with a named rule
 
-**Given** the spectrum tool, first calibrated on Python-synthesized multi-tone signals with known lines and levels
+**Given** the spectrum tool calibrated in S2.4
 **When** it measures reference renders of every shape in Epic 2's fixtures
 **Then** every measured line within 40 dB of its layer's strongest appears in the analytic table within the frequency and level tolerances in the threshold table, and no analytic component is missing from the measurement
 **And** a must-fail component model doctored in the harness to drop one side frequency is caught by the cross-check
@@ -787,7 +791,7 @@ So that a harsh carrier or a rough gamma pulse is caught four epics before sign-
 
 **Given** the layer configurations of Focus, Learn, Relax, and Sleep that passed S3.2
 **When** preview renders are made with the CLI
-**Then** each is about 3 minutes long at 48 kHz, includes any ramp or seam the configuration has within that span, is marked unsigned and preview in its report, and is never stored as a golden
+**Then** each is about 3 minutes long at 48 kHz at a steady level (level ramps and fades arrive in Epic 4 and are heard at sign-off), includes loop seams for Focus and Learn, is marked unsigned and preview in its report, and is never stored as a golden
 
 **Given** no loudness gain exists before Epic 4
 **When** a preview is rendered
@@ -816,6 +820,7 @@ So that every loudness number in a report can be trusted.
 **When** §loudness merges
 **Then** it defines integrated loudness per ITU-R BS.1770 (K-weighting, 400 ms blocks, absolute gate at -70 LUFS, relative gate at -10 LU) and the measurement window: the steady part of the session, with every ramp and fade excluded: for a looping recipe, the looping body only, repeated seamlessly a whole number of times to at least the length the spec sets; for a non-looping recipe, the longest stretch where no layer or master gain ramp is active (AD-13, design log 2026-11-01 (w), (x)); with worked test vectors
 **And** a recipe whose steady part is shorter than the spec's minimum is rejected in `measure` mode with a named rule
+**And** until gain ramps exist (S4.4), the steady part of every recipe is its whole session or its body; S4.4 proves the ramp exclusion
 
 **Given** a meter in the Python assertion library and a meter in the CLI tooling (outside `engine/`)
 **When** each measures the EBU Tech 3341 compliance signals
@@ -858,7 +863,6 @@ So that every render plays at its target level and nothing can silently change i
 **Given** any recipe rendered with its stored gain over its whole session (to the max run time for a looping recipe)
 **When** integrated loudness is measured over the whole render, ramps and fades included
 **Then** the report records it, and it is never more than 1 LU above the recipe target
-**And** a must-fail looping fixture whose gain was measured over ramp-in plus one body (the superseded window) plays its body above target and fails
 
 **Given** any CI run
 **When** it finishes
@@ -918,6 +922,11 @@ So that fades and ramp-ins are smooth and click-free.
 **Given** ramp fixtures
 **When** the click tool checks every ramp start and end
 **Then** no discontinuity exceeds -60 dBFS
+
+**Given** ramp fixtures, looping and non-looping
+**When** the CLI measure command sets their loudness gain
+**Then** the S4.1 window excludes every ramp and fade, the steady part lands within 1 LU of target, and the whole render is never more than 1 LU above target
+**And** a must-fail looping fixture whose gain was measured over ramp-in plus one body (the superseded window, design log 2026-11-01 (w)) plays its body above target and fails
 
 **Given** a fade to silence
 **When** the fade ends
@@ -1094,6 +1103,10 @@ So that the first mode is ready to hear and sign.
 **Given** `recipes/focus.json` with the values in `starter-recipes.md` (450 Hz theta reference carrier, sine AM at 6 Hz, 75 percent depth; 250 Hz gamma PAC carrier, AM at 40 Hz, 50 ms bursts at coupling phase 0 degrees, depth 100 percent; no binaural layer; 5 min ramp-in, looping body, max run time 45 min; -36 LUFS-I)
 **When** it is compiled in `final` mode with its stored gain
 **Then** it passes the validator, including the spacing rule between the burst components and the 450 Hz theta reference
+
+**Given** the recipe JSON Schema
+**When** this story adds the describe-the-sound fields (when to use, evidence strength) that every starter carries
+**Then** they are tagged hash-excluded, so editing them leaves the recipe hash and the loudness hash unchanged, and the engine compiler and the schema still agree on every fixture
 **And** if it fails, the story closes only after the cause is logged in the design log and resolved through the signal spec, never by weakening the rule
 
 **Given** the Focus recipe
