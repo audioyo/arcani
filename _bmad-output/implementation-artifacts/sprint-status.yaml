@@ -1,0 +1,93 @@
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created, ready for development
+#   - in-progress: Developer actively working on implementation
+#   - review: Implementation complete, ready for review
+#   - done: Story completed
+
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+
+# Action Item Status:
+#   - open: Committed during a retrospective, not yet addressed
+#   - in-progress: Actively being worked on
+#   - done: Completed
+
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when its first story starts (via build's sprint sync)
+# - Stories can be worked in parallel if team capacity allows
+# - Developer typically creates the next story after the previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+# - Retrospective appends its action items to action_items; the status view surfaces open ones
+generated: 11-01-2026 21:26
+last_updated: 11-01-2026 21:26
+project: Arcani
+project_key: NOKEY
+tracking_system: file-system
+story_location: 
+  C:\Users\goegl\OneDrive\Documents\Antigravity\Arcani\_bmad-output\implementation-artifacts
+development_status:
+  epic-0: backlog
+  0-1-build-skeleton-and-ci-matrix: backlog
+  0-2-engine-sine-oscillator-spike-that-ships: backlog
+  0-3-threshold-and-range-tables-as-data: backlog
+  0-4-ci-wording-check: backlog
+  0-5-independent-review-of-the-pending-architecture-decisions: backlog
+  epic-0-retrospective: optional
+
+  epic-1: backlog
+  1-1-minimal-recipe-schema-and-recipe-hash: backlog
+  1-2-c-api-fixed-stage-list-seek-and-isolation-assertion: backlog
+  1-3-validator-framework-locked-ranges-and-carrier-rule: backlog
+  1-4-command-line-renderer-report-and-render-speed: backlog
+  1-5-python-reference-renderer-for-the-stub-chain: backlog
+  1-6-determinism-and-block-size-invariance: backlog
+  epic-1-retrospective: optional
+
+  epic-2: backlog
+  2-1-theta-reference-envelopes: backlog
+  2-2-gamma-pac-layer-uncoupled: backlog
+  2-3-gamma-coupled-smooth-swell: backlog
+  2-5-binaural-layer: backlog
+  2-4-gamma-coupled-50-ms-bursts: backlog
+  2-6-rate-curves-on-theta-and-gamma-rates: backlog
+  2-7-looping-body-and-seams: backlog
+  epic-2-retrospective: optional
+
+  epic-3: backlog
+  3-1-spectral-component-table-per-shape: backlog
+  3-2-spacing-rule-per-ear-whole-session: backlog
+  3-3-early-listening-preview: backlog
+  epic-3-retrospective: optional
+
+  epic-4: backlog
+  4-1-loudness-meter: backlog
+  4-2-stored-loudness-gain: backlog
+  4-3-true-peak: backlog
+  4-4-gain-ramps: backlog
+  4-5-limiter-idle: backlog
+  epic-4-retrospective: optional
+
+  epic-5: backlog
+  5-1-whole-session-8-hour-drift-and-full-tier-sharding: backlog
+  5-2-clicks-dropouts-nan-and-infinite-values: backlog
+  epic-5-retrospective: optional
+
+  epic-6: backlog
+  6-1-golden-records-and-git-lfs: backlog
+  6-2-listening-checklist: backlog
+  6-3-focus-starter: backlog
+  6-4-learn-starter: backlog
+  6-5-relax-starter: backlog
+  6-6-sleep-starter: backlog
+  6-7-provisional-sign-off-session-and-v0-1-gate-report: backlog
+  epic-6-retrospective: optional
