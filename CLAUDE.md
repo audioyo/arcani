@@ -4,6 +4,10 @@ Procedural entrainment audio app. A desktop designer authors session recipes; a 
 
 Full plan: `docs/project-plan.md`. Evidence for every signal choice: `docs/research-library.md`. Read the relevant section before changing signal behavior.
 
+## Context
+
+Arcani is a one-person company. Keep tooling cost and process overhead low: prefer local or free options, and give a cost estimate before adding any paid service or raising CI usage. Size listening and review tasks for one person.
+
 ## Current target: v0.1
 
 Engine core + command-line renderer + four starter recipes + full test suite, desktop only. See "MVP scope (v0.1)" in the plan. Do not start the designer GUI, mobile apps, stems, spatial audio, accounts, or payments until v0.1 is done and signed off.

@@ -45,10 +45,60 @@ Sources point to `docs/research-library.md`, a research run under `_bmad-output/
 | Non-sine binaural waveform (v0.1) | rejected with a named rule; a warning applies once the signal spec models it | proposed | 2026-10-28 (o) |
 | Theta reference AM depth | locked range 0 to 100 percent; 75 percent in every v0.1 starter | engineering default | 2026-10-29 (s) |
 | Relax theta reference build | level ramp from silence to full over the first 10 min; AM depth and rate unchanged | engineering default | 2026-10-29 (r) |
+| Loudness window | the steady part, ramps and fades excluded: looping body only (looping); longest stretch with no gain ramp (non-looping); whole render never above target + 1 LU | proposed | 2026-11-01 (w), (x) |
+| Session length, locked range | up to 8 h | engineering default | 2026-11-01 (u) |
+| Golden listening coverage | each starter in full at 48 kHz; 44.1 kHz copy spot-checked (opening, every loop seam and transition, ending); record lists what was heard | proposed | 2026-11-01 (v), amends (q) |
+| Relax gamma PAC fade-in | level ramp from silence to full over the first 2 min; AM depth, rate, and coupling unchanged | engineering default | 2026-11-01 (t), amends (r) |
 | Golden sign-off | two stages: provisional (Audio), full (second listener); bound to file hash; v0.1 closes on provisional | proposed | 2026-10-29 (q) |
 | All other test thresholds | see project plan, Test thresholds (provisional) | provisional | project plan |
 
 ## Entries
+
+### 2026-11-01 (x): Non-looping recipes also measure loudness over the steady part
+
+- **Decision:** for a non-looping recipe, the loudness gain is measured over the longest stretch where no layer or master gain ramp is active. Ramps and fades are excluded, as in entry (w) for looping recipes. A recipe whose steady part is shorter than the signal spec's minimum is rejected in `measure` mode. Over the whole render, integrated loudness must never exceed the target by more than 1 LU.
+- **Reason:** in Relax the theta reference ramps in over the first 10 minutes of 30, so measuring the whole session would leave the steady part about 1 dB above target. One rule for every recipe: the steady part sits at the target, ramps and fades are quieter.
+- **Effect on starters:** Relax measures from minute 10 to 30; Sleep measures from 0 to 40 min (before its fade).
+- **Amends:** entry (w); AD-13 measurement window; S4.1 and S4.2.
+- **Source:** epics and stories assumption audit, 2026-11-01.
+- **Decided by:** Audio.
+- **Status:** proposed.
+
+### 2026-11-01 (w): Looping recipes measure loudness over the body only
+
+- **Decision:** for a looping recipe, the loudness gain is measured over the looping body only, repeated seamlessly to the length the signal spec sets. The ramp-in is excluded. The steady part of Focus and Learn sits at the -36 LUFS-I target; the ramp-in is quieter by design. Over a whole render to the max run time, integrated loudness is reported and must never exceed the target by more than 1 LU.
+- **Reason:** the earlier window (ramp-in plus one body, AD-13) is dominated by the ramp-in when the body is short. At 48 kHz the shortest seamless Focus body is 0.5 s (the least common period of 6 Hz, 40 Hz, 450 Hz, and 250 Hz), so the gain came mostly from a 5 min ramp from silence and the steady part would play roughly 3 to 5 dB above target while every test passed. Found in the assumption audit.
+- **Amends:** AD-13 measurement window in the architecture spine; S4.1 and S4.2.
+- **Source:** epics and stories assumption audit, 2026-11-01.
+- **Decided by:** Audio (option a).
+- **Status:** proposed.
+
+### 2026-11-01 (v): Golden sign-off listening coverage
+
+- **Decision:** for the v0.1 provisional sign-off, Audio hears each starter in full at 48 kHz. The 44.1 kHz copy is spot-checked: the opening, every loop seam, every transition (each gain ramp or fade start and end), and the ending. Each sign-off record lists exactly what was heard, as `full` coverage or as the time ranges of the spot check. The stage stays `provisional` either way. A tool lists every seam and transition time from the recipe so none is missed.
+- **Reason:** listening all eight renders in full takes about 4 h 40 min, much of it repeating a sound just heard, and attention fades. The two sample rates carry the same recipe, and the automated checks already compare them in full. Audio: listening is subjective to a large extent, and every loop and transition must be heard.
+- **Amends:** entry (q). The record gains a coverage field; the two stages are unchanged.
+- **Source:** epics and stories party review, 2026-11-01.
+- **Decided by:** Audio (option b from the room).
+- **Status:** proposed.
+
+### 2026-11-01 (u): Session length locked range up to 8 hours
+
+- **Decision:** a recipe's session length has a locked range of up to 8 hours. A longer recipe is rejected with parameter, value, rule, and limit.
+- **Reason:** no range capped session length, so a recipe of any length would compile. 8 hours is the longest length the drift test (S5.1) proves.
+- **Engineering default:** no study sets it. Phase 0 sets the hearing-safety value alongside the looping max run time (WHO-ITU based).
+- **Source:** epics and stories party review, 2026-11-01.
+- **Decided by:** Audio.
+- **Status:** engineering default.
+
+### 2026-11-01 (t): Relax gamma PAC layer fades in over 2 min
+
+- **Decision:** in the Relax starter, the gamma PAC layer's level ramps from silence to full over the first 2 minutes, following the signal spec's gain ramp law. Its AM depth (25 percent), rate, and coupling to the theta reference do not change. This amends entry (r), which left the gamma level unchanged.
+- **Reason:** with (r) alone, the gamma PAC layer played at full level from the start, pulsing in step with a theta reference that was still nearly silent. Audio asked for a slow gamma fade-in of 1 to 2 minutes. 2 minutes is the slow end of that span.
+- **Engineering default:** both the fade from silence and the 2 minute length. No study sets either for the sound. Revisit by ear at the Epic 6 sign-off.
+- **Source:** epics and stories session, 2026-11-01.
+- **Decided by:** Audio (fade-in, 1 to 2 min); 2 min picked within that span by the agent.
+- **Status:** engineering default.
 
 ### 2026-10-29 (s): Theta reference AM depth range and starter value
 

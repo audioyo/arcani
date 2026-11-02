@@ -6,7 +6,7 @@ Values from `docs/listening-modes.md`, picked by Audio on 2026-10-27 and logged 
 | --- | --- | --- | --- | --- | --- |
 | Focus | 450 Hz carrier, sine AM at 6 Hz | 250 Hz carrier, AM at 40 Hz, 50 ms bursts at coupling phase 0 degrees, depth 100 percent | Off | Ramp-in 5 min to full level, then looping body | Yes, max run time 45 min |
 | Learn | 450 Hz carrier, sine AM at 5.5 Hz | 250 Hz carrier, AM at 40 Hz, smooth swell peaking at coupling phase 0 degrees (design log (d)), depth 100 percent | Off | Ramp-in 5 min to full level, then looping body | Yes, max run time 20 min |
-| Relax | 450 Hz carrier, sine AM at 6 Hz; layer level ramps from silence to full over the first 10 min (design log 2026-10-29 (r)) | 250 Hz carrier, AM at 40 Hz, smooth swell at coupling phase 0 degrees, depth 25 percent | Off | 30 min | No |
+| Relax | 450 Hz carrier, sine AM at 6 Hz; layer level ramps from silence to full over the first 10 min (design log 2026-10-29 (r)) | 250 Hz carrier, AM at 40 Hz, smooth swell at coupling phase 0 degrees, depth 25 percent; layer level ramps from silence to full over the first 2 min (design log 2026-11-01 (t)) | Off | 30 min | No |
 | Sleep | 450 Hz carrier, sine AM at a steady 2 Hz delta rate | Off | 100 Hz left, 100 Hz plus beat rate right; beat rate cycles sinusoidally over 0 to 3 Hz every 60 s (Lee et al. 2024 range and cycle) | 45 min, last 5 min a fade to silence; no rhythmic signal after the end | No |
 
 Sources and status per value:

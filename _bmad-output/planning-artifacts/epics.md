@@ -83,14 +83,14 @@ From the architecture spine and SPEC constraints.
 - **Fixed internal block (AD-10).** Renderer processes in a fixed internal block sized by the signal spec and buffers to the host's request.
 - **Fixed topology (AD-3, AD-4).** Schema has no routing fields and no coupling-target field. Stage order: theta, gamma, stereo bus, binaural join, master chain (per-channel gain plus stereo-linked limiter). No channel-mixing operation anywhere.
 - **Coupling input (AD-5).** The gamma depth function takes theta reference phase as its only input.
-- **Loudness (AD-13).** The CLI compiles in `measure` mode, renders, measures integrated loudness (BS.1770, gated) over the spec's window (looping: ramp-in plus one body), and writes gain plus a loudness hash over loudness-relevant schema fields.
+- **Loudness (AD-13).** The CLI compiles in `measure` mode, renders, measures integrated loudness (BS.1770, gated) over the spec's window (the steady part, ramps and fades excluded; design log 2026-11-01 (w), (x)), and writes gain plus a loudness hash over loudness-relevant schema fields.
 - **Seed and randomness (AD-14, AD-25).** All randomness from an engine-owned counter-based PRNG keyed by (seed, stream, index). In v0.1 the Core draws no random values and WAV output rounds to 24 bits with no dither, so v0.1 has no random consumer; tooling always uses the recipe seed and the report carries it.
 - **Hashing (AD-21).** Recipe hash SHA-256 over RFC 8785 canonical JSON excluding stored gain, loudness hash, and schema-marked non-audio fields. Determinism key = recipe hash + pinned asset hashes (none in v0.1) + engine version + sample rate.
 - **Tables as data.** One threshold table and one locked-range table in the repo, each row citing its source, with loaders in C++ and Python.
 - **Recipe conventions.** JSON, `snake_case`, units in field names (`_hz`, `_deg`, `_db`, `_lufs`, `_s`), times in seconds; schema tags loudness-relevant and hash-excluded fields.
 - **Golden storage (AD-15).** Git LFS under `golden/`, keyed by determinism key.
 - **Workflow.** Tests first from acceptance criteria by a fresh-context QA agent. Each assertion ships with a passing fixture and a must-fail fixture. Silence is not evidence: reference matches compare real waveforms. One story per branch. No commit with failing tests.
-- **REVIEW PENDING.** AD-4, AD-5, AD-9, AD-19, AD-20 and the Stack bind v0.1 as written; independent review due by end of Phase 0.
+- **REVIEW PENDING.** AD-4, AD-5, AD-9, AD-19, AD-20 and the Stack bind v0.1 as written; their independent review is Story 0.5, which closes before Epic 1 starts.
 
 ### UX Design Requirements
 
@@ -131,7 +131,7 @@ FR-17: Epic 6 (listening checklist, provisional sign-off)
 ### Epic 0: A trusted toolchain
 Audio can trust that one sine renders identical bytes on Windows x64, arm64, macOS arm64, and Android NDK arm64, with the build, CI matrix, tables, and wording checks in place. The riskiest assumption is tested first.
 **FRs covered:** FR-6 (cross-platform), FR-15
-**Stories:** S0.1 build skeleton (CI time budget per platform, hash compare tool with exact and tolerance modes, engine symbol denylist); S0.2 sine spike (ships; bit-exact failure is a defined outcome); S0.3 tables as data (design log gate on table changes, two-way assertion and row coverage); S0.4 CI wording check.
+**Stories:** S0.1 build skeleton (CI time budget per platform, hash compare tool with exact and tolerance modes, engine symbol denylist); S0.2 sine spike (ships; bit-exact failure is a defined outcome); S0.3 tables as data (design log gate on table changes, two-way assertion and row coverage); S0.4 CI wording check; S0.5 independent review of the pending architecture decisions (closes before Epic 1).
 
 ### Epic 1: Render a recipe end to end
 Audio or an agent can render a minimal recipe from the CLI to a WAV and a report, byte-identical at any block size, matched against the Python reference, with a failing test if anything leaks between ears and every field range-checked from the start.
@@ -146,7 +146,7 @@ Audio can render the theta reference, the gamma PAC layer (uncoupled, smooth swe
 ### Epic 3: The validator catches collisions
 Any recipe whose layers collide in either ear, at any point including along rate curves, is rejected with parameter, value, rule, and limit. The four starters' layer configurations are proven to pass here, not in Epic 6.
 **FRs covered:** FR-9 (spacing rule)
-**Stories:** S3.1 spectral component table per shape, cross-checked against the reference spectrum; S3.2 spacing rule per ear, whole session.
+**Stories:** S3.1 spectral component table per shape, cross-checked against the reference spectrum; S3.2 spacing rule per ear, whole session; S3.3 early listening preview of the four starter configurations.
 
 ### Epic 4: Safe, steady loudness
 Every render hits its loudness target under the true-peak ceiling, gain ramps are smooth, the limiter provably never acts, and the CLI measures and stores the loudness gain.
@@ -186,8 +186,23 @@ So that every later story is built, tested, and hash-compared the same way every
 
 **Given** a push to any branch
 **When** CI runs the fast tier
-**Then** it builds and tests on Windows x64, Linux or Windows arm64, and macOS arm64, and builds the NDK arm64 hash binary and runs it on an emulator or device
+**Then** it builds and tests on Windows x64 and Linux
 **And** a failure in any job blocks merge
+
+**Given** a pull request into main, the nightly schedule, or a manual run started from GitHub
+**When** CI runs
+**Then** it builds and tests on all four AD-9 platforms: Windows x64, Windows arm64, macOS arm64, and Android NDK arm64, with the NDK hash binary run on a physical Android device
+**And** a failure in any job blocks merge
+
+**Given** a one-person company (CLAUDE.md, Context)
+**When** runners are set up
+**Then** Audio's Windows dev PC is a self-hosted runner for Windows x64 jobs, an Android phone connected to it by USB runs the NDK hash binary, and GitHub-hosted runners serve Linux, Windows arm64, and macOS arm64 until Audio adds an own Mac
+**And** the setup, and the spending cap set in GitHub billing, are recorded in the design log
+
+**Given** the NDK arm64 hash binary
+**When** this story closes
+**Then** a passing job proves it runs on the connected Android phone, or the chosen alternative (such as a device-farm wrapper) is recorded in the design log and running
+**And** a CI run in which the Android job is skipped, cancelled, or not scheduled fails instead of passing silently
 
 **Given** the engine compile flags
 **When** `-ffp-contract=off` is missing or any fast-math flag is present on any toolchain (clang-cl through `/clang:`)
@@ -207,6 +222,14 @@ So that every later story is built, tested, and hash-compared the same way every
 **Given** a per-platform, per-tier wall-time budget table in the repo
 **When** a CI job finishes
 **Then** the job reports its wall time against its budget and fails if it exceeds it
+
+**Given** the budget table
+**When** it is filled in
+**Then** it estimates monthly billed CI minutes per platform, with each runner's billing multiplier, against the account's allowance, and any shortfall is recorded in the design log with the chosen remedy
+
+**Given** the nightly full-tier schedule
+**When** nothing has changed on main since the last passing full-tier run
+**Then** that night's run is skipped and logged as skipped
 
 ### Story 0.2: Engine sine oscillator (spike that ships)
 
@@ -297,6 +320,27 @@ So that the copy and naming rules hold without anyone reading every line.
 **When** the check runs on them
 **Then** each fails
 **And** the current repo passes, with any existing violations fixed in this story
+
+### Story 0.5: Independent review of the pending architecture decisions
+
+As Audio,
+I want the architecture decisions still marked review pending checked by an independent reviewer before Epic 1,
+So that a change to any of them costs a little rework now instead of a lot after Epic 5.
+
+**Acceptance Criteria:**
+
+**Given** AD-4, AD-5, AD-9, AD-19, AD-20, and the Stack table, marked `[REVIEW PENDING]` in the architecture spine, and the S0.2 bit-exactness result
+**When** an independent reviewer (a fresh-context agent with no part in writing them, or a human Audio names) reviews each against the PRD, the SPEC, CLAUDE.md, and the research library
+**Then** each is either locked, with its `[REVIEW PENDING]` tag removed, or changed, with a design log entry giving the reason and the affected stories updated
+**And** the review findings are saved beside the spine's existing reviews
+
+**Given** S0.2 closed on the defined fallback for any platform
+**When** AD-9 is reviewed
+**Then** the review confirms or changes the fallback and its scope, with a design log entry
+
+**Given** this story
+**When** Epic 1 is about to start
+**Then** this story is done; Epic 1 does not start while any of these decisions is still pending
 
 ## Epic 1: Render a recipe end to end
 
@@ -732,3 +776,426 @@ So that no layer beats against or leaks into another, and I know before renderin
 **When** they are compiled
 **Then** every one passes the spacing rule
 **And** if Focus fails, the story does not close until the cause is logged in the design log and resolved through the signal spec, never by weakening the rule
+
+### Story 3.3: Early listening preview
+
+As Audio,
+I want to hear short renders of the four starter configurations as soon as every layer exists,
+So that a harsh carrier or a rough gamma pulse is caught four epics before sign-off, not at it.
+
+**Acceptance Criteria:**
+
+**Given** the layer configurations of Focus, Learn, Relax, and Sleep that passed S3.2
+**When** preview renders are made with the CLI
+**Then** each is about 3 minutes long at 48 kHz, includes any ramp or seam the configuration has within that span, is marked unsigned and preview in its report, and is never stored as a golden
+
+**Given** no loudness gain exists before Epic 4
+**When** a preview is rendered
+**Then** its level is set so the analytic sample peak of the summed layers is -30 dBFS (an engineering default for previews only, logged in the design log in this story), and Audio raises playback level in Reaper to comfort
+
+**Given** the preview renders
+**When** Audio listens on earbuds and on headphones
+**Then** every observation is recorded in plain words, and any proposed change to a default or range is logged in the design log and routed to the story that owns it before Epic 4 starts
+**And** if nothing needs changing, the story closes on that recorded result
+
+## Epic 4: Safe, steady loudness
+
+Every render hits its loudness target under the true-peak ceiling, gain ramps are smooth, the limiter provably never acts, and the CLI measures and stores the loudness gain.
+
+Story order is fixed: the loudness meter comes first because stored gain, true peak, and the limiter all depend on it, and gain ramps come before the limiter so a ramp cannot trip it.
+
+### Story 4.1: Loudness meter
+
+As Audio,
+I want a loudness meter proven against the broadcast compliance signals before it judges any render,
+So that every loudness number in a report can be trusted.
+
+**Acceptance Criteria:**
+
+**Given** `docs/signal-spec.md`
+**When** §loudness merges
+**Then** it defines integrated loudness per ITU-R BS.1770 (K-weighting, 400 ms blocks, absolute gate at -70 LUFS, relative gate at -10 LU) and the measurement window: the steady part of the session, with every ramp and fade excluded: for a looping recipe, the looping body only, repeated seamlessly a whole number of times to at least the length the spec sets; for a non-looping recipe, the longest stretch where no layer or master gain ramp is active (AD-13, design log 2026-11-01 (w), (x)); with worked test vectors
+**And** a recipe whose steady part is shorter than the spec's minimum is rejected in `measure` mode with a named rule
+
+**Given** a meter in the Python assertion library and a meter in the CLI tooling (outside `engine/`)
+**When** each measures the EBU Tech 3341 compliance signals
+**Then** each reads every signal within the tolerance Tech 3341 states for it
+**And** the signals are fetched from the EBU at a pinned address and checked against a pinned SHA-256 before use; they are committed to the repo only if the EBU licence allows redistribution, and a hash mismatch fails the run
+**And** a must-fail meter with gating turned off in the harness fails the gating cases
+
+**Given** any render
+**When** both meters measure it over the spec window
+**Then** they agree within the Tech 3341 integrated loudness tolerance (threshold table row)
+
+**Given** the loudness assertion
+**When** it checks a render against the recipe target
+**Then** integrated loudness within 1 LU passes
+**And** a must-fail render doctored in the harness to 1.5 LU above target fails
+
+### Story 4.2: Stored loudness gain
+
+As Audio,
+I want the CLI to measure each recipe's loudness once and store the gain in the recipe,
+So that every render plays at its target level and nothing can silently change it.
+
+**Acceptance Criteria:**
+
+**Given** a recipe without a stored gain
+**When** the CLI runs its measure command
+**Then** it compiles in `measure` mode, renders, measures integrated loudness over the spec window, and writes the gain and a loudness hash into the recipe (AD-13)
+**And** measuring the same recipe twice writes identical bytes
+
+**Given** a recipe compiled in `final` mode
+**When** its stored gain is missing, or any loudness-relevant field has changed since the loudness hash was written
+**Then** compile is rejected with parameter, value, rule, and limit
+**And** editing a field that is neither loudness-relevant nor audio-relevant leaves the recipe compilable
+
+**Given** a recipe with a stored gain
+**When** it is rendered in `final` mode
+**Then** integrated loudness is within 1 LU of the recipe target
+**And** a must-fail recipe whose stored gain is 1.5 LU off target fails the loudness assertion
+
+**Given** any recipe rendered with its stored gain over its whole session (to the max run time for a looping recipe)
+**When** integrated loudness is measured over the whole render, ramps and fades included
+**Then** the report records it, and it is never more than 1 LU above the recipe target
+**And** a must-fail looping fixture whose gain was measured over ramp-in plus one body (the superseded window) plays its body above target and fails
+
+**Given** any CI run
+**When** it finishes
+**Then** no recipe file in the checkout has changed, so CI never writes a gain; a must-fail CI step that writes one is caught
+
+### Story 4.3: True peak
+
+As Audio,
+I want every render's true peak measured with oversampling and held at or below -1 dBTP,
+So that no render clips between samples on any playback device.
+
+**Acceptance Criteria:**
+
+**Given** the true-peak tool in the assertion library, per ITU-R BS.1770 Annex 2 oversampling
+**When** it measures the EBU Tech 3341 true-peak signals and Python-synthesized signals with known inter-sample peaks
+**Then** it reads each within its stated tolerance
+
+**Given** a must-fail signal whose sample peak is below -1 dBFS but whose inter-sample peak is above -1 dBTP
+**When** it is checked
+**Then** the true-peak assertion fails while a sample-peak check would pass
+
+**Given** every render, measured on the final 24-bit output
+**When** the true-peak assertion runs
+**Then** true peak is at or below -1 dBTP (threshold table row)
+
+**Given** a recipe whose measured gain would put true peak above -1 dBTP
+**When** the CLI measure command runs
+**Then** it writes no gain and reports the target, the gain needed, and the resulting true peak
+
+### Story 4.4: Gain ramps
+
+As Audio,
+I want per-layer and master gain ramps from the recipe, none faster than 10 ms,
+So that fades and ramp-ins are smooth and click-free.
+
+**Acceptance Criteria:**
+
+**Given** `docs/signal-spec.md`
+**When** §ramps merges
+**Then** it defines the gain ramp law for layer and master ramps, start and end alignment through the seconds-to-samples rule, and behavior at the end of a fade to silence, with worked test vectors
+
+**Given** the per-layer taps from S1.2
+**When** layer gain is added
+**Then** each layer exposes a tap before its gain and a tap after it; coupling timing, frequency accuracy, and phase measurements read the tap before gain, and loudness reads the tap after gain
+**And** at unity gain the two taps are bit-identical
+
+**Given** a recipe ramp shorter than 10 ms (threshold table row)
+**When** it is compiled
+**Then** it is rejected with parameter, value, rule, and limit
+**And** a ramp of exactly 10 ms passes
+
+**Given** the ramp tool, first calibrated on Python-synthesized gain changes of known duration
+**When** it checks layer taps and master output of ramp fixtures (a 5 min ramp-in, a 10 min layer ramp from silence, a 5 min master fade to silence)
+**Then** no layer or master gain change completes in under 10 ms, with modulation envelopes and limiter gain reduction exempt
+**And** a must-fail 5 ms layer fade doctored in the harness fails
+
+**Given** ramp fixtures
+**When** the click tool checks every ramp start and end
+**Then** no discontinuity exceeds -60 dBFS
+
+**Given** a fade to silence
+**When** the fade ends
+**Then** that layer or the master outputs exact zeros from then on, so no rhythmic signal remains after the end
+
+**Given** ramp renders
+**When** compared with the reference
+**Then** taps and output differ by less than -100 dBFS
+
+### Story 4.5: Limiter idle
+
+As Audio,
+I want proof that the stereo-linked limiter never acts on any v0.1 render,
+So that every render is exactly the sound the recipe describes, with no hidden gain changes.
+
+**Acceptance Criteria:**
+
+**Given** `docs/signal-spec.md`
+**When** §limiter merges
+**Then** it defines the stereo-linked limiter, its ceiling, and its gain-reduction tap, with worked test vectors
+
+**Given** every v0.1 render, starters and fixtures
+**When** the limiter idle assertion runs
+**Then** the gain-reduction tap is exactly unity on every sample, and master chain output equals input times master gain, bit for bit (design log 2026-10-28 (p))
+
+**Given** a must-fail recipe whose stored gain is raised far enough to drive the limiter
+**When** it is rendered
+**Then** the limiter idle assertion fails
+**And** the limiter applies the same gain reduction to both channels on every sample, and muted-ear binaural isolation after the master chain is still at least 60 dB
+
+**Given** the must-fail limiter render
+**When** compared with the reference
+**Then** output differs by less than -100 dBFS, so the limiter is fully specified even though v0.1 never uses it
+
+## Epic 5: Holds up for hours
+
+Eight-hour renders stay on time and no render has a click, dropout, or invalid sample, with the full tier sharded to fit CI limits.
+
+Two tiers. The fast tier runs on every change: drift is computed analytically from integer increments, and clicks, dropouts, and invalid samples are checked on 60 s renders. The full tier runs on every pull request into main and nightly: real 8-hour renders and full-length starters at both sample rates.
+
+### Story 5.1: Whole-session 8-hour drift and full-tier sharding
+
+As Audio,
+I want an 8-hour render to stay on time at hour eight, with the long renders split to fit CI,
+So that a session left running all night is as exact at the end as at the start.
+
+**Acceptance Criteria:**
+
+**Given** an 8-hour fixture with a theta reference on a rate curve, coupled gamma, and a binaural layer on a rate curve, all passing the spacing rule
+**When** it is rendered in the full tier
+**Then** at hour eight theta reference phase error measured from the tap against the closed form is under 1 ms, every gamma envelope peak is within 2 ms of its coupling phase, and every carrier and rate is within 0.01 Hz of the schedule
+
+**Given** the session length row in the locked-range table (up to 8 h, design log 2026-11-01 (u))
+**When** a recipe is compiled
+**Then** a length of exactly 8 h passes and one sample longer is rejected with parameter, value, rule, and limit
+
+**Given** a must-fail theta tap doctored in the harness to lose one sample per hour
+**When** drift is measured
+**Then** it fails at hour eight and passes at minute one
+
+**Given** every fixture and starter
+**When** the fast tier runs
+**Then** drift at the full session length, or the max run time for a looping recipe, is computed analytically from the integer phase increments and is under 1 ms
+
+**Given** the full tier
+**When** an 8-hour render is split into shards across CI jobs using seek
+**Then** the shards joined in order are byte-identical to one continuous render, and every shard finishes within its S0.1 wall-time budget
+**And** the full tier runs across the AD-9 matrix on every pull request into main and nightly, and a failure blocks merge
+
+**Given** the 8-hour fixture
+**When** the reference renders windows at the start, hour four, and hour eight by seeking
+**Then** engine taps and output in each window differ from the reference by less than -100 dBFS
+
+### Story 5.2: Clicks, dropouts, NaN and infinite values
+
+As Audio,
+I want every render scanned end to end for clicks, dropouts, and invalid samples,
+So that no flaw anywhere in a session goes unnoticed, not only at the places we expected.
+
+**Acceptance Criteria:**
+
+**Given** every render in both tiers
+**When** the click assertion runs
+**Then** it scans the whole render, not only seams and edges, and finds no discontinuity above -60 dBFS in an 8 kHz high-pass
+**And** a must-fail render doctored with a single-sample step fails
+
+**Given** the dropout tool, first calibrated on Python-synthesized signals with zero runs of known length
+**When** it checks a channel where the recipe sets a non-zero level
+**Then** an all-zero run of 1 ms passes and one sample longer fails (threshold table row)
+**And** stretches where the recipe sets the level to zero, such as after a fade to silence, are exempt, read from the recipe's level schedule
+
+**Given** engine pre-quantization float output and every per-layer tap
+**When** the invalid-sample assertion runs
+**Then** any NaN or infinite value fails
+**And** must-fail taps doctored with one NaN and with one infinite value each fail
+
+## Epic 6: Four starters you have heard and signed
+
+Focus, Learn, Relax, and Sleep render and pass every check, and each carries Audio's provisional sign-off bound to the exact file heard. Closes v0.1.
+
+### Story 6.1: Golden records and Git LFS
+
+As Audio,
+I want approved renders stored as golden files with a sign-off record bound to the exact bytes I heard,
+So that any change to a sound I approved is caught, and nothing becomes golden without my ears.
+
+**Acceptance Criteria:**
+
+**Given** `golden/` tracked in Git LFS
+**When** a golden is stored
+**Then** it is keyed by determinism key and carries a record of stage (`provisional` or `full`), signer, date, the SHA-256 of the file heard, and coverage (`full`, or the time ranges heard in a spot check) (design log 2026-10-29 (q), 2026-11-01 (v))
+
+**Given** a recipe listed in the golden manifest
+**When** CI renders it
+**Then** CI compares the render's SHA-256 with the hash in the golden's record; a mismatch fails, and a missing golden fails
+**And** CI accepts both stages, and never downloads golden WAVs from Git LFS (LFS smudge off in CI); the WAVs are fetched only for listening
+
+**Given** a platform the hash compare config runs in -100 dBFS tolerance mode (S0.2 fallback)
+**When** CI checks its starter renders
+**Then** it compares them sample by sample with the Windows x64 render of the same recipe from the same CI run, within -100 dBFS, instead of with the golden hash
+**And** only platforms in exact mode check the golden hash
+
+**Given** the expected golden storage for v0.1 (about 4.6 GB for eight renders at 24 bits)
+**When** this story closes
+**Then** it is checked against the repo's Git LFS storage and bandwidth quota, and any shortfall is recorded in the design log with the chosen remedy
+
+**Given** a golden whose file hash no longer matches its record
+**When** CI checks it
+**Then** it is reported unsigned and fails, whatever its stage was
+**And** a must-fail `full` golden with one byte changed is reported unsigned
+
+**Given** a change that alters the determinism key, such as an engine version bump, while the render bytes stay identical
+**When** CI checks the golden
+**Then** the sign-off carries over, because it is bound to the file hash
+
+**Given** the sign-off tool
+**When** a golden is created or replaced
+**Then** it requires a sign-off record, computes the SHA-256 itself, and no CI path can write a golden or a record
+
+**Given** a starter whose story is in progress
+**When** it is listed in the manifest as awaiting sign-off
+**Then** CI reports it pending instead of failing, and a pending entry fails CI once Story 6.7 is marked done
+
+### Story 6.2: Listening checklist
+
+As Audio,
+I want a listening checklist that an alpha tester with no signal background can follow,
+So that every sign-off checks the same things in plain words.
+
+**Acceptance Criteria:**
+
+**Given** `docs/listening-checklist.md`
+**When** it is read
+**Then** it covers clicks and seams, roughness of the 40 Hz gamma AM, comfort over the full session length, carrier audibility on earbuds, loudness, one ear louder than the other, and unevenness over time
+**And** every item asks about the sound only, never about feelings or outcomes, and passes the S0.4 wording check
+
+**Given** a listening session
+**When** the checklist is followed
+**Then** it names the setup (Reaper for playback at full length, RX spectral view for clicks, earbuds and headphones) and produces a result file per render that the sign-off record links to
+
+**Given** a recipe
+**When** the transition list tool runs on it
+**Then** it lists the time of the opening, every loop seam, every gain ramp or fade start and end, and the ending, so a spot check can cover each one
+**And** a test confirms the list for a fixture with a ramp-in, a layer fade-in, three loop seams, and a fade to silence
+
+### Story 6.3: Focus starter
+
+As Audio,
+I want the Focus starter as a recipe that passes every check,
+So that the first mode is ready to hear and sign.
+
+**Acceptance Criteria:**
+
+**Given** `recipes/focus.json` with the values in `starter-recipes.md` (450 Hz theta reference carrier, sine AM at 6 Hz, 75 percent depth; 250 Hz gamma PAC carrier, AM at 40 Hz, 50 ms bursts at coupling phase 0 degrees, depth 100 percent; no binaural layer; 5 min ramp-in, looping body, max run time 45 min; -36 LUFS-I)
+**When** it is compiled in `final` mode with its stored gain
+**Then** it passes the validator, including the spacing rule between the burst components and the 450 Hz theta reference
+**And** if it fails, the story closes only after the cause is logged in the design log and resolved through the signal spec, never by weakening the rule
+
+**Given** the Focus recipe
+**When** it is rendered at 44.1 and 48 kHz to the max run time
+**Then** it passes every assertion from Epics 1 to 5, its hashes match across the AD-9 matrix, and it matches the reference
+
+**Given** the recipe file
+**When** its rationale and describe-the-sound note are read
+**Then** the rationale cites the design log entry for every value, the note matches `docs/listening-modes.md`, and both pass the wording check
+**And** the render is listed in the golden manifest as awaiting sign-off
+
+### Story 6.4: Learn starter
+
+As Audio,
+I want the Learn starter as a recipe that passes every check,
+So that the second mode is ready to hear and sign.
+
+**Acceptance Criteria:**
+
+**Given** `recipes/learn.json` with the values in `starter-recipes.md` (450 Hz theta reference carrier, sine AM at 5.5 Hz, 75 percent depth; 250 Hz gamma PAC carrier, AM at 40 Hz, smooth swell peaking at coupling phase 0 degrees, depth 100 percent; no binaural layer; 5 min ramp-in, looping body, max run time 20 min; -36 LUFS-I)
+**When** it is compiled in `final` mode with its stored gain
+**Then** it passes the validator
+
+**Given** the Learn recipe
+**When** it is rendered at 44.1 and 48 kHz to the max run time
+**Then** it passes every assertion from Epics 1 to 5, its hashes match across the AD-9 matrix, and it matches the reference
+
+**Given** the recipe file
+**When** its rationale and describe-the-sound note are read
+**Then** the rationale cites the design log entry for every value, the note matches `docs/listening-modes.md`, and both pass the wording check
+**And** the render is listed in the golden manifest as awaiting sign-off
+
+### Story 6.5: Relax starter
+
+As Audio,
+I want the Relax starter as a recipe that passes every check,
+So that the third mode is ready to hear and sign.
+
+**Acceptance Criteria:**
+
+**Given** `recipes/relax.json` with the values in `starter-recipes.md` (450 Hz theta reference carrier, sine AM at 6 Hz, 75 percent depth, layer level ramping from silence to full over the first 10 min (design log 2026-10-29 (r)); 250 Hz gamma PAC carrier, AM at 40 Hz, smooth swell at coupling phase 0 degrees, depth 25 percent, layer level ramping from silence to full over the first 2 min (design log 2026-11-01 (t)); no binaural layer; 30 min, not looping; -36 LUFS-I)
+**When** it is compiled in `final` mode with its stored gain
+**Then** it passes the validator
+
+**Given** the Relax recipe
+**When** it is rendered at 44.1 and 48 kHz
+**Then** it passes every assertion from Epics 1 to 5, its hashes match across the AD-9 matrix, and it matches the reference
+**And** coupling timing during the theta and gamma level ramps is measured on the theta and gamma taps before layer gain, and every gamma envelope peak is within 2 ms of its coupling phase from the first theta cycle
+
+**Given** the recipe file
+**When** its rationale and describe-the-sound note are read
+**Then** the rationale cites the design log entry for every value, the note matches `docs/listening-modes.md`, and both pass the wording check
+**And** the render is listed in the golden manifest as awaiting sign-off
+
+### Story 6.6: Sleep starter
+
+As Audio,
+I want the Sleep starter as a recipe that passes every check,
+So that the only starter with a binaural layer is ready to hear and sign.
+
+**Acceptance Criteria:**
+
+**Given** `recipes/sleep.json` with the values in `starter-recipes.md` (450 Hz theta reference carrier, sine AM at a steady 2 Hz, 75 percent depth; no gamma PAC layer; binaural layer at 100 Hz left and 100 Hz plus beat rate right, beat rate cycling sinusoidally over 0 to 3 Hz every 60 s (design log (n)); 45 min with the last 5 min a master fade to silence, not looping; -36 LUFS-I)
+**When** it is compiled in `final` mode with its stored gain
+**Then** it passes the validator, including the spacing rule between the binaural pair and the theta reference
+
+**Given** the Sleep recipe
+**When** it is rendered at 44.1 and 48 kHz
+**Then** it passes every assertion from Epics 1 to 5, its hashes match across the AD-9 matrix, and it matches the reference
+**And** muted-ear binaural isolation passes across the whole beat-rate cycle, the final sample is exactly zero, and the output runs no longer than 45 minutes
+
+**Given** the recipe file
+**When** its rationale and describe-the-sound note are read
+**Then** the rationale cites the design log entry for every value, the note matches `docs/listening-modes.md`, and both pass the wording check
+**And** the render is listed in the golden manifest as awaiting sign-off
+
+### Story 6.7: Provisional sign-off session and v0.1 gate report
+
+As Audio,
+I want to listen to every starter render against the checklist, sign the ones I approve, and see one report that says whether v0.1 is done,
+So that v0.1 closes on my ears and on evidence, not on anyone's word.
+
+**Acceptance Criteria:**
+
+**Given** the eight starter renders (four starters at 44.1 and 48 kHz)
+**When** Audio listens in Reaper and RX against the listening checklist: each starter in full at 48 kHz, and the 44.1 kHz copy as a spot check of every entry in its transition list (design log 2026-11-01 (v))
+**Then** each approved render gets a provisional sign-off record bound to its SHA-256 with its coverage, is committed as a golden in Git LFS, and leaves the awaiting sign-off list
+**And** a 44.1 kHz record whose spot-check ranges miss any entry in the transition list is refused by the sign-off tool
+
+**Given** a listening session that stops partway
+**When** it resumes later
+**Then** the sign-off tool shows which renders and which transition-list entries are already heard and signed and which remain, so no listening is repeated or skipped
+
+**Given** a checklist item that fails by ear
+**When** Audio records it
+**Then** it is logged in the design log, fixed in the story that owns the cause, re-rendered, and listened to again, and any changed default or threshold gets its own design log entry
+
+**Given** CI artifacts from the full tier
+**When** the gate report is generated
+**Then** it lists every assertion for all four starters at both sample rates on all four AD-9 platforms with pass or fail, the matching render hashes, and the eight goldens with their sign-off records
+**And** it shows the S0.5 review outcome for AD-4, AD-5, AD-9, AD-19, AD-20, and the Stack, and fails if any is still pending
+
+**Given** the gate report
+**When** every assertion passes, every hash matches, and all eight goldens carry Audio's provisional sign-off
+**Then** v0.1 is done (design log 2026-10-29 (q)); full sign-off by a second listener follows in Phase 1

@@ -379,6 +379,8 @@ Each phase ships only after its gate passes. No dates until the Phase 0 spike sh
 
 **Out of scope for v0.1:** designer, mobile apps, stem bed, Orbit layer, accounts, analytics, payments, content server, encryption.
 
+**Planned, Phase 1 or later:** meditation stops, a family of user-chosen meditation modes, research first (project plan, Session modes). Not yet assigned to a phase or gate.
+
 **Later (post-launch):** adaptive inputs, a per-listener gamma rate within the locked range, artist packs, a design-log summary to share with a prospective research partner.
 
 ## 9. Success Checkpoints

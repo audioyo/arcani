@@ -239,6 +239,8 @@ Four starter modes, each built from the closest published evidence. Every value 
 
 Shared across modes: a pink or white noise option in the stem bed, since Melnichuk et al. (2025) found background noise changed results; the binaural layer is never required; and a stem-bed modulation option for Focus, pending a patent check on the method in Woods et al. (2024).
 
+Planned, Phase 1 or later: **meditation stops.** A family of meditation modes, each a stop the listener chooses on its own, named for the experience it accompanies, as the starter modes are. Longer compositions may move through several stops in one session. Tentative names: Sanctuary, Expanded Field, Timelessness, Resonance, Gate, Destination. Before any stop is designed: a research run on public evidence for meditation states and the sounds used with them; then the count, order, and every value of the stops come from that evidence and Audio's listening tests, logged in the design log. Clean-room rules apply: no stop is defined by reference to any third-party program's levels, and each name is checked against the brand list above before it locks ("Gate" and "Resonance" first).
+
 What these modes do not claim: each mode's description says what the sound is and how it was designed. It never promises focus, memory, or sleep outcomes.
 
 ## Content and stems
