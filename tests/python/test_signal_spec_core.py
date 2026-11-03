@@ -1,0 +1,527 @@
+"""Signal spec core and sine: vectors, spec tables, Python ideal, quantization and drift.
+
+Contract with tools/signal_spec_vectors.py (exists, Story 0.2 spec commit):
+
+- `--check` exits 0 when tests/data/signal_spec_vectors.json equals a fresh
+  run, 1 otherwise (`--out FILE` selects another file).
+- `tables(data)` renders the vector tables of docs/signal-spec.md from the
+  JSON data. Every vector table in the spec (each "### Vectors: ..." section
+  and the coefficient table) equals one of them.
+
+Contract with reference/ideal.py (numpy and stdlib; loaded by path):
+
+- `phase_increment(f_hz: float, fs: int) -> int` and
+  `seconds_to_samples(t_s: float, fs: int) -> int`, exactly per the spec
+  (out of domain gives 0).
+- `ideal_sine(phase)`: int, or numpy uint64 array; returns float64 (or a
+  float64 array) of sin(2*pi*phase/2^64).
+- `render_probe_segment(f_hz: float, fs: int, n: int) -> np.ndarray`:
+  float64 ideal sine, phase 0 at sample 0, phase[k] = k*inc mod 2^64.
+- `probe_sine_component(fs: int) -> np.ndarray`: float64, 1 s each of the
+  1 Hz, 450 Hz, and 1000 Hz carriers, unmodulated, in that order, each
+  segment from phase 0 (3*fs samples). `PROBE_CARRIERS_HZ == (1.0, 450.0,
+  1000.0)`.
+- It renders the ideal sine, never the engine polynomial.
+
+Quantization and drift are checked exactly with fractions at every range
+endpoint, plus an analytic worst-case bound. Bounds and ranges come from
+tests/tables/*.json; only the table-pinning test at the end carries literals.
+"""
+
+import importlib.util
+import json
+import math
+import re
+import subprocess
+import sys
+from decimal import Decimal
+from fractions import Fraction
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+GENERATOR = REPO_ROOT / "tools" / "signal_spec_vectors.py"
+VECTORS = REPO_ROOT / "tests" / "data" / "signal_spec_vectors.json"
+SPEC_DOC = REPO_ROOT / "docs" / "signal-spec.md"
+IDEAL = REPO_ROOT / "reference" / "ideal.py"
+THRESHOLDS = REPO_ROOT / "tests" / "tables" / "thresholds.json"
+RANGES = REPO_ROOT / "tests" / "tables" / "ranges.json"
+CYCLE = 2**64
+
+# The ideal sine must agree with the 25-digit decimal vectors to 1e-15
+# absolute. binary64 has a unit in the last place of 2.2e-16 at 1.0; a
+# reference that reduces the phase exactly in integers and converts once
+# lands within a few units of that. 1e-15 is also 9 orders below the
+# -120 dBFS (1e-6) engine bound the ideal is the yardstick for, so the ideal
+# never hides an engine error.
+IDEAL_TOL = 1e-15
+
+# Grid step of the C++ quantization test, used here as the smallest positive
+# frequency of a range whose floor is 0 Hz in the analytic drift bound.
+GRID_STEP_HZ = Fraction(1, 1000)
+
+HZ_RANGE_IDS = ["theta-rate", "theta-carrier", "gamma-rate", "gamma-carrier",
+                "binaural-carrier", "binaural-carrier-right", "beat-rate"]
+
+
+def load_json(path):
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def load_module(name, path):
+    assert path.is_file(), f"missing {path}"
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_IDEAL = []
+
+
+def ideal():
+    """reference/ideal.py, loaded once; a missing file fails the calling test."""
+    if not _IDEAL:
+        _IDEAL.append(load_module("arcani_reference_ideal", IDEAL))
+    return _IDEAL[0]
+
+
+@pytest.fixture(scope="module")
+def vectors():
+    return load_json(VECTORS)
+
+
+def rows_by_id(path):
+    return {row["id"]: row for row in load_json(path)["rows"]}
+
+
+def threshold(row_id):
+    return rows_by_id(THRESHOLDS)[row_id]
+
+
+def fraction_of(value):
+    """Exact Fraction of a JSON number as written (0.01 is 1/100, not its binary64)."""
+    return Fraction(repr(value)) if isinstance(value, float) else Fraction(value)
+
+
+def seconds(value, unit):
+    factor = {"s": Fraction(1), "ms": Fraction(1, 1000), "h": Fraction(3600)}
+    assert unit in factor, f"not a time unit: {unit}"
+    return fraction_of(value) * factor[unit]
+
+
+def accuracy_hz():
+    row = threshold("frequency-accuracy")
+    assert row["unit"] == "Hz", row
+    return fraction_of(row["value"])
+
+
+def drift_bound_s():
+    row = threshold("drift-8h")
+    return seconds(row["value"], row["unit"])
+
+
+def session_s():
+    row = rows_by_id(RANGES)["session-length"]
+    return seconds(row["value"]["max"], row["unit"])
+
+
+def sine_bound_dbfs():
+    row = threshold("sine-error")
+    assert row["unit"] == "dBFS", row
+    return row["value"]
+
+
+def sample_rates():
+    return list(rows_by_id(RANGES)["sample-rates"]["value"])
+
+
+def hz_ranges():
+    return [row for row in load_json(RANGES)["rows"]
+            if row["unit"] == "Hz" and isinstance(row["value"], dict)]
+
+
+def spec_increment(f_hz, fs):
+    """The spec increment rule in exact arithmetic (f_hz is a binary64 float)."""
+    if not (f_hz >= 0.0 and f_hz < fs / 2):
+        return 0
+    if f_hz == 0.0:
+        return 0
+    q = float(Fraction(f_hz) * CYCLE / fs)  # correctly rounded: one binary64 division
+    return round(Fraction(q))  # Fraction rounds half to even
+
+
+def run(*args):
+    result = subprocess.run([sys.executable, *map(str, args)], capture_output=True,
+                            text=True, timeout=300)
+    return result.returncode, result.stdout + result.stderr
+
+
+# ------------------------------------------------------------ generator
+
+
+def test_generator_check_passes_on_repo_file():
+    code, out = run(GENERATOR, "--check")
+    assert code == 0, out
+
+
+def test_generator_check_fails_on_tampered_copy(tmp_path, monkeypatch, capsys):
+    # In process, with build() returning the repo file's data: a fresh build
+    # takes about 14 s, and the test above already proves the file equals one.
+    gen = load_module("signal_spec_vectors", GENERATOR)
+    monkeypatch.setattr(gen, "build", lambda: load_json(VECTORS))
+    untouched = tmp_path / "untouched.json"
+    untouched.write_text(VECTORS.read_text(encoding="utf-8"), encoding="utf-8", newline="\n")
+    assert gen.main(["signal_spec_vectors.py", "--check", "--out", str(untouched)]) == 0
+    data = load_json(VECTORS)
+    data["increments"][0]["inc"] = str(int(data["increments"][0]["inc"]) + 1)
+    tampered = tmp_path / "signal_spec_vectors.json"
+    tampered.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8", newline="\n")
+    assert gen.main(["signal_spec_vectors.py", "--check", "--out", str(tampered)]) == 1
+    assert "differs" in capsys.readouterr().out
+
+
+# ------------------------------------------------------ spec doc vs JSON
+
+
+def table_blocks(text):
+    """Every Markdown table in text, as a tuple of its stripped lines."""
+    blocks, current = [], []
+    for line in text.splitlines():
+        if line.lstrip().startswith("|"):
+            current.append(line.strip())
+        elif current:
+            blocks.append(tuple(current))
+            current = []
+    if current:
+        blocks.append(tuple(current))
+    return blocks
+
+
+def doc_vector_tables(text):
+    """Tables of each '### Vectors: ...' section, plus the coefficient table."""
+    tables, heading = [], None
+    section = []
+    for line in text.splitlines() + ["### end"]:
+        if line.startswith("#"):
+            if heading is not None and heading.startswith("### Vectors:"):
+                found = table_blocks("\n".join(section))
+                assert found, f"no table under {heading}"
+                tables.extend(found)
+            heading, section = line.strip(), []
+        else:
+            section.append(line)
+    tables.extend(b for b in table_blocks(text) if b[0].startswith("| Power | Exact |"))
+    return tables
+
+
+def doc_table_problems(text, data):
+    gen = load_module("signal_spec_vectors", GENERATOR)
+    generated = table_blocks(gen.tables(data))
+    in_doc = doc_vector_tables(text)
+    problems = []
+    for block in generated:
+        if block not in in_doc:
+            problems.append(f"generated table missing from the spec: {block[0]} ... {block[-1]}")
+    for block in in_doc:
+        if block not in generated:
+            problems.append(f"spec table not in the JSON: {block[0]} ... {block[-1]}")
+    return generated, in_doc, problems
+
+
+def test_spec_tables_equal_json(vectors):
+    generated, in_doc, problems = doc_table_problems(SPEC_DOC.read_text(encoding="utf-8"),
+                                                     vectors)
+    assert len(generated) == 6, generated
+    assert len(in_doc) == len(generated), [b[0] for b in in_doc]
+    assert not problems, "\n".join(problems)
+
+
+def test_spec_table_mismatch_is_caught(vectors):
+    text = SPEC_DOC.read_text(encoding="utf-8")
+    inc = vectors["increments"][0]["inc"]
+    doctored = text.replace(f"| {inc} |", f"| {int(inc) + 1} |", 1)
+    assert doctored != text
+    _, _, problems = doc_table_problems(doctored, vectors)
+    assert problems
+
+
+# ------------------------------------------------------- reference ideal
+
+
+def test_ideal_phase_increment_vectors(vectors):
+    mod = ideal()
+    for v in vectors["increments"]:
+        f = float.fromhex(v["f_hex"])
+        got = mod.phase_increment(f, v["fs"])
+        assert isinstance(got, int), (v["label"], type(got))
+        assert got == int(v["inc"]), (v["case"], v["label"], v["fs"], got)
+
+
+def test_ideal_seconds_to_samples_vectors(vectors):
+    mod = ideal()
+    for v in vectors["samples"]:
+        t = float.fromhex(v["t_hex"])
+        got = mod.seconds_to_samples(t, v["fs"])
+        assert isinstance(got, int), (v["label"], type(got))
+        assert got == int(v["n"]), (v["case"], v["label"], v["fs"], got)
+
+
+def close_to_decimal(value, text, tol=IDEAL_TOL):
+    return abs(Decimal(repr(float(value))) - Decimal(text)) <= Decimal(repr(tol))
+
+
+def sine_vectors(vectors):
+    rows = [(f"phase {v['label']}", int(v["phase"]), v["sine"]) for v in vectors["exact_phases"]]
+    rows += [(f"450 Hz carrier, unmodulated, sample {v['n']}", int(v["phase"]), v["sine"])
+             for v in vectors["carrier_450_44100"]["samples"]]
+    return rows
+
+
+def test_ideal_sine_scalar_vectors(vectors):
+    mod = ideal()
+    for label, phase, sine in sine_vectors(vectors):
+        got = mod.ideal_sine(phase)
+        assert np.ndim(got) == 0, label
+        assert close_to_decimal(got, sine), (label, float(got), sine)
+
+
+def test_ideal_sine_array_vectors(vectors):
+    mod = ideal()
+    rows = sine_vectors(vectors)
+    phases = np.array([p for _, p, _ in rows], dtype=np.uint64)
+    got = mod.ideal_sine(phases)
+    assert isinstance(got, np.ndarray) and got.dtype == np.float64, type(got)
+    assert got.shape == phases.shape
+    for (label, _, sine), value in zip(rows, got):
+        assert close_to_decimal(value, sine), (label, float(value), sine)
+
+
+def test_ideal_sine_mismatch_is_caught(vectors):
+    for label, _, sine in sine_vectors(vectors):
+        assert not close_to_decimal(float(Decimal(sine)) + 4 * IDEAL_TOL, sine), label
+
+
+def test_render_probe_segment(vectors):
+    mod = ideal()
+    carrier = vectors["carrier_450_44100"]
+    fs = carrier["fs"]
+    f = float(carrier["f_hz"])
+    inc = int(carrier["inc"])
+    n = 44101
+    seg = mod.render_probe_segment(f, fs, n)
+    assert isinstance(seg, np.ndarray) and seg.dtype == np.float64
+    assert seg.shape == (n,)
+    phases = (np.arange(n, dtype=np.uint64) * np.uint64(inc))  # wraps mod 2^64
+    assert np.array_equal(seg, mod.ideal_sine(phases))
+    for v in carrier["samples"]:
+        if v["n"] < n:
+            assert close_to_decimal(seg[v["n"]], v["sine"]), v["n"]
+
+
+def test_probe_sine_component():
+    mod = ideal()
+    assert tuple(mod.PROBE_CARRIERS_HZ) == (1.0, 450.0, 1000.0)
+    for fs in sample_rates():
+        comp = mod.probe_sine_component(fs)
+        assert isinstance(comp, np.ndarray) and comp.dtype == np.float64
+        assert comp.shape == (3 * fs,), comp.shape
+        assert np.all(np.isfinite(comp))
+        for i, f in enumerate(mod.PROBE_CARRIERS_HZ):
+            seg = comp[i * fs:(i + 1) * fs]
+            assert seg[0] == 0.0, (fs, f)  # each segment starts at phase 0
+            assert np.array_equal(seg, mod.render_probe_segment(f, fs, fs)), (fs, f)
+
+
+def test_ideal_does_not_implement_the_engine_polynomial(vectors):
+    assert IDEAL.is_file(), f"missing {IDEAL}"
+    source = IDEAL.read_text(encoding="utf-8").lower()
+    for c in vectors["sine_coefficients"]:
+        if c["power"] < 3:
+            continue
+        mantissa = c["hex"].lstrip("-").lower()
+        assert mantissa not in source, f"engine coefficient C{c['power']} in {IDEAL.name}"
+        assert mantissa.replace("0x", "") not in source, c["power"]
+        exact = float.fromhex(c["hex"])
+        assert repr(abs(exact)) not in source, f"engine coefficient C{c['power']} in decimal"
+    for k in (3, 5, 7, 9, 11):
+        factorial = str(math.factorial(k))
+        assert not re.search(rf"(?<![0-9.]){factorial}(?![0-9])", source), (
+            f"{k}! = {factorial} in {IDEAL.name}: Taylor code")
+    assert "factorial" not in source
+
+
+# --------------------------------------------- quantization and drift
+
+
+def quantization(f_hz, fs, inc):
+    """Exact played-frequency error in Hz and drift in seconds over the session."""
+    f = Fraction(f_hz)
+    err = abs(Fraction(inc * fs, CYCLE) - f)
+    drift = err * session_s() / f if f > 0 else Fraction(0)
+    return err, drift
+
+
+def range_endpoints():
+    for row in hz_ranges():
+        for end in ("min", "max"):
+            for fs in sample_rates():
+                yield row["id"], end, float(row["value"][end]), fs
+
+
+def test_hz_range_rows_present():
+    found = {row["id"] for row in hz_ranges()}
+    assert set(HZ_RANGE_IDS) <= found, sorted(found)
+
+
+@pytest.mark.parametrize("row_id, end, f_hz, fs", list(range_endpoints()))
+def test_endpoint_quantization_and_drift_exact(row_id, end, f_hz, fs):
+    inc = spec_increment(f_hz, fs)
+    if f_hz == 0.0:
+        assert inc == 0
+        return
+    err, drift = quantization(f_hz, fs, inc)
+    assert err < accuracy_hz(), (row_id, end, fs, float(err))
+    assert drift < drift_bound_s(), (row_id, end, fs, float(drift))
+
+
+@pytest.mark.parametrize("row_id, end, f_hz, fs", list(range_endpoints()))
+def test_ideal_increment_matches_exact_rule_at_endpoints(row_id, end, f_hz, fs):
+    assert ideal().phase_increment(f_hz, fs) == spec_increment(f_hz, fs), (row_id, end, fs)
+
+
+def test_endpoint_doctored_increment_fails():
+    acc = accuracy_hz()
+    for row_id, end, f_hz, fs in range_endpoints():
+        if f_hz == 0.0:
+            continue
+        offset = math.ceil(2 * acc * CYCLE / fs)
+        err, drift = quantization(f_hz, fs, spec_increment(f_hz, fs) + offset)
+        assert err >= acc, (row_id, end, fs)
+        assert drift >= drift_bound_s(), (row_id, end, fs)
+
+
+def analytic_bounds(f_lo, f_hi, fs, cycle=CYCLE):
+    """Worst case over (0 <) f_lo <= f <= f_hi of the error and drift of the rule.
+
+    |inc - f*cycle/fs| <= 1/2 (integer rounding) + ulp(q)/2 (division
+    rounding), and ulp(q)/2 <= q * 2^-53. Error in Hz is that times fs/cycle;
+    drift is error * T / f. The 1/2 term is worst at f_lo, the ulp term is at
+    most 2^-53 * T for every f.
+    """
+    q_hi = Fraction(f_hi) * cycle / fs
+    half_ulp_hi = Fraction(math.ulp(float(q_hi))) / 2
+    err = (Fraction(1, 2) + half_ulp_hi) * fs / cycle
+    drift = Fraction(1, 2) * fs / cycle * session_s() / Fraction(f_lo) + session_s() * Fraction(1, 2**53)
+    return err, drift
+
+
+def analytic_rows():
+    for row in hz_ranges():
+        lo = fraction_of(row["value"]["min"])
+        hi = fraction_of(row["value"]["max"])
+        f_lo = lo if lo > 0 else GRID_STEP_HZ
+        for fs in sample_rates():
+            yield row["id"], f_lo, hi, fs
+
+
+@pytest.mark.parametrize("row_id, f_lo, f_hi, fs", list(analytic_rows()))
+def test_analytic_worst_case_bound(row_id, f_lo, f_hi, fs):
+    err, drift = analytic_bounds(f_lo, f_hi, fs)
+    assert err < accuracy_hz(), (row_id, fs, float(err))
+    assert drift < drift_bound_s(), (row_id, fs, float(drift))
+
+
+def test_analytic_bound_fails_for_a_32_bit_accumulator():
+    """Must fail: with a 2^32 cycle the 8-hour drift at the grid floor exceeds the bound."""
+    failed = False
+    for row_id, f_lo, f_hi, fs in analytic_rows():
+        _, drift = analytic_bounds(f_lo, f_hi, fs, cycle=2**32)
+        failed = failed or drift >= drift_bound_s()
+    assert failed
+
+
+# ----------------------------------------------------------- tables files
+
+
+def table_row_problems(rows):
+    problems = []
+    ids = [row.get("id") for row in rows]
+    if len(ids) != len(set(ids)):
+        problems.append(f"duplicate ids: {ids}")
+    for row in rows:
+        for key in ("id", "value", "unit", "source"):
+            if key not in row:
+                problems.append(f"{row.get('id')}: missing {key}")
+        for key in ("id", "unit", "source"):
+            if key in row and (not isinstance(row[key], str) or not row[key].strip()):
+                problems.append(f"{row.get('id')}: empty {key}")
+    return problems
+
+
+@pytest.mark.parametrize("path", [THRESHOLDS, RANGES], ids=["thresholds", "ranges"])
+def test_table_rows_well_formed(path):
+    rows = load_json(path)["rows"]
+    assert rows
+    assert not table_row_problems(rows), table_row_problems(rows)
+
+
+def test_table_row_problems_are_caught():
+    rows = load_json(THRESHOLDS)["rows"]
+    doctored = [dict(rows[0], source=""), dict(rows[1])]
+    doctored[1].pop("unit")
+    doctored.append(dict(rows[2]))
+    doctored.append(dict(rows[2]))
+    problems = table_row_problems(doctored)
+    assert any("empty source" in p for p in problems), problems
+    assert any("missing unit" in p for p in problems), problems
+    assert any("duplicate" in p for p in problems), problems
+
+
+# This one test pins the files to the story spec and thresholds-and-ranges.md,
+# so it carries the values as literals on purpose.
+EXPECTED_THRESHOLDS = {
+    "sine-error": (-120, "dBFS"),
+    "frequency-accuracy": (0.01, "Hz"),
+    "drift-8h": (1, "ms"),
+}
+EXPECTED_RANGES = {
+    "theta-rate": ({"min": 1, "max": 6}, "Hz"),
+    "theta-carrier": ({"min": 100, "max": 500}, "Hz"),
+    "gamma-rate": ({"min": 30, "max": 60}, "Hz"),
+    "gamma-carrier": ({"min": 200, "max": 500}, "Hz"),
+    "binaural-carrier": ({"min": 0, "max": 1000}, "Hz"),
+    "binaural-carrier-right": ({"min": 0, "max": 1030}, "Hz"),
+    "beat-rate": ({"min": 0, "max": 30}, "Hz"),
+    "session-length": ({"min": 0, "max": 8}, "h"),
+    "sample-rates": ([44100, 48000], "Hz"),
+}
+
+
+def test_threshold_values_match_spec():
+    rows = rows_by_id(THRESHOLDS)
+    assert set(rows) == set(EXPECTED_THRESHOLDS)
+    for row_id, (value, unit) in EXPECTED_THRESHOLDS.items():
+        assert rows[row_id]["value"] == value, row_id
+        assert rows[row_id]["unit"] == unit, row_id
+
+
+def test_range_values_match_spec():
+    rows = rows_by_id(RANGES)
+    assert set(rows) == set(EXPECTED_RANGES)
+    for row_id, (value, unit) in EXPECTED_RANGES.items():
+        assert rows[row_id]["value"] == value, row_id
+        assert rows[row_id]["unit"] == unit, row_id
+    right = rows["binaural-carrier-right"]["value"]["max"]
+    assert right == rows["binaural-carrier"]["value"]["max"] + rows["beat-rate"]["value"]["max"]
+
+
+def test_threshold_values_appear_in_thresholds_and_ranges_md():
+    text = (REPO_ROOT / "_bmad-output" / "specs" / "spec-arcani-v0-1"
+            / "thresholds-and-ranges.md").read_text(encoding="utf-8")
+    for needle in ("within 0.01 Hz", "under 1 ms after an 8-hour render", "| 1 to 6 Hz |",
+                   "| 100 to 500 Hz |", "| 30 to 60 Hz", "| 200 to 500 Hz", "Below 1000 Hz",
+                   "0 to below 30 Hz", "Up to 8 h"):
+        assert needle in text, needle
