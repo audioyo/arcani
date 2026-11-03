@@ -22,8 +22,8 @@
   summary: Reproducible-binary flags (`/Brepro` on clang-cl, `-ffile-prefix-map` on clang) are not set; part 2 sets only the AD-9 output flags and warnings.
   evidence: Decided 2026-11-02 (Audio): no requirement asks for identical binaries, only identical output; design log 2026-11-02 (z). Revisit if a later story needs binary-level reproducibility.
 - source_spec: `_bmad-output/implementation-artifacts/spec-0-1-part-2-compile-flags-and-symbol-denylist.md`
-  summary: Scan `engine/` sources for floating-point pragmas (`#pragma clang fp`, `#pragma STDC FP_CONTRACT`, `#pragma float_control`, `#pragma fenv_access`) and fail, since they can re-enable contraction or reassociation while every compile flag looks clean.
-  evidence: Review pass 1 finding 7 (part 2); the flag check reads only command lines. No engine source has such a pragma yet; add before or with Story 0.2's first DSP code.
+  summary: (closed by Story 0.2) Scan `engine/` sources for floating-point pragmas (`#pragma clang fp`, `#pragma STDC FP_CONTRACT`, `#pragma float_control`, `#pragma fenv_access`) and fail, since they can re-enable contraction or reassociation while every compile flag looks clean.
+  evidence: Review pass 1 finding 7 (part 2); the flag check reads only command lines. No engine source has such a pragma yet; add before or with Story 0.2's first DSP code. Closed: `tools/check_fp_pragmas.py` runs in both workflows, with clean and must-fail fixtures.
 - source_spec: `_bmad-output/implementation-artifacts/spec-0-1-part-2-compile-flags-and-symbol-denylist.md`
   summary: Add an environment and locale family to the engine symbol denylist (`getenv`, `setlocale`, `localeconv`, `std::locale` constructors, locale-dependent `strtod`), so host settings cannot change engine results.
   evidence: Review pass 1 finding 20 (part 2); not one of the five families in the part 2 intent. Natural home is Story 1.6, which extends the denylist with unseeded randomness.
@@ -33,3 +33,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-0-1-part-3-four-platform-ci-and-hash-compare.md`
   summary: Run the NDK arm64 hash probe on a physical Android phone, in addition to the static binary on the hosted arm64 Linux runner.
   evidence: No phone is available yet (Audio, 2026-11-02); the hosted run uses real arm64 hardware and the real NDK compiler but not the Android OS. Design log 2026-11-02 (aa).
+- source_spec: `_bmad-output/implementation-artifacts/spec-0-2-engine-sine-oscillator-spike-that-ships.md`
+  summary: Story 0.3 absorbs `tests/tables/thresholds.json` and `tests/tables/ranges.json` (C++ and Python loaders, uncited-row failure, two-way coverage, design log gate) and replaces the configure-time header in `tests/cpp/SpecTables.cmake`.
+  evidence: Story 0.2 needed cited values before Story 0.3 builds the tables; its tests read the two interim files, never literals (design log 2026-11-03 (bb)).
+- source_spec: `_bmad-output/implementation-artifacts/spec-0-2-engine-sine-oscillator-spike-that-ships.md`
+  summary: Record the four-platform `sine-44100` and `sine-48000` hash result from the pull request's `full` run in design log 2026-11-03 (bb), or apply the defined fallback if a platform cannot match.
+  evidence: Pushing waits for Audio's go-ahead; local windows-x64 hashes are in the entry.
