@@ -7,7 +7,7 @@ Contract with the probe binary (tests/hashprobe/, target arcani-hashprobe):
   OUT_DIR/sine-48000.f32: raw little-endian float32, 3*fs samples each. Each
   holds the engine sine, unmodulated, 1 s each of the 1 Hz, 450 Hz, and
   1000 Hz carriers in that order, phase 0 at each segment start.
-- Each component is within the sine-error bound (tests/tables/thresholds.json)
+- Each component is within the sine-error bound (row sine-error, tests/tables)
   of reference/ideal.py `probe_sine_component(fs)`:
   20*log10(max|probe - ideal|) <= bound.
 - tests/hashprobe/main.cpp keeps the probe-arith component and its comment
@@ -33,10 +33,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from assertions import row as table_row
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 IDEAL = REPO_ROOT / "reference" / "ideal.py"
-THRESHOLDS = REPO_ROOT / "tests" / "tables" / "thresholds.json"
-RANGES = REPO_ROOT / "tests" / "tables" / "ranges.json"
 EXPECTED = REPO_ROOT / "ci" / "hash_expected.json"
 PROBE_SOURCE = REPO_ROOT / "tests" / "hashprobe" / "main.cpp"
 CMAKE = shutil.which("cmake")
@@ -49,17 +49,13 @@ else:
 PROBE_ARITH_SAMPLES = 4096
 
 
-def rows_by_id(path):
-    return {row["id"]: row for row in json.loads(path.read_text(encoding="utf-8"))["rows"]}
-
-
 def sine_bound_dbfs():
-    row = rows_by_id(THRESHOLDS)["sine-error"]
-    assert row["unit"] == "dBFS", row
-    return row["value"]
+    row = table_row("sine-error")
+    assert row.unit == "dBFS", row
+    return row.value
 
 
-SAMPLE_RATES = list(rows_by_id(RANGES)["sample-rates"]["value"])
+SAMPLE_RATES = [int(v) for v in table_row("sample-rates").values]
 
 
 def load_ideal():

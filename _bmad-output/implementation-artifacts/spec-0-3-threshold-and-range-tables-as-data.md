@@ -83,12 +83,12 @@ Decisions (2026-11-03, build agent, under Audio's standing "settle tech forks yo
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] QA agent, failing tests-only commit: loader, cross-check, md-mapping, table-log, coverage, and bound tests with fixtures under `tests/fixtures/tables/`.
-- [ ] `tests/tables/*.tsv`, `README.md` -- full tables.
-- [ ] `tests/assertions/*` -- loaders and assertion call, C++ and Python, plus `arcani-tables-dump`.
-- [ ] Port Story 0.2's C++ and Python tests, `SpecTables.cmake`, `tests/cpp/CMakeLists.txt`.
-- [ ] `tools/check_table_log.py`, `tools/check_row_coverage.py`, `.github/workflows/fast.yml`.
-- [ ] `docs/design-log.md`, `deferred-work.md`, `sprint-status.yaml` -- records.
+- [x] QA agent, failing tests-only commit: loader, cross-check, md-mapping, table-log, coverage, and bound tests with fixtures under `tests/fixtures/tables/`.
+- [x] `tests/tables/*.tsv`, `README.md` -- full tables.
+- [x] `tests/assertions/*` -- loaders and assertion call, C++ and Python, plus `arcani-tables-dump`.
+- [x] Port Story 0.2's C++ and Python tests, `SpecTables.cmake`, `tests/cpp/CMakeLists.txt`.
+- [x] `tools/check_table_log.py`, `tools/check_row_coverage.py`, `.github/workflows/fast.yml`.
+- [x] `docs/design-log.md`, `deferred-work.md`, `sprint-status.yaml` -- records.
 
 **Acceptance Criteria:**
 - Given a clean checkout, when the `windows-clang-cl` workflow preset, `uv run pytest`, and then both checks run, then everything passes, every md table row has a data row, and every data row is either used by an assertion or pending on a story that is not done.
@@ -97,6 +97,12 @@ Decisions (2026-11-03, build agent, under Audio's standing "settle tech forks yo
 ## Spec Change Log
 
 ## Implementation Notes
+
+- Tests-only commit 971b434 (fresh-context QA agent), written against an interface contract the build agent set: TSV header and number rules, `assertions.row`, `arcani::test::tables::row`, the dump line format (binary64 bits as 16 hex digits), tool flags and exit codes (0 pass, 1 problem, 2 setup error).
+- `sample-rates` moves to the thresholds table, the only one with a `value` column for a set. The md number rule exempts 0: it stands for a qualitative count or the floor of a range the md states only from above ("Below 1000 Hz", "Up to 8 h").
+- Usage files: `build/row-usage/pytest.txt` (conftest) and `build/row-usage/ctest.txt` (`ARCANI_ROW_USAGE_FILE` on the ctest entry). A partial local pytest run overwrites pytest.txt, so run the full suite before the coverage check.
+- The loader library and `arcani-tables-dump` are EXCLUDE_FROM_ALL, so the full-tier jobs that build everything do not change. The C++ loader parses numbers with `strtod`, not `from_chars`, because Apple clang 17's libc++ lacks floating-point `from_chars`.
+- Questions for Audio: (1) `loudness-master` (-16 LUFS-I) has no v0.1 story that asserts it; it is pending on 1.3, and that story must assert it or drop it. (2) `max-run-time-focus` and `max-run-time-learn` are recorded as fixed values (min equal to max), because the md gives only the starter values.
 
 ## Review Triage Log
 

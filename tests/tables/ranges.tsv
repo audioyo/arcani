@@ -1,0 +1,18 @@
+id	min	max	max_bound	unit	spec_row	source	pending
+theta-rate	1	6	inclusive	Hz	Theta reference rate (incl. delta and along rate curves)	thresholds-and-ranges.md, Locked ranges; Lee et al. 2024, Lega et al. 2016, Roberts et al. 2018, Jirakittayakorn and Wongsawat 2017; design log 2026-10-27 (h)	
+theta-carrier	100	500	inclusive	Hz	Theta reference carrier	thresholds-and-ranges.md, Locked ranges; Chaieb et al. 2017, Orozco Perez et al. 2020; 450 Hz engineering default; design log 2026-10-27 (h), (g)	
+theta-depth	0	100	inclusive	percent	Theta reference AM depth	thresholds-and-ranges.md, Locked ranges; engineering default; design log 2026-10-29 (s)	2-1-theta-reference-envelopes
+gamma-rate	30	60	inclusive	Hz	Gamma rate	thresholds-and-ranges.md, Locked ranges; design log 2026-10-27 (a)	
+gamma-carrier	200	500	inclusive	Hz	Gamma PAC carrier	thresholds-and-ranges.md, Locked ranges; engineering default; design log 2026-10-27 (g); the carrier rule (threshold row carrier-rule) raises the floor	
+coupling-phase	0	360	inclusive	degrees	Coupling phase	thresholds-and-ranges.md, Locked ranges; design log 2026-10-27 (b)	2-3-gamma-coupled-smooth-swell
+coupling-depth	0	100	inclusive	percent	Coupling depth	thresholds-and-ranges.md, Locked ranges; Ross et al. 2003; design log 2026-10-27 (h)	2-2-gamma-pac-layer-uncoupled
+burst-width	50	50	inclusive	ms	Burst width	thresholds-and-ranges.md, Locked ranges; fixed full width; Alekseichuk et al. 2016; design log 2026-10-27 (h), 2026-10-28 (o)	2-4-gamma-coupled-50-ms-bursts
+burst-edge	10	10	inclusive	ms	Burst width	thresholds-and-ranges.md, Locked ranges; raised-cosine edges inside the full width; design log 2026-10-28 (o)	2-4-gamma-coupled-50-ms-bursts
+binaural-carrier	0	1000	exclusive	Hz	Binaural carriers	thresholds-and-ranges.md, Locked ranges; Licklider et al. 1950, cited by Lopez-Caballero and Escera 2017; below 1000 Hz, no lower limit set, so the floor is 0 Hz	
+binaural-carrier-right	0	1030	exclusive	Hz		Derived: binaural-carrier max plus beat-rate max (the right ear carrier is the left carrier plus the beat rate)	
+beat-rate	0	30	exclusive	Hz	Binaural beat rate	thresholds-and-ranges.md, Locked ranges; design log 2026-10-27 (f)	
+session-length	0	8	inclusive	h	Session length	thresholds-and-ranges.md, Locked ranges; engineering default, the longest length the drift test proves; design log 2026-11-01 (u)	
+max-run-time-focus	45	45	inclusive	min	Looping max run time	thresholds-and-ranges.md, Locked ranges; engineering default, top of the Focus length range (listening-modes.md); design log 2026-10-27 (m)	2-7-looping-body-and-seams
+max-run-time-learn	20	20	inclusive	min	Looping max run time	thresholds-and-ranges.md, Locked ranges; engineering default, top of the Learn length range (listening-modes.md); design log 2026-10-27 (m)	2-7-looping-body-and-seams
+loudness-tones	-36	-36	inclusive	LUFS-I	Loudness levels	thresholds-and-ranges.md, Locked ranges; engineering default; design log 2026-10-27 (g), (m)	1-3-validator-framework-locked-ranges-and-carrier-rule
+loudness-master	-16	-16	inclusive	LUFS-I	Loudness levels	thresholds-and-ranges.md, Locked ranges; engineering default; design log 2026-10-27 (g)	1-3-validator-framework-locked-ranges-and-carrier-rule

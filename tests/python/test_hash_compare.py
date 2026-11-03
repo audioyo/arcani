@@ -718,3 +718,30 @@ def test_doctored_tolerance_bound_is_caught():
         bound_matches_row(doctored, fallback)
     message = str(info.value)
     assert "-90" in message and fallback.value_text in message, message
+
+
+def test_exact_mode_allows_the_cross_platform_row_count_of_differing_hashes(tmp_path, root):
+    """Row cross-platform: identical hashes across the matrix (0 differing hashes).
+
+    Exact mode passes with as many differing platform hashes as the row allows
+    and fails with one more (a one-LSB flip on one platform).
+    """
+    from assertions import row
+    allowed = row("cross-platform")
+    assert allowed.unit == "differing hashes", allowed
+    assert allowed.value == 0, allowed
+    samples = base_samples()
+    write_all(root, {p: {COMPONENT: samples} for p in PLATFORMS})
+    code, out = compare(tmp_path, root, write_expected(tmp_path, expected_for(samples)))
+    assert code == 0, out
+
+    flipped = list(samples)
+    flipped[5] = from_bits(to_bits(flipped[5]) ^ 1)
+    data = {p: {COMPONENT: samples} for p in PLATFORMS}
+    data["macos-arm64"] = {COMPONENT: flipped}
+    other = tmp_path / "one-more"
+    write_all(other, data)
+    differing = sum(1 for p in PLATFORMS if encode(data[p][COMPONENT]) != encode(samples))
+    assert differing == allowed.value + 1
+    code, out = compare(tmp_path, other, write_expected(tmp_path, expected_for(samples)))
+    assert code == 1, out

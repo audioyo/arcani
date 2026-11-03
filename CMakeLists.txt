@@ -46,6 +46,10 @@ add_subdirectory(cli)
 # Cross-platform hash probe (test only). Always built, so the Android NDK
 # build, which has no C++ tests, has it too.
 add_subdirectory(tests/hashprobe)
+# Threshold and range table loader and the test-only arcani-tables-dump
+# (Story 0.3). Added with tests off too, so the cross-check test can build the
+# dump without Catch2; both targets are EXCLUDE_FROM_ALL.
+add_subdirectory(tests/assertions)
 
 if(ARCANI_BUILD_TESTS)
   include(FetchContent)

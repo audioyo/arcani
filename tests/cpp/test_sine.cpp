@@ -1,5 +1,5 @@
 // Engine sine and SineOscillator (docs/signal-spec.md, Sine). The bound is
-// the sine-error row of tests/tables/thresholds.json; the vectors are the
+// the sine-error row of tests/tables/thresholds.tsv; the vectors are the
 // exact-phase and 450 Hz carrier tables of tests/data/signal_spec_vectors.json.
 // Signals: 450 Hz carrier, unmodulated, 44.1 kHz sample rate.
 
