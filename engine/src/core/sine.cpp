@@ -9,7 +9,8 @@ namespace {
 constexpr std::uint64_t kQuarter = std::uint64_t{1} << 62;  // 2^62: a quarter cycle
 constexpr std::uint64_t kHalf = std::uint64_t{1} << 63;     // 2^63: a half cycle
 
-// Binary64 nearest to pi, times 2^-62 (exact): radians per phase unit.
+// Binary64 nearest to pi, times 2^-63 (exact; equivalently pi/2 times 2^-62):
+// the binary64 nearest to 2 * pi / 2^64, radians per phase unit.
 constexpr double kRadiansPerUnit = 0x1.921fb54442d18p-62;
 
 // Binary64 nearest to +-1/k! (signal spec, Sine, Coefficients).

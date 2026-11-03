@@ -35,7 +35,7 @@ inc = q rounded to the nearest integer, ties to even, as an unsigned 64-bit inte
 
 Domain: `0 <= f_hz < fs / 2`. Any other `f_hz`, NaN and both infinities included, gives `inc = 0`. The rule never fails or throws. Negative zero is in the domain and gives `inc = 0`.
 
-An exact tie (`q` exactly k + 1/2) happens only at very small frequencies; the tie vectors below exercise it. `inc` is at most 2^63, so it always fits.
+An exact tie (`q` exactly k + 1/2) can happen whenever `q` is below 2^52, that is for `f_hz` below about `fs / 4096` (about 10.8 Hz at 44.1 kHz and 11.7 Hz at 48 kHz), which includes the theta rate band; at or above 2^52 every binary64 `q` is already an integer. The tie vectors below exercise it, both at tiny frequencies and in the 1 to 6 Hz band. `inc` is at most 2^63, so it always fits.
 
 **Frequency error.** The frequency the accumulator plays is `f_q = inc * fs / 2^64`. Two errors make up `|f_q - f_hz|`: the division rounding (at most half a unit in the last place of `q`) and the integer rounding (at most 1/2). For `f_hz` up to 1030 Hz, `q` is below 2^59, so `|inc - f_hz * 2^64 / fs|` is at most 32.5 and `|f_q - f_hz|` is at most `32.5 * fs / 2^64`, about 8.5e-14 Hz at 48 kHz.
 
@@ -94,6 +94,10 @@ Domain: `t_s >= 0` and finite, with `x < 2^64`. Any other `t_s` (negative, NaN, 
 | tie | q = 1/2 exactly | `0x1.7700000000000p-50` | 48000 | `0x1.0000000000000p-1` | 0 |
 | tie | q = 3/2 exactly | `0x1.1940000000000p-48` | 48000 | `0x1.8000000000000p+0` | 2 |
 | tie | q = 5/2 exactly | `0x1.d4c0000000000p-48` | 48000 | `0x1.4000000000000p+1` | 2 |
+| tie | q exactly k + 1/2 near 1.5 Hz (theta rate band) | `0x1.8000000000004p+0` | 44100 | `0x1.1d53a957d751cp+49` | 627440274615972 |
+| tie | q exactly k + 1/2 near 5.5 Hz (theta rate band) | `0x1.6000000000002p+2` | 44100 | `0x1.058cb09085603p+51` | 2300614340258562 |
+| tie | q exactly k + 1/2 near 1.5 Hz (theta rate band) | `0x1.8000000000000p+0` | 48000 | `0x1.0624dd2f1a9fcp+49` | 576460752303424 |
+| tie | q exactly k + 1/2 near 5.5 Hz (theta rate band) | `0x1.6000000000002p+2` | 48000 | `0x1.e098ead65b7a6p+50` | 2113689425112554 |
 | edge | largest binary64 below fs/2 | `0x1.5887fffffffffp+14` | 44100 | `0x1.fffffffffffffp+62` | 9223372036854774784 |
 | edge | zero | `0x0.0p+0` | 44100 | `0x0.0p+0` | 0 |
 | edge | negative zero | `-0x0.0p+0` | 44100 | `-0x0.0p+0` | 0 |
@@ -136,7 +140,8 @@ Domain: `t_s >= 0` and finite, with `x < 2^64`. Any other `t_s` (negative, NaN, 
 | out_of_range | negative | `-0x1.0000000000000p+0` | 48000 | `none` | 0 |
 | out_of_range | NaN | `nan` | 48000 | `none` | 0 |
 | out_of_range | infinity | `inf` | 48000 | `none` | 0 |
-| out_of_range | product at 2^64 | `0x1.5d867c3ece2a5p+49` | 48000 | `0x1.0000000000000p+65` | 0 |
+| out_of_range | product exactly 2^64 | `0x1.5d867c3ece2a5p+48` | 48000 | `0x1.0000000000000p+64` | 0 |
+| time | largest product below 2^64 | `0x1.5d867c3ece2a4p+48` | 48000 | `0x1.ffffffffffffep+63` | 18446744073709547520 |
 
 ### Vectors: phase steps
 
@@ -171,7 +176,7 @@ The engine owns its sine (AD-9: no libm). For a phase `p`:
    - otherwise `s` is unchanged.
 
    Each step is exact in 64-bit integer arithmetic (compute it in unsigned arithmetic modulo 2^64 and read the result as signed).
-2. **Convert once.** `x = double(s) * 0x1.921fb54442d18p-62`. `double(s)` is the one int64-to-binary64 conversion (round to nearest, ties to even). The constant is the binary64 nearest to pi, scaled by 2^-62 (exact), so it is the binary64 nearest to `2 * pi / 2^64`; the multiply is one rounding. `x` lies in `[-pi/2, pi/2]`.
+2. **Convert once.** `x = double(s) * 0x1.921fb54442d18p-62`. `double(s)` is the one int64-to-binary64 conversion (round to nearest, ties to even). The constant is the binary64 nearest to pi, scaled by 2^-63 (exact; equivalently pi/2 times 2^-62), so it is the binary64 nearest to `2 * pi / 2^64`; the multiply is one rounding. `x` lies in `[-pi/2, pi/2]`.
 3. **Odd Taylor polynomial to x^11, fixed Horner order.** With the coefficients below:
 
    ```
@@ -240,3 +245,35 @@ Unmodulated sine, 450 Hz carrier, 44.1 kHz, `phase[0] = 0`, `inc = 1882320823847
 | 1000 | 3764641647695811840 | 0.9586678530366591664698263 |
 | 44100 | 18446744073708889216 | -2.256214934649333759975634e-13 |
 | 1270080000 | 18446744054632431616 | -6.497899011790081183003362e-9 |
+
+### Vectors: engine sine bits
+
+The engine sine algorithm above (steps 1 to 3), evaluated by `tools/signal_spec_vectors.py` in binary64 in the exact operation order, written as the 64-bit pattern of the binary64 result (big-endian hex). These pin the engine's exact output: a wrong constant or a reordered step can stay within the error bound but changes these bits. Phases: the exact phases, each quadrant edge's neighbours, and the 450 Hz carrier samples above. The Python reference never implements this algorithm; it renders the ideal sine.
+
+| Engine sine case | Phase | Engine sine (binary64 bits) |
+| --- | --- | --- |
+| 0 | 0 | `0x0000000000000000` |
+| 2^61 | 2305843009213693952 | `0x3fe6a09e667e480a` |
+| 2^62 | 4611686018427387904 | `0x3fefffffe1cbd435` |
+| 2^63 | 9223372036854775808 | `0x0000000000000000` |
+| 3*2^62 | 13835058055282163712 | `0xbfefffffe1cbd435` |
+| 0 - 1 | 18446744073709551615 | `0xbc1921fb54442d18` |
+| 0 + 1 | 1 | `0x3c1921fb54442d18` |
+| 2^62 - 1 | 4611686018427387903 | `0x3fefffffe1cbd435` |
+| 2^62 + 1 | 4611686018427387905 | `0x3fefffffe1cbd435` |
+| 2^63 - 1 | 9223372036854775807 | `0x3c1921fb54442d18` |
+| 2^63 + 1 | 9223372036854775809 | `0xbc1921fb54442d18` |
+| 3*2^62 - 1 | 13835058055282163711 | `0xbfefffffe1cbd435` |
+| 3*2^62 + 1 | 13835058055282163713 | `0xbfefffffe1cbd435` |
+| 450 Hz carrier at 44.1 kHz, n = 0 | 0 | `0x0000000000000000` |
+| 450 Hz carrier at 44.1 kHz, n = 1 | 188232082384791328 | `0x3fb066e7eb76f5c7` |
+| 450 Hz carrier at 44.1 kHz, n = 2 | 376464164769582656 | `0x3fc05e4761ab8d8f` |
+| 450 Hz carrier at 44.1 kHz, n = 10 | 1882320823847913280 | `0x3fe323b8b1fb3a32` |
+| 450 Hz carrier at 44.1 kHz, n = 24 | 4517569977234991872 | `0x3feffbca6d4f6c6a` |
+| 450 Hz carrier at 44.1 kHz, n = 49 | 9223372036854775072 | `0x3cb2106ca4910069` |
+| 450 Hz carrier at 44.1 kHz, n = 73 | 13740942014089766944 | `0xbfeffbca6d4f6c6a` |
+| 450 Hz carrier at 44.1 kHz, n = 97 | 18258511991324758816 | `0xbfb066e7eb76f5ea` |
+| 450 Hz carrier at 44.1 kHz, n = 98 | 18446744073709550144 | `0xbcc2106ca4910069` |
+| 450 Hz carrier at 44.1 kHz, n = 1000 | 3764641647695811840 | `0x3feead683265b193` |
+| 450 Hz carrier at 44.1 kHz, n = 44100 | 18446744073708889216 | `0xbd4fc0def946e2b9` |
+| 450 Hz carrier at 44.1 kHz, n = 1270080000 | 18446744054632431616 | `0xbe3be883f9174d45` |

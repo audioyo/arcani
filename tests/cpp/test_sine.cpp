@@ -62,7 +62,10 @@ bool same_bits(double a, double b) {
 
 }  // namespace
 
-TEST_CASE("sine coefficient table holds the binary64 nearest to +-1/k!", "[sine][vectors]") {
+TEST_CASE("spec vector file's coefficient table holds the binary64 nearest to +-1/k!",
+          "[sine][vectors]") {
+  // Checks the data file only, not the engine's own constants; those are
+  // pinned by the engine sine bit-pattern test below.
   // One division of two exact binary64 values is correctly rounded, so
   // 1.0 / k! (k! is exact in binary64 up to 11!) is the nearest binary64.
   for (const auto& c : spec::kSineCoefficients) {
@@ -73,6 +76,17 @@ TEST_CASE("sine coefficient table holds the binary64 nearest to +-1/k!", "[sine]
     const double sign = ((c.power / 2) % 2 == 0) ? 1.0 : -1.0;
     INFO("power " << c.power);
     CHECK(same_bits(c.value, sign * (1.0 / factorial)));
+  }
+}
+
+TEST_CASE("engine sine output bits equal the spec algorithm's bits", "[sine][vectors][bits]") {
+  // tools/signal_spec_vectors.py evaluates the spec's engine sine in binary64
+  // in its exact operation order. A wrong constant or a reordered Horner step
+  // can stay under the error bound, but it changes these bits.
+  REQUIRE(sizeof(spec::kEngineSineBits) / sizeof(spec::kEngineSineBits[0]) > 0);
+  for (const auto& v : spec::kEngineSineBits) {
+    INFO(v.label << ", phase " << v.phase);
+    CHECK(std::bit_cast<std::uint64_t>(sine(v.phase)) == v.bits);
   }
 }
 
@@ -128,6 +142,8 @@ TEST_CASE("SineOscillator from phase 0 equals sine(n * inc) bit for bit",
 
 TEST_CASE("SineOscillator start phase and set_increment", "[sine][oscillator]") {
   const std::uint64_t inc = spec::kCarrierInc;
+  static_assert(sizeof(spec::kCarrierSamples) / sizeof(spec::kCarrierSamples[0]) > 3,
+                "the carrier table needs at least 4 samples");
   const std::uint64_t start = spec::kCarrierSamples[3].phase;
   SineOscillator osc(inc, start);
   CHECK(osc.phase() == start);

@@ -387,6 +387,42 @@
       "inc": "2"
     },
     {
+      "case": "tie",
+      "label": "q exactly k + 1/2 near 1.5 Hz (theta rate band)",
+      "f_hz": "1.5000000000000009",
+      "f_hex": "0x1.8000000000004p+0",
+      "fs": 44100,
+      "q_hex": "0x1.1d53a957d751cp+49",
+      "inc": "627440274615972"
+    },
+    {
+      "case": "tie",
+      "label": "q exactly k + 1/2 near 5.5 Hz (theta rate band)",
+      "f_hz": "5.500000000000002",
+      "f_hex": "0x1.6000000000002p+2",
+      "fs": 44100,
+      "q_hex": "0x1.058cb09085603p+51",
+      "inc": "2300614340258562"
+    },
+    {
+      "case": "tie",
+      "label": "q exactly k + 1/2 near 1.5 Hz (theta rate band)",
+      "f_hz": "1.5",
+      "f_hex": "0x1.8000000000000p+0",
+      "fs": 48000,
+      "q_hex": "0x1.0624dd2f1a9fcp+49",
+      "inc": "576460752303424"
+    },
+    {
+      "case": "tie",
+      "label": "q exactly k + 1/2 near 5.5 Hz (theta rate band)",
+      "f_hz": "5.500000000000002",
+      "f_hex": "0x1.6000000000002p+2",
+      "fs": 48000,
+      "q_hex": "0x1.e098ead65b7a6p+50",
+      "inc": "2113689425112554"
+    },
+    {
       "case": "edge",
       "label": "largest binary64 below fs/2",
       "f_hz": "22049.999999999996",
@@ -705,12 +741,21 @@
     },
     {
       "case": "out_of_range",
-      "label": "product at 2^64",
-      "t_s": "768614336404564.6",
-      "t_hex": "0x1.5d867c3ece2a5p+49",
+      "label": "product exactly 2^64",
+      "t_s": "384307168202282.3",
+      "t_hex": "0x1.5d867c3ece2a5p+48",
       "fs": 48000,
-      "product_hex": "0x1.0000000000000p+65",
+      "product_hex": "0x1.0000000000000p+64",
       "n": "0"
+    },
+    {
+      "case": "time",
+      "label": "largest product below 2^64",
+      "t_s": "384307168202282.25",
+      "t_hex": "0x1.5d867c3ece2a4p+48",
+      "fs": 48000,
+      "product_hex": "0x1.ffffffffffffep+63",
+      "n": "18446744073709547520"
     }
   ],
   "phase_steps": [
@@ -810,5 +855,132 @@
         "sine": "-6.497899011790081183003362e-9"
       }
     ]
-  }
+  },
+  "engine_sine_bits": [
+    {
+      "label": "0",
+      "phase": "0",
+      "bits": "0x0000000000000000"
+    },
+    {
+      "label": "2^61",
+      "phase": "2305843009213693952",
+      "bits": "0x3fe6a09e667e480a"
+    },
+    {
+      "label": "2^62",
+      "phase": "4611686018427387904",
+      "bits": "0x3fefffffe1cbd435"
+    },
+    {
+      "label": "2^63",
+      "phase": "9223372036854775808",
+      "bits": "0x0000000000000000"
+    },
+    {
+      "label": "3*2^62",
+      "phase": "13835058055282163712",
+      "bits": "0xbfefffffe1cbd435"
+    },
+    {
+      "label": "0 - 1",
+      "phase": "18446744073709551615",
+      "bits": "0xbc1921fb54442d18"
+    },
+    {
+      "label": "0 + 1",
+      "phase": "1",
+      "bits": "0x3c1921fb54442d18"
+    },
+    {
+      "label": "2^62 - 1",
+      "phase": "4611686018427387903",
+      "bits": "0x3fefffffe1cbd435"
+    },
+    {
+      "label": "2^62 + 1",
+      "phase": "4611686018427387905",
+      "bits": "0x3fefffffe1cbd435"
+    },
+    {
+      "label": "2^63 - 1",
+      "phase": "9223372036854775807",
+      "bits": "0x3c1921fb54442d18"
+    },
+    {
+      "label": "2^63 + 1",
+      "phase": "9223372036854775809",
+      "bits": "0xbc1921fb54442d18"
+    },
+    {
+      "label": "3*2^62 - 1",
+      "phase": "13835058055282163711",
+      "bits": "0xbfefffffe1cbd435"
+    },
+    {
+      "label": "3*2^62 + 1",
+      "phase": "13835058055282163713",
+      "bits": "0xbfefffffe1cbd435"
+    },
+    {
+      "label": "450 Hz carrier at 44.1 kHz, n = 0",
+      "phase": "0",
+      "bits": "0x0000000000000000"
+    },
+    {
+      "label": "450 Hz carrier at 44.1 kHz, n = 1",
+      "phase": "188232082384791328",
+      "bits": "0x3fb066e7eb76f5c7"
+    },
+    {
+      "label": "450 Hz carrier at 44.1 kHz, n = 2",
+      "phase": "376464164769582656",
+      "bits": "0x3fc05e4761ab8d8f"
+    },
+    {
+      "label": "450 Hz carrier at 44.1 kHz, n = 10",
+      "phase": "1882320823847913280",
+      "bits": "0x3fe323b8b1fb3a32"
+    },
+    {
+      "label": "450 Hz carrier at 44.1 kHz, n = 24",
+      "phase": "4517569977234991872",
+      "bits": "0x3feffbca6d4f6c6a"
+    },
+    {
+      "label": "450 Hz carrier at 44.1 kHz, n = 49",
+      "phase": "9223372036854775072",
+      "bits": "0x3cb2106ca4910069"
+    },
+    {
+      "label": "450 Hz carrier at 44.1 kHz, n = 73",
+      "phase": "13740942014089766944",
+      "bits": "0xbfeffbca6d4f6c6a"
+    },
+    {
+      "label": "450 Hz carrier at 44.1 kHz, n = 97",
+      "phase": "18258511991324758816",
+      "bits": "0xbfb066e7eb76f5ea"
+    },
+    {
+      "label": "450 Hz carrier at 44.1 kHz, n = 98",
+      "phase": "18446744073709550144",
+      "bits": "0xbcc2106ca4910069"
+    },
+    {
+      "label": "450 Hz carrier at 44.1 kHz, n = 1000",
+      "phase": "3764641647695811840",
+      "bits": "0x3feead683265b193"
+    },
+    {
+      "label": "450 Hz carrier at 44.1 kHz, n = 44100",
+      "phase": "18446744073708889216",
+      "bits": "0xbd4fc0def946e2b9"
+    },
+    {
+      "label": "450 Hz carrier at 44.1 kHz, n = 1270080000",
+      "phase": "18446744054632431616",
+      "bits": "0xbe3be883f9174d45"
+    }
+  ]
 }

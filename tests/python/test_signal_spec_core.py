@@ -234,7 +234,7 @@ def doc_table_problems(text, data):
 def test_spec_tables_equal_json(vectors):
     generated, in_doc, problems = doc_table_problems(SPEC_DOC.read_text(encoding="utf-8"),
                                                      vectors)
-    assert len(generated) == 6, generated
+    assert len(generated) == 7, generated
     assert len(in_doc) == len(generated), [b[0] for b in in_doc]
     assert not problems, "\n".join(problems)
 

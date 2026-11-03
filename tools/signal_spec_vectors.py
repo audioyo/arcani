@@ -19,6 +19,12 @@ engine or from binary64 library calls:
   Machin's formula, sine by its Taylor series after exact reduction), written
   with 25 significant digits.
 - Sine coefficients: the binary64 nearest to 1/k!, written as hex floats.
+- Engine sine bits: the spec's engine sine algorithm evaluated in Python
+  binary64 floats (IEEE 754, round to nearest, no fused multiply-add) in the
+  spec's exact operation order, written as the 64-bit pattern of the result.
+  This pins the engine's exact output bits: a wrong constant or a reordered
+  Horner step that stays under the error bound still changes them. It lives
+  here, in tools/, never in reference/ (the reference renders the ideal sine).
 
 Standard library only.
 """
@@ -27,6 +33,7 @@ import argparse
 import functools
 import json
 import math
+import struct
 import sys
 from decimal import Decimal, localcontext
 from fractions import Fraction
@@ -159,6 +166,34 @@ def dec(x):
 
 
 SINE_POWERS = (1, 3, 5, 7, 9, 11)
+# Binary64 nearest to pi, times 2^-63 (exact): the binary64 nearest to 2*pi/2^64.
+RADIANS_PER_UNIT_HEX = "0x1.921fb54442d18p-62"
+
+
+def engine_sine(phase):
+    """Spec engine sine (Sine, steps 1 to 3) in binary64, exact operation order."""
+    p = phase % CYCLE
+    # Step 1: exact integer fold, unsigned mod 2^64, then read as signed.
+    if CYCLE // 4 < p < CYCLE // 2 + CYCLE // 4:
+        p = (CYCLE // 2 - p) % CYCLE
+    s = p - CYCLE if p >= CYCLE // 2 else p
+    # Step 2: one conversion (Python's float(int) rounds to nearest, ties to
+    # even), then one multiply.
+    x = float(s) * float.fromhex(RADIANS_PER_UNIT_HEX)
+    # Step 3: fixed Horner order, one rounding per operation.
+    c = {r["power"]: float.fromhex(r["hex"]) for r in sine_coefficients()}
+    z = x * x
+    r = c[11]
+    r = r * z + c[9]
+    r = r * z + c[7]
+    r = r * z + c[5]
+    r = r * z + c[3]
+    r = r * z + c[1]
+    return r * x
+
+
+def bits(x):
+    return "0x" + struct.pack(">d", x).hex()
 
 
 def sine_coefficients():
@@ -202,6 +237,27 @@ INCREMENT_SIGNALS = (
 )
 
 
+def band_tie(base, fs):
+    """First binary64 f at or above base whose binary64 q is exactly k + 1/2."""
+    f = base
+    while True:
+        q = binary64(Fraction(f) * CYCLE / fs)
+        if Fraction(q) - math.floor(q) == Fraction(1, 2):
+            return f
+        f = math.nextafter(f, math.inf)
+
+
+def product_at_two_pow_64(fs):
+    """(t, t_below): smallest t with binary64(t*fs) == 2^64, and the binary64 below it."""
+    t = binary64(Fraction(CYCLE, fs))
+    while binary64(Fraction(t) * fs) >= 2.0**64:
+        t = math.nextafter(t, 0.0)
+    below = t
+    t = math.nextafter(t, math.inf)
+    assert binary64(Fraction(t) * fs) == 2.0**64
+    return t, below
+
+
 def increment_rows():
     rows = []
     for fs in RATES:
@@ -214,6 +270,13 @@ def increment_rows():
             f = binary64(Fraction(k * fs, 2**65))
             inc, q = increment(f, fs)
             rows.append({"case": "tie", "label": f"q = {k}/2 exactly",
+                         "f_hz": dec(f), "f_hex": hexf(f), "fs": fs,
+                         "q_hex": hexf(q), "inc": str(inc)})
+    for fs in RATES:
+        for base in (1.5, 5.5):
+            f = band_tie(base, fs)
+            inc, q = increment(f, fs)
+            rows.append({"case": "tie", "label": f"q exactly k + 1/2 near {base:g} Hz (theta rate band)",
                          "f_hz": dec(f), "f_hex": hexf(f), "fs": fs,
                          "q_hex": hexf(q), "inc": str(inc)})
     for fs in RATES:
@@ -252,13 +315,15 @@ def sample_rows():
         ("negative", -1.0, 48000),
         ("NaN", math.nan, 48000),
         ("infinity", math.inf, 48000),
-        ("product at 2^64", 2.0**64 / 48000 * 2, 48000),
+        ("product exactly 2^64", product_at_two_pow_64(48000)[0], 48000),
+        ("largest product below 2^64", product_at_two_pow_64(48000)[1], 48000),
     )
     rows = []
     for label, t, fs in cases:
         n, product = samples(t, fs)
         case = "tie" if label.startswith("tie") else (
-            "out_of_range" if label in ("negative", "NaN", "infinity", "product at 2^64") else "time")
+            "out_of_range" if label in ("negative", "NaN", "infinity", "product exactly 2^64")
+            else "time")
         rows.append({"case": case, "label": label, "t_s": dec(t), "t_hex": hexf(t), "fs": fs,
                      "product_hex": hexf(product) if product is not None else "none",
                      "n": str(n)})
@@ -293,6 +358,20 @@ def carrier_rows():
             "f_hz": "450.0", "fs": 44100, "inc": str(inc), "samples": rows}
 
 
+def engine_sine_rows():
+    rows = [{"label": label, "phase": str(p)} for label, p in EXACT_PHASES]
+    for label, edge in EXACT_PHASES[0:1] + EXACT_PHASES[2:]:
+        rows.append({"label": f"{label} - 1", "phase": str((edge - 1) % CYCLE)})
+        rows.append({"label": f"{label} + 1", "phase": str((edge + 1) % CYCLE)})
+    inc, _ = increment(450.0, 44100)
+    for n in CARRIER_SAMPLE_INDICES:
+        rows.append({"label": f"450 Hz carrier at 44.1 kHz, n = {n}",
+                     "phase": str((n * inc) % CYCLE)})
+    for r in rows:
+        r["bits"] = bits(engine_sine(int(r["phase"])))
+    return rows
+
+
 def build():
     return {
         "spec": "docs/signal-spec.md (sections core and sine)",
@@ -305,6 +384,7 @@ def build():
         "samples": sample_rows(),
         "phase_steps": phase_step_rows(),
         "carrier_450_44100": carrier_rows(),
+        "engine_sine_bits": engine_sine_rows(),
     }
 
 
@@ -347,6 +427,11 @@ def tables(data):
     out.append("| --- | --- | --- |")
     for r in c["samples"]:
         out.append(f"| {r['n']} | {r['phase']} | {r['sine']} |")
+    out.append("")
+    out.append("| Engine sine case | Phase | Engine sine (binary64 bits) |")
+    out.append("| --- | --- | --- |")
+    for r in data["engine_sine_bits"]:
+        out.append(f"| {r['label']} | {r['phase']} | `{r['bits']}` |")
     return "\n".join(out) + "\n"
 
 
