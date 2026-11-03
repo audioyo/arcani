@@ -85,7 +85,7 @@ jobs:
     needs: gate
     if: needs.gate.outputs.run == 'true'
     runs-on: windows-2025
-    timeout-minutes: 50
+    timeout-minutes: 20
     defaults:
       run:
         shell: pwsh
@@ -195,7 +195,7 @@ jobs:
     needs: gate
     if: needs.gate.outputs.run == 'true'
     runs-on: windows-11-arm
-    timeout-minutes: 60
+    timeout-minutes: 30
     defaults:
       run:
         shell: pwsh
@@ -305,7 +305,7 @@ jobs:
     needs: gate
     if: needs.gate.outputs.run == 'true'
     runs-on: macos-15
-    timeout-minutes: 40
+    timeout-minutes: 20
     env:
       ARCANI_PLATFORM: macos-arm64
     steps:
@@ -405,7 +405,7 @@ jobs:
     needs: gate
     if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 10
     steps:
       - name: Record job start
         shell: bash
@@ -503,7 +503,7 @@ jobs:
     name: android-arm64
     needs: android-build
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 20
+    timeout-minutes: 10
     env:
       ARCANI_PLATFORM: android-arm64
     steps:
@@ -557,7 +557,7 @@ jobs:
     needs: gate
     if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 50
+    timeout-minutes: 20
     steps:
       - name: Record job start
         shell: bash
