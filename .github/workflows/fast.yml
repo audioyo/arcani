@@ -30,7 +30,6 @@ jobs:
         run: |
           {
             echo "uv=$(jq -r '.uv.version' toolchain.json)"
-            echo "python=$(jq -r '.python.version' toolchain.json)"
           } >> "$GITHUB_OUTPUT"
 
       - name: Install pinned CMake, Ninja, LLVM (checksum-verified)
@@ -38,26 +37,30 @@ jobs:
           set -euo pipefail
           tools="$RUNNER_TEMP/tools"
           mkdir -p "$tools"
+          # fetch <tool>: downloads the pinned Linux x64 archive into
+          # $archive and verifies its SHA-256. Every failure returns non-zero.
           fetch() {
-            local url sha out
-            url=$(jq -r ".$1.linux_x64.url" toolchain.json)
-            sha=$(jq -r ".$1.linux_x64.sha256" toolchain.json)
-            out="$RUNNER_TEMP/$(basename "$url")"
-            curl -fsSL --retry 3 -o "$out" "$url"
-            echo "$sha  $out" | sha256sum -c -
-            echo "$out"
+            local url sha
+            url=$(jq -er ".$1.linux_x64.url" toolchain.json) || return 1
+            sha=$(jq -er ".$1.linux_x64.sha256" toolchain.json) || return 1
+            archive="$RUNNER_TEMP/$(basename "$url")"
+            curl -fsSL --retry 3 -o "$archive" "$url" || return 1
+            echo "$sha  $archive" | sha256sum -c - >&2 || return 1
           }
-          cmake_archive=$(fetch cmake | tail -n1)
+          fetch cmake || exit 1
+          cmake_archive="$archive"
           mkdir -p "$tools/cmake"
           tar -xzf "$cmake_archive" -C "$tools/cmake" --strip-components=1
           echo "$tools/cmake/bin" >> "$GITHUB_PATH"
 
-          ninja_archive=$(fetch ninja | tail -n1)
+          fetch ninja || exit 1
+          ninja_archive="$archive"
           mkdir -p "$tools/ninja"
           unzip -q "$ninja_archive" -d "$tools/ninja"
           echo "$tools/ninja" >> "$GITHUB_PATH"
 
-          llvm_archive=$(fetch llvm | tail -n1)
+          fetch llvm || exit 1
+          llvm_archive="$archive"
           mkdir -p "$tools/llvm"
           # Static libraries and the LLVM development headers are not needed;
           # the compiler's own headers under lib/clang are kept.
@@ -76,6 +79,9 @@ jobs:
           ninja --version
           clang++ --version
           uv --version
+          # Unpinned system parts the build uses, recorded for the log.
+          ldd --version | head -n1
+          dpkg-query -W -f='${Package} ${Version}\n' 'libstdc++6' 'libstdc++-*-dev' 2>/dev/null || true
 
       - name: Configure, build, ctest
         run: cmake --workflow --preset linux-clang
@@ -146,6 +152,8 @@ jobs:
           ninja --version
           clang-cl --version
           uv --version
+          # Unpinned MSVC toolset (STL) and Windows SDK, recorded for the log.
+          powershell -NoProfile -File tools/dev.ps1 cmd /c "echo VCToolsVersion=%VCToolsVersion% & echo WindowsSDKVersion=%WindowsSDKVersion%"
 
       - name: Configure, build, ctest
         run: powershell -NoProfile -File tools/dev.ps1 cmake --workflow --preset windows-clang-cl

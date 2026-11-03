@@ -10,18 +10,18 @@
 $ErrorActionPreference = 'Stop'
 
 if ($args.Count -lt 1) {
-    Write-Error 'usage: tools/dev.ps1 <command> [arguments...]'
+    [Console]::Error.WriteLine('usage: tools/dev.ps1 <command> [arguments...]')
     exit 2
 }
 
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
 if (-not (Test-Path $vswhere)) {
-    Write-Error "vswhere not found at $vswhere; install Visual Studio with the C++ workload"
+    [Console]::Error.WriteLine("vswhere not found at $vswhere; install Visual Studio with the C++ workload")
     exit 1
 }
 $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
 if (-not $vsPath) {
-    Write-Error 'No Visual Studio installation with the x64 C++ tools was found'
+    [Console]::Error.WriteLine('No Visual Studio installation with the x64 C++ tools was found')
     exit 1
 }
 $vcvars = Join-Path $vsPath 'VC\Auxiliary\Build\vcvars64.bat'
@@ -47,7 +47,7 @@ Add-PathEntries ([Environment]::GetEnvironmentVariable('Path', 'Machine'))
 # Capture the environment vcvars64.bat produces.
 $vsEnv = & cmd.exe /d /s /c "`"$vcvars`" >nul 2>&1 && set"
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "vcvars64.bat failed ($vcvars)"
+    [Console]::Error.WriteLine("vcvars64.bat failed ($vcvars)")
     exit 1
 }
 $vsPathValue = $null

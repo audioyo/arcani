@@ -1,3 +1,6 @@
+# Normalize text files to LF in the repo and the working tree.
+* text=auto eol=lf
+
 # Golden reference renders are large binaries; store them in Git LFS.
 golden/** filter=lfs diff=lfs merge=lfs -text
 # The folder README stays a normal text file.

@@ -93,3 +93,20 @@ def test_numpy_matches_pin():
 
 def test_pytest_matches_pin():
     assert pytest.__version__ == pin("pytest")
+
+
+def test_download_urls_carry_the_pinned_version():
+    # A version bump must come with the matching download URL (and hash).
+    checked = []
+    for name, entry in load_pins().items():
+        if not isinstance(entry, dict):
+            continue
+        version = entry.get("version")
+        candidates = [entry] + [v for v in entry.values() if isinstance(v, dict)]
+        for item in candidates:
+            url = item.get("url")
+            if url is None:
+                continue
+            checked.append(url)
+            assert isinstance(version, str) and version in url, f"{name}: {version} not in {url}"
+    assert checked, "toolchain.json records no download URLs"

@@ -2,7 +2,7 @@
 title: 'Story 0.1 part 1: build skeleton, local build, fast-tier CI, toolchain pin check'
 type: 'chore'
 created: '2026-11-02'
-status: 'in-progress'
+status: 'in-review'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: '7031b28c15579a62bcac49f77f4b78ef1c2c233d'
@@ -102,7 +102,34 @@ Dev PC state (2026-11-02): uv `C:\Users\goegl\.local\bin\uv.exe`, CMake `C:\User
 - `tools/dev.ps1` keeps the caller's PATH (plus user and machine PATH) ahead of the VS environment's additions, because VS ships its own CMake and Ninja.
 - `golden/README.md` is exempted from the LFS rule so the folder README stays plain text.
 - Not verified here: the GitHub workflow itself (no push without Audio's go-ahead). The Linux job could not be run locally (no WSL or Docker).
+- 2026-11-02: Smart App Control on the dev PC blocks `arcani_tests.exe` ("An Application Control policy has blocked this file"); pytest passes locally. Audio chose GitHub for C++ tests: fast run #1 on 8143c3b passed on windows-x64 and linux-x64.
+- Review pass 1 patches (findings 1, 2, 3, 5, 7, 12, 16, 17): Linux fetch no longer runs in a command substitution and every failure stops the step; dev.ps1 errors use stderr plus the intended exit code; unused output removed; MSVC toolset, Windows SDK, glibc, libstdc++ versions printed; `* text=auto eol=lf`; URL-carries-version test; `toolchain.json` in `CMAKE_CONFIGURE_DEPENDS`. Local: pytest 27 passed, clean build passes, dev.ps1 with no arguments exits 2.
 
 ## Spec Change Log
 
 ## Review Triage Log
+
+Review pass 1 (blind, edge-case, verification-gap layers).
+
+| # | Finding | Verdict | Evidence | Route |
+|---|---------|---------|----------|-------|
+| 1 | fast.yml Linux `fetch()` runs inside `$(...)`; errexit is cleared there, so a checksum mismatch does not stop the step | high | bash clears `-e` in command substitution without `inherit_errexit`; the final `echo` returns 0 and `tail` succeeds, so a mismatched archive is extracted | patch |
+| 2 | fast.yml `sha256sum -c` output shares stdout with the path, separated by `tail -n1` | low | real fragility, same root cause and fix as 1 | patch (with 1) |
+| 3 | dev.ps1 `Write-Error` under `ErrorActionPreference=Stop` throws, so `exit 2` / `exit 1` never run | low | terminating error exits 1 with a stack trace; usage case returns 1, not 2 | patch |
+| 4 | dev.ps1 header claims pinned tools stay ahead of everything | false | the comment says ahead of what VS adds, which the code does (caller PATH first, VS additions last); the pin check catches any other order | reject |
+| 5 | Linux job writes an unused `python` output | low | nothing reads it; direct deletion | patch |
+| 6 | uv picks the newest 3.14.x patch | low | pin is 3.14 by design; engine determinism does not depend on the Python patch | reject |
+| 7 | MSVC STL, Windows SDK, glibc/libstdc++ are unpinned and unrecorded | low | no current harm; part 3 hash compare detects drift; printing their versions in the Tool versions step is a trivial record | patch |
+| 8 | No warning, fp, or reproducibility flags in CMake | medium | AD-9 requires `-ffp-contract=off` and no fast-math; intent assigns the flag check to part 2 | defer |
+| 9 | Project version in CMake and pyproject not checked | low | pyproject has `package = false`; only the CMake version feeds the engine; fix adds a test | reject |
+| 10 | Catch2 cases not discoverable one by one | low | single entry works and reports failing cases in output; renaming is optional | reject |
+| 11 | CI checkout lacks `lfs: true` | false | Story 6.1 requires CI never downloads golden WAVs (LFS smudge off); hashes come from records | reject |
+| 12 | No line-ending rule in `.gitattributes` | low | every commit warns LF to CRLF; byte-sensitive text fixtures are coming (test vectors, tables); one-line `* text=auto eol=lf` | patch |
+| 13 | CLAUDE.md commands not checked against presets or the binary path | medium | text-only check; documented Render path can go stale | defer |
+| 14 | Only `push` trigger; forks and manual reruns | low | solo repo, own branches get checks; GitHub UI re-run exists; part 3 adds PR and nightly triggers | reject |
+| 15 | Windows LLVM bin path not checked after `msiexec /a` | low | CI run 1 proves the layout; a change would surface as a named pin mismatch | reject |
+| 16 | Ninja, Catch2, uv `version` pins not tied to what is downloaded | medium | changing `version` without the URL passes every test | patch |
+| 17 | `toolchain.json` not in `CMAKE_CONFIGURE_DEPENDS` | low | `file(READ)` does not trigger reconfigure; local build dirs keep stale pins | patch |
+| 18 | `test_pin_check.py` fails on hosts other than Windows or Linux | low | unreachable now; part 3 adds a macOS job running pytest | defer |
+| 19 | `test_repo_layout.py` raises StopIteration if no Commands line | low | cosmetic error message only | reject |
+| 20 | AC1 local ctest not met on the dev PC | medium | environment (Smart App Control), not code; recorded in Implementation Notes | defer |

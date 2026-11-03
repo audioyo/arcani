@@ -44,6 +44,8 @@ if(NOT CMAKE_CXX_COMPILER_ID)
       "expected CMake ${ARCANI_PIN_CMAKE}, found CMake ${CMAKE_VERSION}")
   endif()
   set(CMAKE_USER_MAKE_RULES_OVERRIDE "${CMAKE_CURRENT_LIST_FILE}")
+  # Re-run configure when the pins change.
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_arcani_toolchain_file}")
 else()
   # Pass 2: compiler identified, sanity try_compile not yet run.
   if(WIN32)
