@@ -2,9 +2,10 @@
 title: 'Story 0.1 part 1: build skeleton, local build, fast-tier CI, toolchain pin check'
 type: 'chore'
 created: '2026-11-02'
-status: 'ready-for-dev'
+status: 'in-progress'
 route: 'dispatch'
 review_loop_iteration: 0
+baseline_commit: '7031b28c15579a62bcac49f77f4b78ef1c2c233d'
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-0-context.md'
   - '{project-root}/CLAUDE.md'
@@ -60,17 +61,17 @@ Greenfield: only `docs/`, `_bmad*/`, `.claude/`, `.agents/`, `.gitignore`, `CLAU
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `toolchain.json` -- pin file with versions and SHA-256s (LLVM Windows x64 installer, LLVM Linux x64 tarball, Catch2 source archive) -- single source of truth.
-- [ ] `CMakeLists.txt`, `cmake/Pins.cmake`, `CMakePresets.json` -- C++20 project; read pins with `string(JSON)`; fail on version mismatch; Catch2 via FetchContent by URL plus hash; presets `windows-clang-cl` and `linux-clang` (Ninja, build dir `build/<preset>`).
-- [ ] `engine/include/arcani/arcani.h`, `engine/src/version.cpp`, `engine/CMakeLists.txt` -- static lib, `arc_engine_version()` returning a C string -- minimal public surface S1.2 builds on.
-- [ ] `cli/main.cpp`, `cli/CMakeLists.txt` -- `arcani-render` stub per the matrix; links only the public header target.
-- [ ] `tests/cpp/` -- Catch2 tests: engine version string, CLI stub behavior; registered with ctest.
-- [ ] `pyproject.toml`, `uv.lock`, `.python-version`, `tests/python/` -- Python 3.14 project, NumPy and pytest pinned; tests assert pinned versions match `toolchain.json` and the source tree exists.
-- [ ] `reference/`, `recipes/`, `golden/` -- placeholder README each; `.gitattributes` routes `golden/**` to Git LFS.
-- [ ] `tools/dev.ps1` -- enters the VS developer environment via vswhere, then runs the given cmake/ctest command, so clang-cl finds the Windows SDK and STL.
-- [ ] `.github/workflows/fast.yml` -- on push: windows-2025 and ubuntu-24.04 jobs install pinned LLVM, CMake, Ninja (checksum-verified), uv; configure, build, ctest, `uv run pytest`.
-- [ ] `CLAUDE.md` -- fill Build, C++ tests, Render commands.
-- [ ] `docs/design-log.md` -- entry (y): toolchain pins chosen for Story 0.1 (LLVM 23.1.4, Ninja 1.13.2, pytest 9.2.0), Windows x64 fast tier on a hosted runner until part 3 adds the guarded self-hosted runner, and the manual branch-protection step.
+- [x] `toolchain.json` -- pin file with versions and SHA-256s (LLVM Windows x64 installer, LLVM Linux x64 tarball, Catch2 source archive) -- single source of truth.
+- [x] `CMakeLists.txt`, `cmake/Pins.cmake`, `CMakePresets.json` -- C++20 project; read pins with `string(JSON)`; fail on version mismatch; Catch2 via FetchContent by URL plus hash; presets `windows-clang-cl` and `linux-clang` (Ninja, build dir `build/<preset>`).
+- [x] `engine/include/arcani/arcani.h`, `engine/src/version.cpp`, `engine/CMakeLists.txt` -- static lib, `arc_engine_version()` returning a C string -- minimal public surface S1.2 builds on.
+- [x] `cli/main.cpp`, `cli/CMakeLists.txt` -- `arcani-render` stub per the matrix; links only the public header target.
+- [x] `tests/cpp/` -- Catch2 tests: engine version string, CLI stub behavior; registered with ctest.
+- [x] `pyproject.toml`, `uv.lock`, `.python-version`, `tests/python/` -- Python 3.14 project, NumPy and pytest pinned; tests assert pinned versions match `toolchain.json` and the source tree exists.
+- [x] `reference/`, `recipes/`, `golden/` -- placeholder README each; `.gitattributes` routes `golden/**` to Git LFS.
+- [x] `tools/dev.ps1` -- enters the VS developer environment via vswhere, then runs the given cmake/ctest command, so clang-cl finds the Windows SDK and STL.
+- [x] `.github/workflows/fast.yml` -- on push: windows-2025 and ubuntu-24.04 jobs install pinned LLVM, CMake, Ninja (checksum-verified), uv; configure, build, ctest, `uv run pytest`.
+- [x] `CLAUDE.md` -- fill Build, C++ tests, Render commands.
+- [x] `docs/design-log.md` -- entry (y): toolchain pins chosen for Story 0.1 (LLVM 23.1.4, Ninja 1.13.2, pytest 9.2.0), Windows x64 fast tier on a hosted runner until part 3 adds the guarded self-hosted runner, and the manual branch-protection step.
 
 **Acceptance Criteria:**
 - Given a clean checkout on the dev PC, when `tools/dev.ps1` configures and builds the `windows-clang-cl` preset, then the engine, CLI stub, and test binary build, ctest passes, and `uv run pytest` passes on Python 3.14 from the lockfile.
@@ -82,6 +83,8 @@ Greenfield: only `docs/`, `_bmad*/`, `.claude/`, `.agents/`, `.gitignore`, `CLAU
 
 Windows x64 fast tier uses a hosted runner here because the repo is public (free) and the guarded self-hosted runner arrives with the Android work in part 3; the epic AC's runner layout is met when part 3 closes. Branch protection is a GitHub setting, so this story documents it and Audio applies it.
 
+Dev PC state (2026-11-02): uv `C:\Users\goegl\.local\bin\uv.exe`, CMake `C:\Users\goegl\.local\opt\cmake-4.4.5-windows-x86_64\bin`, Ninja via `uv tool` in `C:\Users\goegl\.local\bin`, LLVM `C:\Program Files\LLVM\bin`, VS 2022 Community with MSVC 14.44 and Windows SDK 10.0.26100. These are on the user PATH but may be missing from an already-open shell; prepend them when running locally. The QA agent's tests are committed (8288f1d) and define the contracts: `ARCANI_RENDER_PATH`, `toolchain.json` shape, `ARCANI_PIN_OVERRIDE_LLVM` / `ARCANI_PIN_OVERRIDE_CMAKE` (test-only cache variables), pin check firing before the compiler sanity try_compile. Make them pass; never edit them to pass.
+
 ## Verification
 
 **Commands:**
@@ -90,6 +93,15 @@ Windows x64 fast tier uses a hosted runner here because the repo is public (free
 - Configure with `-DCMAKE_CXX_COMPILER=cl` -- expected: fails naming expected and found compiler.
 
 ## Implementation Notes
+
+- Pin check lives in `cmake/Pins.cmake`, included before `project()` (CMake check) and registered as `CMAKE_USER_MAKE_RULES_OVERRIDE`, so CMake re-includes it from `CMakeCXXInformation.cmake` after compiler identification and before the sanity try_compile (compiler ID, version, and frontend check). Verified: `-DCMAKE_CXX_COMPILER=cl` fails with "expected clang-cl 23.1.4, found MSVC 19.44.35222.0".
+- Catch2 tests are registered as one ctest entry (`arcani_tests`). Per-case discovery was dropped: Catch2 parses the test name "--version prints ..." as a command-line option.
+- LLVM on the Windows runner comes from the release `.msi` (there is no `.exe` installer for 23.1.4), unpacked with `msiexec /a` into a private folder so the runner's preinstalled LLVM is untouched. Verified locally: the result has `LLVM/bin/clang-cl.exe` 23.1.4.
+- On Linux CI the 2 GB LLVM tarball is extracted without static libraries and LLVM development headers.
+- `toolchain.json` also records URL and SHA-256 for CMake and Ninja, since the workflow verifies them. `pyproject.toml` and `.python-version` restate the Python, NumPy, and pytest pins because uv requires it; `tests/python/test_toolchain.py` holds them equal to `toolchain.json`.
+- `tools/dev.ps1` keeps the caller's PATH (plus user and machine PATH) ahead of the VS environment's additions, because VS ships its own CMake and Ninja.
+- `golden/README.md` is exempted from the LFS rule so the folder README stays plain text.
+- Not verified here: the GitHub workflow itself (no push without Audio's go-ahead). The Linux job could not be run locally (no WSL or Docker).
 
 ## Spec Change Log
 

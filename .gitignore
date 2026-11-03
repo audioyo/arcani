@@ -7,3 +7,6 @@ _bmad/custom/*.user.toml
 __pycache__/
 *.pyc
 .venv/
+
+# Build outputs
+build/

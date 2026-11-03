@@ -1,0 +1,154 @@
+# Fast tier: build and test on every push, Windows x64 and Linux x64.
+# Tool versions and SHA-256s come from toolchain.json only.
+# Branch rule for main (applied by hand in GitHub settings, see the design log):
+# require the status checks "windows-x64" and "linux-x64" (workflow "fast") to pass.
+
+name: fast
+
+on:
+  push:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fast-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-x64:
+    name: linux-x64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Read pins from toolchain.json
+        id: pins
+        run: |
+          {
+            echo "uv=$(jq -r '.uv.version' toolchain.json)"
+            echo "python=$(jq -r '.python.version' toolchain.json)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install pinned CMake, Ninja, LLVM (checksum-verified)
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/tools"
+          mkdir -p "$tools"
+          fetch() {
+            local url sha out
+            url=$(jq -r ".$1.linux_x64.url" toolchain.json)
+            sha=$(jq -r ".$1.linux_x64.sha256" toolchain.json)
+            out="$RUNNER_TEMP/$(basename "$url")"
+            curl -fsSL --retry 3 -o "$out" "$url"
+            echo "$sha  $out" | sha256sum -c -
+            echo "$out"
+          }
+          cmake_archive=$(fetch cmake | tail -n1)
+          mkdir -p "$tools/cmake"
+          tar -xzf "$cmake_archive" -C "$tools/cmake" --strip-components=1
+          echo "$tools/cmake/bin" >> "$GITHUB_PATH"
+
+          ninja_archive=$(fetch ninja | tail -n1)
+          mkdir -p "$tools/ninja"
+          unzip -q "$ninja_archive" -d "$tools/ninja"
+          echo "$tools/ninja" >> "$GITHUB_PATH"
+
+          llvm_archive=$(fetch llvm | tail -n1)
+          mkdir -p "$tools/llvm"
+          # Static libraries and the LLVM development headers are not needed;
+          # the compiler's own headers under lib/clang are kept.
+          tar -xJf "$llvm_archive" -C "$tools/llvm" --strip-components=1 \
+            --exclude='*.a' --exclude='LLVM-*-Linux-X64/include'
+          rm -f "$llvm_archive"
+          echo "$tools/llvm/bin" >> "$GITHUB_PATH"
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: ${{ steps.pins.outputs.uv }}
+
+      - name: Tool versions
+        run: |
+          cmake --version
+          ninja --version
+          clang++ --version
+          uv --version
+
+      - name: Configure, build, ctest
+        run: cmake --workflow --preset linux-clang
+
+      - name: Python tests
+        run: uv run --locked pytest
+
+  windows-x64:
+    name: windows-x64
+    runs-on: windows-2025
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Read pins from toolchain.json
+        id: pins
+        run: |
+          $pins = Get-Content toolchain.json -Raw | ConvertFrom-Json
+          "uv=$($pins.uv.version)" >> $env:GITHUB_OUTPUT
+
+      - name: Install pinned CMake, Ninja, LLVM (checksum-verified)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ProgressPreference = 'SilentlyContinue'
+          $pins = Get-Content toolchain.json -Raw | ConvertFrom-Json
+          $tools = Join-Path $env:RUNNER_TEMP 'tools'
+          New-Item -ItemType Directory -Force $tools | Out-Null
+          function Get-Pinned($name) {
+            $entry = $pins.$name.windows_x64
+            $out = Join-Path $env:RUNNER_TEMP ([IO.Path]::GetFileName($entry.url))
+            Invoke-WebRequest -Uri $entry.url -OutFile $out -MaximumRetryCount 3
+            $found = (Get-FileHash -Algorithm SHA256 $out).Hash.ToLowerInvariant()
+            if ($found -ne $entry.sha256.ToLowerInvariant()) {
+              throw "$name checksum mismatch: expected $($entry.sha256), found $found"
+            }
+            return $out
+          }
+
+          $cmakeZip = Get-Pinned 'cmake'
+          Expand-Archive $cmakeZip -DestinationPath "$tools\cmake-extract"
+          $cmakeBin = (Get-ChildItem "$tools\cmake-extract" -Directory | Select-Object -First 1).FullName + '\bin'
+          $cmakeBin >> $env:GITHUB_PATH
+
+          $ninjaZip = Get-Pinned 'ninja'
+          Expand-Archive $ninjaZip -DestinationPath "$tools\ninja"
+          "$tools\ninja" >> $env:GITHUB_PATH
+
+          # Administrative install: unpacks the LLVM installer to a private
+          # folder without touching the LLVM preinstalled on the runner.
+          $llvmMsi = Get-Pinned 'llvm'
+          $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList @('/a', "`"$llvmMsi`"", '/qn', "TARGETDIR=`"$tools\llvm`"")
+          if ($p.ExitCode -ne 0) { throw "LLVM msiexec failed with exit code $($p.ExitCode)" }
+          Remove-Item $llvmMsi
+          "$tools\llvm\LLVM\bin" >> $env:GITHUB_PATH
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: ${{ steps.pins.outputs.uv }}
+
+      - name: Tool versions
+        run: |
+          cmake --version
+          ninja --version
+          clang-cl --version
+          uv --version
+
+      - name: Configure, build, ctest
+        run: powershell -NoProfile -File tools/dev.ps1 cmake --workflow --preset windows-clang-cl
+
+      - name: Python tests
+        run: uv run --locked pytest

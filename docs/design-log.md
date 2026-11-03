@@ -50,9 +50,19 @@ Sources point to `docs/research-library.md`, a research run under `_bmad-output/
 | Golden listening coverage | each starter in full at 48 kHz; 44.1 kHz copy spot-checked (opening, every loop seam and transition, ending); record lists what was heard | proposed | 2026-11-01 (v), amends (q) |
 | Relax gamma PAC fade-in | level ramp from silence to full over the first 2 min; AM depth, rate, and coupling unchanged | engineering default | 2026-11-01 (t), amends (r) |
 | Golden sign-off | two stages: provisional (Audio), full (second listener); bound to file hash; v0.1 closes on provisional | proposed | 2026-10-29 (q) |
+| Toolchain pins | `toolchain.json`: CMake 4.4.5, LLVM 23.1.4, Ninja 1.13.2, Catch2 3.16.1, Python 3.14, uv 0.13.6, NumPy 2.5.4, pytest 9.2.0 | proposed | 2026-11-02 (y) |
 | All other test thresholds | see project plan, Test thresholds (provisional) | provisional | project plan |
 
 ## Entries
+
+### 2026-11-02 (y): Toolchain pins for Story 0.1 and the fast-tier runner layout
+
+- **Decision:** the toolchain pins chosen in Story 0.1 are LLVM 23.1.4 (clang-cl on Windows, clang on Linux), Ninja 1.13.2, and pytest 9.2.0, alongside the already decided CMake 4.4.5, Catch2 3.16.1, Python 3.14, uv 0.13.6, and NumPy 2.5.4. `toolchain.json` at the repo root is the single source for every version and for the SHA-256 of each third-party download (LLVM, CMake, Ninja, Catch2). CMake configure fails, naming expected and found, when the CMake or C++ compiler version differs from the pin.
+- **Runner layout until part 3:** the Windows x64 fast tier runs on a GitHub-hosted `windows-2025` runner, and Linux on `ubuntu-24.04`. The repo is public, so both are free (no billed minutes). Part 3 of Story 0.1 adds the guarded self-hosted runner on the dev PC with the Android work; the epic's runner layout is met when part 3 closes.
+- **Manual step for Audio (branch rule):** in GitHub, Settings, Branches (or Rules, Rulesets), add a rule for `main`: require a pull request before merging, and require the status checks `windows-x64` and `linux-x64` from the `fast` workflow to pass, with "require branches to be up to date" on. After this, a failing fast-tier job blocks merge. The checks appear in the picker only after the workflow has run once on GitHub.
+- **Source:** Story 0.1 part 1 spec; versions verified installed on the dev PC; download hashes taken from the GitHub release asset digests and, for the Catch2 source archive, computed locally.
+- **Decided by:** Audio (split and hosted runner, 2026-11-02); pins chosen in Story 0.1.
+- **Status:** proposed.
 
 ### 2026-11-01 (x): Non-looping recipes also measure loudness over the steady part
 

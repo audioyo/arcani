@@ -65,12 +65,12 @@ Thresholds are in "Test thresholds (provisional)" in the plan. Every render is c
 - loudness and true peak
 - render speed
 
-Commands (fill in once the architecture step creates the build):
+Commands (Windows dev PC; on Linux use the `linux-clang` preset and drop the `powershell -File tools/dev.ps1` prefix). Tool versions live in `toolchain.json`:
 
-- Build: `TBD`
-- C++ tests: `TBD`
+- Build: `powershell -File tools/dev.ps1 cmake --workflow --preset windows-clang-cl` (configure, build, and run ctest)
+- C++ tests: `powershell -File tools/dev.ps1 ctest --preset windows-clang-cl`
 - Python reference and signal tests: `uv run pytest`
-- Render a recipe: `TBD`
+- Render a recipe: `build/windows-clang-cl/cli/arcani-render --version` (stub: prints the engine version until recipe rendering lands)
 
 Run the fast tests after every change. Do not commit with failing tests. Golden files change only after a human listening sign-off.
 
