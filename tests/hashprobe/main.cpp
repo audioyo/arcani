@@ -1,10 +1,11 @@
-// Cross-platform hash probe (Story 0.1 part 3, AD-9). Test-only: not part of
-// engine/ and not shipped.
+// Cross-platform hash probe (Story 0.1 part 3, Story 0.2, AD-9). Test-only:
+// not part of engine/ and not shipped.
 //
 // Usage: arcani-hashprobe OUT_DIR
 //
-// Writes one raw little-endian float32 file per component into OUT_DIR. No
-// hashing here: tools/hash_manifest.py hashes the files on the host.
+// Writes one raw little-endian float32 file per component into OUT_DIR
+// (probe-arith.f32, sine-44100.f32, sine-48000.f32). No hashing here:
+// tools/hash_manifest.py hashes the files on the host.
 //
 // Component probe-arith: a fixed sequence of float32 multiplies and adds whose
 // bits change if multiply-add contraction or fast-math is on. Its float32
@@ -20,7 +21,18 @@
 // the same bits. s stays inside (0, 1) (a logistic map), so a single rounding
 // difference spreads to almost every later sample.
 //
-// Story 0.2 adds the engine sine as a second component.
+// Components sine-44100 and sine-48000 (Story 0.2): the engine sine
+// (arcani::core::sine, docs/signal-spec.md, Sine), unmodulated, 1 s each of a
+// 1 Hz, a 450 Hz, and a 1000 Hz carrier at that sample rate, in that order.
+// Each segment starts at phase 0 and steps by the spec's increment rule; each
+// sample is the binary64 engine sine converted to float32. The sine is
+// computed inside the engine library, so ARCANI_HASHPROBE_EXTRA_FLAGS (which
+// reaches this file only) does not change these components. Their ideal
+// reference is reference/ideal.py (tests/python/test_probe_sine.py); across
+// platforms they are compared exactly against windows-x64.
+
+#include "core/phase.hpp"
+#include "core/sine.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -44,6 +56,20 @@ std::vector<float> probe_arith() {
     const float t = r * s;
     s = t - t * s;
     out[static_cast<std::size_t>(i)] = s * a + b;
+  }
+  return out;
+}
+
+constexpr double kSineCarriersHz[] = {1.0, 450.0, 1000.0};
+
+std::vector<float> probe_sine(std::uint32_t fs) {
+  std::vector<float> out;
+  out.reserve(static_cast<std::size_t>(fs) * (sizeof kSineCarriersHz / sizeof kSineCarriersHz[0]));
+  for (double carrier_hz : kSineCarriersHz) {
+    arcani::core::SineOscillator osc(arcani::core::phase_increment(carrier_hz, fs));
+    for (std::uint32_t n = 0; n < fs; ++n) {
+      out.push_back(static_cast<float>(osc.next()));
+    }
   }
   return out;
 }
@@ -76,11 +102,22 @@ int main(int argc, char** argv) {
     return 2;
   }
   const std::string out_dir = argv[1];
-  const std::string path = out_dir + "/probe-arith.f32";
-  if (!write_f32(path, probe_arith())) {
-    std::fprintf(stderr, "arcani-hashprobe: cannot write %s\n", path.c_str());
-    return 1;
+  struct Component {
+    const char* name;
+    std::vector<float> samples;
+  };
+  const Component components[] = {
+      {"probe-arith", probe_arith()},
+      {"sine-44100", probe_sine(44100)},
+      {"sine-48000", probe_sine(48000)},
+  };
+  for (const Component& c : components) {
+    const std::string path = out_dir + "/" + c.name + ".f32";
+    if (!write_f32(path, c.samples)) {
+      std::fprintf(stderr, "arcani-hashprobe: cannot write %s\n", path.c_str());
+      return 1;
+    }
+    std::printf("arcani-hashprobe: wrote %s (%zu samples)\n", path.c_str(), c.samples.size());
   }
-  std::printf("arcani-hashprobe: wrote %s (%d samples)\n", path.c_str(), kProbeArithSamples);
   return 0;
 }

@@ -9,6 +9,9 @@ set(ARCANI_HASHPROBE_EXTRA_FLAGS "" CACHE STRING
   "Test only: extra compile options for arcani-hashprobe. Never set in presets.")
 
 add_executable(arcani-hashprobe main.cpp)
+# The sine components come from the engine library (compiled without the
+# extra flags below), through the internal headers.
+target_link_libraries(arcani-hashprobe PRIVATE arcani::engine_internal)
 target_compile_options(arcani-hashprobe PRIVATE ${ARCANI_WARNING_FLAGS})
 if(ARCANI_HASHPROBE_EXTRA_FLAGS)
   target_compile_options(arcani-hashprobe PRIVATE ${ARCANI_HASHPROBE_EXTRA_FLAGS})

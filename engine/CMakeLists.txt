@@ -7,7 +7,10 @@
 set(ARCANI_ENGINE_TEST_EXTRA_SOURCE "" CACHE FILEPATH
   "Test only: one extra source compiled into arcani_engine. Never set in presets or CI.")
 
-set(_arcani_engine_sources src/version.cpp)
+set(_arcani_engine_sources
+  src/version.cpp
+  src/core/phase.cpp
+  src/core/sine.cpp)
 if(ARCANI_ENGINE_TEST_EXTRA_SOURCE)
   list(APPEND _arcani_engine_sources "${ARCANI_ENGINE_TEST_EXTRA_SOURCE}")
 endif()
@@ -21,6 +24,14 @@ target_include_directories(arcani_engine PUBLIC
 target_compile_definitions(arcani_engine PRIVATE
   ARC_ENGINE_VERSION_STRING="${PROJECT_VERSION}")
 target_compile_options(arcani_engine PRIVATE ${ARCANI_WARNING_FLAGS})
+# Internal headers (engine/src, for example core/sine.hpp) are private to the
+# engine. Tests and the hash probe reach them only through this separate
+# INTERFACE target; the C API header stays the only public include path.
+target_include_directories(arcani_engine PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+add_library(arcani_engine_internal INTERFACE)
+add_library(arcani::engine_internal ALIAS arcani_engine_internal)
+target_include_directories(arcani_engine_internal INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(arcani_engine_internal INTERFACE arcani_engine)
 
 # llvm-nm for tools/check_engine_symbols.py: only the one shipped with the
 # pinned compiler, never one from PATH. The compiler path may be a symlink
