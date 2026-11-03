@@ -1,0 +1,700 @@
+# Full tier: every pull request into main, nightly at 03:00 UTC, and manual
+# runs. Builds and tests on Windows x64, Windows arm64, macOS arm64, and the
+# Android NDK arm64 build (run as a static binary on a hosted arm64 Linux
+# runner), runs the hash probe on each, and compares the hashes (AD-9).
+# Tool versions and SHA-256s come from toolchain.json only. Every runner is
+# GitHub-hosted (design log 2026-11-02 (aa)).
+# Branch rule for main (applied by hand, see docs/ci-setup.md): require the
+# status check "verdict" from this workflow.
+
+name: full
+
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  gate:
+    name: gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+      reason: ${{ steps.gate.outputs.reason }}
+    steps:
+      - name: Record job start
+        shell: bash
+        run: echo "ARCANI_JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Read pins from toolchain.json
+        id: pins
+        run: echo "uv=$(jq -r '.uv.version' toolchain.json)" >> "$GITHUB_OUTPUT"
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: ${{ steps.pins.outputs.uv }}
+
+      - name: Last successful full runs on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/full.yml/runs?branch=main&status=success&per_page=100" > runs.json
+
+      - name: Decide run or nightly skip
+        id: gate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MAIN_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          uv run --no-project python tools/nightly_gate.py --event "$EVENT_NAME" --main-sha "$MAIN_SHA" \
+            --runs runs.json --github-output "$GITHUB_OUTPUT" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Wall time against budget
+        if: always()
+        shell: bash
+        run: uv run --no-project python tools/check_wall_time.py --tier full --job gate --start "$ARCANI_JOB_START"
+
+  windows-x64:
+    name: windows-x64
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: windows-2025
+    timeout-minutes: 50
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      ARCANI_PLATFORM: windows-x64
+      ARCANI_PIN_KEY: windows_x64
+    steps:
+      - name: Record job start
+        shell: bash
+        run: echo "ARCANI_JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Read pins from toolchain.json
+        id: pins
+        run: |
+          $pins = Get-Content toolchain.json -Raw | ConvertFrom-Json
+          "uv=$($pins.uv.version)" >> $env:GITHUB_OUTPUT
+
+      - name: Install pinned CMake, Ninja, LLVM (checksum-verified)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ProgressPreference = 'SilentlyContinue'
+          $pins = Get-Content toolchain.json -Raw | ConvertFrom-Json
+          $tools = Join-Path $env:RUNNER_TEMP 'tools'
+          New-Item -ItemType Directory -Force $tools | Out-Null
+          function Get-Pinned($name) {
+            $entry = $pins.$name.($env:ARCANI_PIN_KEY)
+            if (-not $entry) { throw "toolchain.json has no $name $($env:ARCANI_PIN_KEY) entry" }
+            $out = Join-Path $env:RUNNER_TEMP ([IO.Path]::GetFileName($entry.url))
+            Invoke-WebRequest -Uri $entry.url -OutFile $out -MaximumRetryCount 3
+            $found = (Get-FileHash -Algorithm SHA256 $out).Hash.ToLowerInvariant()
+            if ($found -ne $entry.sha256.ToLowerInvariant()) {
+              throw "$name checksum mismatch: expected $($entry.sha256), found $found"
+            }
+            return $out
+          }
+
+          $cmakeZip = Get-Pinned 'cmake'
+          Expand-Archive $cmakeZip -DestinationPath "$tools\cmake-extract"
+          $cmakeBin = (Get-ChildItem "$tools\cmake-extract" -Directory | Select-Object -First 1).FullName + '\bin'
+          $cmakeBin >> $env:GITHUB_PATH
+
+          $ninjaZip = Get-Pinned 'ninja'
+          Expand-Archive $ninjaZip -DestinationPath "$tools\ninja"
+          "$tools\ninja" >> $env:GITHUB_PATH
+
+          # Administrative install: unpacks the LLVM installer to a private
+          # folder without touching any LLVM preinstalled on the runner.
+          $llvmMsi = Get-Pinned 'llvm'
+          $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList @('/a', "`"$llvmMsi`"", '/qn', "TARGETDIR=`"$tools\llvm`"")
+          if ($p.ExitCode -ne 0) { throw "LLVM msiexec failed with exit code $($p.ExitCode)" }
+          Remove-Item $llvmMsi
+          "$tools\llvm\LLVM\bin" >> $env:GITHUB_PATH
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: ${{ steps.pins.outputs.uv }}
+
+      - name: Tool versions
+        run: |
+          cmake --version
+          ninja --version
+          clang-cl --version
+          uv --version
+          # Unpinned MSVC toolset (STL) and Windows SDK, recorded for the log.
+          powershell -NoProfile -File tools/dev.ps1 cmd /c "echo VSCMD_ARG_TGT_ARCH=%VSCMD_ARG_TGT_ARCH% & echo VCToolsVersion=%VCToolsVersion% & echo WindowsSDKVersion=%WindowsSDKVersion%"
+
+      - name: Configure, build, ctest
+        run: powershell -NoProfile -File tools/dev.ps1 cmake --workflow --preset windows-clang-cl
+
+      - name: Compile-flag and symbol checks
+        run: |
+          uv run --no-project python tools/check_compile_flags.py build/windows-clang-cl
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          uv run --no-project python tools/check_engine_symbols.py build/windows-clang-cl
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Python tests
+        run: uv run --locked pytest
+
+      - name: Hash probe
+        run: |
+          $out = "probe-out/hashprobe-$env:ARCANI_PLATFORM"
+          New-Item -ItemType Directory -Force $out | Out-Null
+          & build/windows-clang-cl/tests/hashprobe/arcani-hashprobe.exe $out
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          uv run --no-project python tools/hash_manifest.py --platform windows-x64 `
+            --check-json build/windows-clang-cl/arcani_engine_check.json --probe-dir $out
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: hashprobe-windows-x64
+          path: probe-out/hashprobe-windows-x64
+          if-no-files-found: error
+
+      - name: Wall time against budget
+        if: always()
+        shell: bash
+        run: uv run --no-project python tools/check_wall_time.py --tier full --job windows-x64 --start "$ARCANI_JOB_START"
+
+  windows-arm64:
+    name: windows-arm64
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: windows-11-arm
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      ARCANI_PLATFORM: windows-arm64
+      ARCANI_PIN_KEY: windows_arm64
+    steps:
+      - name: Record job start
+        shell: bash
+        run: echo "ARCANI_JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Read pins from toolchain.json
+        id: pins
+        run: |
+          $pins = Get-Content toolchain.json -Raw | ConvertFrom-Json
+          "uv=$($pins.uv.version)" >> $env:GITHUB_OUTPUT
+
+      - name: Install pinned CMake, Ninja, LLVM (checksum-verified)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ProgressPreference = 'SilentlyContinue'
+          $pins = Get-Content toolchain.json -Raw | ConvertFrom-Json
+          $tools = Join-Path $env:RUNNER_TEMP 'tools'
+          New-Item -ItemType Directory -Force $tools | Out-Null
+          function Get-Pinned($name) {
+            $entry = $pins.$name.($env:ARCANI_PIN_KEY)
+            if (-not $entry) { throw "toolchain.json has no $name $($env:ARCANI_PIN_KEY) entry" }
+            $out = Join-Path $env:RUNNER_TEMP ([IO.Path]::GetFileName($entry.url))
+            Invoke-WebRequest -Uri $entry.url -OutFile $out -MaximumRetryCount 3
+            $found = (Get-FileHash -Algorithm SHA256 $out).Hash.ToLowerInvariant()
+            if ($found -ne $entry.sha256.ToLowerInvariant()) {
+              throw "$name checksum mismatch: expected $($entry.sha256), found $found"
+            }
+            return $out
+          }
+
+          $cmakeZip = Get-Pinned 'cmake'
+          Expand-Archive $cmakeZip -DestinationPath "$tools\cmake-extract"
+          $cmakeBin = (Get-ChildItem "$tools\cmake-extract" -Directory | Select-Object -First 1).FullName + '\bin'
+          $cmakeBin >> $env:GITHUB_PATH
+
+          $ninjaZip = Get-Pinned 'ninja'
+          Expand-Archive $ninjaZip -DestinationPath "$tools\ninja"
+          "$tools\ninja" >> $env:GITHUB_PATH
+
+          # Administrative install: unpacks the LLVM installer to a private
+          # folder without touching any LLVM preinstalled on the runner.
+          $llvmMsi = Get-Pinned 'llvm'
+          $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList @('/a', "`"$llvmMsi`"", '/qn', "TARGETDIR=`"$tools\llvm`"")
+          if ($p.ExitCode -ne 0) { throw "LLVM msiexec failed with exit code $($p.ExitCode)" }
+          Remove-Item $llvmMsi
+          "$tools\llvm\LLVM\bin" >> $env:GITHUB_PATH
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: ${{ steps.pins.outputs.uv }}
+
+      - name: Tool versions
+        run: |
+          cmake --version
+          ninja --version
+          clang-cl --version
+          uv --version
+          # Unpinned MSVC toolset (STL) and Windows SDK, recorded for the log.
+          powershell -NoProfile -File tools/dev.ps1 cmd /c "echo VSCMD_ARG_TGT_ARCH=%VSCMD_ARG_TGT_ARCH% & echo VCToolsVersion=%VCToolsVersion% & echo WindowsSDKVersion=%WindowsSDKVersion%"
+
+      - name: Configure, build, ctest
+        run: powershell -NoProfile -File tools/dev.ps1 cmake --workflow --preset windows-clang-cl
+
+      - name: Compile-flag and symbol checks
+        run: |
+          uv run --no-project python tools/check_compile_flags.py build/windows-clang-cl
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          uv run --no-project python tools/check_engine_symbols.py build/windows-clang-cl
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Python tests
+        run: uv run --locked pytest
+
+      - name: Hash probe
+        run: |
+          $out = "probe-out/hashprobe-$env:ARCANI_PLATFORM"
+          New-Item -ItemType Directory -Force $out | Out-Null
+          & build/windows-clang-cl/tests/hashprobe/arcani-hashprobe.exe $out
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          uv run --no-project python tools/hash_manifest.py --platform windows-arm64 `
+            --check-json build/windows-clang-cl/arcani_engine_check.json --probe-dir $out
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: hashprobe-windows-arm64
+          path: probe-out/hashprobe-windows-arm64
+          if-no-files-found: error
+
+      - name: Wall time against budget
+        if: always()
+        shell: bash
+        run: uv run --no-project python tools/check_wall_time.py --tier full --job windows-arm64 --start "$ARCANI_JOB_START"
+
+  macos-arm64:
+    name: macos-arm64
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: macos-15
+    timeout-minutes: 40
+    env:
+      ARCANI_PLATFORM: macos-arm64
+    steps:
+      - name: Record job start
+        shell: bash
+        run: echo "ARCANI_JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Read pins from toolchain.json
+        id: pins
+        run: echo "uv=$(jq -r '.uv.version' toolchain.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Select the pinned Xcode
+        run: |
+          set -euo pipefail
+          xcode=$(jq -er '.apple_clang.xcode_path' toolchain.json)
+          if [ ! -d "$xcode" ]; then
+            echo "pinned Xcode $xcode is not on this runner; stop and update the pin by hand" >&2
+            exit 1
+          fi
+          sudo xcode-select -s "$xcode"
+          xcode-select -p
+          clang++ --version
+
+      - name: Install pinned CMake, Ninja (checksum-verified)
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/tools"
+          mkdir -p "$tools"
+          fetch() {
+            local url sha
+            url=$(jq -er ".$1.macos_arm64.url" toolchain.json) || return 1
+            sha=$(jq -er ".$1.macos_arm64.sha256" toolchain.json) || return 1
+            archive="$RUNNER_TEMP/$(basename "$url")"
+            curl -fsSL --retry 3 -o "$archive" "$url" || return 1
+            echo "$sha  $archive" | shasum -a 256 -c - >&2 || return 1
+          }
+          fetch cmake || exit 1
+          mkdir -p "$tools/cmake"
+          tar -xzf "$archive" -C "$tools/cmake" --strip-components=1
+          echo "$tools/cmake/CMake.app/Contents/bin" >> "$GITHUB_PATH"
+
+          fetch ninja || exit 1
+          mkdir -p "$tools/ninja"
+          unzip -q "$archive" -d "$tools/ninja"
+          echo "$tools/ninja" >> "$GITHUB_PATH"
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: ${{ steps.pins.outputs.uv }}
+
+      - name: Tool versions
+        run: |
+          cmake --version
+          ninja --version
+          clang++ --version
+          xcode-select -p
+          uv --version
+
+      - name: Configure, build, ctest
+        run: cmake --workflow --preset macos-appleclang
+
+      - name: Compile-flag and symbol checks
+        run: |
+          set -euo pipefail
+          uv run --no-project python tools/check_compile_flags.py build/macos-appleclang
+          uv run --no-project python tools/check_engine_symbols.py build/macos-appleclang
+
+      - name: Python tests
+        run: uv run --locked pytest
+
+      - name: Hash probe
+        run: |
+          set -euo pipefail
+          out="probe-out/hashprobe-$ARCANI_PLATFORM"
+          mkdir -p "$out"
+          build/macos-appleclang/tests/hashprobe/arcani-hashprobe "$out"
+          uv run --no-project python tools/hash_manifest.py --platform macos-arm64 \
+            --check-json build/macos-appleclang/arcani_engine_check.json --probe-dir "$out"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: hashprobe-macos-arm64
+          path: probe-out/hashprobe-macos-arm64
+          if-no-files-found: error
+
+      - name: Wall time against budget
+        if: always()
+        shell: bash
+        run: uv run --no-project python tools/check_wall_time.py --tier full --job macos-arm64 --start "$ARCANI_JOB_START"
+
+  android-build:
+    name: android-build
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Record job start
+        shell: bash
+        run: echo "ARCANI_JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Read pins from toolchain.json
+        id: pins
+        run: echo "uv=$(jq -r '.uv.version' toolchain.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Install pinned CMake, Ninja, Android NDK (checksum-verified)
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/tools"
+          mkdir -p "$tools"
+          # verify <url> <sha256>: downloads into $archive and checks it.
+          verify() {
+            archive="$RUNNER_TEMP/$(basename "$1")"
+            curl -fsSL --retry 3 -o "$archive" "$1" || return 1
+            echo "$2  $archive" | sha256sum -c - >&2 || return 1
+          }
+          verify "$(jq -er '.cmake.linux_x64.url' toolchain.json)" "$(jq -er '.cmake.linux_x64.sha256' toolchain.json)" || exit 1
+          mkdir -p "$tools/cmake"
+          tar -xzf "$archive" -C "$tools/cmake" --strip-components=1
+          echo "$tools/cmake/bin" >> "$GITHUB_PATH"
+
+          verify "$(jq -er '.ninja.linux_x64.url' toolchain.json)" "$(jq -er '.ninja.linux_x64.sha256' toolchain.json)" || exit 1
+          mkdir -p "$tools/ninja"
+          unzip -q "$archive" -d "$tools/ninja"
+          echo "$tools/ninja" >> "$GITHUB_PATH"
+
+          # The NDK preinstalled on the runner is not used: ANDROID_NDK_ROOT
+          # points at the pinned, checksum-verified one.
+          verify "$(jq -er '.android_ndk.url' toolchain.json)" "$(jq -er '.android_ndk.sha256' toolchain.json)" || exit 1
+          ndk_version=$(jq -er '.android_ndk.version' toolchain.json)
+          unzip -q "$archive" -d "$tools"
+          rm -f "$archive"
+          ndk="$tools/android-ndk-$ndk_version"
+          test -f "$ndk/build/cmake/android.toolchain.cmake"
+          echo "ANDROID_NDK_ROOT=$ndk" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ndk" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK=$ndk" >> "$GITHUB_ENV"
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: ${{ steps.pins.outputs.uv }}
+
+      - name: Tool versions
+        run: |
+          cmake --version
+          ninja --version
+          grep Pkg.Revision "$ANDROID_NDK_ROOT/source.properties"
+          "$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++" --version
+          uv --version
+
+      - name: Configure and build (NDK arm64-v8a)
+        run: cmake --workflow --preset android-arm64
+
+      - name: Compile-flag and symbol checks
+        run: |
+          set -euo pipefail
+          uv run --no-project python tools/check_compile_flags.py build/android-arm64
+          uv run --no-project python tools/check_engine_symbols.py build/android-arm64
+
+      - name: Probe binary is a static arm64 executable
+        run: |
+          set -euo pipefail
+          info=$(file build/android-arm64/tests/hashprobe/arcani-hashprobe)
+          echo "$info"
+          echo "$info" | grep -q 'ARM aarch64'
+          echo "$info" | grep -q 'statically linked'
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-probe-binary
+          path: |
+            build/android-arm64/tests/hashprobe/arcani-hashprobe
+            build/android-arm64/arcani_engine_check.json
+          if-no-files-found: error
+
+      - name: Wall time against budget
+        if: always()
+        shell: bash
+        run: uv run --no-project python tools/check_wall_time.py --tier full --job android-build --start "$ARCANI_JOB_START"
+
+  android-arm64:
+    name: android-arm64
+    needs: android-build
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    env:
+      ARCANI_PLATFORM: android-arm64
+    steps:
+      - name: Record job start
+        shell: bash
+        run: echo "ARCANI_JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Read pins from toolchain.json
+        id: pins
+        run: echo "uv=$(jq -r '.uv.version' toolchain.json)" >> "$GITHUB_OUTPUT"
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: ${{ steps.pins.outputs.uv }}
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: android-probe-binary
+          path: android-bin
+
+      - name: Hash probe (NDK static binary on arm64 Linux)
+        run: |
+          set -euo pipefail
+          probe=android-bin/tests/hashprobe/arcani-hashprobe
+          chmod +x "$probe"
+          uname -m
+          file "$probe"
+          out="probe-out/hashprobe-$ARCANI_PLATFORM"
+          mkdir -p "$out"
+          "$probe" "$out"
+          uv run --no-project python tools/hash_manifest.py --platform android-arm64 \
+            --check-json android-bin/arcani_engine_check.json --probe-dir "$out"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: hashprobe-android-arm64
+          path: probe-out/hashprobe-android-arm64
+          if-no-files-found: error
+
+      - name: Wall time against budget
+        if: always()
+        shell: bash
+        run: uv run --no-project python tools/check_wall_time.py --tier full --job android-arm64 --start "$ARCANI_JOB_START"
+
+  contract-mustfail:
+    name: contract-mustfail
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 50
+    steps:
+      - name: Record job start
+        shell: bash
+        run: echo "ARCANI_JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Read pins from toolchain.json
+        id: pins
+        run: echo "uv=$(jq -r '.uv.version' toolchain.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Install pinned CMake, Ninja, LLVM (checksum-verified)
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/tools"
+          mkdir -p "$tools"
+          fetch() {
+            local url sha
+            url=$(jq -er ".$1.linux_arm64.url" toolchain.json) || return 1
+            sha=$(jq -er ".$1.linux_arm64.sha256" toolchain.json) || return 1
+            archive="$RUNNER_TEMP/$(basename "$url")"
+            curl -fsSL --retry 3 -o "$archive" "$url" || return 1
+            echo "$sha  $archive" | sha256sum -c - >&2 || return 1
+          }
+          fetch cmake || exit 1
+          mkdir -p "$tools/cmake"
+          tar -xzf "$archive" -C "$tools/cmake" --strip-components=1
+          echo "$tools/cmake/bin" >> "$GITHUB_PATH"
+
+          fetch ninja || exit 1
+          mkdir -p "$tools/ninja"
+          unzip -q "$archive" -d "$tools/ninja"
+          echo "$tools/ninja" >> "$GITHUB_PATH"
+
+          fetch llvm || exit 1
+          mkdir -p "$tools/llvm"
+          tar -xJf "$archive" -C "$tools/llvm" --strip-components=1 \
+            --exclude='*.a' --exclude='LLVM-*-Linux-ARM64/include'
+          rm -f "$archive"
+          echo "$tools/llvm/bin" >> "$GITHUB_PATH"
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: ${{ steps.pins.outputs.uv }}
+
+      - name: Tool versions
+        run: |
+          cmake --version
+          ninja --version
+          clang++ --version
+          uv --version
+
+      - name: Build the probe with contraction on
+        run: |
+          set -euo pipefail
+          cmake --preset linux-clang -B build/contract -DARCANI_BUILD_TESTS=OFF \
+            "-DARCANI_HASHPROBE_EXTRA_FLAGS=-ffp-contract=fast"
+          cmake --build build/contract --target arcani-hashprobe
+          # The probe's own compile command must end with contraction fast.
+          jq -r '.[] | select(.file | endswith("tests/hashprobe/main.cpp")) | .command' \
+            build/contract/compile_commands.json | tee probe-command.txt
+          grep -o -- '-ffp-contract=[a-z]*' probe-command.txt | tail -n1 | grep -qx -- '-ffp-contract=fast'
+
+      - name: Contracted probe must differ from the expected hash
+        run: |
+          set -euo pipefail
+          out=probe-out/contract
+          mkdir -p "$out"
+          build/contract/tests/hashprobe/arcani-hashprobe "$out"
+          uv run --no-project python tools/hash_manifest.py --platform contract-mustfail \
+            --check-json build/contract/arcani_engine_check.json --probe-dir "$out"
+          uv run --no-project python tools/hash_compare.py --must-differ "$out"
+
+      - name: Wall time against budget
+        if: always()
+        shell: bash
+        run: uv run --no-project python tools/check_wall_time.py --tier full --job contract-mustfail --start "$ARCANI_JOB_START"
+
+  hash-compare:
+    name: hash-compare
+    needs: [windows-x64, windows-arm64, macos-arm64, android-arm64]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Record job start
+        shell: bash
+        run: echo "ARCANI_JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Read pins from toolchain.json
+        id: pins
+        run: echo "uv=$(jq -r '.uv.version' toolchain.json)" >> "$GITHUB_OUTPUT"
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: ${{ steps.pins.outputs.uv }}
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: hashprobe-*
+          path: artifacts
+
+      - name: Compare hashes (exact mode against windows-x64 and ci/hash_expected.json)
+        run: |
+          set -euo pipefail
+          uv run --no-project python tools/hash_compare.py artifacts | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Wall time against budget
+        if: always()
+        shell: bash
+        run: uv run --no-project python tools/check_wall_time.py --tier full --job hash-compare --start "$ARCANI_JOB_START"
+
+  verdict:
+    name: verdict
+    needs: [gate, windows-x64, windows-arm64, macos-arm64, android-build, android-arm64, contract-mustfail, hash-compare]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Record job start
+        shell: bash
+        run: echo "ARCANI_JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Read pins from toolchain.json
+        id: pins
+        run: echo "uv=$(jq -r '.uv.version' toolchain.json)" >> "$GITHUB_OUTPUT"
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: ${{ steps.pins.outputs.uv }}
+
+      - name: Verdict
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$NEEDS_JSON" > needs.json
+          uv run --no-project python tools/ci_verdict.py --needs needs.json | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Wall time against budget
+        if: always()
+        shell: bash
+        run: uv run --no-project python tools/check_wall_time.py --tier full --job verdict --start "$ARCANI_JOB_START"

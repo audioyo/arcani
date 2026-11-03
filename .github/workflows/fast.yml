@@ -1,5 +1,6 @@
 # Fast tier: build and test on every push, Windows x64 and Linux x64.
-# Tool versions and SHA-256s come from toolchain.json only.
+# Tool versions and SHA-256s come from toolchain.json only. Each job checks its
+# wall time against ci/wall_time_budget.json in its last step.
 # Branch rule for main (applied by hand in GitHub settings, see the design log):
 # require the status checks "windows-x64" and "linux-x64" (workflow "fast") to pass.
 
@@ -21,6 +22,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
+      - name: Record job start
+        shell: bash
+        run: echo "ARCANI_JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -89,6 +94,11 @@ jobs:
       - name: Python tests
         run: uv run --locked pytest
 
+      - name: Wall time against budget
+        if: always()
+        shell: bash
+        run: uv run --no-project python tools/check_wall_time.py --tier fast --job linux-x64 --start "$ARCANI_JOB_START"
+
   windows-x64:
     name: windows-x64
     runs-on: windows-2025
@@ -97,6 +107,10 @@ jobs:
       run:
         shell: pwsh
     steps:
+      - name: Record job start
+        shell: bash
+        run: echo "ARCANI_JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
@@ -160,3 +174,8 @@ jobs:
 
       - name: Python tests
         run: uv run --locked pytest
+
+      - name: Wall time against budget
+        if: always()
+        shell: bash
+        run: uv run --no-project python tools/check_wall_time.py --tier fast --job windows-x64 --start "$ARCANI_JOB_START"

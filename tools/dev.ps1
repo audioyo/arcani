@@ -1,5 +1,6 @@
-# Runs a command (cmake, ctest, ...) inside the Visual Studio x64 developer
-# environment, so clang-cl and lld-link find the Windows SDK and the MSVC STL.
+# Runs a command (cmake, ctest, ...) inside the Visual Studio developer
+# environment for this machine (x64, or ARM64 on a Windows arm64 host), so
+# clang-cl and lld-link find the Windows SDK and the MSVC STL.
 #
 # Usage: powershell -File tools/dev.ps1 cmake --workflow --preset windows-clang-cl
 #
@@ -19,12 +20,25 @@ if (-not (Test-Path $vswhere)) {
     [Console]::Error.WriteLine("vswhere not found at $vswhere; install Visual Studio with the C++ workload")
     exit 1
 }
-$vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+# Pick the developer environment for this machine. A process emulated on
+# arm64 sees AMD64 in PROCESSOR_ARCHITECTURE and ARM64 in PROCESSOR_ARCHITEW6432.
+$arch = $env:PROCESSOR_ARCHITEW6432
+if (-not $arch) { $arch = $env:PROCESSOR_ARCHITECTURE }
+if ($arch -ieq 'ARM64') {
+    $vcComponent = 'Microsoft.VisualStudio.Component.VC.Tools.ARM64'
+    $vcvarsName = 'vcvarsarm64.bat'
+    $archLabel = 'ARM64'
+} else {
+    $vcComponent = 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64'
+    $vcvarsName = 'vcvars64.bat'
+    $archLabel = 'x64'
+}
+$vsPath = & $vswhere -latest -products * -requires $vcComponent -property installationPath
 if (-not $vsPath) {
-    [Console]::Error.WriteLine('No Visual Studio installation with the x64 C++ tools was found')
+    [Console]::Error.WriteLine("No Visual Studio installation with the $archLabel C++ tools was found")
     exit 1
 }
-$vcvars = Join-Path $vsPath 'VC\Auxiliary\Build\vcvars64.bat'
+$vcvars = Join-Path $vsPath "VC\Auxiliary\Build\$vcvarsName"
 
 # Base PATH: this shell's PATH, then any user or machine PATH entries a shell
 # opened before an install would be missing.
@@ -44,10 +58,10 @@ Add-PathEntries $env:PATH
 Add-PathEntries ([Environment]::GetEnvironmentVariable('Path', 'User'))
 Add-PathEntries ([Environment]::GetEnvironmentVariable('Path', 'Machine'))
 
-# Capture the environment vcvars64.bat produces.
+# Capture the environment the vcvars script produces.
 $vsEnv = & cmd.exe /d /s /c "`"$vcvars`" >nul 2>&1 && set"
 if ($LASTEXITCODE -ne 0) {
-    [Console]::Error.WriteLine("vcvars64.bat failed ($vcvars)")
+    [Console]::Error.WriteLine("$vcvarsName failed ($vcvars)")
     exit 1
 }
 $vsPathValue = $null

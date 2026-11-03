@@ -1,6 +1,10 @@
 {
   "version": 6,
-  "cmakeMinimumRequired": { "major": 4, "minor": 4, "patch": 0 },
+  "cmakeMinimumRequired": {
+    "major": 4,
+    "minor": 4,
+    "patch": 0
+  },
   "configurePresets": [
     {
       "name": "base",
@@ -13,12 +17,16 @@
     },
     {
       "name": "windows-clang-cl",
-      "displayName": "Windows x64, clang-cl, Ninja",
+      "displayName": "Windows x64 or arm64, clang-cl, Ninja",
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_CXX_COMPILER": "clang-cl"
       },
-      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
     },
     {
       "name": "linux-clang",
@@ -27,42 +35,155 @@
       "cacheVariables": {
         "CMAKE_CXX_COMPILER": "clang++"
       },
-      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
+    },
+    {
+      "name": "macos-appleclang",
+      "displayName": "macOS arm64, Apple clang (pinned Xcode), Ninja",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "clang++"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      }
+    },
+    {
+      "name": "android-arm64",
+      "displayName": "Android arm64-v8a, NDK clang, Ninja (no C++ tests)",
+      "inherits": "base",
+      "toolchainFile": "$env{ANDROID_NDK_ROOT}/build/cmake/android.toolchain.cmake",
+      "cacheVariables": {
+        "ANDROID_ABI": "arm64-v8a",
+        "ANDROID_PLATFORM": "android-21",
+        "ARCANI_BUILD_TESTS": "OFF"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
     }
   ],
   "buildPresets": [
-    { "name": "windows-clang-cl", "configurePreset": "windows-clang-cl" },
-    { "name": "linux-clang", "configurePreset": "linux-clang" }
+    {
+      "name": "windows-clang-cl",
+      "configurePreset": "windows-clang-cl"
+    },
+    {
+      "name": "linux-clang",
+      "configurePreset": "linux-clang"
+    },
+    {
+      "name": "macos-appleclang",
+      "configurePreset": "macos-appleclang"
+    },
+    {
+      "name": "android-arm64",
+      "configurePreset": "android-arm64"
+    }
   ],
   "testPresets": [
     {
       "name": "windows-clang-cl",
       "configurePreset": "windows-clang-cl",
-      "output": { "outputOnFailure": true },
-      "execution": { "noTestsAction": "error" }
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
     },
     {
       "name": "linux-clang",
       "configurePreset": "linux-clang",
-      "output": { "outputOnFailure": true },
-      "execution": { "noTestsAction": "error" }
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "macos-appleclang",
+      "configurePreset": "macos-appleclang",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
     }
   ],
   "workflowPresets": [
     {
       "name": "windows-clang-cl",
       "steps": [
-        { "type": "configure", "name": "windows-clang-cl" },
-        { "type": "build", "name": "windows-clang-cl" },
-        { "type": "test", "name": "windows-clang-cl" }
+        {
+          "type": "configure",
+          "name": "windows-clang-cl"
+        },
+        {
+          "type": "build",
+          "name": "windows-clang-cl"
+        },
+        {
+          "type": "test",
+          "name": "windows-clang-cl"
+        }
       ]
     },
     {
       "name": "linux-clang",
       "steps": [
-        { "type": "configure", "name": "linux-clang" },
-        { "type": "build", "name": "linux-clang" },
-        { "type": "test", "name": "linux-clang" }
+        {
+          "type": "configure",
+          "name": "linux-clang"
+        },
+        {
+          "type": "build",
+          "name": "linux-clang"
+        },
+        {
+          "type": "test",
+          "name": "linux-clang"
+        }
+      ]
+    },
+    {
+      "name": "macos-appleclang",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "macos-appleclang"
+        },
+        {
+          "type": "build",
+          "name": "macos-appleclang"
+        },
+        {
+          "type": "test",
+          "name": "macos-appleclang"
+        }
+      ]
+    },
+    {
+      "name": "android-arm64",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "android-arm64"
+        },
+        {
+          "type": "build",
+          "name": "android-arm64"
+        }
       ]
     }
   ]

@@ -22,15 +22,31 @@ target_compile_definitions(arcani_engine PRIVATE
   ARC_ENGINE_VERSION_STRING="${PROJECT_VERSION}")
 target_compile_options(arcani_engine PRIVATE ${ARCANI_WARNING_FLAGS})
 
-# llvm-nm for tools/check_engine_symbols.py: only the one shipped next to the
+# llvm-nm for tools/check_engine_symbols.py: only the one shipped with the
 # pinned compiler, never one from PATH. The compiler path may be a symlink
 # (for example /usr/bin/clang++), so its resolved directory is searched first.
 get_filename_component(_arcani_compiler_dir "${CMAKE_CXX_COMPILER}" DIRECTORY)
 file(REAL_PATH "${CMAKE_CXX_COMPILER}" _arcani_compiler_real)
 get_filename_component(_arcani_compiler_real_dir "${_arcani_compiler_real}" DIRECTORY)
-find_program(ARCANI_LLVM_NM NAMES llvm-nm
-  HINTS "${_arcani_compiler_real_dir}" "${_arcani_compiler_dir}"
-  NO_DEFAULT_PATH NO_CACHE)
+# On Apple the pinned compiler is Xcode's: its llvm-nm comes from
+# `xcrun --find llvm-nm`, else the nm next to the compiler (Xcode's nm is
+# llvm-nm based). The NDK's llvm-nm sits next to its clang.
+if(APPLE)
+  execute_process(COMMAND xcrun --find llvm-nm
+    OUTPUT_VARIABLE _arcani_xcrun_nm OUTPUT_STRIP_TRAILING_WHITESPACE
+    RESULT_VARIABLE _arcani_xcrun_result ERROR_QUIET)
+  if(_arcani_xcrun_result EQUAL 0 AND EXISTS "${_arcani_xcrun_nm}")
+    set(ARCANI_LLVM_NM "${_arcani_xcrun_nm}")
+  else()
+    find_program(ARCANI_LLVM_NM NAMES nm
+      HINTS "${_arcani_compiler_real_dir}" "${_arcani_compiler_dir}"
+      NO_DEFAULT_PATH NO_CACHE)
+  endif()
+else()
+  find_program(ARCANI_LLVM_NM NAMES llvm-nm
+    HINTS "${_arcani_compiler_real_dir}" "${_arcani_compiler_dir}"
+    NO_DEFAULT_PATH NO_CACHE)
+endif()
 if(NOT ARCANI_LLVM_NM)
   message(FATAL_ERROR
     "llvm-nm not found next to the pinned compiler: expected it in "

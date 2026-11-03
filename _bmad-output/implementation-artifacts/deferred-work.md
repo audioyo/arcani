@@ -13,8 +13,8 @@
   summary: Check that the CLAUDE.md Build, C++ tests, and Render commands name an existing preset and the real built binary path, not only that they are non-empty.
   evidence: Review finding 13; `test_repo_layout.py` checks text only, so the documented `build/windows-clang-cl/cli/arcani-render` path can go stale silently. Revisit when the real render command replaces the stub.
 - source_spec: `_bmad-output/implementation-artifacts/spec-0-1-part-1-build-skeleton-and-fast-ci.md`
-  summary: `tests/cmake/test_pin_check.py` needs a macOS preset or a skip on hosts other than Windows and Linux before part 3 runs pytest on macOS.
-  evidence: Review finding 18; the test picks `linux-clang` on any non-Windows host, and that preset's condition rejects macOS.
+  summary: (closed by Story 0.1 part 3) `tests/cmake/test_pin_check.py` needs a macOS preset or a skip on hosts other than Windows and Linux before part 3 runs pytest on macOS.
+  evidence: Review finding 18. Closed: part 3 adds the `macos-appleclang` preset and the tests pick it on Darwin.
 - source_spec: `_bmad-output/implementation-artifacts/spec-0-1-part-1-build-skeleton-and-fast-ci.md`
   summary: Local ctest on the dev PC is blocked by Windows Smart App Control; C++ tests are verified on GitHub Actions until Audio turns it off (Win+R, `windowsdefender:`, App and browser control).
   evidence: Review finding 20; CodeIntegrity event 3077/3118 blocked `arcani_tests.exe` on 2026-11-02, while pytest passes locally and fast run 1 passed on both CI jobs.
@@ -30,3 +30,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-0-1-part-2-compile-flags-and-symbol-denylist.md`
   summary: Extend the AD-9 flag check (and the symbol denylist where it applies) from `engine/` sources to `cli/` once the WAV writer or any sample conversion lands there.
   evidence: Review pass 1 finding 21 (part 2); flags are already project-wide and a test asserts `cli/main.cpp` has them, but the checker enforces engine sources only. Story 1.4 or 1.6 is the trigger.
+- source_spec: `_bmad-output/implementation-artifacts/spec-0-1-part-3-four-platform-ci-and-hash-compare.md`
+  summary: Run the NDK arm64 hash probe on a physical Android phone, in addition to the static binary on the hosted arm64 Linux runner.
+  evidence: No phone is available yet (Audio, 2026-11-02); the hosted run uses real arm64 hardware and the real NDK compiler but not the Android OS. Design log 2026-11-02 (aa).

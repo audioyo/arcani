@@ -1,0 +1,22 @@
+{
+  "allowance_minutes_per_month": 2000,
+  "public_repo": true,
+  "source": "Design log 2026-11-02 (aa). Fast budgets from fast run 41578714584 (both jobs about 3 min) with headroom; full budgets are first estimates, corrected after the first full run. Multipliers: GitHub Actions minute multipliers (Linux 1, Windows 2, macOS 10), arm64 runners taken at their x64 multiplier. Allowance: GitHub Free plan included minutes for private repos.",
+  "tiers": {
+    "fast": {
+      "linux-x64": {"budget_minutes": 15, "runner": "ubuntu-24.04", "multiplier": 1, "runs_per_month": 120},
+      "windows-x64": {"budget_minutes": 20, "runner": "windows-2025", "multiplier": 2, "runs_per_month": 120}
+    },
+    "full": {
+      "gate": {"budget_minutes": 5, "runner": "ubuntu-24.04", "multiplier": 1, "runs_per_month": 45},
+      "windows-x64": {"budget_minutes": 25, "runner": "windows-2025", "multiplier": 2, "runs_per_month": 45},
+      "windows-arm64": {"budget_minutes": 30, "runner": "windows-11-arm", "multiplier": 2, "runs_per_month": 45},
+      "macos-arm64": {"budget_minutes": 20, "runner": "macos-15", "multiplier": 10, "runs_per_month": 45},
+      "android-build": {"budget_minutes": 20, "runner": "ubuntu-24.04", "multiplier": 1, "runs_per_month": 45},
+      "android-arm64": {"budget_minutes": 10, "runner": "ubuntu-24.04-arm", "multiplier": 1, "runs_per_month": 45},
+      "contract-mustfail": {"budget_minutes": 25, "runner": "ubuntu-24.04-arm", "multiplier": 1, "runs_per_month": 45},
+      "hash-compare": {"budget_minutes": 5, "runner": "ubuntu-24.04", "multiplier": 1, "runs_per_month": 45},
+      "verdict": {"budget_minutes": 5, "runner": "ubuntu-24.04", "multiplier": 1, "runs_per_month": 45}
+    }
+  }
+}

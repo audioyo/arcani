@@ -2,7 +2,8 @@
 title: 'Story 0.1 part 3: four-platform full tier, hash compare tool, wall-time budget, nightly skip'
 type: 'chore'
 created: '2026-11-02'
-status: 'ready-for-dev'
+status: 'review'
+baseline_commit: 'a6d512aff76740da56c1f38711f8621ea80a69e8'
 route: 'dispatch'
 review_loop_iteration: 0
 context:
@@ -80,12 +81,12 @@ Decisions (2026-11-02, Audio): part 3 of the Story 0.1 split; one change, not sp
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `tests/python/test_hash_compare.py`, `tests/python/test_wall_time.py`, `tests/python/test_ci_gate_verdict.py`, `tests/python/test_ci_workflows.py`, `tests/python/test_probe_reference.py` -- QA agent: every matrix row on synthetic files; gate and verdict passing and must-fail fixtures over JSON inputs; probe reference reproduces `ci/hash_expected.json`, and the host-built probe's output matches it; workflow structure (verdict `always()` and needs every job, triggers and cron, actions pinned by SHA, exact runner labels, setup-uv and wall-time steps in every job of both workflows, `timeout-minutes` set, no `self-hosted` label); probe manifest schema; budget table covers every job of both workflows.
-- [ ] `tests/hashprobe/`, `tools/probe_reference.py` -- probe binary, CMake, and reference.
-- [ ] `tools/hash_compare.py`, `tools/hash_manifest.py`, `tools/check_wall_time.py`, `tools/ci_verdict.py`, `tools/nightly_gate.py`, `ci/*.json` -- tools and data.
-- [ ] `toolchain.json`, `cmake/Pins.cmake`, `CMakePresets.json`, `CMakeLists.txt`, `engine/CMakeLists.txt`, `tools/dev.ps1`, `tests/cmake/*.py` per-platform expectations, `tests/python/test_toolchain.py` -- platform support.
-- [ ] `.github/workflows/full.yml`, `.github/workflows/fast.yml` -- workflows.
-- [ ] `docs/design-log.md`, `docs/ci-setup.md`, `deferred-work.md` (close the macOS preset entry; add the physical phone run) -- records.
+- [x] `tests/python/test_hash_compare.py`, `tests/python/test_wall_time.py`, `tests/python/test_ci_gate_verdict.py`, `tests/python/test_ci_workflows.py`, `tests/python/test_probe_reference.py` -- QA agent: every matrix row on synthetic files; gate and verdict passing and must-fail fixtures over JSON inputs; probe reference reproduces `ci/hash_expected.json`, and the host-built probe's output matches it; workflow structure (verdict `always()` and needs every job, triggers and cron, actions pinned by SHA, exact runner labels, setup-uv and wall-time steps in every job of both workflows, `timeout-minutes` set, no `self-hosted` label); probe manifest schema; budget table covers every job of both workflows.
+- [x] `tests/hashprobe/`, `tools/probe_reference.py` -- probe binary, CMake, and reference.
+- [x] `tools/hash_compare.py`, `tools/hash_manifest.py`, `tools/check_wall_time.py`, `tools/ci_verdict.py`, `tools/nightly_gate.py`, `ci/*.json` -- tools and data.
+- [x] `toolchain.json`, `cmake/Pins.cmake`, `CMakePresets.json`, `CMakeLists.txt`, `engine/CMakeLists.txt`, `tools/dev.ps1`, `tests/cmake/*.py` per-platform expectations, `tests/python/test_toolchain.py` -- platform support.
+- [x] `.github/workflows/full.yml`, `.github/workflows/fast.yml` -- workflows.
+- [x] `docs/design-log.md`, `docs/ci-setup.md`, `deferred-work.md` (close the macOS preset entry; add the physical phone run) -- records.
 
 **Acceptance Criteria:**
 - Given a clean checkout, when `uv run pytest` runs locally, then all tests pass, including every hash compare and wall-time must-fail case.
@@ -93,6 +94,15 @@ Decisions (2026-11-02, Audio): part 3 of the Story 0.1 split; one change, not sp
 - Given the budget table, when `tools/check_wall_time.py --estimate` runs, then it prints monthly billed minutes per platform with multipliers against the allowance, and the design log records the result and any shortfall remedy.
 
 ## Implementation Notes
+
+- Failing tests committed in d809eea (fresh-context QA agent); their docstrings define the contracts. PyYAML 6.0.3 added to the dev group to parse workflows.
+- Added beyond the Code Map, because the jobs need them: `linux_arm64` LLVM, CMake, Ninja pins (the `contract-mustfail` job's `linux-clang` preset checks the LLVM pin) and `macos_arm64` CMake and Ninja pins. LLVM publishes `LLVM-23.1.4-woa64.msi`, so Windows arm64 uses the `.msi` (design log (aa)).
+- Pins: Apple clang `17.0.0.17000013` is CMake's version string for Xcode 16.4 (`__apple_build_version__` 17000013), the default Xcode on the `macos-15` image; not verified on a Mac yet. NDK r30 is 30.0.16248370 with clang 21.0.0; API level 21 is the NDK minimum. The API level check uses `ANDROID_PLATFORM_LEVEL` (else `CMAKE_SYSTEM_VERSION`).
+- Probe `probe-arith`: float32 logistic map (`t = R*s; s = t - t*s; out = s*A + B`), constants exact in float32 and decimal. Host build on the dev PC matches the NumPy reference (`933f0602...`). Local check: a `/clang:-ffp-contract=fast /clang:-mfma` build gives `3f4fdae9...`, so `--must-differ` passes on it and fails on the normal build.
+- `hash_compare.py`: a (platform, component) with a tolerance entry is exempt from the expected-hash check, since its bytes differ by definition; it is still compared to the reference in tolerance mode.
+- Workflow uses no YAML anchors (repeated Windows steps are written out) and literal platform names in artifact and manifest steps.
+- Local: `uv run pytest` 546 passed, 0 skipped; `cmake --workflow --preset windows-clang-cl` builds the probe, ctest 1/1 passed (Smart App Control did not block it this time); `check_wall_time.py --estimate` exit 0.
+- Not verified until Audio's go-ahead to push: everything on GitHub (Windows arm64, macOS, NDK, arm64 Linux, artifact flow, gate API call, verdict).
 
 ## Spec Change Log
 
