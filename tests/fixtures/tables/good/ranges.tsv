@@ -1,0 +1,4 @@
+id	min	max	max_bound	unit	spec_row	source	pending
+fixture-rate	1	6	inclusive	Hz	Fixture md range	Fixture only: made-up row, inclusive range	
+fixture-below	0	1000	exclusive	Hz		Fixture only: made-up row, exclusive range	
+fixture-signed	-1.5	2.25	inclusive	dB		Fixture only: made-up row, decimals	9-1-fixture-story

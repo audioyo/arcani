@@ -1,0 +1,3 @@
+id	value	unit	spec_row	source	pending
+fixture-ok	1	Hz		Fixture only: made-up row	
+bad-empty-source	1	Hz			

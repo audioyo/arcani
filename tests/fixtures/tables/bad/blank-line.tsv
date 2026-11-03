@@ -1,0 +1,4 @@
+id	value	unit	spec_row	source	pending
+fixture-ok	1	Hz		Fixture only: made-up row	
+
+fixture-after-blank	1	Hz		Fixture only: made-up row	
