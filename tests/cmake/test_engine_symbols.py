@@ -5,7 +5,8 @@ Contract with the build:
 - Configure writes `<build dir>/arcani_engine_check.json` with the keys listed
   in tests/cmake/test_compile_flags.py; this file uses `engine_library` (the
   built arcani_engine static library) and `llvm_nm` (found only next to the
-  pinned compiler; configure fails if it is missing there).
+  pinned compiler, or on macOS through `xcrun --find llvm-nm`, else `nm` next
+  to the compiler; configure fails if it is missing there).
 - ARCANI_ENGINE_TEST_EXTRA_SOURCE: test-only cache variable, documented like
   ARCANI_PIN_OVERRIDE_* in cmake/Pins.cmake and never set in presets or CI.
   When set to a source file path (the test passes an absolute path), that file
@@ -36,7 +37,8 @@ Contract with the checker:
   forms and the Windows UCRT internals listed in DENIED below. sqrt, floor,
   memcpy and the other names in ALLOWED pass.
 
-Real builds use the platform preset (windows-clang-cl or linux-clang) with
+Real builds use the platform preset (windows-clang-cl on Windows,
+macos-appleclang on macOS, linux-clang otherwise) with
 ARCANI_BUILD_TESTS=OFF, build only the arcani_engine target into a temporary
 directory, on Windows through tools/dev.ps1. They skip only when cmake is not
 on PATH.
@@ -55,7 +57,12 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHECKER = REPO_ROOT / "tools" / "check_engine_symbols.py"
 FIXTURE = REPO_ROOT / "tests" / "fixtures" / "engine" / "calls_std_sin.cpp"
-PRESET = "windows-clang-cl" if sys.platform == "win32" else "linux-clang"
+if sys.platform == "win32":
+    PRESET = "windows-clang-cl"
+elif sys.platform == "darwin":
+    PRESET = "macos-appleclang"
+else:
+    PRESET = "linux-clang"
 CMAKE = shutil.which("cmake")
 
 LIBM = "libm transcendental"

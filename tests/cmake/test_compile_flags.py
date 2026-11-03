@@ -9,12 +9,17 @@ Contract with the build:
   `-Wall -Wextra -Werror`, clang-cl `/W4 /WX`.
 - Configure writes `<build dir>/arcani_engine_check.json` (file(GENERATE)), a
   JSON object with these string keys, all paths absolute:
-    toolchain_name     "clang-cl" on Windows, "clang" on Linux
-    toolchain_version  compiler version, equal to the llvm pin in toolchain.json
+    toolchain_name     "clang-cl" on Windows, "AppleClang" on macOS, "clang"
+                       on Linux and Android
+    toolchain_version  compiler version: on macOS equal to the apple_clang pin
+                       in toolchain.json, on Android to the android_ndk
+                       clang_version pin, elsewhere to the llvm pin
     source_dir         top-level source directory (CMAKE_SOURCE_DIR)
     compile_commands   path of the build's compile_commands.json
     engine_library     path of the built arcani_engine library
-    llvm_nm            path of llvm-nm, in the same directory as the compiler
+    llvm_nm            path of llvm-nm, in the same directory as the compiler;
+                       on macOS only, the path `xcrun --find llvm-nm` returns,
+                       else `nm` next to the compiler (llvm-nm based)
 
 Contract with the checker:
 
@@ -51,7 +56,8 @@ Contract with the checker:
   flag text (for -ffp-contract problems, at least "-ffp-contract").
   Negated forms such as -fno-fast-math are not fast-math flags.
 
-Real configures use the platform preset (windows-clang-cl or linux-clang) with
+Real configures use the platform preset (windows-clang-cl on Windows,
+macos-appleclang on macOS, linux-clang otherwise) with
 ARCANI_BUILD_TESTS=OFF into a temporary directory; on Windows through
 tools/dev.ps1 for the Visual Studio environment. They skip only when cmake is
 not on PATH.
@@ -69,9 +75,21 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHECKER = REPO_ROOT / "tools" / "check_compile_flags.py"
-PRESET = "windows-clang-cl" if sys.platform == "win32" else "linux-clang"
+if sys.platform == "win32":
+    PRESET = "windows-clang-cl"
+elif sys.platform == "darwin":
+    PRESET = "macos-appleclang"
+else:
+    PRESET = "linux-clang"
 CMAKE = shutil.which("cmake")
-LLVM_PIN = json.loads((REPO_ROOT / "toolchain.json").read_text(encoding="utf-8"))["llvm"]["version"]
+PINS = json.loads((REPO_ROOT / "toolchain.json").read_text(encoding="utf-8"))
+LLVM_PIN = PINS["llvm"]["version"]
+if sys.platform == "win32":
+    EXPECTED_TOOLCHAIN = ("clang-cl", LLVM_PIN)
+elif sys.platform == "darwin":
+    EXPECTED_TOOLCHAIN = ("AppleClang", PINS["apple_clang"]["version"])
+else:
+    EXPECTED_TOOLCHAIN = ("clang", LLVM_PIN)
 
 FAST_MATH_FLAGS = [
     "-ffast-math",
@@ -461,8 +479,8 @@ def test_check_json_written_by_configure(preset_build):
     for key in ("toolchain_name", "toolchain_version", "source_dir",
                 "compile_commands", "engine_library", "llvm_nm"):
         assert isinstance(check.get(key), str) and check[key], f"missing key {key}: {check}"
-    assert check["toolchain_name"] == ("clang-cl" if sys.platform == "win32" else "clang")
-    assert check["toolchain_version"] == LLVM_PIN
+    assert check["toolchain_name"] == EXPECTED_TOOLCHAIN[0]
+    assert check["toolchain_version"] == EXPECTED_TOOLCHAIN[1]
     assert Path(check["source_dir"]).resolve() == REPO_ROOT
     assert Path(check["compile_commands"]).is_file()
 
@@ -474,13 +492,23 @@ def test_llvm_nm_is_next_to_pinned_compiler(preset_build):
     check = read_check_json(build)
     nm = Path(check["llvm_nm"])
     assert nm.is_file(), nm
-    assert nm.stem == "llvm-nm", nm
     cache = (build / "CMakeCache.txt").read_text(encoding="utf-8")
     compiler = next(
         line.split("=", 1)[1]
         for line in cache.splitlines()
         if line.startswith("CMAKE_CXX_COMPILER:")
     )
+    if sys.platform == "darwin":
+        # Xcode's llvm-nm, else the llvm-nm based nm next to the compiler.
+        found = subprocess.run(["xcrun", "--find", "llvm-nm"], capture_output=True, text=True)
+        xcrun_nm = found.stdout.strip() if found.returncode == 0 else ""
+        if xcrun_nm:
+            assert nm.resolve() == Path(xcrun_nm).resolve(), (nm, xcrun_nm)
+        else:
+            assert nm.stem == "nm", nm
+            assert nm.resolve().parent == Path(compiler).resolve().parent, (nm, compiler)
+        return
+    assert nm.stem == "llvm-nm", nm
     assert nm.resolve().parent == Path(compiler).resolve().parent, (nm, compiler)
 
 

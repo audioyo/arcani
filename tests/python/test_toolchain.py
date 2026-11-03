@@ -12,8 +12,17 @@ allowed. Example:
       "python": {"version": "3.14"},
       "uv":     {"version": "0.13.6"},
       "numpy":  {"version": "2.5.4"},
-      "pytest": {"version": "9.2.0"}
+      "pytest": {"version": "9.2.0"},
+      "apple_clang": {"version": "17.0.0.17000013",
+                      "xcode_path": "/Applications/Xcode_16.4.app"},
+      "android_ndk": {"version": "r30", "url": "...", "sha256": "...",
+                      "clang_version": "21.0.0", "api_level": 21}
     }
+
+Per-platform download entries ({"url", "sha256"}): llvm, cmake, and ninja
+have windows_x64, windows_arm64, linux_x64, and linux_arm64; cmake and ninja
+also have macos_arm64. apple_clang.version is the version CMake reports as
+CMAKE_CXX_COMPILER_VERSION for AppleClang with Xcode 16.4.
 """
 
 import json
@@ -35,6 +44,14 @@ EXPECTED_PINS = {
     "uv": "0.13.6",
     "numpy": "2.5.4",
     "pytest": "9.2.0",
+    "apple_clang": "17.0.0.17000013",
+    "android_ndk": "r30",
+}
+
+WINDOWS_ARM64_ASSETS = {
+    "llvm": "LLVM-23.1.4-woa64.msi",
+    "cmake": "cmake-4.4.5-windows-arm64.zip",
+    "ninja": "ninja-winarm64.zip",
 }
 
 
@@ -110,3 +127,43 @@ def test_download_urls_carry_the_pinned_version():
             checked.append(url)
             assert isinstance(version, str) and version in url, f"{name}: {version} not in {url}"
     assert checked, "toolchain.json records no download URLs"
+
+
+def download_entry(tool, platform):
+    data = load_pins()
+    assert tool in data, f"toolchain.json has no entry for {tool}"
+    entry = data[tool].get(platform)
+    assert isinstance(entry, dict), f"{tool} has no {platform} entry"
+    assert isinstance(entry.get("url"), str) and entry["url"].startswith("https://"), entry
+    assert isinstance(entry.get("sha256"), str), entry
+    return entry
+
+
+@pytest.mark.parametrize("tool, asset", sorted(WINDOWS_ARM64_ASSETS.items()))
+def test_windows_arm64_assets(tool, asset):
+    entry = download_entry(tool, "windows_arm64")
+    assert entry["url"].rsplit("/", 1)[-1] == asset, entry["url"]
+
+
+@pytest.mark.parametrize("tool", ["llvm", "cmake", "ninja"])
+def test_linux_arm64_assets(tool):
+    download_entry(tool, "linux_arm64")
+
+
+@pytest.mark.parametrize("tool", ["cmake", "ninja"])
+def test_macos_arm64_assets(tool):
+    download_entry(tool, "macos_arm64")
+
+
+def test_apple_clang_pin():
+    pin("apple_clang")
+    assert load_pins()["apple_clang"].get("xcode_path") == "/Applications/Xcode_16.4.app"
+
+
+def test_android_ndk_pin():
+    pin("android_ndk")
+    ndk = load_pins()["android_ndk"]
+    assert ndk.get("url") == "https://dl.google.com/android/repository/android-ndk-r30-linux.zip"
+    assert ndk.get("sha256") == "753611f410d002cfcd3f3dc2ef49aad532089d3180b436c060a90bf0fcb64df2"
+    assert ndk.get("clang_version") == "21.0.0"
+    assert type(ndk.get("api_level")) is int and ndk["api_level"] == 21
