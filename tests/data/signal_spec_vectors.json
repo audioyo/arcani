@@ -1,0 +1,814 @@
+{
+  "spec": "docs/signal-spec.md (sections core and sine)",
+  "generator": "tools/signal_spec_vectors.py",
+  "cycle": "18446744073709551616",
+  "sine_coefficients": [
+    {
+      "power": 1,
+      "exact": "+1/1!",
+      "hex": "0x1.0000000000000p+0"
+    },
+    {
+      "power": 3,
+      "exact": "-1/3!",
+      "hex": "-0x1.5555555555555p-3"
+    },
+    {
+      "power": 5,
+      "exact": "+1/5!",
+      "hex": "0x1.1111111111111p-7"
+    },
+    {
+      "power": 7,
+      "exact": "-1/7!",
+      "hex": "-0x1.a01a01a01a01ap-13"
+    },
+    {
+      "power": 9,
+      "exact": "+1/9!",
+      "hex": "0x1.71de3a556c734p-19"
+    },
+    {
+      "power": 11,
+      "exact": "-1/11!",
+      "hex": "-0x1.ae64567f544e4p-26"
+    }
+  ],
+  "exact_phases": [
+    {
+      "label": "0",
+      "phase": "0",
+      "sine": "0"
+    },
+    {
+      "label": "2^61",
+      "phase": "2305843009213693952",
+      "sine": "0.7071067811865475244008444"
+    },
+    {
+      "label": "2^62",
+      "phase": "4611686018427387904",
+      "sine": "1"
+    },
+    {
+      "label": "2^63",
+      "phase": "9223372036854775808",
+      "sine": "0"
+    },
+    {
+      "label": "3*2^62",
+      "phase": "13835058055282163712",
+      "sine": "-1"
+    }
+  ],
+  "increments": [
+    {
+      "case": "signal",
+      "label": "theta rate, low end",
+      "f_hz": "1.0",
+      "f_hex": "0x1.0000000000000p+0",
+      "fs": 44100,
+      "q_hex": "0x1.7c6f8c751f177p+48",
+      "inc": "418293516410647"
+    },
+    {
+      "case": "signal",
+      "label": "theta rate, Sleep delta",
+      "f_hz": "2.0",
+      "f_hex": "0x1.0000000000000p+1",
+      "fs": 44100,
+      "q_hex": "0x1.7c6f8c751f177p+49",
+      "inc": "836587032821295"
+    },
+    {
+      "case": "signal",
+      "label": "theta rate, Learn",
+      "f_hz": "5.5",
+      "f_hex": "0x1.6000000000000p+2",
+      "fs": 44100,
+      "q_hex": "0x1.058cb09085602p+51",
+      "inc": "2300614340258561"
+    },
+    {
+      "case": "signal",
+      "label": "theta rate, high end",
+      "f_hz": "6.0",
+      "f_hex": "0x1.8000000000000p+2",
+      "fs": 44100,
+      "q_hex": "0x1.1d53a957d7519p+51",
+      "inc": "2509761098463884"
+    },
+    {
+      "case": "signal",
+      "label": "gamma rate, low end",
+      "f_hz": "30.0",
+      "f_hex": "0x1.e000000000000p+4",
+      "fs": 44100,
+      "q_hex": "0x1.64a893adcd25fp+53",
+      "inc": "12548805492319422"
+    },
+    {
+      "case": "signal",
+      "label": "gamma rate, default",
+      "f_hz": "40.0",
+      "f_hex": "0x1.4000000000000p+5",
+      "fs": 44100,
+      "q_hex": "0x1.db8b6f9266dd5p+53",
+      "inc": "16731740656425898"
+    },
+    {
+      "case": "signal",
+      "label": "gamma rate, high end",
+      "f_hz": "60.0",
+      "f_hex": "0x1.e000000000000p+5",
+      "fs": 44100,
+      "q_hex": "0x1.64a893adcd25fp+54",
+      "inc": "25097610984638844"
+    },
+    {
+      "case": "signal",
+      "label": "theta carrier, low end; binaural carrier, Sleep",
+      "f_hz": "100.0",
+      "f_hex": "0x1.9000000000000p+6",
+      "fs": 44100,
+      "q_hex": "0x1.293725bb804a5p+55",
+      "inc": "41829351641064744"
+    },
+    {
+      "case": "signal",
+      "label": "gamma carrier, low end",
+      "f_hz": "200.0",
+      "f_hex": "0x1.9000000000000p+7",
+      "fs": 44100,
+      "q_hex": "0x1.293725bb804a5p+56",
+      "inc": "83658703282129488"
+    },
+    {
+      "case": "signal",
+      "label": "gamma carrier, starter",
+      "f_hz": "250.0",
+      "f_hex": "0x1.f400000000000p+7",
+      "fs": 44100,
+      "q_hex": "0x1.7384ef2a605cep+56",
+      "inc": "104573379102661856"
+    },
+    {
+      "case": "signal",
+      "label": "theta carrier, starter",
+      "f_hz": "450.0",
+      "f_hex": "0x1.c200000000000p+8",
+      "fs": 44100,
+      "q_hex": "0x1.4e5e0a72f0539p+57",
+      "inc": "188232082384791328"
+    },
+    {
+      "case": "signal",
+      "label": "theta and gamma carrier, high end",
+      "f_hz": "500.0",
+      "f_hex": "0x1.f400000000000p+8",
+      "fs": 44100,
+      "q_hex": "0x1.7384ef2a605cep+57",
+      "inc": "209146758205323712"
+    },
+    {
+      "case": "signal",
+      "label": "binaural carrier, high end",
+      "f_hz": "1000.0",
+      "f_hex": "0x1.f400000000000p+9",
+      "fs": 44100,
+      "q_hex": "0x1.7384ef2a605cep+58",
+      "inc": "418293516410647424"
+    },
+    {
+      "case": "signal",
+      "label": "binaural right ear, high end (1000 Hz plus 30 Hz)",
+      "f_hz": "1030.0",
+      "f_hex": "0x1.0180000000000p+10",
+      "fs": 44100,
+      "q_hex": "0x1.7eaa33c7cec61p+58",
+      "inc": "430842321902966848"
+    },
+    {
+      "case": "signal",
+      "label": "beat rate, high end",
+      "f_hz": "30.0",
+      "f_hex": "0x1.e000000000000p+4",
+      "fs": 44100,
+      "q_hex": "0x1.64a893adcd25fp+53",
+      "inc": "12548805492319422"
+    },
+    {
+      "case": "signal",
+      "label": "theta rate, low end",
+      "f_hz": "1.0",
+      "f_hex": "0x1.0000000000000p+0",
+      "fs": 48000,
+      "q_hex": "0x1.5d867c3ece2a5p+48",
+      "inc": "384307168202282"
+    },
+    {
+      "case": "signal",
+      "label": "theta rate, Sleep delta",
+      "f_hz": "2.0",
+      "f_hex": "0x1.0000000000000p+1",
+      "fs": 48000,
+      "q_hex": "0x1.5d867c3ece2a5p+49",
+      "inc": "768614336404565"
+    },
+    {
+      "case": "signal",
+      "label": "theta rate, Learn",
+      "f_hz": "5.5",
+      "f_hex": "0x1.6000000000000p+2",
+      "fs": 48000,
+      "q_hex": "0x1.e098ead65b7a3p+50",
+      "inc": "2113689425112553"
+    },
+    {
+      "case": "signal",
+      "label": "theta rate, high end",
+      "f_hz": "6.0",
+      "f_hex": "0x1.8000000000000p+2",
+      "fs": 48000,
+      "q_hex": "0x1.0624dd2f1a9fcp+51",
+      "inc": "2305843009213694"
+    },
+    {
+      "case": "signal",
+      "label": "gamma rate, low end",
+      "f_hz": "30.0",
+      "f_hex": "0x1.e000000000000p+4",
+      "fs": 48000,
+      "q_hex": "0x1.47ae147ae147bp+53",
+      "inc": "11529215046068470"
+    },
+    {
+      "case": "signal",
+      "label": "gamma rate, default",
+      "f_hz": "40.0",
+      "f_hex": "0x1.4000000000000p+5",
+      "fs": 48000,
+      "q_hex": "0x1.b4e81b4e81b4fp+53",
+      "inc": "15372286728091294"
+    },
+    {
+      "case": "signal",
+      "label": "gamma rate, high end",
+      "f_hz": "60.0",
+      "f_hex": "0x1.e000000000000p+5",
+      "fs": 48000,
+      "q_hex": "0x1.47ae147ae147bp+54",
+      "inc": "23058430092136940"
+    },
+    {
+      "case": "signal",
+      "label": "theta carrier, low end; binaural carrier, Sleep",
+      "f_hz": "100.0",
+      "f_hex": "0x1.9000000000000p+6",
+      "fs": 48000,
+      "q_hex": "0x1.1111111111111p+55",
+      "inc": "38430716820228232"
+    },
+    {
+      "case": "signal",
+      "label": "gamma carrier, low end",
+      "f_hz": "200.0",
+      "f_hex": "0x1.9000000000000p+7",
+      "fs": 48000,
+      "q_hex": "0x1.1111111111111p+56",
+      "inc": "76861433640456464"
+    },
+    {
+      "case": "signal",
+      "label": "gamma carrier, starter",
+      "f_hz": "250.0",
+      "f_hex": "0x1.f400000000000p+7",
+      "fs": 48000,
+      "q_hex": "0x1.5555555555555p+56",
+      "inc": "96076792050570576"
+    },
+    {
+      "case": "signal",
+      "label": "theta carrier, starter",
+      "f_hz": "450.0",
+      "f_hex": "0x1.c200000000000p+8",
+      "fs": 48000,
+      "q_hex": "0x1.3333333333333p+57",
+      "inc": "172938225691027040"
+    },
+    {
+      "case": "signal",
+      "label": "theta and gamma carrier, high end",
+      "f_hz": "500.0",
+      "f_hex": "0x1.f400000000000p+8",
+      "fs": 48000,
+      "q_hex": "0x1.5555555555555p+57",
+      "inc": "192153584101141152"
+    },
+    {
+      "case": "signal",
+      "label": "binaural carrier, high end",
+      "f_hz": "1000.0",
+      "f_hex": "0x1.f400000000000p+9",
+      "fs": 48000,
+      "q_hex": "0x1.5555555555555p+58",
+      "inc": "384307168202282304"
+    },
+    {
+      "case": "signal",
+      "label": "binaural right ear, high end (1000 Hz plus 30 Hz)",
+      "f_hz": "1030.0",
+      "f_hex": "0x1.0180000000000p+10",
+      "fs": 48000,
+      "q_hex": "0x1.5f92c5f92c5f9p+58",
+      "inc": "395836383248350784"
+    },
+    {
+      "case": "signal",
+      "label": "beat rate, high end",
+      "f_hz": "30.0",
+      "f_hex": "0x1.e000000000000p+4",
+      "fs": 48000,
+      "q_hex": "0x1.47ae147ae147bp+53",
+      "inc": "11529215046068470"
+    },
+    {
+      "case": "tie",
+      "label": "q = 1/2 exactly",
+      "f_hz": "1.1953328951652686e-15",
+      "f_hex": "0x1.5888000000000p-50",
+      "fs": 44100,
+      "q_hex": "0x1.0000000000000p-1",
+      "inc": "0"
+    },
+    {
+      "case": "tie",
+      "label": "q = 3/2 exactly",
+      "f_hz": "3.585998685495806e-15",
+      "f_hex": "0x1.0266000000000p-48",
+      "fs": 44100,
+      "q_hex": "0x1.8000000000000p+0",
+      "inc": "2"
+    },
+    {
+      "case": "tie",
+      "label": "q = 5/2 exactly",
+      "f_hz": "5.976664475826343e-15",
+      "f_hex": "0x1.aeaa000000000p-48",
+      "fs": 44100,
+      "q_hex": "0x1.4000000000000p+1",
+      "inc": "2"
+    },
+    {
+      "case": "tie",
+      "label": "q = 1/2 exactly",
+      "f_hz": "1.3010426069826053e-15",
+      "f_hex": "0x1.7700000000000p-50",
+      "fs": 48000,
+      "q_hex": "0x1.0000000000000p-1",
+      "inc": "0"
+    },
+    {
+      "case": "tie",
+      "label": "q = 3/2 exactly",
+      "f_hz": "3.903127820947816e-15",
+      "f_hex": "0x1.1940000000000p-48",
+      "fs": 48000,
+      "q_hex": "0x1.8000000000000p+0",
+      "inc": "2"
+    },
+    {
+      "case": "tie",
+      "label": "q = 5/2 exactly",
+      "f_hz": "6.5052130349130266e-15",
+      "f_hex": "0x1.d4c0000000000p-48",
+      "fs": 48000,
+      "q_hex": "0x1.4000000000000p+1",
+      "inc": "2"
+    },
+    {
+      "case": "edge",
+      "label": "largest binary64 below fs/2",
+      "f_hz": "22049.999999999996",
+      "f_hex": "0x1.5887fffffffffp+14",
+      "fs": 44100,
+      "q_hex": "0x1.fffffffffffffp+62",
+      "inc": "9223372036854774784"
+    },
+    {
+      "case": "edge",
+      "label": "zero",
+      "f_hz": "0.0",
+      "f_hex": "0x0.0p+0",
+      "fs": 44100,
+      "q_hex": "0x0.0p+0",
+      "inc": "0"
+    },
+    {
+      "case": "edge",
+      "label": "negative zero",
+      "f_hz": "-0.0",
+      "f_hex": "-0x0.0p+0",
+      "fs": 44100,
+      "q_hex": "-0x0.0p+0",
+      "inc": "0"
+    },
+    {
+      "case": "out_of_range",
+      "label": "negative",
+      "f_hz": "-1.0",
+      "f_hex": "-0x1.0000000000000p+0",
+      "fs": 44100,
+      "q_hex": "none",
+      "inc": "0"
+    },
+    {
+      "case": "out_of_range",
+      "label": "exactly fs/2",
+      "f_hz": "22050.0",
+      "f_hex": "0x1.5888000000000p+14",
+      "fs": 44100,
+      "q_hex": "none",
+      "inc": "0"
+    },
+    {
+      "case": "out_of_range",
+      "label": "above fs/2",
+      "f_hz": "44100.0",
+      "f_hex": "0x1.5888000000000p+15",
+      "fs": 44100,
+      "q_hex": "none",
+      "inc": "0"
+    },
+    {
+      "case": "out_of_range",
+      "label": "NaN",
+      "f_hz": "NaN",
+      "f_hex": "nan",
+      "fs": 44100,
+      "q_hex": "none",
+      "inc": "0"
+    },
+    {
+      "case": "out_of_range",
+      "label": "infinity",
+      "f_hz": "inf",
+      "f_hex": "inf",
+      "fs": 44100,
+      "q_hex": "none",
+      "inc": "0"
+    },
+    {
+      "case": "out_of_range",
+      "label": "negative infinity",
+      "f_hz": "-inf",
+      "f_hex": "-inf",
+      "fs": 44100,
+      "q_hex": "none",
+      "inc": "0"
+    },
+    {
+      "case": "edge",
+      "label": "largest binary64 below fs/2",
+      "f_hz": "23999.999999999996",
+      "f_hex": "0x1.76fffffffffffp+14",
+      "fs": 48000,
+      "q_hex": "0x1.fffffffffffffp+62",
+      "inc": "9223372036854774784"
+    },
+    {
+      "case": "edge",
+      "label": "zero",
+      "f_hz": "0.0",
+      "f_hex": "0x0.0p+0",
+      "fs": 48000,
+      "q_hex": "0x0.0p+0",
+      "inc": "0"
+    },
+    {
+      "case": "edge",
+      "label": "negative zero",
+      "f_hz": "-0.0",
+      "f_hex": "-0x0.0p+0",
+      "fs": 48000,
+      "q_hex": "-0x0.0p+0",
+      "inc": "0"
+    },
+    {
+      "case": "out_of_range",
+      "label": "negative",
+      "f_hz": "-1.0",
+      "f_hex": "-0x1.0000000000000p+0",
+      "fs": 48000,
+      "q_hex": "none",
+      "inc": "0"
+    },
+    {
+      "case": "out_of_range",
+      "label": "exactly fs/2",
+      "f_hz": "24000.0",
+      "f_hex": "0x1.7700000000000p+14",
+      "fs": 48000,
+      "q_hex": "none",
+      "inc": "0"
+    },
+    {
+      "case": "out_of_range",
+      "label": "above fs/2",
+      "f_hz": "48000.0",
+      "f_hex": "0x1.7700000000000p+15",
+      "fs": 48000,
+      "q_hex": "none",
+      "inc": "0"
+    },
+    {
+      "case": "out_of_range",
+      "label": "NaN",
+      "f_hz": "NaN",
+      "f_hex": "nan",
+      "fs": 48000,
+      "q_hex": "none",
+      "inc": "0"
+    },
+    {
+      "case": "out_of_range",
+      "label": "infinity",
+      "f_hz": "inf",
+      "f_hex": "inf",
+      "fs": 48000,
+      "q_hex": "none",
+      "inc": "0"
+    },
+    {
+      "case": "out_of_range",
+      "label": "negative infinity",
+      "f_hz": "-inf",
+      "f_hex": "-inf",
+      "fs": 48000,
+      "q_hex": "none",
+      "inc": "0"
+    }
+  ],
+  "samples": [
+    {
+      "case": "time",
+      "label": "zero",
+      "t_s": "0.0",
+      "t_hex": "0x0.0p+0",
+      "fs": 48000,
+      "product_hex": "0x0.0p+0",
+      "n": "0"
+    },
+    {
+      "case": "time",
+      "label": "1 s",
+      "t_s": "1.0",
+      "t_hex": "0x1.0000000000000p+0",
+      "fs": 44100,
+      "product_hex": "0x1.5888000000000p+15",
+      "n": "44100"
+    },
+    {
+      "case": "time",
+      "label": "1 s",
+      "t_s": "1.0",
+      "t_hex": "0x1.0000000000000p+0",
+      "fs": 48000,
+      "product_hex": "0x1.7700000000000p+15",
+      "n": "48000"
+    },
+    {
+      "case": "time",
+      "label": "1.5 s",
+      "t_s": "1.5",
+      "t_hex": "0x1.8000000000000p+0",
+      "fs": 44100,
+      "product_hex": "0x1.0266000000000p+16",
+      "n": "66150"
+    },
+    {
+      "case": "time",
+      "label": "1 ms (inexact in binary64)",
+      "t_s": "0.001",
+      "t_hex": "0x1.0624dd2f1a9fcp-10",
+      "fs": 44100,
+      "product_hex": "0x1.60ccccccccccdp+5",
+      "n": "44"
+    },
+    {
+      "case": "time",
+      "label": "1 ms (inexact in binary64)",
+      "t_s": "0.001",
+      "t_hex": "0x1.0624dd2f1a9fcp-10",
+      "fs": 48000,
+      "product_hex": "0x1.8000000000000p+5",
+      "n": "48"
+    },
+    {
+      "case": "time",
+      "label": "10 ms (inexact in binary64)",
+      "t_s": "0.01",
+      "t_hex": "0x1.47ae147ae147bp-7",
+      "fs": 44100,
+      "product_hex": "0x1.b900000000000p+8",
+      "n": "441"
+    },
+    {
+      "case": "time",
+      "label": "2 min",
+      "t_s": "120.0",
+      "t_hex": "0x1.e000000000000p+6",
+      "fs": 48000,
+      "product_hex": "0x1.5f90000000000p+22",
+      "n": "5760000"
+    },
+    {
+      "case": "time",
+      "label": "8 h",
+      "t_s": "28800.0",
+      "t_hex": "0x1.c200000000000p+14",
+      "fs": 44100,
+      "product_hex": "0x1.2ecf880000000p+30",
+      "n": "1270080000"
+    },
+    {
+      "case": "time",
+      "label": "8 h",
+      "t_s": "28800.0",
+      "t_hex": "0x1.c200000000000p+14",
+      "fs": 48000,
+      "product_hex": "0x1.4997000000000p+30",
+      "n": "1382400000"
+    },
+    {
+      "case": "tie",
+      "label": "tie 187.5, up to even",
+      "t_s": "0.00390625",
+      "t_hex": "0x1.0000000000000p-8",
+      "fs": 48000,
+      "product_hex": "0x1.7700000000000p+7",
+      "n": "188"
+    },
+    {
+      "case": "tie",
+      "label": "tie 562.5, down to even",
+      "t_s": "0.01171875",
+      "t_hex": "0x1.8000000000000p-7",
+      "fs": 48000,
+      "product_hex": "0x1.1940000000000p+9",
+      "n": "562"
+    },
+    {
+      "case": "tie",
+      "label": "tie 5512.5, down to even",
+      "t_s": "0.125",
+      "t_hex": "0x1.0000000000000p-3",
+      "fs": 44100,
+      "product_hex": "0x1.5888000000000p+12",
+      "n": "5512"
+    },
+    {
+      "case": "tie",
+      "label": "tie 16537.5, up to even",
+      "t_s": "0.375",
+      "t_hex": "0x1.8000000000000p-2",
+      "fs": 44100,
+      "product_hex": "0x1.0266000000000p+14",
+      "n": "16538"
+    },
+    {
+      "case": "out_of_range",
+      "label": "negative",
+      "t_s": "-1.0",
+      "t_hex": "-0x1.0000000000000p+0",
+      "fs": 48000,
+      "product_hex": "none",
+      "n": "0"
+    },
+    {
+      "case": "out_of_range",
+      "label": "NaN",
+      "t_s": "NaN",
+      "t_hex": "nan",
+      "fs": 48000,
+      "product_hex": "none",
+      "n": "0"
+    },
+    {
+      "case": "out_of_range",
+      "label": "infinity",
+      "t_s": "inf",
+      "t_hex": "inf",
+      "fs": 48000,
+      "product_hex": "none",
+      "n": "0"
+    },
+    {
+      "case": "out_of_range",
+      "label": "product at 2^64",
+      "t_s": "768614336404564.6",
+      "t_hex": "0x1.5d867c3ece2a5p+49",
+      "fs": 48000,
+      "product_hex": "0x1.0000000000000p+65",
+      "n": "0"
+    }
+  ],
+  "phase_steps": [
+    {
+      "label": "wrap by one step",
+      "start": "18446744073709551615",
+      "inc": "2",
+      "steps": 1,
+      "phase": "1"
+    },
+    {
+      "label": "wrap from the top of the cycle",
+      "start": "18258511991324760293",
+      "inc": "188232082384791328",
+      "steps": 1,
+      "phase": "5"
+    },
+    {
+      "label": "450 Hz at 44.1 kHz, 98 samples (one nominal cycle)",
+      "start": "0",
+      "inc": "188232082384791328",
+      "steps": 98,
+      "phase": "18446744073709550144"
+    },
+    {
+      "label": "450 Hz at 44.1 kHz, 8 h",
+      "start": "0",
+      "inc": "188232082384791328",
+      "steps": 1270080000,
+      "phase": "18446744054632431616"
+    }
+  ],
+  "carrier_450_44100": {
+    "label": "450 Hz carrier, unmodulated, 44.1 kHz, phase 0 at n = 0",
+    "f_hz": "450.0",
+    "fs": 44100,
+    "inc": "188232082384791328",
+    "samples": [
+      {
+        "n": 0,
+        "phase": "0",
+        "sine": "0"
+      },
+      {
+        "n": 1,
+        "phase": "188232082384791328",
+        "sine": "0.06407021998071291831579454"
+      },
+      {
+        "n": 2,
+        "phase": "376464164769582656",
+        "sine": "0.1278771616845060004423022"
+      },
+      {
+        "n": 10,
+        "phase": "1882320823847913280",
+        "sine": "0.5981105304912159210578745"
+      },
+      {
+        "n": 24,
+        "phase": "4517569977234991872",
+        "sine": "0.9994862162006878637619657"
+      },
+      {
+        "n": 49,
+        "phase": "9223372036854775072",
+        "sine": "2.506905482943704177750704e-16"
+      },
+      {
+        "n": 73,
+        "phase": "13740942014089766944",
+        "sine": "-0.9994862162006878557269381"
+      },
+      {
+        "n": 97,
+        "phase": "18258511991324758816",
+        "sine": "-0.06407021998071341866674989"
+      },
+      {
+        "n": 98,
+        "phase": "18446744073709550144",
+        "sine": "-5.013810965887408355501409e-16"
+      },
+      {
+        "n": 1000,
+        "phase": "3764641647695811840",
+        "sine": "0.9586678530366591664698263"
+      },
+      {
+        "n": 44100,
+        "phase": "18446744073708889216",
+        "sine": "-2.256214934649333759975634e-13"
+      },
+      {
+        "n": 1270080000,
+        "phase": "18446744054632431616",
+        "sine": "-6.497899011790081183003362e-9"
+      }
+    ]
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "note": "Interim threshold rows for Story 0.2. Story 0.3 absorbs this file (loaders, coverage, design log gate). Every row: id, value, unit, source.",
+  "rows": [
+    {
+      "id": "sine-error",
+      "value": -120,
+      "unit": "dBFS",
+      "source": "Design log 2026-10-28 (o): engine sine at most -120 dBFS against the ideal sine; docs/signal-spec.md, Sine, Error bound"
+    },
+    {
+      "id": "frequency-accuracy",
+      "value": 0.01,
+      "unit": "Hz",
+      "source": "thresholds-and-ranges.md, Test thresholds, Frequency accuracy; plan Test thresholds; FR-1"
+    },
+    {
+      "id": "drift-8h",
+      "value": 1,
+      "unit": "ms",
+      "source": "thresholds-and-ranges.md, Test thresholds, Long-session drift (under 1 ms after an 8-hour render; session length from range row session-length); plan Test thresholds; FR-1"
+    }
+  ]
+}
