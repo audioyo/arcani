@@ -18,3 +18,15 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-0-1-part-1-build-skeleton-and-fast-ci.md`
   summary: Local ctest on the dev PC is blocked by Windows Smart App Control; C++ tests are verified on GitHub Actions until Audio turns it off (Win+R, `windowsdefender:`, App and browser control).
   evidence: Review finding 20; CodeIntegrity event 3077/3118 blocked `arcani_tests.exe` on 2026-11-02, while pytest passes locally and fast run 1 passed on both CI jobs.
+- source_spec: `_bmad-output/implementation-artifacts/spec-0-1-part-2-compile-flags-and-symbol-denylist.md`
+  summary: Reproducible-binary flags (`/Brepro` on clang-cl, `-ffile-prefix-map` on clang) are not set; part 2 sets only the AD-9 output flags and warnings.
+  evidence: Decided 2026-11-02 (Audio): no requirement asks for identical binaries, only identical output; design log 2026-11-02 (z). Revisit if a later story needs binary-level reproducibility.
+- source_spec: `_bmad-output/implementation-artifacts/spec-0-1-part-2-compile-flags-and-symbol-denylist.md`
+  summary: Scan `engine/` sources for floating-point pragmas (`#pragma clang fp`, `#pragma STDC FP_CONTRACT`, `#pragma float_control`, `#pragma fenv_access`) and fail, since they can re-enable contraction or reassociation while every compile flag looks clean.
+  evidence: Review pass 1 finding 7 (part 2); the flag check reads only command lines. No engine source has such a pragma yet; add before or with Story 0.2's first DSP code.
+- source_spec: `_bmad-output/implementation-artifacts/spec-0-1-part-2-compile-flags-and-symbol-denylist.md`
+  summary: Add an environment and locale family to the engine symbol denylist (`getenv`, `setlocale`, `localeconv`, `std::locale` constructors, locale-dependent `strtod`), so host settings cannot change engine results.
+  evidence: Review pass 1 finding 20 (part 2); not one of the five families in the part 2 intent. Natural home is Story 1.6, which extends the denylist with unseeded randomness.
+- source_spec: `_bmad-output/implementation-artifacts/spec-0-1-part-2-compile-flags-and-symbol-denylist.md`
+  summary: Extend the AD-9 flag check (and the symbol denylist where it applies) from `engine/` sources to `cli/` once the WAV writer or any sample conversion lands there.
+  evidence: Review pass 1 finding 21 (part 2); flags are already project-wide and a test asserts `cli/main.cpp` has them, but the checker enforces engine sources only. Story 1.4 or 1.6 is the trigger.

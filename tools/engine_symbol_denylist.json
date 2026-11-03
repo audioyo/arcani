@@ -1,0 +1,171 @@
+{
+  "description": "Undefined symbols the engine library must not reference (AD-9 pure core). Read by tools/check_engine_symbols.py. c_names are Python regexes matched against the whole raw symbol name after stripping a __imp_ prefix and then one leading underscore. cpp_names are Python regexes searched for in the symbol name as listed (demangled C++ names). sqrt stays allowed: IEEE 754 rounds it correctly on every target (design log 2026-11-02 (z)). Unseeded-randomness entries arrive with Story 1.6.",
+  "families": [
+    {
+      "name": "libm transcendental",
+      "c_names": [
+        "_?(sin|cos|tan|asin|acos|atan|atan2|sinh|cosh|tanh|asinh|acosh|atanh|exp|exp2|exp10|expm1|log|log2|log10|log1p|pow|cbrt|hypot|erf|erfc|tgamma|lgamma|sincos)[fl]?(_finite)?",
+        "lgamma[fl]?_r",
+        "(sinpi|cospi|tanpi|asinpi|acospi|atanpi|atan2pi|exp2m1|exp10m1|log2p1|log10p1|rootn|pown|powr|compoundn)[fl]?",
+        "__?(sinpi|cospi|tanpi)[fl]?",
+        "(j0|j1|jn|y0|y1|yn)[fl]?",
+        "c(exp|log|pow|sin|cos|tan|sinh|cosh|tanh|asin|acos|atan|asinh|acosh|atanh|sqrt|abs|arg)[fl]?",
+        "_std_smf_\\w+",
+        "_?ZGV\\w+_(sin|cos|tan|exp|log|pow)\\w*",
+        "_?_?sincosf?_stret"
+      ],
+      "cpp_names": []
+    },
+    {
+      "name": "file",
+      "c_names": [
+        "w?fopen(64|_s)?",
+        "w?fsopen",
+        "w?freopen(64|_s)?",
+        "fdopen",
+        "fclose",
+        "fcloseall",
+        "fread",
+        "fwrite",
+        "fseeko?(64|i64)?",
+        "ftello?(64|i64)?",
+        "fgetpos(64)?",
+        "fsetpos(64)?",
+        "rewind",
+        "fflush",
+        "fgetw?c",
+        "fgetw?s",
+        "fputw?c",
+        "fputw?s",
+        "getw?c",
+        "putw?c",
+        "ungetw?c",
+        "fw?printf(_s)?",
+        "vfw?printf(_s)?",
+        "fw?scanf(_s)?",
+        "vfw?scanf(_s)?",
+        "tmpfile(64|_s)?",
+        "w?remove",
+        "w?rename",
+        "w?unlink",
+        "w?(s)?open(64|_s)?",
+        "openat(64)?",
+        "creat(64)?",
+        "close",
+        "read",
+        "write",
+        "lseek(64|i64)?",
+        "CreateFile[AW2]?",
+        "ReadFile(Ex)?",
+        "WriteFile(Ex)?",
+        "_isoc(99|23)_fw?scanf",
+        "_isoc(99|23)_vfw?scanf",
+        "_v?fprintf_chk",
+        "_std_fs_\\w+"
+      ],
+      "cpp_names": [
+        "\\bstd::(\\w+::)*basic_(i|o)?fstream\\b",
+        "\\bstd::(\\w+::)*basic_filebuf\\b",
+        "\\bstd::(\\w+::)*(w)?(i|o)?fstream\\b",
+        "\\bstd::(\\w+::)*filesystem::",
+        "\\bstd::(\\w+::)*_Fiopen\\b"
+      ]
+    },
+    {
+      "name": "thread",
+      "c_names": [
+        "pthread_\\w+",
+        "Thrd_\\w+",
+        "Mtx_\\w+",
+        "Cnd_\\w+",
+        "thrd_\\w+",
+        "mtx_\\w+",
+        "cnd_\\w+",
+        "beginthread(ex)?",
+        "endthread(ex)?",
+        "CreateThread",
+        "Sleep(Ex)?",
+        "nanosleep",
+        "usleep",
+        "sleep",
+        "Smtx_\\w+",
+        "_?std_atomic_(wait|notify)\\w*",
+        "WaitOnAddress",
+        "WakeByAddress\\w*",
+        "_libcpp_atomic_wait\\w*",
+        "sched_yield"
+      ],
+      "cpp_names": [
+        "\\bstd::(\\w+::)*j?thread\\b",
+        "\\bstd::(\\w+::)*this_thread::",
+        "\\bstd::(\\w+::)*(recursive_|timed_|shared_)*mutex::",
+        "\\bstd::(\\w+::)*condition_variable(_any)?::",
+        "\\bstd::(\\w+::)*__libcpp_thread\\w*",
+        "\\b__libcpp_atomic_wait\\w*"
+      ]
+    },
+    {
+      "name": "clock",
+      "c_names": [
+        "clock",
+        "time(32|64)?",
+        "gettimeofday",
+        "clock_gettime(64)?",
+        "timespec(32|64)?_get",
+        "ftime(32|64)?",
+        "Xtime_\\w+",
+        "Query_perf_counter",
+        "Query_perf_frequency",
+        "QueryPerformanceCounter",
+        "QueryPerformanceFrequency",
+        "GetTickCount(64)?",
+        "GetSystemTime\\w*",
+        "mach_absolute_time",
+        "mach_continuous_time",
+        "(localtime|gmtime|mktime|ctime|asctime)(32|64)?(_r|_s)?",
+        "w?strftime",
+        "wcsftime",
+        "tzset"
+      ],
+      "cpp_names": [
+        "\\bstd::(\\w+::)*chrono::(\\w+::)*\\w*clock::now\\b"
+      ]
+    },
+    {
+      "name": "console",
+      "c_names": [
+        "w?printf(_s)?",
+        "vw?printf(_s)?",
+        "w?scanf(_s)?",
+        "vw?scanf(_s)?",
+        "puts",
+        "putw?char",
+        "getw?char",
+        "gets(_s)?",
+        "perror",
+        "stdin",
+        "stdout",
+        "stderr",
+        "_?iob_func",
+        "_acrt_iob_func",
+        "_stdio_common_\\w+",
+        "c(w)?puts",
+        "c(w)?printf",
+        "getw?ch(e)?",
+        "kbhit",
+        "GetStdHandle",
+        "WriteConsole[AW]?",
+        "ReadConsole[AW]?",
+        "AllocConsole",
+        "_isoc(99|23)_w?scanf",
+        "_isoc(99|23)_vw?scanf",
+        "_v?printf_chk"
+      ],
+      "cpp_names": [
+        "\\bstd::(\\w+::)*w?(cout|cerr|clog|cin)\\b",
+        "\\bstd::(\\w+::)*ios_base::Init::Init\\b",
+        "\\bstd::(\\w+::)*(print|println|vprint_unicode|vprint_nonunicode)\\b"
+      ]
+    }
+  ]
+}

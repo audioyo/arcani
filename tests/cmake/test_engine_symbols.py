@@ -29,9 +29,10 @@ Contract with the checker:
   llvm-nm (the text after "U ") and its family name, one of:
   "libm transcendental", "file", "thread", "clock", "console" (any case).
 - Families: libm transcendentals with f and l variants (sin, cos, tan, asin,
-  acos, atan, atan2, sinh, cosh, tanh, asinh, acosh, atanh, exp, exp2, expm1,
-  log, log2, log10, log1p, pow, cbrt, hypot, erf, erfc, tgamma, lgamma,
-  sincos); file, thread, clock, and console APIs including the C++ library
+  acos, atan, atan2, sinh, cosh, tanh, asinh, acosh, atanh, exp, exp2, exp10,
+  expm1, log, log2, log10, log1p, pow, cbrt, hypot, erf, erfc, tgamma, lgamma,
+  lgamma_r, sincos, plus the pi, m1, p1, rootn, pown, powr, compoundn,
+  Bessel, complex, MSVC __std_smf_, and vector _ZGV forms); file, thread, clock, and console APIs including the C++ library
   forms and the Windows UCRT internals listed in DENIED below. sqrt, floor,
   memcpy and the other names in ALLOWED pass.
 
@@ -130,6 +131,81 @@ DENIED = (
         ("__stdio_common_vfscanf", {"console", "file"}),
     ]
 )
+
+# One row per added pattern and per previously untested alternative.
+DENIED += [
+    # libm
+    ("exp10", {LIBM}),
+    ("lgamma_r", {LIBM}),
+    ("lgammaf_r", {LIBM}),
+    ("lgammal_r", {LIBM}),
+    ("__sin_finite", {LIBM}),
+    ("__sincos_stret", {LIBM}),
+    ("sinpi", {LIBM}),
+    ("cospif", {LIBM}),
+    ("atan2pil", {LIBM}),
+    ("exp2m1", {LIBM}),
+    ("log10p1f", {LIBM}),
+    ("rootn", {LIBM}),
+    ("pown", {LIBM}),
+    ("powr", {LIBM}),
+    ("compoundn", {LIBM}),
+    ("__sinpi", {LIBM}),
+    ("__cospif", {LIBM}),
+    ("__tanpi", {LIBM}),
+    ("j0", {LIBM}),
+    ("y1f", {LIBM}),
+    ("jnl", {LIBM}),
+    ("cexp", {LIBM}),
+    ("cpowf", {LIBM}),
+    ("csqrtl", {LIBM}),
+    ("cabs", {LIBM}),
+    ("__std_smf_cyl_bessel_i", {LIBM}),
+    ("_ZGVbN2v_sin", {LIBM}),
+    ("_ZGVdN4vv_pow", {LIBM}),
+    # file
+    ("__isoc99_fscanf", {"file"}),
+    ("__isoc23_vfscanf", {"file"}),
+    ("__fprintf_chk", {"file"}),
+    ("__vfprintf_chk", {"file"}),
+    ("__std_fs_open_handle", {"file"}),
+    ("std::filesystem::__cxx11::path::_M_split_cmpts()", {"file"}),
+    ("__imp_CreateFileW", {"file"}),
+    ("ReadFile", {"file"}),
+    # console
+    ("__isoc99_scanf", {"console"}),
+    ("__isoc23_vscanf", {"console"}),
+    ("__printf_chk", {"console"}),
+    ("__vprintf_chk", {"console"}),
+    ("WriteConsoleW", {"console"}),
+    ("std::wcout", {"console"}),
+    ("std::print(std::basic_format_string<char>)", {"console"}),
+    # thread
+    ("_Cnd_wait", {"thread"}),
+    ("_Smtx_lock_exclusive", {"thread"}),
+    ("__std_atomic_wait_direct", {"thread"}),
+    ("__std_atomic_notify_one_direct", {"thread"}),
+    ("WaitOnAddress", {"thread"}),
+    ("WakeByAddressAll", {"thread"}),
+    ("std::__1::__libcpp_atomic_wait(void const volatile*, long long)", {"thread"}),
+    ("sched_yield", {"thread"}),
+    ("std::mutex::lock()", {"thread"}),
+    ("std::condition_variable::wait(std::unique_lock<std::mutex>&)", {"thread"}),
+    ("std::jthread::join()", {"thread"}),
+    # clock
+    ("GetTickCount64", {"clock"}),
+    ("GetSystemTimeAsFileTime", {"clock"}),
+    ("mach_absolute_time", {"clock"}),
+    ("localtime", {"clock"}),
+    ("localtime_r", {"clock"}),
+    ("_localtime64_s", {"clock"}),
+    ("gmtime_r", {"clock"}),
+    ("_mktime64", {"clock"}),
+    ("ctime", {"clock"}),
+    ("asctime_s", {"clock"}),
+    ("strftime", {"clock"}),
+    ("_tzset", {"clock"}),
+]
 
 ALLOWED = [
     "sqrt", "sqrtf", "sqrtl", "__imp_sqrt", "_sqrt",

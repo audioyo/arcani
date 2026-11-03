@@ -20,19 +20,31 @@ Contract with the checker:
 
 - `python tools/check_compile_flags.py BUILD_DIR` reads
   BUILD_DIR/arcani_engine_check.json, then the compile_commands.json it names
-  (entries with "directory", "file", "command"). An engine source is an entry
-  whose "file" lies under `<source_dir>/engine/`. Paths may mix forward and
+  (entries with "directory", "file", and "command" or "arguments"). An
+  engine source is an entry whose "file" lies under `<source_dir>/engine/`. Paths may mix forward and
   back slashes; the checker normalizes them.
 - Exit 0 when every engine source passes. Exit 1 when any of these hold, with
   one output line per violation (stdout or stderr):
-    * an engine source's last `-ffp-contract=` value is not `off` (also behind
-      `/clang:`), or the flag is absent;
+    * an engine source's effective contraction is not off, or no
+      `-ffp-contract=` flag is present. For clang-cl, `/clang:` and `-clang:`
+      arguments take effect after all others. The effective value is set by
+      the last of `-ffp-contract=X` (X) or an fp model implying contraction
+      on: -ffp-model=precise|fast|aggressive (bare or behind `/clang:`), or
+      /fp:precise|fast (also -fp:) in their effective position. Strict and
+      except models never turn contraction on;
+    * a value-changing fp option appears (bare, behind `/clang:`, or after
+      `-Xclang`): -fdenormal-fp-math= or -fdenormal-fp-math-f32= other than
+      ieee, -mdaz-ftz, -fcomplex-arithmetic=basic, -mrecip and -mrecip=*,
+      -fveclib=* other than none, -mfpmath=387, -mreassociate,
+      -menable-no-nans, -menable-no-infs, -menable-unsafe-fp-math;
     * a fast-math flag appears on an engine source: -ffast-math, -Ofast,
       -ffp-model=fast, -ffp-model=aggressive, -funsafe-math-optimizations,
       -fassociative-math, -freciprocal-math, -ffinite-math-only,
       -fno-honor-nans, -fno-honor-infinities, -fno-signed-zeros,
-      -fapprox-func, -fcx-limited-range, /fp:fast; each also as /clang:<flag>;
-    * an engine source's command uses an `@` response file;
+      -fapprox-func, -fcx-limited-range, /fp:fast (also -fp:fast); each also
+      as /clang:<flag>, -clang:<flag>, or after -Xclang;
+    * an engine source's command uses an `@` response file (also behind a
+      prefix);
     * there are zero engine sources.
   A flag violation line contains "<toolchain_name> <toolchain_version>" (for
   example "clang-cl 23.1.4"), the source file's base name, and the offending
@@ -261,6 +273,123 @@ def test_zero_engine_sources_fails(tmp_path):
 def test_empty_compile_commands_fails(tmp_path):
     code, out = run_checker(make_build(tmp_path, []))
     assert code == 1, out
+
+
+@pytest.mark.parametrize(
+    "toolchain, flags",
+    [
+        ("clang", "-ffp-contract=off -ffp-model=strict"),
+        ("clang-cl", "/clang:-ffp-contract=off /fp:precise"),
+        ("clang-cl", "/clang:-ffp-contract=off /fp:except"),
+        ("clang-cl", "/clang:-ffp-contract=off /fp:strict"),
+    ],
+)
+def test_fp_model_that_keeps_contract_off_passes(tmp_path, toolchain, flags):
+    """clang-cl evaluates /clang: arguments after all others; strict and except never turn contraction on."""
+    src = engine_file("dsp.cpp")
+    command = clang_cl if toolchain == "clang-cl" else clang
+    build = make_build(tmp_path, [(src, command(flags, src))], toolchain=(toolchain, "23.1.4"))
+    code, out = run_checker(build)
+    assert code == 0, out
+
+
+@pytest.mark.parametrize(
+    "toolchain, flags, named",
+    [
+        ("clang", "-ffp-contract=off -ffp-model=precise", "-ffp-model=precise"),
+        ("clang-cl", "/clang:-ffp-contract=off /clang:-ffp-model=precise", "-ffp-model=precise"),
+    ],
+)
+def test_fp_model_that_turns_contract_on_fails(tmp_path, toolchain, flags, named):
+    src = engine_file("dsp.cpp")
+    command = clang_cl if toolchain == "clang-cl" else clang
+    build = make_build(tmp_path, [(src, command(flags, src))], toolchain=(toolchain, "23.1.4"))
+    code, out = run_checker(build)
+    assert code == 1, out
+    assert_one_line_names(out, f"{toolchain} 23.1.4", "dsp.cpp", named)
+
+
+@pytest.mark.parametrize(
+    "flags, named",
+    [
+        ("/clang:-ffp-contract=off -Xclang -ffast-math", "-ffast-math"),
+        ("-clang:-ffast-math /clang:-ffp-contract=off", "-ffast-math"),
+        ("-fp:fast /clang:-ffp-contract=off", "-fp:fast"),
+    ],
+)
+def test_other_fast_math_spellings_fail(tmp_path, flags, named):
+    src = engine_file("dsp.cpp")
+    code, out = run_checker(make_build(tmp_path, [(src, clang_cl(flags, src))]))
+    assert code == 1, out
+    assert_one_line_names(out, "clang-cl 23.1.4", "dsp.cpp", named)
+
+
+def test_arguments_form_fast_math_fails(tmp_path):
+    src = engine_file("dsp.cpp")
+    build = make_build(tmp_path, [(src, "unused")], toolchain=("clang", "23.1.4"))
+    commands_path = build / "compile_commands.json"
+    entries = json.loads(commands_path.read_text(encoding="utf-8"))
+    del entries[0]["command"]
+    entries[0]["arguments"] = ["clang++", "-O3", "-ffp-contract=off", "-ffast-math", "-c", src]
+    commands_path.write_text(json.dumps(entries), encoding="utf-8")
+    code, out = run_checker(build)
+    assert code == 1, out
+    assert_one_line_names(out, "clang 23.1.4", "dsp.cpp", "-ffast-math")
+
+
+@pytest.mark.parametrize("flags", ["/clang:@dsp.rsp", "-Xclang @dsp.rsp"])
+def test_prefixed_response_file_fails(tmp_path, flags):
+    src = engine_file("dsp.cpp")
+    build = make_build(tmp_path, [(src, clang_cl(f"/clang:-ffp-contract=off {flags}", src))])
+    code, out = run_checker(build)
+    assert code == 1, out
+    assert_one_line_names(out, "clang-cl 23.1.4", "dsp.cpp", "@dsp.rsp")
+
+
+VALUE_CHANGING_FLAGS = [
+    "-fdenormal-fp-math=preserve-sign",
+    "-fdenormal-fp-math-f32=positive-zero",
+    "-mdaz-ftz",
+    "-fcomplex-arithmetic=basic",
+    "-mrecip",
+    "-mrecip=all",
+    "-fveclib=libmvec",
+    "-mfpmath=387",
+    "-mreassociate",
+    "-menable-no-nans",
+    "-menable-no-infs",
+    "-menable-unsafe-fp-math",
+]
+
+
+@pytest.mark.parametrize("form", ["bare", "clang_prefix", "xclang"])
+@pytest.mark.parametrize("flag", VALUE_CHANGING_FLAGS)
+def test_value_changing_fp_option_fails(tmp_path, flag, form):
+    src = engine_file("dsp.cpp")
+    if form == "bare":
+        build = make_build(
+            tmp_path, [(src, clang(f"-ffp-contract=off {flag}", src))], toolchain=("clang", "23.1.4")
+        )
+        toolchain = "clang 23.1.4"
+    else:
+        written = f"/clang:{flag}" if form == "clang_prefix" else f"-Xclang {flag}"
+        build = make_build(tmp_path, [(src, clang_cl(f"/clang:-ffp-contract=off {written}", src))])
+        toolchain = "clang-cl 23.1.4"
+    code, out = run_checker(build)
+    assert code == 1, out
+    assert_one_line_names(out, toolchain, "dsp.cpp", flag)
+
+
+@pytest.mark.parametrize(
+    "flag", ["-fdenormal-fp-math=ieee", "-fdenormal-fp-math-f32=ieee", "-fveclib=none"]
+)
+def test_default_valued_fp_options_pass(tmp_path, flag):
+    src = engine_file("dsp.cpp")
+    build = make_build(
+        tmp_path, [(src, clang(f"-ffp-contract=off {flag}", src))], toolchain=("clang", "23.1.4")
+    )
+    code, out = run_checker(build)
+    assert code == 0, out
 
 
 # --------------------------------------------------------- real configures

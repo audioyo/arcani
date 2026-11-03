@@ -2,7 +2,7 @@
 title: 'Story 0.1 part 2: engine compile flags and undefined-symbol denylist'
 type: 'chore'
 created: '2026-11-02'
-status: 'in-progress'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: 'a74a04364cffccff32938df66f3a64b0f3251d71'
@@ -62,17 +62,57 @@ Decisions (2026-11-02): part 2 of the Story 0.1 split (Audio). Reproducible-bina
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `tests/cmake/test_compile_flags.py`, `tests/cmake/test_engine_symbols.py`, `tests/fixtures/engine/calls_std_sin.cpp` -- QA agent: synthetic unit cases for every matrix row and family, plus real configure or build cases (share one configure per case through module fixtures). The fixture takes a non-constant argument so the call is not folded.
-- [ ] `tools/check_compile_flags.py`, `tools/check_engine_symbols.py` -- CLIs taking the build directory; read `arcani_engine_check.json`; exit 0 or 1 with one line per violation.
-- [ ] `tools/engine_symbol_denylist.json` -- families of regex patterns, split into C-name and C++-name lists.
-- [ ] `CMakeLists.txt`, `engine/CMakeLists.txt`, `cli/CMakeLists.txt` -- flags, hook, `llvm-nm`, check json.
-- [ ] `docs/design-log.md` -- entry (z): AD-9 flags set, warning flags, denylist families, `sqrt` allowed, reproducible-binary flags deferred.
-- [ ] `deferred-work.md` -- append the reproducible-binary-flags entry.
+- [x] `tests/cmake/test_compile_flags.py`, `tests/cmake/test_engine_symbols.py`, `tests/fixtures/engine/calls_std_sin.cpp` -- QA agent: synthetic unit cases for every matrix row and family, plus real configure or build cases (share one configure per case through module fixtures). The fixture takes a non-constant argument so the call is not folded.
+- [x] `tools/check_compile_flags.py`, `tools/check_engine_symbols.py` -- CLIs taking the build directory; read `arcani_engine_check.json`; exit 0 or 1 with one line per violation.
+- [x] `tools/engine_symbol_denylist.json` -- families of regex patterns, split into C-name and C++-name lists.
+- [x] `CMakeLists.txt`, `engine/CMakeLists.txt`, `cli/CMakeLists.txt` -- flags, hook, `llvm-nm`, check json.
+- [x] `docs/design-log.md` -- entry (z): AD-9 flags set, warning flags, denylist families, `sqrt` allowed, reproducible-binary flags deferred.
+- [x] `deferred-work.md` -- append the reproducible-binary-flags entry.
 
 **Acceptance Criteria:**
 - Given a clean checkout, when `uv run pytest` runs locally or in the fast workflow, then both checkers pass on the real preset build and both must-fail cases fail with the named toolchain, flag, or symbol.
 - Given a later engine source that calls a denied function or a build that drops `-ffp-contract=off`, when the fast tier runs, then it fails naming the toolchain and flag or the symbol.
 - Given the existing engine, CLI, and tests, when built with the new flags, then they build with no warnings and all part 1 tests still pass.
+
+## Implementation Notes
+
+- Failing tests committed in e686f5b (QA agent); their docstrings define the contracts. Make them pass; never edit them to pass.
+- Dev PC: `C:\Program Files\LLVM\bin` was not on the user or machine PATH; added to the user PATH on 2026-11-02 at Audio's go-ahead (new shells only). In an older shell, prepend it plus `C:\Users\goegl\.local\opt\cmake-4.4.5-windows-x86_64\bin` and `C:\Users\goegl\.local\bin`.
+- Review pass 1 patches (findings 1, 2, 3, 8, 9, 10, 11, 14, 22, 23): clang-cl `/clang:` ordering and fp-model reset rule, response file behind `/clang:` or `-Xclang`, posix tokenizing on Linux, value-changing fp options, `lgamma[fl]?_r` and wider denylist, llvm-nm search order, CMake comment. Local: pytest 342 passed, 0 skipped; clean `windows-clang-cl` workflow build, no warnings, ctest 1/1; both checkers pass on the build dir. Module scanning turned off (`CMAKE_CXX_SCAN_FOR_MODULES OFF`) because its `@` modmap file hides flags. Not verified here: Linux job and the Windows CI LLVM `llvm-nm` (first push).
+
+## Spec Change Log
+
+## Review Triage Log
+
+Review pass 1 (blind B, edge-case E, verification-gap V layers).
+
+| # | Finding | Verdict | Evidence | Route |
+|---|---------|---------|----------|-------|
+| 1 | Reset rule: any `/fp:` or `-ffp-model=` after contract off fails; untested (V, B, E) | medium | `clang-cl -###` shows `/clang:` args move after `/fp:`, so `/clang:-ffp-contract=off /fp:precise` gives `off`; `/fp:strict`, `/fp:except`, `-ffp-model=strict` keep `off`; only clang `-ffp-model=precise` after gives `on`. Checker fails all of them; no test | patch |
+| 2 | `lgamma_r` regex misses real `lgammaf_r`, `lgammal_r`; many denylist alternatives untested (V) | medium | regex puts `[fl]?` after `_r`; reviewer ran the checker | patch |
+| 3 | Checker parse paths untested: `-Xclang`, `-clang:`, `-fp:fast`, `arguments` form (V, B) | low | unreachable with Ninja today, but tests are cheap beside 1 | patch (with 1) |
+| 4 | Checks run only from pytest, not ctest or the build (B) | false | spec intent puts them in pytest, which CLAUDE.md fast tests and both CI jobs run | reject |
+| 5 | Real-build tests can skip silently if cmake is missing (B, E) | low | CI installs cmake before pytest; same pattern as part 1 pin test | reject |
+| 6 | Engine sources picked by path, not target (B, E) | low | flags are project-wide; no generated or out-of-tree engine source exists or is planned; fix adds a branch | reject |
+| 7 | Source pragmas (`#pragma clang fp contract`, `STDC FP_CONTRACT`, `float_control`) not checked (B, E) | medium | real way to re-enable contraction with clean flags; no engine source has one; new check beyond this change | defer |
+| 8 | Other value-changing flags not caught: `-fdenormal-fp-math=`, `-mdaz-ftz`, `-fcomplex-arithmetic=basic`, `-mrecip`, `-fveclib=`, `-mfpmath=387`, cc1 `-mreassociate`, `-menable-no-nans`, `-menable-no-infs` (B, E) | low | each changes output bits; adding to the flag set is a direct data change | patch |
+| 9 | Checker tokenizes with `posix=False` on Linux (B, E) | low | single-quoted or escaped tokens split wrong on Linux; one-line correction | patch |
+| 10 | Response file behind `/clang:@file` or `-Xclang @file` not caught (E) | low | check tests `token`, not `bare`; one-line correction | patch |
+| 11 | Denylist gaps: sinpi family, Bessel, complex `c*` functions, `__std_smf_*`, vector libm `_ZGV*`; glibc `__isoc99_*`/`__isoc23_*` scanf, `*_chk` printf; MSVC `__std_fs_*`, `_Smtx_*`, `__std_atomic_wait*`, `WaitOnAddress`, `__libcpp_atomic_wait`, `sched_yield`; `localtime`, `gmtime`, `mktime`, `ctime`, `asctime`, `strftime`, `tzset` (B, E) | medium | each is a real lowering of std library calls that passes today, against AC 2 | patch |
+| 12 | `__stdio_common_*` denies buffer formatting on Windows only (B, E) | low | real asymmetry, but the frozen intent names `__stdio_common_*`; fix edits the spec | reject |
+| 13 | Engine-internal `U` names checked against the denylist (B, E) | low | needs an engine function named like a libc call or taking `std::thread`; fix adds a second nm pass | reject |
+| 14 | `llvm-nm` HINTS search symlink dir before resolved dir (B, E) | low | CI compiler is in the pinned LLVM bin either way; swapping the order is a direct correction | patch |
+| 15 | Multi-config generator breaks `file(GENERATE)` (E) | low | presets use single-config Ninja only | reject |
+| 16 | `engine_library` JSON value not escaped (B, E) | low | `$<TARGET_FILE>` gives forward slashes; quote in build path unlikely | reject |
+| 17 | Test-only cache variable sticks in a build dir (B, E) | low | used only in pytest temp dirs; fix adds a guard | reject |
+| 18 | Guard test misses `CMakeUserPresets.json`, `.yaml` workflows (B, E) | low | neither exists; unlikely | reject |
+| 19 | Relative `file` with no `directory` skipped (E) | false | compile_commands entries always carry `directory` (CMake writes it) | reject |
+| 20 | Environment and locale reads (`getenv`, `setlocale`, `std::locale`) not denied (B) | medium | can change engine results by host; not one of the five spec families | defer |
+| 21 | CLI not flag-checked though WAV writing will affect output bytes (B) | low | flags are project-wide and a test asserts `cli/main.cpp` has them; matters once the WAV writer lands | defer |
+| 22 | CMake comment says the trailing flag "wins over any earlier fp option" (B) | low | it restores contraction only, not other fast-math effects; comment fix | patch |
+| 23 | Test docstring family list omits `exp10`, `lgamma_r`, `_finite`, `stret` (B) | low | covered by the tests added under 2 | patch (with 2) |
+| 24 | Design log test result has no Linux run (B) | low | Linux runs only on push; record after the fast run | reject |
+| 25 | Deferred-work entry not in the diff (B) | false | diff excluded `_bmad-output/`; entry exists in `deferred-work.md` | reject |
 
 ## Design Notes
 
