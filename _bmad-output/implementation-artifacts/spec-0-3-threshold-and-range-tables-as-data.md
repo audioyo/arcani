@@ -2,7 +2,7 @@
 title: 'Story 0.3: threshold and range tables as data'
 type: 'feature'
 created: '2026-11-03'
-status: 'in-progress'
+status: 'in-review'
 baseline_commit: '0dbe46f0dc32be257f74c8d6ca7b988d629334d7'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -105,6 +105,34 @@ Decisions (2026-11-03, build agent, under Audio's standing "settle tech forks yo
 - Questions for Audio: (1) `loudness-master` (-16 LUFS-I) has no v0.1 story that asserts it; it is pending on 1.3, and that story must assert it or drop it. (2) `max-run-time-focus` and `max-run-time-learn` are recorded as fixed values (min equal to max), because the md gives only the starter values.
 
 ## Review Triage Log
+
+Review pass 1 (2026-11-03): blind hunter (B), edge case hunter (E), verification gap (V).
+
+| # | Finding | Verdict | Evidence | Route |
+|---|---------|---------|----------|-------|
+| V1, E1, B-usage | Coverage passes with no `ctest.txt`: every row C++ reads is also read in Python | medium | `check_row_coverage.py` exits 2 only when no usage file exists; no test runs the C++ writer | patch |
+| E2, B-stale | A stale `ctest.txt` survives a C++ run that calls `row()` zero times | low | `tables.cpp` writes only when a new id is recorded; a direct fix is writing the file at registry start | patch |
+| B2 | Rows recorded at collection time (module-level `SAMPLE_RATES`, `parametrize` over `analytic_rows()`), so skipped or filtered tests still count | medium | `test_probe_sine.py` module level and `test_signal_spec_core.py` decorators call `row()` | patch |
+| V2, B3, E-deletion | C++ grid test loops a hard-coded `kRequiredHzRanges` instead of the table's Hz rows (Story 0.2 looped the table) | low | `test_phase.cpp:141-166`; a new Hz row would get no C++ engine grid check | patch |
+| B5, E17, V-other | The md number rule exempts 0 everywhere, so a floor or threshold dropped to 0 passes | medium | `mapping_problems` in `test_tables_loader.py:337` skips every 0 | patch |
+| B1, E5 | Hz rows count as used by the grid test, not by range enforcement; a future pending Hz row fails as "used" | false | The grid test asserts accuracy and drift over each range, a real use; "used but pending" is the intended rule | reject |
+| B4 | Threshold rows have no direction or strictness column | low | Not in the frozen columns; tests encode direction; adding a column is new surface | reject |
+| B6 | Gate exempts moving `pending` to another story | false | Frozen decision exempts any edit that changes only `pending` | reject |
+| B7, E12 | Any backtick mention on an added design-log line satisfies the gate, including reflowed old lines | low | Needs an edit that both changes a row and touches a line naming it; fix adds section parsing | reject |
+| B7, E14 | Gate on a push to `main` compares HEAD with itself | low | Changes reach `main` through pull requests, whose branch pushes run the gate; fix adds event-specific logic | reject |
+| B8, E4 | A partial local pytest run overwrites `pytest.txt` | low | Local only and loud (coverage then fails); CI runs the full suite | reject |
+| B9, E16 | `pending` accepts epic and retrospective keys | low | Unlikely in use; fix adds a guard | reject |
+| B10 | `kHz` and `min` units have no conversion helper | low | Values copy the md's units; their consuming stories add conversions | reject |
+| B11, E6 | Cross-check omits `source`, `spec_row`, `pending`; NBSP blank handling differs | low | Frozen spec names ids, value texts, parsed values, units; NBSP-only sources are contrived | reject |
+| B12 | CI cost and wall time not estimated | false | Fast jobs last ran 2m57s and 3m31s against 15 and 20 min budgets; public repo bills 0 | reject |
+| B13 | Spec `in-review` vs sprint `in-progress` | false | Sprint status moves to review at step 5 by design | reject |
+| B14 | Loudness and run-time targets stored as min = max ranges; `max_bound` unused | low | Matches the md, which gives single values; validator use is Story 1.3 | reject |
+| E3 | `create_directories` error swallowed inside `row()` | low | Fails loudly at open; unlikely | reject |
+| E7 | An overflowing decimal loads as infinity | low | Contrived input; fix adds guards | reject |
+| E8, E9 | Fractional or huge sample-rate members truncate | low | Table values are reviewed integers; fix adds guards | reject |
+| E10, E11, E15 | `check_table_log.py` / `check_row_coverage.py` traceback on missing git, bad UTF-8, missing sprint file | low | Loud failures, not hidden passes | reject |
+| E13 | Duplicate id within a file shadows in the log gate | false | The loader tests fail on any duplicate id in the same run | reject |
+| E-deletion 2 | Configure-time FATAL_ERROR on missing rows moved to test time | false | Reviewer marks it no regression; runtime lookups throw | reject |
 
 ## Design Notes
 
