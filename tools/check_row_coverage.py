@@ -4,8 +4,9 @@ Usage:
   python tools/check_row_coverage.py [--tables DIR] [--usage FILE ...] [--sprint-status FILE]
 
 Reads both tables with the Python loader (tests/assertions/tables.py), the
-row usage files that pytest and ctest write (one id per line; defaults:
-build/row-usage/*.txt), and the development_status of the sprint status file
+row usage files that pytest and ctest write (one id per line; without
+`--usage`, both <usage dir>/ctest.txt and <usage dir>/pytest.txt are
+required, usage dir default build/row-usage), and the development_status of the sprint status file
 (default _bmad-output/implementation-artifacts/sprint-status.yaml).
 
 Fails, one line per problem naming the row id, on:
@@ -15,8 +16,9 @@ Fails, one line per problem naming the row id, on:
 - a `pending` story whose status is `done`;
 - a usage file id that is in no table.
 
-Exit 0 when nothing fails, 1 on any problem or a table error, 2 when no usage
-file exists (run ctest and pytest first). Needs pyyaml (a locked dev
+Exit 0 when nothing fails, 1 on any problem or a table error, 2 when a
+required usage file is missing (run ctest and pytest first); the message
+names the missing file. Needs pyyaml (a locked dev
 dependency): run with `uv run --locked`.
 """
 
@@ -34,8 +36,7 @@ from assertions.tables import TableError, load_tables  # noqa: E402
 DEFAULT_SPRINT = REPO_ROOT / "_bmad-output" / "implementation-artifacts" / "sprint-status.yaml"
 
 
-def default_usage_files():
-    return sorted((REPO_ROOT / "build" / "row-usage").glob("*.txt"))
+REQUIRED_USAGE = ("ctest.txt", "pytest.txt")
 
 
 def read_usage(paths):
@@ -73,14 +74,23 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--tables", default=str(REPO_ROOT / "tests" / "tables"))
     parser.add_argument("--usage", nargs="+", action="extend")
+    parser.add_argument("--usage-dir", default=str(REPO_ROOT / "build" / "row-usage"),
+                        help="where ctest.txt and pytest.txt are, when --usage is not given")
     parser.add_argument("--sprint-status", default=str(DEFAULT_SPRINT))
     args = parser.parse_args(argv)
 
-    usage_files = [Path(p) for p in args.usage] if args.usage else default_usage_files()
-    usage_files = [p for p in usage_files if p.is_file()]
-    if not usage_files:
-        print("check_row_coverage: no row usage file found; run ctest and pytest first "
-              "(they write build/row-usage/ctest.txt and pytest.txt)", file=sys.stderr)
+    if args.usage:
+        usage_files = [p for p in map(Path, args.usage) if p.is_file()]
+        missing = [] if usage_files else list(args.usage)
+    else:
+        # Both are required: every row C++ reads is also read in Python, so a
+        # broken C++ usage writer would otherwise go unnoticed.
+        usage_files = [Path(args.usage_dir) / name for name in REQUIRED_USAGE]
+        missing = [str(p) for p in usage_files if not p.is_file()]
+    if missing:
+        print(f"check_row_coverage: missing row usage file {', '.join(missing)}; run ctest "
+              "and pytest first (they write build/row-usage/ctest.txt and pytest.txt)",
+              file=sys.stderr)
         return 2
     try:
         rows = load_tables(args.tables)

@@ -39,7 +39,10 @@ Contract with the real tables tests/tables/thresholds.tsv and ranges.tsv:
   non-empty `spec_row` must be a first-column text of the md table that
   matches the row's kind.
 - Md number rule: every number of a row with a non-empty `spec_row` equals
-  (Decimal) a number in that md row's second column, or is 0. A row with an
+  (Decimal) a number in that md row's second column. 0 is exempt only for a
+  range `min` whose md range text states no lower bound (it starts with
+  "Below" or "Up to"), and for a threshold whose unit names a count rather
+  than a physical unit (first word not one of PHYSICAL_UNITS). A row with an
   empty `spec_row` has a source starting with "Derived" or containing
   "design log" (case-insensitive).
 - Story 0.2 ids keep their units and values (see STORY_02_* below), and the
@@ -70,6 +73,11 @@ THRESHOLD_HEADER = ["id", "value", "unit", "spec_row", "source", "pending"]
 RANGE_HEADER = ["id", "min", "max", "max_bound", "unit", "spec_row", "source", "pending"]
 KEBAB = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
 MD_NUMBER = re.compile(r"(?<![\w.])-?\d+(?:\.\d+)?")
+# First words of physical units; a threshold unit starting with anything else
+# names a count (for example "differing bytes").
+PHYSICAL_UNITS = {"Hz", "kHz", "ms", "s", "h", "min", "dB", "dBFS", "dBTP", "LU",
+                  "LUFS-I", "percent", "degrees", "times"}
+NO_LOWER_BOUND = ("below", "up to")
 SECTION = {"thresholds": "Test thresholds", "ranges": "Locked ranges"}
 
 # Story 0.2 rows: id -> (unit, values) and id -> (unit, min, max, max_bound).
@@ -306,10 +314,19 @@ def md_tables(text):
     return {k: v[2:] for k, v in out.items()}  # drop header and separator
 
 
-def numbers_of(r):
+def numbered(r):
     if r.kind == "thresholds":
-        return r.value_text.split(" ")
-    return [r.min_text, r.max_text]
+        return [("value", t) for t in r.value_text.split(" ")]
+    return [("min", r.min_text), ("max", r.max_text)]
+
+
+def zero_exempt(r, column, text, md_second):
+    """0 is allowed off the md only as an unstated range floor or a count."""
+    if Decimal(text) != 0:
+        return False
+    if r.kind == "ranges":
+        return column == "min" and md_second.lower().startswith(NO_LOWER_BOUND)
+    return r.unit.split(" ")[0] not in PHYSICAL_UNITS
 
 
 def mapping_problems(md_text, rows):
@@ -333,9 +350,10 @@ def mapping_problems(md_text, rows):
             problems.append(f"{r.id}: spec_row {r.spec_row!r} is not a row of md {SECTION[r.kind]!r}")
             continue
         allowed = {Decimal(m) for m in MD_NUMBER.findall(second)}
-        for text in numbers_of(r):
-            if Decimal(text) != 0 and Decimal(text) not in allowed:
-                problems.append(f"{r.id}: {text} is not in md row {r.spec_row!r}: {second}")
+        for column, text in numbered(r):
+            if Decimal(text) in allowed or zero_exempt(r, column, text, second):
+                continue
+            problems.append(f"{r.id}: {column} {text} is not in md row {r.spec_row!r}: {second}")
     return problems
 
 
@@ -388,10 +406,34 @@ def test_number_not_in_md_row_is_named(md_text, real_rows):
     assert [p for p in problems if victim.id in p and "123457" in p], problems
 
 
-def test_zero_passes_the_number_rule(md_text, real_rows):
-    victim = next(r for r in real_rows if r.kind == "ranges" and r.spec_row)
-    rows = [dataclasses.replace(r, min_text="0") if r is victim else r for r in real_rows]
-    assert not [p for p in mapping_problems(md_text, rows) if victim.id in p]
+def replaced(real_rows, row_id, **fields):
+    assert any(r.id == row_id for r in real_rows), row_id
+    return [dataclasses.replace(r, **fields) if r.id == row_id else r for r in real_rows]
+
+
+def test_zero_floor_passes_only_where_the_md_states_no_lower_bound(md_text, real_rows):
+    # "Below 1000 Hz" and "Up to 8 h": no lower bound stated, so a 0 floor is fine.
+    for row_id in ("binaural-carrier", "session-length"):
+        rows = replaced(real_rows, row_id, min_text="0")
+        assert not [p for p in mapping_problems(md_text, rows) if row_id in p]
+
+
+@pytest.mark.parametrize("row_id", ["gamma-carrier", "theta-rate"])
+def test_must_fail_nonzero_floor_set_to_zero(md_text, real_rows, row_id):
+    rows = replaced(real_rows, row_id, min_text="0")
+    problems = mapping_problems(md_text, rows)
+    assert [p for p in problems if row_id in p and "min 0" in p], problems
+
+
+def test_must_fail_physical_threshold_set_to_zero(md_text, real_rows):
+    rows = replaced(real_rows, "coupling-timing", value_text="0")
+    problems = mapping_problems(md_text, rows)
+    assert [p for p in problems if "coupling-timing" in p and "value 0" in p], problems
+
+
+def test_count_threshold_zero_passes(md_text, real_rows):
+    rows = replaced(real_rows, "determinism", value_text="0")
+    assert not [p for p in mapping_problems(md_text, rows) if "determinism" in p]
 
 
 def test_uncited_row_outside_md_is_named(md_text, real_rows):

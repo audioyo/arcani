@@ -137,8 +137,25 @@ def sample_rates():
 
 def hz_ranges():
     """Every locked-range row in Hz, each read through the assertion call."""
-    return [table_row(r.id) for r in load_tables().values()
-            if r.kind == "ranges" and r.unit == "Hz"]
+    return [table_row(r.id) for r in listed_hz_ranges()]
+
+
+# Parameter lists are built at collection from the loader without recording a
+# use, so a skipped or deselected test never counts its rows as used; the
+# test bodies read their rows through the assertion call when they run.
+def listed_hz_ranges():
+    return [r for r in load_tables().values() if r.kind == "ranges" and r.unit == "Hz"]
+
+
+def listed_sample_rates():
+    return [int(v) for v in load_tables()["sample-rates"].values]
+
+
+def record_rows(*row_ids):
+    """Reads each row through the assertion call; the sample rates row always."""
+    for row_id in row_ids:
+        table_row(row_id)
+    sample_rates()
 
 
 def spec_increment(f_hz, fs):
@@ -363,9 +380,9 @@ def quantization(f_hz, fs, inc):
 
 
 def range_endpoints():
-    for row in hz_ranges():
+    for row in listed_hz_ranges():
         for end in ("min", "max"):
-            for fs in sample_rates():
+            for fs in listed_sample_rates():
                 yield row.id, end, getattr(row, end), fs
 
 
@@ -376,6 +393,7 @@ def test_hz_range_rows_present():
 
 @pytest.mark.parametrize("row_id, end, f_hz, fs", list(range_endpoints()))
 def test_endpoint_quantization_and_drift_exact(row_id, end, f_hz, fs):
+    record_rows(row_id)
     inc = spec_increment(f_hz, fs)
     if f_hz == 0.0:
         assert inc == 0
@@ -387,10 +405,13 @@ def test_endpoint_quantization_and_drift_exact(row_id, end, f_hz, fs):
 
 @pytest.mark.parametrize("row_id, end, f_hz, fs", list(range_endpoints()))
 def test_ideal_increment_matches_exact_rule_at_endpoints(row_id, end, f_hz, fs):
+    record_rows(row_id)
     assert ideal().phase_increment(f_hz, fs) == spec_increment(f_hz, fs), (row_id, end, fs)
 
 
 def test_endpoint_doctored_increment_fails():
+    hz_ranges()
+    sample_rates()
     acc = accuracy_hz()
     for row_id, end, f_hz, fs in range_endpoints():
         if f_hz == 0.0:
@@ -417,16 +438,17 @@ def analytic_bounds(f_lo, f_hi, fs, cycle=CYCLE):
 
 
 def analytic_rows():
-    for row in hz_ranges():
+    for row in listed_hz_ranges():
         lo = fraction_of(row.min_text)
         hi = fraction_of(row.max_text)
         f_lo = lo if lo > 0 else GRID_STEP_HZ
-        for fs in sample_rates():
+        for fs in listed_sample_rates():
             yield row.id, f_lo, hi, fs
 
 
 @pytest.mark.parametrize("row_id, f_lo, f_hi, fs", list(analytic_rows()))
 def test_analytic_worst_case_bound(row_id, f_lo, f_hi, fs):
+    record_rows(row_id)
     err, drift = analytic_bounds(f_lo, f_hi, fs)
     assert err < accuracy_hz(), (row_id, fs, float(err))
     assert drift < drift_bound_s(), (row_id, fs, float(drift))
@@ -434,6 +456,8 @@ def test_analytic_worst_case_bound(row_id, f_lo, f_hi, fs):
 
 def test_analytic_bound_fails_for_a_32_bit_accumulator():
     """Must fail: with a 2^32 cycle the 8-hour drift at the grid floor exceeds the bound."""
+    hz_ranges()
+    sample_rates()
     failed = False
     for row_id, f_lo, f_hi, fs in analytic_rows():
         _, drift = analytic_bounds(f_lo, f_hi, fs, cycle=2**32)

@@ -34,6 +34,7 @@ import numpy as np
 import pytest
 
 from assertions import row as table_row
+from assertions.tables import load_tables
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 IDEAL = REPO_ROOT / "reference" / "ideal.py"
@@ -55,7 +56,15 @@ def sine_bound_dbfs():
     return row.value
 
 
-SAMPLE_RATES = [int(v) for v in table_row("sample-rates").values]
+# Parameter list at collection, read without recording a use; each test body
+# records the row through check_sample_rate when it runs.
+SAMPLE_RATES = [int(v) for v in load_tables()["sample-rates"].values]
+
+
+def check_sample_rate(fs):
+    row = table_row("sample-rates")
+    assert row.unit == "Hz", row
+    assert fs in [int(v) for v in row.values], (fs, row.value_text)
 
 
 def load_ideal():
@@ -80,6 +89,7 @@ def error_dbfs(probe, ideal):
 @pytest.mark.parametrize("fs", SAMPLE_RATES)
 def test_measure_passes_float32_ideal_and_fails_doctored(fs):
     """The measure itself: float32 rounding passes, a 1e-5 error fails."""
+    check_sample_rate(fs)
     ideal = load_ideal().probe_sine_component(fs)
     as_f32 = ideal.astype("<f4")
     assert error_dbfs(as_f32, ideal) <= sine_bound_dbfs()
@@ -168,6 +178,7 @@ def test_probe_still_writes_probe_arith(probe_output):
 
 @pytest.mark.parametrize("fs", SAMPLE_RATES)
 def test_probe_sine_component_shape(probe_output, fs):
+    check_sample_rate(fs)
     samples = read_f32(probe_output / f"sine-{fs}.f32")
     assert samples.shape == (3 * fs,)
     assert np.all(np.isfinite(samples))
@@ -175,6 +186,7 @@ def test_probe_sine_component_shape(probe_output, fs):
 
 @pytest.mark.parametrize("fs", SAMPLE_RATES)
 def test_probe_sine_within_bound_of_ideal(probe_output, fs):
+    check_sample_rate(fs)
     samples = read_f32(probe_output / f"sine-{fs}.f32")
     ideal = load_ideal().probe_sine_component(fs)
     measured = error_dbfs(samples, ideal)
@@ -184,6 +196,7 @@ def test_probe_sine_within_bound_of_ideal(probe_output, fs):
 
 @pytest.mark.parametrize("fs", SAMPLE_RATES)
 def test_doctored_probe_output_exceeds_bound(probe_output, fs):
+    check_sample_rate(fs)
     samples = read_f32(probe_output / f"sine-{fs}.f32").copy()
     samples[2 * fs + 7] += np.float32(1e-5)
     ideal = load_ideal().probe_sine_component(fs)

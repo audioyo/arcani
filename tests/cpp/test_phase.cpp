@@ -10,10 +10,12 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <vector>
 
 namespace spec = arcani::test::spec;
 using arcani::core::phase_increment;
@@ -146,7 +148,12 @@ const char* const kRequiredHzRanges[] = {
 }  // namespace
 
 TEST_CASE("range table has every carrier and rate row in Hz", "[core][phase][ranges]") {
+  const std::vector<std::string> ids = spec::hz_range_ids();
   for (const char* id : kRequiredHzRanges) {
+    INFO("range row " << id);
+    CHECK(std::find(ids.begin(), ids.end(), id) != ids.end());
+  }
+  for (const std::string& id : ids) {
     INFO("range row " << id);
     const spec::Row& r = spec::hz_range(id);
     CHECK(r.min >= 0.0);
@@ -161,7 +168,8 @@ TEST_CASE("quantization error and 8-hour drift stay inside the bounds on a 0.001
   const double accuracy = spec::frequency_accuracy_hz();
   const double drift_bound = spec::drift_bound_seconds();
   const double session = spec::session_length_seconds();
-  for (const char* id : kRequiredHzRanges) {
+  // Every Hz range row of the table, so a new carrier or rate row joins the grid.
+  for (const std::string& id : spec::hz_range_ids()) {
     const spec::Row& range = spec::hz_range(id);
     for (const std::uint32_t fs : spec::sample_rates()) {
       const GridResult r = measure_grid(range, fs, session, 0);

@@ -261,6 +261,8 @@ std::string dump_line(const Row& r) {
 
 namespace {
 
+void write_usage(const std::set<std::string>& used);
+
 struct Registry {
   std::vector<Row> rows;
   std::set<std::string> used;
@@ -294,6 +296,14 @@ void write_usage(const std::set<std::string>& used) {
     out << id << '\n';
   }
 }
+
+// Truncates the usage file when the test binary starts, before any test runs,
+// so a run that calls row() zero times leaves no stale file from an earlier
+// run. row() rewrites it as ids are added.
+[[maybe_unused]] const bool kUsageTruncated = [] {
+  write_usage({});
+  return true;
+}();
 
 }  // namespace
 

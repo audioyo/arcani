@@ -17,7 +17,9 @@ tables with the Python loader tests/assertions/tables.py):
   development_status (names id and story); a `pending` story is `done`
   (names id and story); a usage file names an id that is in no table
   (names id); the tables fail to load.
-- Exit 0 otherwise. Exit 2 when no usage file is found.
+- Exit 0 otherwise. Exit 2 when no usage file is found. Without `--usage`,
+  both ctest.txt and pytest.txt in `--usage-dir DIR` (default
+  <repo>/build/row-usage) are required; a missing one exits 2 naming it.
 
 Fixtures are built in tmp_path; rows and story keys are made up.
 """
@@ -150,3 +152,29 @@ def test_no_usage_file_exits_2(tmp_path):
     assert code == 2, out
     assert "ctest" in out and "pytest" in out, f"message should say to run ctest and pytest: {out}"
 
+
+
+def default_mode_args(tmp_path, names):
+    """Tables, sprint status, and a usage dir holding only the named files."""
+    args = make(tmp_path, GOOD_T, GOOD_R, {})
+    usage_dir = tmp_path / "row-usage"
+    for name in names:
+        (usage_dir / name).write_bytes("fixture-used-a\nfixture-used-b\n".encode())
+    return args + ["--usage-dir", str(usage_dir)]
+
+
+def test_default_mode_with_both_usage_files_exits_0(tmp_path):
+    code, out = run(default_mode_args(tmp_path, ["ctest.txt", "pytest.txt"]))
+    assert code == 0, out
+
+
+def test_must_fail_missing_ctest_usage_file_exits_2(tmp_path):
+    code, out = run(default_mode_args(tmp_path, ["pytest.txt"]))
+    assert code == 2, out
+    assert "ctest.txt" in out and "pytest.txt" not in out.split("missing", 1)[1].split(";")[0], out
+
+
+def test_must_fail_missing_pytest_usage_file_exits_2(tmp_path):
+    code, out = run(default_mode_args(tmp_path, ["ctest.txt"]))
+    assert code == 2, out
+    assert "pytest.txt" in out.split(";")[0], out

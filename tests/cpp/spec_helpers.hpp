@@ -74,13 +74,25 @@ inline double session_length_seconds() {
 }
 
 // A locked-range row whose unit is Hz.
-inline const Row& hz_range(const char* id) {
-  const Row& r = row(id);
+inline const Row& hz_range(const std::string& id) {
+  const Row& r = tables::row(id);
   if (r.kind != "ranges") {
-    throw std::runtime_error(std::string(id) + " is not a range row");
+    throw std::runtime_error(id + " is not a range row");
   }
   unit_to_hz(0.0, r.unit);
   return r;
+}
+
+// Ids of every locked-range row whose unit is Hz, read from the tables
+// without recording a use; callers read each through hz_range(id).
+inline std::vector<std::string> hz_range_ids() {
+  std::vector<std::string> ids;
+  for (const Row& r : tables::load_tables(ARCANI_TABLES_DIR)) {
+    if (r.kind == "ranges" && r.unit == "Hz") {
+      ids.push_back(r.id);
+    }
+  }
+  return ids;
 }
 
 inline std::vector<std::uint32_t> sample_rates() {
