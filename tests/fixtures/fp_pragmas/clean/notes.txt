@@ -1,0 +1,2 @@
+Not a source file, so the checker ignores it:
+#pragma clang fp contract(fast)

@@ -1,0 +1,59 @@
+{
+  "note": "Interim locked-range rows for Story 0.2. Story 0.3 absorbs this file (loaders, coverage, design log gate). Every row: id, value, unit, source. A range value is {min, max}; a 'below' bound in the spec table is stored as its max and the tests include it.",
+  "rows": [
+    {
+      "id": "theta-rate",
+      "value": {"min": 1, "max": 6},
+      "unit": "Hz",
+      "source": "thresholds-and-ranges.md, Locked ranges, Theta reference rate; design log 2026-10-27 (h)"
+    },
+    {
+      "id": "theta-carrier",
+      "value": {"min": 100, "max": 500},
+      "unit": "Hz",
+      "source": "thresholds-and-ranges.md, Locked ranges, Theta reference carrier; design log 2026-10-27 (h), (g)"
+    },
+    {
+      "id": "gamma-rate",
+      "value": {"min": 30, "max": 60},
+      "unit": "Hz",
+      "source": "thresholds-and-ranges.md, Locked ranges, Gamma rate; design log 2026-10-27 (a)"
+    },
+    {
+      "id": "gamma-carrier",
+      "value": {"min": 200, "max": 500},
+      "unit": "Hz",
+      "source": "thresholds-and-ranges.md, Locked ranges, Gamma PAC carrier; design log 2026-10-27 (g)"
+    },
+    {
+      "id": "binaural-carrier",
+      "value": {"min": 0, "max": 1000},
+      "unit": "Hz",
+      "source": "thresholds-and-ranges.md, Locked ranges, Binaural carriers (below 1000 Hz; no lower limit is set, 0 Hz is the floor); Licklider et al. 1950, cited by Lopez-Caballero and Escera 2017"
+    },
+    {
+      "id": "binaural-carrier-right",
+      "value": {"min": 0, "max": 1030},
+      "unit": "Hz",
+      "source": "Derived: binaural-carrier max plus beat-rate max (the right ear carrier is the left carrier plus the beat rate)"
+    },
+    {
+      "id": "beat-rate",
+      "value": {"min": 0, "max": 30},
+      "unit": "Hz",
+      "source": "thresholds-and-ranges.md, Locked ranges, Binaural beat rate (0 to below 30 Hz); design log 2026-10-27 (f)"
+    },
+    {
+      "id": "session-length",
+      "value": {"min": 0, "max": 8},
+      "unit": "h",
+      "source": "thresholds-and-ranges.md, Locked ranges, Session length (up to 8 h); design log 2026-11-01 (u)"
+    },
+    {
+      "id": "sample-rates",
+      "value": [44100, 48000],
+      "unit": "Hz",
+      "source": "Design log 2026-10-27 (j): the Core renders natively at 44.1 and 48 kHz; AD-10"
+    }
+  ]
+}

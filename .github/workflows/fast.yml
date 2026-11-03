@@ -88,6 +88,9 @@ jobs:
           ldd --version | head -n1
           dpkg-query -W -f='${Package} ${Version}\n' 'libstdc++6' 'libstdc++-*-dev' 2>/dev/null || true
 
+      - name: Floating-point pragma check
+        run: uv run --no-project python tools/check_fp_pragmas.py
+
       - name: Configure, build, ctest
         run: cmake --workflow --preset linux-clang
 
@@ -168,6 +171,9 @@ jobs:
           uv --version
           # Unpinned MSVC toolset (STL) and Windows SDK, recorded for the log.
           powershell -NoProfile -File tools/dev.ps1 cmd /c "echo VCToolsVersion=%VCToolsVersion% & echo WindowsSDKVersion=%WindowsSDKVersion%"
+
+      - name: Floating-point pragma check
+        run: uv run --no-project python tools/check_fp_pragmas.py
 
       - name: Configure, build, ctest
         run: powershell -NoProfile -File tools/dev.ps1 cmake --workflow --preset windows-clang-cl

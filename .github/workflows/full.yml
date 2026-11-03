@@ -159,6 +159,9 @@ jobs:
       - name: Configure, build, ctest
         run: powershell -NoProfile -File tools/dev.ps1 cmake --workflow --preset windows-clang-cl
 
+      - name: Floating-point pragma check
+        run: uv run --no-project python tools/check_fp_pragmas.py
+
       - name: Compile-flag and symbol checks
         run: |
           uv run --no-project python tools/check_compile_flags.py build/windows-clang-cl
@@ -269,6 +272,9 @@ jobs:
       - name: Configure, build, ctest
         run: powershell -NoProfile -File tools/dev.ps1 cmake --workflow --preset windows-clang-cl
 
+      - name: Floating-point pragma check
+        run: uv run --no-project python tools/check_fp_pragmas.py
+
       - name: Compile-flag and symbol checks
         run: |
           uv run --no-project python tools/check_compile_flags.py build/windows-clang-cl
@@ -371,6 +377,9 @@ jobs:
       - name: Configure, build, ctest
         run: cmake --workflow --preset macos-appleclang
 
+      - name: Floating-point pragma check
+        run: uv run --no-project python tools/check_fp_pragmas.py
+
       - name: Compile-flag and symbol checks
         run: |
           set -euo pipefail
@@ -466,6 +475,9 @@ jobs:
 
       - name: Configure and build (NDK arm64-v8a)
         run: cmake --workflow --preset android-arm64
+
+      - name: Floating-point pragma check
+        run: uv run --no-project python tools/check_fp_pragmas.py
 
       - name: Compile-flag and symbol checks
         run: |
