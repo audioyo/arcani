@@ -2,7 +2,7 @@
 title: 'Story 0.3: threshold and range tables as data'
 type: 'feature'
 created: '2026-11-03'
-status: 'in-review'
+status: 'done'
 baseline_commit: '0dbe46f0dc32be257f74c8d6ca7b988d629334d7'
 route: 'dispatch'
 review_loop_iteration: 0
