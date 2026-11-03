@@ -25,8 +25,10 @@ component (raw little-endian float32). windows-x64 is the reference platform.
   differing component sets, or differing sample counts fail.
 
 Must-differ mode: DIR holds one manifest and its data. Exit 0 only when every
-component with an expected entry has a hash different from it (the
-contraction must-fail job); exit 1 when any matches or none has an entry.
+component with an expected entry has its data file, the expected sample
+count, and a hash different from the expected one (the contraction must-fail
+job); exit 1 when any matches, a data file is missing, a sample count
+differs, or no component has an entry.
 
 Exit 0 or 1, one line per violation. Standard library only.
 """
@@ -296,8 +298,20 @@ def must_differ(args):
         checked += 1
         found = str(info.get("sha256", "")).lower()
         data_path = directory / f"{comp}.f32"
-        if data_path.is_file() and hashlib.sha256(data_path.read_bytes()).hexdigest() != found:
+        if not data_path.is_file():
+            problems.append(f"must-differ: {comp}: data file {data_path} is missing")
+            continue
+        data = data_path.read_bytes()
+        if hashlib.sha256(data).hexdigest() != found:
             problems.append(f"must-differ: {comp}: manifest sha256 {found} does not match its data file")
+        want_samples = expected[comp].get("samples")
+        if (not isinstance(want_samples, int) or info.get("samples") != want_samples
+                or len(data) != 4 * want_samples):
+            problems.append(
+                f"must-differ: {comp}: expected {want_samples} samples, found {info.get('samples')} "
+                f"in the manifest and {len(data) / 4:g} in the data file"
+            )
+            continue
         if found == str(expected[comp].get("sha256", "")).lower():
             problems.append(
                 f"must-differ: {comp}: sha256 {found} equals ci/hash_expected.json; "

@@ -22,6 +22,7 @@ the repo root into a temporary build directory. It skips only when cmake is not
 on PATH.
 """
 
+import json
 import os
 import re
 import shutil
@@ -71,3 +72,44 @@ def test_cmake_version_mismatch_fails_configure(tmp_path):
     code, output = configure_with(tmp_path, "-DARCANI_PIN_OVERRIDE_CMAKE=0.0.0")
     assert code != 0, output
     assert_names_expected_and_found(output)
+
+
+# ------------------------------------------------------------ Android NDK
+#
+# The android-arm64 preset needs the pinned NDK at ANDROID_NDK_ROOT, so these
+# cases skip unless it is set. The android-build CI job runs them with
+# `pytest tests/cmake/test_pin_check.py -k android`.
+
+ANDROID_NDK_ROOT = os.environ.get("ANDROID_NDK_ROOT")
+needs_ndk = pytest.mark.skipif(not ANDROID_NDK_ROOT, reason="ANDROID_NDK_ROOT is not set")
+TOOLCHAIN = json.loads((REPO_ROOT / "toolchain.json").read_text(encoding="utf-8"))
+NDK_API_LEVEL = TOOLCHAIN["android_ndk"]["api_level"]
+
+
+def configure_android(tmp_path, define):
+    build_dir = tmp_path / "build"
+    result = subprocess.run(
+        [CMAKE, "--preset", "android-arm64", "-B", str(build_dir), define],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=600,
+        env=os.environ.copy(),
+    )
+    return result.returncode, result.stdout + result.stderr
+
+
+@needs_ndk
+def test_android_ndk_clang_mismatch_fails_configure(tmp_path):
+    code, output = configure_android(tmp_path, "-DARCANI_PIN_OVERRIDE_LLVM=0.0.0")
+    assert code != 0, output
+    assert_names_expected_and_found(output)
+
+
+@needs_ndk
+def test_android_api_level_mismatch_fails_configure(tmp_path):
+    other = NDK_API_LEVEL + 3
+    code, output = configure_android(tmp_path, f"-DANDROID_PLATFORM=android-{other}")
+    assert code != 0, output
+    assert re.search(rf"expected\D{{0,40}}android-{NDK_API_LEVEL}\b", output, re.IGNORECASE), output
+    assert re.search(rf"found\D{{0,40}}android-{other}\b", output, re.IGNORECASE), output

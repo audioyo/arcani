@@ -540,6 +540,26 @@ def test_must_differ_fails_when_manifest_disagrees_with_data(tmp_path):
     assert code == 1, out
 
 
+def test_must_differ_fails_when_data_file_is_missing(tmp_path):
+    samples = base_samples()
+    other = list(samples)
+    other[0] = from_bits(to_bits(other[0]) ^ 1)
+    d = write_platform(tmp_path / "mustfail", "android-arm64", {COMPONENT: other})
+    (Path(d) / f"{COMPONENT}.f32").unlink()
+    expected = write_expected(tmp_path, expected_for(samples))
+    code, out = run(COMPARE, "--must-differ", d, "--expected", expected)
+    assert code == 1, out
+    assert_one_line_names(out, COMPONENT, "missing")
+
+
+def test_must_differ_fails_when_sample_count_differs_from_expected(tmp_path):
+    samples = base_samples()
+    truncated = list(samples)[:-1]
+    code, out = must_differ(tmp_path, truncated, expected_for(samples))
+    assert code == 1, out
+    assert_one_line_names(out, COMPONENT, str(len(samples)), str(len(truncated)))
+
+
 # --------------------------------------------------------- hash_manifest
 
 

@@ -2,7 +2,7 @@
 title: 'Story 0.1 part 3: four-platform full tier, hash compare tool, wall-time budget, nightly skip'
 type: 'chore'
 created: '2026-11-02'
-status: 'review'
+status: 'done'
 baseline_commit: 'a6d512aff76740da56c1f38711f8621ea80a69e8'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -107,6 +107,30 @@ Decisions (2026-11-02, Audio): part 3 of the Story 0.1 split; one change, not sp
 ## Spec Change Log
 
 ## Review Triage Log
+
+Review pass 1 (2026-11-03): blind hunter (B), edge case hunter (E), verification gap (V).
+
+| # | Finding | Verdict | Evidence | Route |
+|---|---------|---------|----------|-------|
+| B1 | must-differ proves only "different", no fused reference or positive control on arm64 | low | Real, but any non-contraction cause (crash, short file) already fails elsewhere once B3 is fixed; a fused reference needs exact FMA modelling. Unlikely in use, fix adds complexity | reject |
+| B2 | `probe_arith_fused()` docstring says single rounding; float64 then float32 is double rounding | low | Product is exact in float64 but the sum is rounded twice; the helper is only used to show sensitivity, comment is wrong | patch (comment) |
+| B3, E2, V-other | must-differ skips the data-file check when the `.f32` is missing and never checks samples against the expected entry | low | `tools/hash_compare.py` must_differ: `if data_path.is_file() and ...`; no samples compare; a short contracted output would "differ" and pass | patch |
+| B4 | nightly skip runs count as the next baseline, so the full tier never reruns while main is unchanged | false | Matches the frozen intent: skip when the last successful scheduled or manual run on main has the current sha; drift detection is not part of the intent | reject |
+| B5, E1 | windows-arm64 and macos-arm64 never assert the probe is an arm64 binary | false | Windows uses the pinned `woa64` LLVM (native arm64 clang-cl, default target aarch64-pc-windows-msvc), put first on PATH; `macos-15` is an arm64 image and AppleClang defaults to the host arch. An x64 build would need an explicit target flag | reject |
+| B6 | NDK revision itself is not checked, only its clang and API level | low | In CI the NDK zip is SHA-256 verified from the pin, so the revision is fixed there; only a hand-picked local NDK with the same clang slips by | reject |
+| B7 | Xcode and SDK version are not checked in `Pins.cmake` | low | Workflow checks the pinned Xcode path exists and selects it; SDK logging would be an addition, not a defect fix | reject |
+| B8, V1 | Android pin branch (NDK clang, API level) has no must-fail test; Pins.cmake test is text only | medium | Pre-verified gap: `test_pin_check.py` configures only the host preset; android-build runs no pytest. Spec requires a must-fail fixture for every check | patch |
+| B9 | probe compile flags are not checked on each platform | false | Any flag drift that changes bits fails the exact compare against `ci/hash_expected.json`, which is the check the spec asks for | reject |
+| B10 | `docs/ci-setup.md`: steps out of order; "Run workflow" needs `full.yml` on the default branch, so the first full run comes from the pull request | low | GitHub shows workflow_dispatch only for workflows on the default branch; the doc says do settings after the first run but lists them first | patch (doc) |
+| B11 | "03:00 UTC (9 pm your time)" holds only in standard time | low | 03:00 UTC is 9 pm UTC-6 the evening before, 10 pm in daylight time | patch (doc) |
+| B12 | estimate counts pull requests, not pull request pushes | low | Billed minutes are 0 (public repo); spec calls budgets first estimates corrected after the first run | reject |
+| B13 | wall time excludes queue, setup, and post-job steps | false | Spec defines the measurement: start recorded in the first step, checked in the last | reject |
+| B14, E6 | tolerance entries with unknown platform, missing fields, or duplicates are accepted | low | Entry list is empty; fix adds validation branches; unlikely in use | reject |
+| B15 | contract job's LLVM unpack drops every `*.a` | low | The `linux-clang` preset links the system runtime; works today, hypothetical future breakage | reject |
+| E3 | gate fails on a `gh api` error even for pull request and manual runs, whose decision is always run | medium | `full.yml` gate calls the API unconditionally; a transient API error blocks a pull request through the verdict | patch |
+| E4 | wall-time step errors when the job failed before setup-uv | low | The job has already failed loudly; nothing hidden | reject |
+| E5 | non-object manifest component gives a traceback in hash_compare | low | Manifests come from `hash_manifest.py`; a loud failure is correct | reject |
+| E7 | schedule and manual runs on main share one concurrency group, so a pending run can be dropped | low | Rare (needs two queued runs on main); spec asks for a group per ref | reject |
 
 ## Design Notes
 

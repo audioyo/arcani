@@ -54,9 +54,16 @@ jobs:
       - name: Last successful full runs on main
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/full.yml/runs?branch=main&status=success&per_page=100" > runs.json
+          # Only a schedule run can skip, so only it needs the run list; other
+          # events never depend on the API.
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/full.yml/runs?branch=main&status=success&per_page=100" > runs.json
+          else
+            echo '{"workflow_runs": []}' > runs.json
+          fi
 
       - name: Decide run or nightly skip
         id: gate
@@ -465,6 +472,9 @@ jobs:
           set -euo pipefail
           uv run --no-project python tools/check_compile_flags.py build/android-arm64
           uv run --no-project python tools/check_engine_symbols.py build/android-arm64
+
+      - name: Android pin check must-fail cases (NDK clang and API level)
+        run: uv run --locked pytest tests/cmake/test_pin_check.py -k android
 
       - name: Probe binary is a static arm64 executable
         run: |

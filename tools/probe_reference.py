@@ -19,9 +19,11 @@ tests/hashprobe/main.cpp, side by side:
   out[i] = s * a + b;  // contractable  out[i] = f32(f32(s * A) + B)
 
 The two contractable expressions are the ones a compiler fuses into one
-multiply-add when contraction is on. probe_arith_fused() computes them with a
-single rounding (float64 product and sum, then one round to float32), to show
-the probe is sensitive to contraction.
+multiply-add when contraction is on. probe_arith_fused() approximates the
+fused result: an exact float64 product, then the float64 sum rounded to
+float32. That is two roundings, not the one a real fused multiply-add does,
+so it is not a bit-exact model of a contracted build; it is used only to show
+that the probe is sensitive to contraction.
 
 Every constant is exact in float32 and in decimal.
 """
@@ -58,7 +60,12 @@ def probe_arith():
 
 
 def probe_arith_fused():
-    """Same sequence with the two contractable expressions rounded once each."""
+    """Approximates the probe with the two contractable expressions fused.
+
+    Each uses an exact float64 product, then the float64 sum rounded to
+    float32 (double rounding, so only an approximation of a fused
+    multiply-add). Used only to show the probe is contraction-sensitive.
+    """
     out = np.empty(SAMPLES, dtype=np.float32)
     s = SEED
     for i in range(SAMPLES):
