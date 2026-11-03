@@ -76,12 +76,20 @@ def test_cmake_version_mismatch_fails_configure(tmp_path):
 
 # ------------------------------------------------------------ Android NDK
 #
-# The android-arm64 preset needs the pinned NDK at ANDROID_NDK_ROOT, so these
-# cases skip unless it is set. The android-build CI job runs them with
+# The android-arm64 preset needs the pinned NDK at ANDROID_NDK_ROOT. The
+# android-build CI job runs these cases with
 # `pytest tests/cmake/test_pin_check.py -k android`.
-
+#
+# Hosted runners ship their own NDK at ANDROID_NDK_ROOT, so that alone does
+# not mean the pinned one is there. The android-build job, which installs the
+# pinned NDK, opts in with ARCANI_TEST_ANDROID_NDK=1; the preset needs a Linux
+# host.
 ANDROID_NDK_ROOT = os.environ.get("ANDROID_NDK_ROOT")
-needs_ndk = pytest.mark.skipif(not ANDROID_NDK_ROOT, reason="ANDROID_NDK_ROOT is not set")
+needs_ndk = pytest.mark.skipif(
+    not (ANDROID_NDK_ROOT and os.environ.get("ARCANI_TEST_ANDROID_NDK") == "1"
+         and sys.platform.startswith("linux")),
+    reason="needs the pinned NDK on a Linux host (ARCANI_TEST_ANDROID_NDK=1, android-build job)",
+)
 TOOLCHAIN = json.loads((REPO_ROOT / "toolchain.json").read_text(encoding="utf-8"))
 NDK_API_LEVEL = TOOLCHAIN["android_ndk"]["api_level"]
 

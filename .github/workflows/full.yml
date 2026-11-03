@@ -474,6 +474,8 @@ jobs:
           uv run --no-project python tools/check_engine_symbols.py build/android-arm64
 
       - name: Android pin check must-fail cases (NDK clang and API level)
+        env:
+          ARCANI_TEST_ANDROID_NDK: "1"
         run: uv run --locked pytest tests/cmake/test_pin_check.py -k android
 
       - name: Probe binary is a static arm64 executable

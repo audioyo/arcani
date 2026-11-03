@@ -6,7 +6,9 @@ Usage:
 
 With BUILD_DIR, reads BUILD_DIR/arcani_engine_check.json (written by
 engine/CMakeLists.txt) and runs its llvm_nm on its engine_library, listing
-undefined symbols both raw and demangled. With --nm-output, checks FILE, text
+every symbol both raw and demangled and keeping the undefined ones (type U, w,
+or v). It does not pass --undefined-only: for Mach-O files (macOS) llvm-nm
+then prints bare names with no type column, which this parser would skip. With --nm-output, checks FILE, text
 in llvm-nm's output format, instead.
 
 Denied names come from tools/engine_symbol_denylist.json. Exit 0 when nothing
@@ -77,7 +79,8 @@ def check_names(names, families):
 
 
 def run_nm(nm, library, demangle):
-    args = [nm, "--undefined-only"]
+    # No --undefined-only: on Mach-O it drops the type column (see above).
+    args = [nm]
     if demangle:
         args.append("--demangle")
     args.append(str(library))

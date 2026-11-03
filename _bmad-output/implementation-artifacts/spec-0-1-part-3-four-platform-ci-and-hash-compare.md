@@ -106,6 +106,8 @@ Decisions (2026-11-02, Audio): part 3 of the Story 0.1 split; one change, not sp
 
 ## Spec Change Log
 
+- 2026-11-03, after first full run 41588933334 (failed): (1) the Android pin must-fail tests ran on every hosted runner, because hosted images set ANDROID_NDK_ROOT to their own NDK; they now also need ARCANI_TEST_ANDROID_NDK=1 (set only in the android-build step) and a Linux host. (2) `tools/check_engine_symbols.py` changed despite the Code Map's "do not change": on Mach-O, `llvm-nm --undefined-only` prints bare names with no type column, so the macOS check saw 0 undefined symbols and passed vacuously (caught by the macOS std::sin must-fail test). It now lists every symbol and keeps types U, w, v. Same result on ELF and COFF. KEEP: denylist and parser unchanged.
+
 ## Review Triage Log
 
 Review pass 1 (2026-11-03): blind hunter (B), edge case hunter (E), verification gap (V).
