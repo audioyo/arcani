@@ -2,7 +2,7 @@
 title: 'Story 0.2: engine sine oscillator (spike that ships)'
 type: 'feature'
 created: '2026-11-03'
-status: 'in-review'
+status: 'done'
 baseline_commit: '28196581af6342d1855c9121f81c3c873a8427c1'
 route: 'dispatch'
 review_loop_iteration: 0
