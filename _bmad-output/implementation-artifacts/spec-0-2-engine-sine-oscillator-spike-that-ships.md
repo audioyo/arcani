@@ -2,7 +2,7 @@
 title: 'Story 0.2: engine sine oscillator (spike that ships)'
 type: 'feature'
 created: '2026-11-03'
-status: 'in-progress'
+status: 'in-review'
 baseline_commit: '28196581af6342d1855c9121f81c3c873a8427c1'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -75,19 +75,54 @@ Decisions (2026-11-03, build agent, under Audio's standing "settle tech forks yo
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `docs/signal-spec.md`, `tools/signal_spec_vectors.py`, `tests/data/signal_spec_vectors.json`, `tests/tables/*.json` -- spec and data, first commit.
-- [ ] `tests/cpp/*`, `tests/python/test_signal_spec_core.py`, `test_probe_sine.py`, `test_fp_pragmas.py`, pragma fixtures -- QA agent, failing tests-only commit.
-- [ ] `engine/src/core/*`, `engine/CMakeLists.txt` -- engine.
-- [ ] `reference/ideal.py` -- Python ideal.
-- [ ] `tests/hashprobe/*` -- sine components.
-- [ ] `tools/check_fp_pragmas.py`, `.github/workflows/*.yml` -- pragma check.
-- [ ] `docs/design-log.md`, `reference/README.md`, `deferred-work.md`, `sprint-status.yaml` -- records.
+- [x] `docs/signal-spec.md`, `tools/signal_spec_vectors.py`, `tests/data/signal_spec_vectors.json`, `tests/tables/*.json` -- spec and data, first commit.
+- [x] `tests/cpp/*`, `tests/python/test_signal_spec_core.py`, `test_probe_sine.py`, `test_fp_pragmas.py`, pragma fixtures -- QA agent, failing tests-only commit.
+- [x] `engine/src/core/*`, `engine/CMakeLists.txt` -- engine.
+- [x] `reference/ideal.py` -- Python ideal.
+- [x] `tests/hashprobe/*` -- sine components.
+- [x] `tools/check_fp_pragmas.py`, `.github/workflows/*.yml` -- pragma check.
+- [x] `docs/design-log.md`, `reference/README.md`, `deferred-work.md`, `sprint-status.yaml` -- records.
 
 **Acceptance Criteria:**
 - Given a clean checkout, when `uv run pytest` and the `windows-clang-cl` workflow preset run, then all tests pass, the engine meets -120 dBFS over the test resolution, and every grid and endpoint stays under 0.01 Hz and 1 ms at both rates.
 - Given Audio's go-ahead to push, when the `full` workflow runs on the pull request, then `sine-44100` and `sine-48000` match `windows-x64` byte for byte on all four platforms, or the defined fallback in the matrix is applied and recorded.
 
+## Implementation Notes
+
+- Commits: 49b0a52 spec and data (first), b1e0e25 failing tests (fresh-context QA agent), 1038615 engine and probe, 2134a48 Python ideal, 089dfdf pragma check, af9b2db records.
+- Measured on the dev PC: engine sine max error 5.63e-8 (-145.0 dBFS) over 2^24 phases plus quadrant edges; frequency error at most about 8.5e-14 Hz; 8-hour drift at most about 2.4e-8 s (worst at the 0.001 Hz grid floor of ranges starting at 0 Hz). Local windows-x64 hashes: `sine-44100` 82dc6461..., `sine-48000` 3ebea007...; `probe-arith` unchanged.
+- Decisions where the spec was silent (design log 2026-11-03 (bb)): seconds-to-samples gives 0 for negative, NaN, infinite input or a product at or above 2^64; binaural ranges start at 0 Hz; the 1030 Hz right-ear row is binaural carrier max plus beat rate max; the analytic drift bound uses the 0.001 Hz grid step as the floor for ranges starting at 0 Hz.
+- The engine sine has one rounded multiply (radians scale) after the conversion, besides the conversion itself; the signal spec states it. Design Notes' "only the conversion is inexact" is loose; the effect is far below the bound.
+- No `ci/hash_expected.json` entry for the sine components (file on the do-not-change list); they are compared exactly against `windows-x64` only.
+- Verified by the orchestrator: `uv run pytest` 682 passed, 2 skipped (NDK-only); `cmake --workflow --preset windows-clang-cl` ctest 1/1 passed; `signal_spec_vectors.py --check` and `check_fp_pragmas.py` exit 0.
+- Not verified until Audio's go-ahead to push: the four-platform `full` run.
+
 ## Spec Change Log
+
+## Review Triage Log
+
+Review pass 1 (2026-11-03): blind hunter (B), edge case hunter (E), verification gap (V).
+
+| # | Finding | Verdict | Evidence | Route |
+|---|---------|---------|----------|-------|
+| V1, B3 | Engine sine bits and `sine.cpp` constants pinned nowhere; a coefficient typo or reordered Horner stays under -120 dBFS and passes everywhere | medium | Coefficient test reads only the JSON table; every other sine test is a tolerance or self-consistency check; no expected hash for `sine-*` | patch |
+| V-other | Coefficient test name implies it covers the engine constants | low | Same root as V1; fixed by the bit-pin test | patch (with V1) |
+| B1 | Radians constant described as "pi times 2^-62" in spec and `sine.cpp` | low | `0x1.921fb54442d18p-62 == math.pi*2**-63` (checked); value right, wording wrong | patch |
+| B2 | Spec says ties happen "only at very small frequencies"; tie branch untested at theta-rate q sizes | low | f = `0x1.6000000000002p+2` (5.5 Hz) at 48 kHz gives q = 2113689425112553.5 (checked); tie vectors all have q <= 5/2 | patch |
+| B4, E5 | "product at 2^64" vector has product 2^65; the real x < 2^64 edge untested | low | JSON `product_hex` `0x1.0000000000000p+65` (checked) | patch |
+| B5 | Sine sample vectors only at 44.1 kHz | false | Frozen spec asks for "sample values of a 450 Hz carrier at 44.1 kHz"; 48 kHz output is checked by `test_probe_sine.py` | reject |
+| B6 | `windows-x64` sine hashes not pinned against a toolchain change | medium | `ci/hash_expected.json` has no `sine-*` entry; file is do-not-change in this story; needs the first full-run result | defer |
+| B7, E1, E2, E3, E4 | Pragma check bypassable (stringize macros, `__pragma` macros, optimize attributes, `clang loop`, `omp simd`, digraphs, extra suffixes) | low | Real but contrived forms; each fix adds branches; nobody writes these in engine code by accident | reject |
+| B8 | Operator-form pragma in a comment is a false positive | low | Loud false failure, not a hidden pass; fix adds comment stripping | reject |
+| B9 | Python ideal not checked at 2^64-1, 2^63+-1 | low | C++ test checks those neighbours; `_signed` is a direct view cast; adding vectors adds surface for an unlikely defect | reject |
+| B10 | Status disagreement across spec, sprint-status, ledger closure | false | Sprint status moves to review at step 5 by design; the ledger's "(closed by ...)" prefix is the format the part 1 entry already uses | reject |
+| B11 | `kHzRanges[0]` order dependence | low | Reordering a table is unlikely; the must-fail still runs on some range | reject |
+| E7, B11 | `kCarrierSamples[3]` read with no size check | low | Out-of-bounds UB if the table shrinks; a one-line `static_assert` fixes it | patch |
+| B12 | All Catch2 cases run as one ctest entry | false | Pre-existing deliberate choice (`tests/cpp/CMakeLists.txt`: Catch2 reads names starting with "--" as options); not caused by this story | reject |
+| B13 | Design Notes say only the conversion rounds | low | Fix edits this build's spec | reject |
+| E6 | Empty JSON array gives a cryptic CMake foreach error | low | Loud configure failure; vectors are generated, never empty | reject |
+| E8 | Host probe test skips on Windows without cmake on PATH | low | Same `shutil.which` pattern as the existing `test_probe_reference.py`; ran locally (only the 2 NDK tests skipped) | reject |
+| E9 | `ideal_sine` accepts float phases | low | Callers pass integer phases; fix adds type guards | reject |
 
 ## Design Notes
 
