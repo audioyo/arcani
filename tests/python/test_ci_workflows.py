@@ -53,6 +53,16 @@ Contract with both workflows (every job):
 fast.yml keeps trigger `push` and exactly the jobs linux-x64 and windows-x64
 (their `name:`, when set, equals the job id: the branch rule uses them).
 
+fast.yml table checks (Story 0.3), in both jobs linux-x64 and windows-x64:
+
+- The `actions/checkout` step has `with: fetch-depth: 0` (the table-log
+  check needs the merge base with origin/main).
+- A step whose `run` calls `tools/check_table_log.py` with `--base` and
+  `git merge-base origin/main HEAD` comes before the step named
+  "Configure, build, ctest".
+- A step whose `run` calls `tools/check_row_coverage.py` comes after the
+  step named "Python tests"; the wall-time step stays last.
+
 CMakePresets.json gains configure presets `macos-appleclang` (condition
 hostSystemName equals Darwin) and `android-arm64` (condition hostSystemName
 equals Linux; toolchainFile, or cache CMAKE_TOOLCHAIN_FILE, is
@@ -399,3 +409,53 @@ def test_hashprobe_declares_extra_flags_variable():
     text = path.read_text(encoding="utf-8")
     assert "arcani-hashprobe" in text
     assert "ARCANI_HASHPROBE_EXTRA_FLAGS" in text
+
+
+# ------------------------------------------------------ fast.yml table checks
+
+FAST_JOBS = ["linux-x64", "windows-x64"]
+
+
+def step_index(steps, predicate, what):
+    found = [i for i, s in enumerate(steps) if predicate(s)]
+    assert found, f"no step {what}"
+    return found[0]
+
+
+def runs_tool(tool):
+    return lambda s: tool in str(s.get("run", ""))
+
+
+def named(name):
+    return lambda s: s.get("name") == name
+
+
+@pytest.mark.parametrize("job_id", FAST_JOBS)
+def test_fast_checkout_fetches_full_history(job_id):
+    steps = load("fast.yml")["jobs"][job_id]["steps"]
+    checkout = [s for s in steps if str(s.get("uses", "")).startswith("actions/checkout@")]
+    assert len(checkout) == 1, checkout
+    assert (checkout[0].get("with") or {}).get("fetch-depth") == 0, checkout[0]
+
+
+@pytest.mark.parametrize("job_id", FAST_JOBS)
+def test_fast_table_log_check_runs_before_build(job_id):
+    steps = load("fast.yml")["jobs"][job_id]["steps"]
+    at = step_index(steps, runs_tool("tools/check_table_log.py"), "running check_table_log.py")
+    text = str(steps[at]["run"])
+    assert "--base" in text, text
+    assert "git merge-base origin/main HEAD" in text, text
+    build = step_index(steps, named("Configure, build, ctest"), "named Configure, build, ctest")
+    checkout = step_index(steps, lambda s: str(s.get("uses", "")).startswith("actions/checkout@"),
+                          "using actions/checkout")
+    assert checkout < at < build, (checkout, at, build)
+
+
+@pytest.mark.parametrize("job_id", FAST_JOBS)
+def test_fast_coverage_check_runs_after_pytest(job_id):
+    steps = load("fast.yml")["jobs"][job_id]["steps"]
+    at = step_index(steps, runs_tool("tools/check_row_coverage.py"), "running check_row_coverage.py")
+    pytest_step = step_index(steps, named("Python tests"), "named Python tests")
+    build = step_index(steps, named("Configure, build, ctest"), "named Configure, build, ctest")
+    assert build < pytest_step < at < len(steps) - 1, (build, pytest_step, at, len(steps))
+    assert "tools/check_wall_time.py" in str(steps[-1].get("run", "")), steps[-1]

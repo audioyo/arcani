@@ -25,7 +25,9 @@ Contract with reference/ideal.py (numpy and stdlib; loaded by path):
 
 Quantization and drift are checked exactly with fractions at every range
 endpoint, plus an analytic worst-case bound. Bounds and ranges come from
-tests/tables/*.json; only the table-pinning test at the end carries literals.
+tests/tables/*.tsv through the assertion call `assertions.row`, which records
+each row id for the coverage check; no value here is a literal copy of a
+table row (the table format and md mapping tests are in test_tables_loader.py).
 """
 
 import importlib.util
@@ -41,13 +43,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from assertions import row as table_row
+from assertions.tables import load_tables
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GENERATOR = REPO_ROOT / "tools" / "signal_spec_vectors.py"
 VECTORS = REPO_ROOT / "tests" / "data" / "signal_spec_vectors.json"
 SPEC_DOC = REPO_ROOT / "docs" / "signal-spec.md"
 IDEAL = REPO_ROOT / "reference" / "ideal.py"
-THRESHOLDS = REPO_ROOT / "tests" / "tables" / "thresholds.json"
-RANGES = REPO_ROOT / "tests" / "tables" / "ranges.json"
 CYCLE = 2**64
 
 # The ideal sine must agree with the 25-digit decimal vectors to 1e-15
@@ -93,17 +96,9 @@ def vectors():
     return load_json(VECTORS)
 
 
-def rows_by_id(path):
-    return {row["id"]: row for row in load_json(path)["rows"]}
-
-
-def threshold(row_id):
-    return rows_by_id(THRESHOLDS)[row_id]
-
-
-def fraction_of(value):
-    """Exact Fraction of a JSON number as written (0.01 is 1/100, not its binary64)."""
-    return Fraction(repr(value)) if isinstance(value, float) else Fraction(value)
+def fraction_of(text):
+    """Exact Fraction of a table number as written (0.01 is 1/100, not its binary64)."""
+    return Fraction(text)
 
 
 def seconds(value, unit):
@@ -113,34 +108,54 @@ def seconds(value, unit):
 
 
 def accuracy_hz():
-    row = threshold("frequency-accuracy")
-    assert row["unit"] == "Hz", row
-    return fraction_of(row["value"])
+    row = table_row("frequency-accuracy")
+    assert row.unit == "Hz", row
+    return fraction_of(row.value_text)
 
 
 def drift_bound_s():
-    row = threshold("drift-8h")
-    return seconds(row["value"], row["unit"])
+    row = table_row("drift-8h")
+    return seconds(row.value_text, row.unit)
 
 
 def session_s():
-    row = rows_by_id(RANGES)["session-length"]
-    return seconds(row["value"]["max"], row["unit"])
+    row = table_row("session-length")
+    return seconds(row.max_text, row.unit)
 
 
 def sine_bound_dbfs():
-    row = threshold("sine-error")
-    assert row["unit"] == "dBFS", row
-    return row["value"]
+    row = table_row("sine-error")
+    assert row.unit == "dBFS", row
+    return row.value
 
 
 def sample_rates():
-    return list(rows_by_id(RANGES)["sample-rates"]["value"])
+    row = table_row("sample-rates")
+    assert row.unit == "Hz", row
+    return [int(v) for v in row.values]
 
 
 def hz_ranges():
-    return [row for row in load_json(RANGES)["rows"]
-            if row["unit"] == "Hz" and isinstance(row["value"], dict)]
+    """Every locked-range row in Hz, each read through the assertion call."""
+    return [table_row(r.id) for r in listed_hz_ranges()]
+
+
+# Parameter lists are built at collection from the loader without recording a
+# use, so a skipped or deselected test never counts its rows as used; the
+# test bodies read their rows through the assertion call when they run.
+def listed_hz_ranges():
+    return [r for r in load_tables().values() if r.kind == "ranges" and r.unit == "Hz"]
+
+
+def listed_sample_rates():
+    return [int(v) for v in load_tables()["sample-rates"].values]
+
+
+def record_rows(*row_ids):
+    """Reads each row through the assertion call; the sample rates row always."""
+    for row_id in row_ids:
+        table_row(row_id)
+    sample_rates()
 
 
 def spec_increment(f_hz, fs):
@@ -365,19 +380,20 @@ def quantization(f_hz, fs, inc):
 
 
 def range_endpoints():
-    for row in hz_ranges():
+    for row in listed_hz_ranges():
         for end in ("min", "max"):
-            for fs in sample_rates():
-                yield row["id"], end, float(row["value"][end]), fs
+            for fs in listed_sample_rates():
+                yield row.id, end, getattr(row, end), fs
 
 
 def test_hz_range_rows_present():
-    found = {row["id"] for row in hz_ranges()}
+    found = {row.id for row in hz_ranges()}
     assert set(HZ_RANGE_IDS) <= found, sorted(found)
 
 
 @pytest.mark.parametrize("row_id, end, f_hz, fs", list(range_endpoints()))
 def test_endpoint_quantization_and_drift_exact(row_id, end, f_hz, fs):
+    record_rows(row_id)
     inc = spec_increment(f_hz, fs)
     if f_hz == 0.0:
         assert inc == 0
@@ -389,10 +405,13 @@ def test_endpoint_quantization_and_drift_exact(row_id, end, f_hz, fs):
 
 @pytest.mark.parametrize("row_id, end, f_hz, fs", list(range_endpoints()))
 def test_ideal_increment_matches_exact_rule_at_endpoints(row_id, end, f_hz, fs):
+    record_rows(row_id)
     assert ideal().phase_increment(f_hz, fs) == spec_increment(f_hz, fs), (row_id, end, fs)
 
 
 def test_endpoint_doctored_increment_fails():
+    hz_ranges()
+    sample_rates()
     acc = accuracy_hz()
     for row_id, end, f_hz, fs in range_endpoints():
         if f_hz == 0.0:
@@ -419,16 +438,17 @@ def analytic_bounds(f_lo, f_hi, fs, cycle=CYCLE):
 
 
 def analytic_rows():
-    for row in hz_ranges():
-        lo = fraction_of(row["value"]["min"])
-        hi = fraction_of(row["value"]["max"])
+    for row in listed_hz_ranges():
+        lo = fraction_of(row.min_text)
+        hi = fraction_of(row.max_text)
         f_lo = lo if lo > 0 else GRID_STEP_HZ
-        for fs in sample_rates():
-            yield row["id"], f_lo, hi, fs
+        for fs in listed_sample_rates():
+            yield row.id, f_lo, hi, fs
 
 
 @pytest.mark.parametrize("row_id, f_lo, f_hi, fs", list(analytic_rows()))
 def test_analytic_worst_case_bound(row_id, f_lo, f_hi, fs):
+    record_rows(row_id)
     err, drift = analytic_bounds(f_lo, f_hi, fs)
     assert err < accuracy_hz(), (row_id, fs, float(err))
     assert drift < drift_bound_s(), (row_id, fs, float(drift))
@@ -436,92 +456,23 @@ def test_analytic_worst_case_bound(row_id, f_lo, f_hi, fs):
 
 def test_analytic_bound_fails_for_a_32_bit_accumulator():
     """Must fail: with a 2^32 cycle the 8-hour drift at the grid floor exceeds the bound."""
+    hz_ranges()
+    sample_rates()
     failed = False
     for row_id, f_lo, f_hi, fs in analytic_rows():
         _, drift = analytic_bounds(f_lo, f_hi, fs, cycle=2**32)
         failed = failed or drift >= drift_bound_s()
     assert failed
 
-
-# ----------------------------------------------------------- tables files
-
-
-def table_row_problems(rows):
-    problems = []
-    ids = [row.get("id") for row in rows]
-    if len(ids) != len(set(ids)):
-        problems.append(f"duplicate ids: {ids}")
-    for row in rows:
-        for key in ("id", "value", "unit", "source"):
-            if key not in row:
-                problems.append(f"{row.get('id')}: missing {key}")
-        for key in ("id", "unit", "source"):
-            if key in row and (not isinstance(row[key], str) or not row[key].strip()):
-                problems.append(f"{row.get('id')}: empty {key}")
-    return problems
+# ------------------------------------------------------- derived table row
 
 
-@pytest.mark.parametrize("path", [THRESHOLDS, RANGES], ids=["thresholds", "ranges"])
-def test_table_rows_well_formed(path):
-    rows = load_json(path)["rows"]
-    assert rows
-    assert not table_row_problems(rows), table_row_problems(rows)
-
-
-def test_table_row_problems_are_caught():
-    rows = load_json(THRESHOLDS)["rows"]
-    doctored = [dict(rows[0], source=""), dict(rows[1])]
-    doctored[1].pop("unit")
-    doctored.append(dict(rows[2]))
-    doctored.append(dict(rows[2]))
-    problems = table_row_problems(doctored)
-    assert any("empty source" in p for p in problems), problems
-    assert any("missing unit" in p for p in problems), problems
-    assert any("duplicate" in p for p in problems), problems
-
-
-# This one test pins the files to the story spec and thresholds-and-ranges.md,
-# so it carries the values as literals on purpose.
-EXPECTED_THRESHOLDS = {
-    "sine-error": (-120, "dBFS"),
-    "frequency-accuracy": (0.01, "Hz"),
-    "drift-8h": (1, "ms"),
-}
-EXPECTED_RANGES = {
-    "theta-rate": ({"min": 1, "max": 6}, "Hz"),
-    "theta-carrier": ({"min": 100, "max": 500}, "Hz"),
-    "gamma-rate": ({"min": 30, "max": 60}, "Hz"),
-    "gamma-carrier": ({"min": 200, "max": 500}, "Hz"),
-    "binaural-carrier": ({"min": 0, "max": 1000}, "Hz"),
-    "binaural-carrier-right": ({"min": 0, "max": 1030}, "Hz"),
-    "beat-rate": ({"min": 0, "max": 30}, "Hz"),
-    "session-length": ({"min": 0, "max": 8}, "h"),
-    "sample-rates": ([44100, 48000], "Hz"),
-}
-
-
-def test_threshold_values_match_spec():
-    rows = rows_by_id(THRESHOLDS)
-    assert set(rows) == set(EXPECTED_THRESHOLDS)
-    for row_id, (value, unit) in EXPECTED_THRESHOLDS.items():
-        assert rows[row_id]["value"] == value, row_id
-        assert rows[row_id]["unit"] == unit, row_id
-
-
-def test_range_values_match_spec():
-    rows = rows_by_id(RANGES)
-    assert set(rows) == set(EXPECTED_RANGES)
-    for row_id, (value, unit) in EXPECTED_RANGES.items():
-        assert rows[row_id]["value"] == value, row_id
-        assert rows[row_id]["unit"] == unit, row_id
-    right = rows["binaural-carrier-right"]["value"]["max"]
-    assert right == rows["binaural-carrier"]["value"]["max"] + rows["beat-rate"]["value"]["max"]
-
-
-def test_threshold_values_appear_in_thresholds_and_ranges_md():
-    text = (REPO_ROOT / "_bmad-output" / "specs" / "spec-arcani-v0-1"
-            / "thresholds-and-ranges.md").read_text(encoding="utf-8")
-    for needle in ("within 0.01 Hz", "under 1 ms after an 8-hour render", "| 1 to 6 Hz |",
-                   "| 100 to 500 Hz |", "| 30 to 60 Hz", "| 200 to 500 Hz", "Below 1000 Hz",
-                   "0 to below 30 Hz", "Up to 8 h"):
-        assert needle in text, needle
+def test_right_carrier_row_is_carrier_max_plus_beat_max():
+    """binaural-carrier-right is derived: right carrier = left carrier + beat rate."""
+    right = table_row("binaural-carrier-right")
+    left = table_row("binaural-carrier")
+    beat = table_row("beat-rate")
+    assert right.unit == left.unit == beat.unit == "Hz"
+    assert Fraction(right.max_text) == Fraction(left.max_text) + Fraction(beat.max_text)
+    assert Fraction(right.min_text) == Fraction(left.min_text) + Fraction(beat.min_text)
+    assert right.max_bound == "exclusive"

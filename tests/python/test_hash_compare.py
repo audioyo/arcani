@@ -76,6 +76,11 @@ Contract with tools/hash_compare.py (stdlib only):
 Real data files: `ci/hash_tolerance.json` has bound -100, a source naming
 AD-9 and `2026-10-27 (j)`, and no entries; `ci/hash_expected.json` has a
 `probe-arith` entry with 4096 samples and a 64-hex sha256.
+
+Bound has one source (Story 0.3): `bound_dbfs` in `ci/hash_tolerance.json`
+equals the value of threshold row `cross-platform-fallback`, read through the
+assertion call `assertions.row`, and that row's unit is `dBFS`. A doctored
+copy with -90 fails with a message naming both values.
 """
 
 import hashlib
@@ -687,3 +692,56 @@ def test_defaults_use_repo_files(tmp_path, root):
     code, out = run(COMPARE, root, cwd=tmp_path)
     assert code == 1, out
     assert_one_line_names(out, COMPONENT, expected["sha256"], sha(encode(samples)))
+
+
+def bound_matches_row(data, fallback):
+    """Fails, naming both values, when the tolerance bound is not the table row."""
+    assert fallback.unit == "dBFS", f"{fallback.id}: unit {fallback.unit!r}, expected dBFS"
+    assert data["bound_dbfs"] == fallback.value, (
+        f"ci/hash_tolerance.json bound_dbfs {data['bound_dbfs']} differs from "
+        f"table row {fallback.id} value {fallback.value_text}")
+
+
+def fallback_row():
+    from assertions import row
+    return row("cross-platform-fallback")
+
+
+def test_tolerance_bound_equals_threshold_row():
+    bound_matches_row(load_ci("hash_tolerance.json"), fallback_row())
+
+
+def test_doctored_tolerance_bound_is_caught():
+    fallback = fallback_row()
+    doctored = dict(load_ci("hash_tolerance.json"), bound_dbfs=-90)
+    with pytest.raises(AssertionError) as info:
+        bound_matches_row(doctored, fallback)
+    message = str(info.value)
+    assert "-90" in message and fallback.value_text in message, message
+
+
+def test_exact_mode_allows_the_cross_platform_row_count_of_differing_hashes(tmp_path, root):
+    """Row cross-platform: identical hashes across the matrix (0 differing hashes).
+
+    Exact mode passes with as many differing platform hashes as the row allows
+    and fails with one more (a one-LSB flip on one platform).
+    """
+    from assertions import row
+    allowed = row("cross-platform")
+    assert allowed.unit == "differing hashes", allowed
+    assert allowed.value == 0, allowed
+    samples = base_samples()
+    write_all(root, {p: {COMPONENT: samples} for p in PLATFORMS})
+    code, out = compare(tmp_path, root, write_expected(tmp_path, expected_for(samples)))
+    assert code == 0, out
+
+    flipped = list(samples)
+    flipped[5] = from_bits(to_bits(flipped[5]) ^ 1)
+    data = {p: {COMPONENT: samples} for p in PLATFORMS}
+    data["macos-arm64"] = {COMPONENT: flipped}
+    other = tmp_path / "one-more"
+    write_all(other, data)
+    differing = sum(1 for p in PLATFORMS if encode(data[p][COMPONENT]) != encode(samples))
+    assert differing == allowed.value + 1
+    code, out = compare(tmp_path, other, write_expected(tmp_path, expected_for(samples)))
+    assert code == 1, out

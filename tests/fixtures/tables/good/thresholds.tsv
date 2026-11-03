@@ -1,0 +1,4 @@
+id	value	unit	spec_row	source	pending
+fixture-bound	-120	dBFS		Fixture only: made-up row, single value	
+fixture-set	1 64 512 4096	frames		Fixture only: made-up row, a set	
+fixture-small	0.01	Hz	Fixture md row	Fixture only: made-up row, pending	9-1-fixture-story

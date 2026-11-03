@@ -1,0 +1,28 @@
+id	value	unit	spec_row	source	pending
+sine-error	-120	dBFS		Design log 2026-10-28 (o): engine sine at most -120 dBFS against the ideal sine; docs/signal-spec.md, Sine, Error bound	
+sample-rates	44100 48000	Hz		Design log 2026-10-27 (j): the Core renders natively at 44.1 and 48 kHz; AD-10	
+binaural-isolation-engine	90	dB below the ear's own binaural carrier	Binaural isolation, engine output	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-4	1-2-c-api-fixed-stage-list-seek-and-isolation-assertion
+binaural-isolation-master	60	dB below the ear's own binaural carrier	Binaural isolation, after master chain	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-4	1-2-c-api-fixed-stage-list-seek-and-isolation-assertion
+coupling-timing	2	ms	Coupling timing	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-3	2-3-gamma-coupled-smooth-swell
+coupling-independence	0	samples of gamma peak time change	Coupling independence	thresholds-and-ranges.md, Test thresholds; AD-5	2-5-binaural-layer
+envelope-shape	0	envelope samples failing the reference match	Envelope shape	thresholds-and-ranges.md, Test thresholds; FR-13	2-1-theta-reference-envelopes
+carrier-rule	4	times the modulation rate	Carrier rule	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-9	1-3-validator-framework-locked-ranges-and-carrier-rule
+spacing-rule	50	Hz	Spacing rule	thresholds-and-ranges.md, Test thresholds; design log 2026-10-27 (e), (i); AD-20	3-2-spacing-rule-per-ear-whole-session
+spectral-component-level	40	dB below the layer's strongest line	Spacing rule	thresholds-and-ranges.md, Test thresholds; design log 2026-10-27 (i); AD-20	3-1-spectral-component-table-per-shape
+frequency-accuracy	0.01	Hz	Frequency accuracy	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-1	
+drift-8h	1	ms	Long-session drift	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-1; the 8-hour length is range row session-length	
+reference-match	-100	dBFS	Reference match	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; AD-16	1-5-python-reference-renderer-for-the-stub-chain
+determinism	0	differing bytes	Determinism	thresholds-and-ranges.md, Test thresholds; CLAUDE.md rule 1; FR-6	1-6-determinism-and-block-size-invariance
+cross-platform	0	differing hashes	Cross-platform	thresholds-and-ranges.md, Test thresholds; AD-9; design log 2026-10-27 (j)	
+cross-platform-fallback	-100	dBFS	Cross-platform	thresholds-and-ranges.md, Test thresholds; AD-9; design log 2026-10-27 (j): a component proven unable to match falls back to this tolerance, strictly below	
+block-sizes	1 64 512 4096	frames per call	Block-size invariance	thresholds-and-ranges.md, Test thresholds; AD-10	1-6-determinism-and-block-size-invariance
+block-size-invariance	0	differing bytes	Block-size invariance	thresholds-and-ranges.md, Test thresholds; AD-10	1-6-determinism-and-block-size-invariance
+click-level	-60	dBFS	Clicks	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds	2-1-theta-reference-envelopes
+click-highpass	8	kHz	Clicks	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds	2-1-theta-reference-envelopes
+dropout-length	1	ms	Dropouts	thresholds-and-ranges.md, Test thresholds; design log 2026-10-27 (i)	5-2-clicks-dropouts-nan-and-infinite-values
+invalid-samples	0	NaN or infinite samples	NaN or infinite values	thresholds-and-ranges.md, Test thresholds; FR-13	5-2-clicks-dropouts-nan-and-infinite-values
+gain-ramp-min	10	ms	Gain ramps	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-5	4-4-gain-ramps
+limiter-idle	0	samples with gain reduction	Limiter idle	thresholds-and-ranges.md, Test thresholds; AD-4; design log 2026-10-27 (k), 2026-10-28 (p)	4-5-limiter-idle
+loudness-tolerance	1	LU	Loudness	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-5	4-1-loudness-meter
+true-peak	-1	dBTP	True peak	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-5	4-3-true-peak
+render-speed	20	times real time	Render speed	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-11	1-4-command-line-renderer-report-and-render-speed

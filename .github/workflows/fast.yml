@@ -1,6 +1,8 @@
 # Fast tier: build and test on every push, Windows x64 and Linux x64.
 # Tool versions and SHA-256s come from toolchain.json only. Each job checks its
-# wall time against ci/wall_time_budget.json in its last step.
+# wall time against ci/wall_time_budget.json in its last step. Each job runs
+# the table design log check before the build and the row coverage check
+# after ctest and pytest (Story 0.3, tests/tables/README.md).
 # Branch rule for main (applied by hand in GitHub settings, see the design log):
 # require the status checks "windows-x64" and "linux-x64" (workflow "fast") to pass.
 
@@ -29,6 +31,9 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+          # Full history, so the table design log check finds the merge base
+          # with origin/main.
+          fetch-depth: 0
 
       - name: Read pins from toolchain.json
         id: pins
@@ -91,11 +96,20 @@ jobs:
       - name: Floating-point pragma check
         run: uv run --no-project python tools/check_fp_pragmas.py
 
+      - name: Table design log check
+        shell: bash
+        run: |
+          base=$(git merge-base origin/main HEAD)
+          uv run --no-project python tools/check_table_log.py --base "$base"
+
       - name: Configure, build, ctest
         run: cmake --workflow --preset linux-clang
 
       - name: Python tests
         run: uv run --locked pytest
+
+      - name: Row coverage check
+        run: uv run --locked python tools/check_row_coverage.py
 
       - name: Wall time against budget
         if: always()
@@ -117,6 +131,9 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+          # Full history, so the table design log check finds the merge base
+          # with origin/main.
+          fetch-depth: 0
 
       - name: Read pins from toolchain.json
         id: pins
@@ -175,11 +192,20 @@ jobs:
       - name: Floating-point pragma check
         run: uv run --no-project python tools/check_fp_pragmas.py
 
+      - name: Table design log check
+        shell: bash
+        run: |
+          base=$(git merge-base origin/main HEAD)
+          uv run --no-project python tools/check_table_log.py --base "$base"
+
       - name: Configure, build, ctest
         run: powershell -NoProfile -File tools/dev.ps1 cmake --workflow --preset windows-clang-cl
 
       - name: Python tests
         run: uv run --locked pytest
+
+      - name: Row coverage check
+        run: uv run --locked python tools/check_row_coverage.py
 
       - name: Wall time against budget
         if: always()

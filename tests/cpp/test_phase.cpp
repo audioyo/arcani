@@ -1,7 +1,8 @@
 // Phase accumulator, phase increment rule, and seconds-to-samples rule
 // (docs/signal-spec.md, Core). Vectors come from tests/data/signal_spec_vectors.json
-// and bounds and ranges from tests/tables/*.json, through the generated
-// spec_tables.hpp; no value here is a literal copy of a table.
+// through the generated spec_tables.hpp, and bounds and ranges from
+// tests/tables/*.tsv through the assertion call (spec_helpers.hpp); no value
+// here is a literal copy of a table.
 
 #include "core/phase.hpp"
 #include "core/sine.hpp"
@@ -9,10 +10,12 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <vector>
 
 namespace spec = arcani::test::spec;
 using arcani::core::phase_increment;
@@ -107,7 +110,7 @@ struct GridResult {
 // f_q = inc * fs / 2^64, the error |f_q - f|, and the drift |f_q - f| * T / f
 // for f > 0. Measuring in binary64 adds at most a few units in the last place
 // of f (about 1e-13 Hz at 1030 Hz), 11 orders below the 0.01 Hz bound.
-GridResult measure_grid(const spec::HzRange& range, std::uint32_t fs, double session_s,
+GridResult measure_grid(const spec::Row& range, std::uint32_t fs, double session_s,
                         std::uint64_t offset) {
   GridResult r;
   const long long lo = std::llround(range.min * 1000.0);
@@ -145,14 +148,18 @@ const char* const kRequiredHzRanges[] = {
 }  // namespace
 
 TEST_CASE("range table has every carrier and rate row in Hz", "[core][phase][ranges]") {
+  const std::vector<std::string> ids = spec::hz_range_ids();
   for (const char* id : kRequiredHzRanges) {
     INFO("range row " << id);
-    const spec::HzRange* r = spec::find_hz_range(id);
-    REQUIRE(r != nullptr);
-    CHECK(r->min >= 0.0);
-    CHECK(r->max > r->min);
+    CHECK(std::find(ids.begin(), ids.end(), id) != ids.end());
   }
-  REQUIRE(sizeof(spec::kSampleRates) / sizeof(spec::kSampleRates[0]) >= 2);
+  for (const std::string& id : ids) {
+    INFO("range row " << id);
+    const spec::Row& r = spec::hz_range(id);
+    CHECK(r.min >= 0.0);
+    CHECK(r.max > r.min);
+  }
+  REQUIRE(spec::sample_rates().size() >= 2);
   REQUIRE(spec::session_length_seconds() > 0.0);
 }
 
@@ -161,8 +168,10 @@ TEST_CASE("quantization error and 8-hour drift stay inside the bounds on a 0.001
   const double accuracy = spec::frequency_accuracy_hz();
   const double drift_bound = spec::drift_bound_seconds();
   const double session = spec::session_length_seconds();
-  for (const spec::HzRange& range : spec::kHzRanges) {
-    for (const std::uint32_t fs : spec::kSampleRates) {
+  // Every Hz range row of the table, so a new carrier or rate row joins the grid.
+  for (const std::string& id : spec::hz_range_ids()) {
+    const spec::Row& range = spec::hz_range(id);
+    for (const std::uint32_t fs : spec::sample_rates()) {
       const GridResult r = measure_grid(range, fs, session, 0);
       INFO(range.id << " " << range.min << " to " << range.max << " Hz at " << fs
                     << " Hz sample rate: " << r.points << " points, max error "
@@ -180,8 +189,8 @@ TEST_CASE("must fail: a doctored increment breaks the frequency accuracy bound",
           "[core][phase][accuracy][mustfail]") {
   const double accuracy = spec::frequency_accuracy_hz();
   const double session = spec::session_length_seconds();
-  const spec::HzRange& range = spec::kHzRanges[0];
-  for (const std::uint32_t fs : spec::kSampleRates) {
+  const spec::Row& range = spec::hz_range(kRequiredHzRanges[0]);
+  for (const std::uint32_t fs : spec::sample_rates()) {
     // Two times the bound, in phase units.
     const auto offset = static_cast<std::uint64_t>(
         std::ceil(2.0 * accuracy * 0x1p64 / static_cast<double>(fs)));
@@ -196,17 +205,16 @@ TEST_CASE("must fail: a doctored increment breaks the drift bound alone",
   const double accuracy = spec::frequency_accuracy_hz();
   const double drift_bound = spec::drift_bound_seconds();
   const double session = spec::session_length_seconds();
-  const spec::HzRange* range = spec::find_hz_range("binaural-carrier-right");
-  REQUIRE(range != nullptr);
-  for (const std::uint32_t fs : spec::kSampleRates) {
+  const spec::Row& range = spec::hz_range("binaural-carrier-right");
+  for (const std::uint32_t fs : spec::sample_rates()) {
     // A frequency error of twice the drift bound at the top of the range:
     // 2 * drift * f_max / T Hz, well inside the accuracy bound.
-    const double err_hz = 2.0 * drift_bound * range->max / session;
+    const double err_hz = 2.0 * drift_bound * range.max / session;
     REQUIRE(err_hz < accuracy);
     const auto offset =
         static_cast<std::uint64_t>(std::ceil(err_hz * 0x1p64 / static_cast<double>(fs)));
-    const GridResult r = measure_grid(*range, fs, session, offset);
-    INFO(range->id << " at " << fs << " Hz sample rate, offset " << offset);
+    const GridResult r = measure_grid(range, fs, session, offset);
+    INFO(range.id << " at " << fs << " Hz sample rate, offset " << offset);
     CHECK(r.max_error_hz < accuracy);
     CHECK(r.max_drift_s >= drift_bound);
   }
