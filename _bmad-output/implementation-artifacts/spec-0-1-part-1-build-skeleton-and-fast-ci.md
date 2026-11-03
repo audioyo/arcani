@@ -2,7 +2,7 @@
 title: 'Story 0.1 part 1: build skeleton, local build, fast-tier CI, toolchain pin check'
 type: 'chore'
 created: '2026-11-02'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: '7031b28c15579a62bcac49f77f4b78ef1c2c233d'
@@ -102,7 +102,7 @@ Dev PC state (2026-11-02): uv `C:\Users\goegl\.local\bin\uv.exe`, CMake `C:\User
 - `tools/dev.ps1` keeps the caller's PATH (plus user and machine PATH) ahead of the VS environment's additions, because VS ships its own CMake and Ninja.
 - `golden/README.md` is exempted from the LFS rule so the folder README stays plain text.
 - Not verified here: the GitHub workflow itself (no push without Audio's go-ahead). The Linux job could not be run locally (no WSL or Docker).
-- 2026-11-02: Smart App Control on the dev PC blocks `arcani_tests.exe` ("An Application Control policy has blocked this file"); pytest passes locally. Audio chose GitHub for C++ tests: fast run #1 on 8143c3b passed on windows-x64 and linux-x64.
+- 2026-11-02: Smart App Control on the dev PC blocks `arcani_tests.exe` ("An Application Control policy has blocked this file"); pytest passes locally. Audio chose GitHub for C++ tests: fast run #1 on 8143c3b passed on windows-x64 and linux-x64. Fast run #2 on 4118675 (after review fixes) passed on both.
 - Review pass 1 patches (findings 1, 2, 3, 5, 7, 12, 16, 17): Linux fetch no longer runs in a command substitution and every failure stops the step; dev.ps1 errors use stderr plus the intended exit code; unused output removed; MSVC toolset, Windows SDK, glibc, libstdc++ versions printed; `* text=auto eol=lf`; URL-carries-version test; `toolchain.json` in `CMAKE_CONFIGURE_DEPENDS`. Local: pytest 27 passed, clean build passes, dev.ps1 with no arguments exits 2.
 
 ## Spec Change Log
