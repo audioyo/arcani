@@ -24,6 +24,7 @@ Standard library only.
 """
 
 import argparse
+import functools
 import json
 import math
 import sys
@@ -85,6 +86,7 @@ def samples(t_s, fs):
 # ---------------------------------------------------------- decimal sine
 
 
+@functools.lru_cache(maxsize=None)
 def decimal_pi():
     """pi by Machin's formula, at the current decimal precision."""
 
