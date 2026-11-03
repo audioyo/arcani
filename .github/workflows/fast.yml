@@ -1,0 +1,181 @@
+# Fast tier: build and test on every push, Windows x64 and Linux x64.
+# Tool versions and SHA-256s come from toolchain.json only. Each job checks its
+# wall time against ci/wall_time_budget.json in its last step.
+# Branch rule for main (applied by hand in GitHub settings, see the design log):
+# require the status checks "windows-x64" and "linux-x64" (workflow "fast") to pass.
+
+name: fast
+
+on:
+  push:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fast-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-x64:
+    name: linux-x64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Record job start
+        shell: bash
+        run: echo "ARCANI_JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Read pins from toolchain.json
+        id: pins
+        run: |
+          {
+            echo "uv=$(jq -r '.uv.version' toolchain.json)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install pinned CMake, Ninja, LLVM (checksum-verified)
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/tools"
+          mkdir -p "$tools"
+          # fetch <tool>: downloads the pinned Linux x64 archive into
+          # $archive and verifies its SHA-256. Every failure returns non-zero.
+          fetch() {
+            local url sha
+            url=$(jq -er ".$1.linux_x64.url" toolchain.json) || return 1
+            sha=$(jq -er ".$1.linux_x64.sha256" toolchain.json) || return 1
+            archive="$RUNNER_TEMP/$(basename "$url")"
+            curl -fsSL --retry 3 -o "$archive" "$url" || return 1
+            echo "$sha  $archive" | sha256sum -c - >&2 || return 1
+          }
+          fetch cmake || exit 1
+          cmake_archive="$archive"
+          mkdir -p "$tools/cmake"
+          tar -xzf "$cmake_archive" -C "$tools/cmake" --strip-components=1
+          echo "$tools/cmake/bin" >> "$GITHUB_PATH"
+
+          fetch ninja || exit 1
+          ninja_archive="$archive"
+          mkdir -p "$tools/ninja"
+          unzip -q "$ninja_archive" -d "$tools/ninja"
+          echo "$tools/ninja" >> "$GITHUB_PATH"
+
+          fetch llvm || exit 1
+          llvm_archive="$archive"
+          mkdir -p "$tools/llvm"
+          # Static libraries and the LLVM development headers are not needed;
+          # the compiler's own headers under lib/clang are kept.
+          tar -xJf "$llvm_archive" -C "$tools/llvm" --strip-components=1 \
+            --exclude='*.a' --exclude='LLVM-*-Linux-X64/include'
+          rm -f "$llvm_archive"
+          echo "$tools/llvm/bin" >> "$GITHUB_PATH"
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: ${{ steps.pins.outputs.uv }}
+
+      - name: Tool versions
+        run: |
+          cmake --version
+          ninja --version
+          clang++ --version
+          uv --version
+          # Unpinned system parts the build uses, recorded for the log.
+          ldd --version | head -n1
+          dpkg-query -W -f='${Package} ${Version}\n' 'libstdc++6' 'libstdc++-*-dev' 2>/dev/null || true
+
+      - name: Configure, build, ctest
+        run: cmake --workflow --preset linux-clang
+
+      - name: Python tests
+        run: uv run --locked pytest
+
+      - name: Wall time against budget
+        if: always()
+        shell: bash
+        run: uv run --no-project python tools/check_wall_time.py --tier fast --job linux-x64 --start "$ARCANI_JOB_START"
+
+  windows-x64:
+    name: windows-x64
+    runs-on: windows-2025
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Record job start
+        shell: bash
+        run: echo "ARCANI_JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Read pins from toolchain.json
+        id: pins
+        run: |
+          $pins = Get-Content toolchain.json -Raw | ConvertFrom-Json
+          "uv=$($pins.uv.version)" >> $env:GITHUB_OUTPUT
+
+      - name: Install pinned CMake, Ninja, LLVM (checksum-verified)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ProgressPreference = 'SilentlyContinue'
+          $pins = Get-Content toolchain.json -Raw | ConvertFrom-Json
+          $tools = Join-Path $env:RUNNER_TEMP 'tools'
+          New-Item -ItemType Directory -Force $tools | Out-Null
+          function Get-Pinned($name) {
+            $entry = $pins.$name.windows_x64
+            $out = Join-Path $env:RUNNER_TEMP ([IO.Path]::GetFileName($entry.url))
+            Invoke-WebRequest -Uri $entry.url -OutFile $out -MaximumRetryCount 3
+            $found = (Get-FileHash -Algorithm SHA256 $out).Hash.ToLowerInvariant()
+            if ($found -ne $entry.sha256.ToLowerInvariant()) {
+              throw "$name checksum mismatch: expected $($entry.sha256), found $found"
+            }
+            return $out
+          }
+
+          $cmakeZip = Get-Pinned 'cmake'
+          Expand-Archive $cmakeZip -DestinationPath "$tools\cmake-extract"
+          $cmakeBin = (Get-ChildItem "$tools\cmake-extract" -Directory | Select-Object -First 1).FullName + '\bin'
+          $cmakeBin >> $env:GITHUB_PATH
+
+          $ninjaZip = Get-Pinned 'ninja'
+          Expand-Archive $ninjaZip -DestinationPath "$tools\ninja"
+          "$tools\ninja" >> $env:GITHUB_PATH
+
+          # Administrative install: unpacks the LLVM installer to a private
+          # folder without touching the LLVM preinstalled on the runner.
+          $llvmMsi = Get-Pinned 'llvm'
+          $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList @('/a', "`"$llvmMsi`"", '/qn', "TARGETDIR=`"$tools\llvm`"")
+          if ($p.ExitCode -ne 0) { throw "LLVM msiexec failed with exit code $($p.ExitCode)" }
+          Remove-Item $llvmMsi
+          "$tools\llvm\LLVM\bin" >> $env:GITHUB_PATH
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: ${{ steps.pins.outputs.uv }}
+
+      - name: Tool versions
+        run: |
+          cmake --version
+          ninja --version
+          clang-cl --version
+          uv --version
+          # Unpinned MSVC toolset (STL) and Windows SDK, recorded for the log.
+          powershell -NoProfile -File tools/dev.ps1 cmd /c "echo VCToolsVersion=%VCToolsVersion% & echo WindowsSDKVersion=%WindowsSDKVersion%"
+
+      - name: Configure, build, ctest
+        run: powershell -NoProfile -File tools/dev.ps1 cmake --workflow --preset windows-clang-cl
+
+      - name: Python tests
+        run: uv run --locked pytest
+
+      - name: Wall time against budget
+        if: always()
+        shell: bash
+        run: uv run --no-project python tools/check_wall_time.py --tier fast --job windows-x64 --start "$ARCANI_JOB_START"

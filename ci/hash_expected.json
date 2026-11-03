@@ -1,0 +1,9 @@
+{
+  "source": "tools/probe_reference.py: NumPy float32 reference, each operation rounded separately",
+  "components": {
+    "probe-arith": {
+      "samples": 4096,
+      "sha256": "933f0602ecebcc0f413be5f2737d4a57fcf18cfb9f045665c8d483fc9d8bb8fc"
+    }
+  }
+}
