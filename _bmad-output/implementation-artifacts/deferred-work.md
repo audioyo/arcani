@@ -37,7 +37,7 @@
   summary: Story 0.3 absorbs `tests/tables/thresholds.json` and `tests/tables/ranges.json` (C++ and Python loaders, uncited-row failure, two-way coverage, design log gate) and replaces the configure-time header in `tests/cpp/SpecTables.cmake`.
   evidence: Story 0.2 needed cited values before Story 0.3 builds the tables; its tests read the two interim files, never literals (design log 2026-11-03 (bb)).
 - source_spec: `_bmad-output/implementation-artifacts/spec-0-2-engine-sine-oscillator-spike-that-ships.md`
-  summary: Record the four-platform `sine-44100` and `sine-48000` hash result from the pull request's `full` run in design log 2026-11-03 (bb), or apply the defined fallback if a platform cannot match.
+  summary: (closed by Story 0.2: all four platforms byte-identical, full run 41648370470, design log 2026-11-03 (bb)) Record the four-platform `sine-44100` and `sine-48000` hash result from the pull request's `full` run in design log 2026-11-03 (bb), or apply the defined fallback if a platform cannot match.
   evidence: Pushing waits for Audio's go-ahead; local windows-x64 hashes are in the entry.
 - source_spec: `_bmad-output/implementation-artifacts/spec-0-2-engine-sine-oscillator-spike-that-ships.md`
   summary: Add `sine-44100` and `sine-48000` entries to `ci/hash_expected.json` once the first four-platform `full` run confirms their hashes, so a toolchain change that shifts every platform alike fails CI.
