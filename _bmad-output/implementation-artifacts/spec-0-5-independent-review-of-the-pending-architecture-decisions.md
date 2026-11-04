@@ -2,7 +2,7 @@
 title: 'Story 0.5: Independent review of the pending architecture decisions'
 type: 'chore'
 created: '2026-11-04'
-status: 'in-progress'
+status: 'done'
 baseline_commit: '921b53f456efb36973da0dee81713b695238c614'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -88,6 +88,36 @@ Decisions (2026-11-04, build agent, under Audio's standing "settle tech forks yo
 ## Spec Change Log
 
 ## Review Triage Log
+
+Review pass 1 (2026-11-04): blind hunter (B), edge case hunter (E), verification gap (V; no gaps, two other findings).
+
+| # | Finding | Verdict | Evidence | Route |
+|---|---------|---------|----------|-------|
+| V2, B1 | epics.md FR-3 line drops "wherever gamma level and depth are non-zero" and "AM" | medium | epics.md line 33; read literally it rejects Relax at sample 0, contradicting the new S6.5 AC | patch |
+| V1, E3, B11 | sprint-status `last_updated` moves from 11:00 to 05:42; spec in-review vs sprint in-progress | false | 05:42 is the real clock time of the edit; the old 11:00 was ahead of the clock. Sprint moves to review at step 5 by design | reject |
+| E1 | test finds (ee) by any heading containing "(ee)" | low | contrived; a later heading would have to cite (ee) in its title above it; test file is QA-owned | reject |
+| E2 | verdict-table parser keeps reading into an adjacent table | low | contrived; the review file separates tables with blank lines | reject |
+| E4 | host mode restore not required on error returns | low | Story 1.2 AC says "on return"; direct wording fix "on every return, including an error status" | patch |
+| E5 | compile and seek may do FP under host flush mode | medium | AD-9 names only the render call; compile computes increments and notch data in binary64 (signal-spec Core) | patch |
+| E6 | 24-bit fixtures cover only above full scale | medium | Story 1.4 new AC; +1.0 exactly, below -1.0, and NaN are the asymmetric and NaN edges the rule names | patch |
+| E7 | theta level below one 24-bit LSB counts as non-zero | low | defining it needs a new threshold, which rule 3 forbids inventing; reviewer A deliberately added no value | reject |
+| E8, B8 | "zero level" for theta never defined | medium | AD-5 and S2.3 do not say which gains count; validator and S2.3 fixture could disagree | patch |
+| E9 | Focus and Learn starter stories lack the zero-level AC | low | only S6.5 got it; direct one-line addition to S6.3 and S6.4 | patch |
+| E10, B7 | Current state rows (hash compare, toolchain pins, runner layout) still "proposed" and unnarrowed | low | design-log.md lines 53 to 58; locked Stack and AD-9 restate them | patch |
+| E11 | narrowed fallback condition is prose only; CI accepts any cited tolerance entry | medium | `ci/hash_tolerance.json` needs only a citation (design log (aa)); a CI change is out of this story's scope | defer |
+| E12, B6 | epics "Signal spec (CAP-1, AD-19)" bullet lists fewer items than AD-19 | low | epics.md line 78 | patch |
+| B2 | three notes with existing stories went to deferred-work, not story ACs | medium | S4.5 limiter latency, S2.5 byte-identical gamma tap, S2.2 to S2.4 per-tap margin all have stories in epics.md | patch |
+| B3 | phone hash gate has no tracked owner | medium | the Phase 0 part 2 spike has no story; only a deferred-work entry; direct fix is a spine Open Questions row | patch |
+| B4 | "Phase 0 stack spike" vs "Phase 0 part 2 stack spike" | low | spine AD-9 text vs Audio's decision wording | patch |
+| B5 | PRD FR-3 and PRD line 134 keep old AD-5 and AD-9 wording | medium | prd.md lines 114, 134; spine, SPEC, and epics now differ from the PRD | patch |
+| B5b | design log (j) bullet and v0.1 spec memlog keep old wording | false | historical records; (j) carries a superseded note, memlogs are append-only | reject |
+| B7b | epics Additional Requirements still says "pytest pinned", no versions | low | epics.md line 77; direct fix cites the spine Stack table | patch |
+| B9 | denormal restore needs MXCSR and FPCR access the checks may block | medium | Story 1.2 and 1.6 extend the same denylist and pragma checks; reviewer B named it | patch |
+| B9b | float-to-int clamp covered only by Story 1.4 | low | AD-9 binds every later engine story; no current conversion elsewhere | reject |
+| B10 | entry (ee) Deferred bullet lists 5 of 12 entries | low | direct fix: point at the Story 0.5 entries in deferred-work.md as a set | patch |
+| B12 | spec Implementation Notes cite scratchpad paths | low | fix edits this build's spec; rejected by the review rule, raised to Audio at presentation | reject |
+| B13 | test does not check the Source column or (ee) order | low | manual checks cover them; tests are QA-owned | reject |
+| B14 | one-pager Build and CI rows trail the Stack | low | shareable summary; direct fix is two cells | patch |
 
 ## Verification
 

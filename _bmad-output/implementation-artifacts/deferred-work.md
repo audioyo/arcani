@@ -66,3 +66,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-0-5-independent-review-of-the-pending-architecture-decisions.md`
   summary: Refresh the dev PC's uv-managed Python 3.14 patch occasionally (`uv python upgrade`); 3.14.10 is a security release. Cannot change engine bytes.
   evidence: Review B, Stack findings, Python row.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-0-5-independent-review-of-the-pending-architecture-decisions.md`
+  summary: Make CI enforce the narrowed AD-9 fallback, so a `ci/hash_tolerance.json` entry must name its rule-4 review and why the cause lies outside the AD-9 code rules, not only cite a design log entry.
+  evidence: `tools/hash_compare.py` accepts any entry that cites a design log entry (design log 2026-11-02 (aa)); the narrowed condition from design log 2026-11-04 (ee) is prose only. Natural owner: Story 1.6 or Story 6.1.
