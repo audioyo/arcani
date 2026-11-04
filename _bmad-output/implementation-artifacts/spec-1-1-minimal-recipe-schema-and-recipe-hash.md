@@ -73,11 +73,11 @@ Decisions (2026-11-04, build agent, under Audio's standing "settle tech forks yo
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `tests/python/test_recipe_*.py`, `tests/cpp/test_json.cpp`, `test_recipe.cpp`, `test_sha256.cpp`, fixtures and vector files -- QA agent writes failing tests from the ACs and matrix; tests-only commit -- tests first.
-- [ ] `recipes/recipe.schema.json`, `recipes/README.md` -- schema with tags.
-- [ ] `engine/src/json/*`, `engine/src/crypto/sha256.*`, `engine/src/recipe/*`, `engine/CMakeLists.txt` -- parser, canonicalizer, SHA-256, parse stage, hash.
-- [ ] `tools/recipe_hash.py`, `pyproject.toml`, `uv.lock` -- Python hash and dependency.
-- [ ] `docs/design-log.md`, spine Stack table, `docs/timeline-guidebook.html`, `sprint-status.yaml` -- records.
+- [x] `tests/python/test_recipe_*.py`, `tests/cpp/test_json.cpp`, `test_recipe.cpp`, `test_sha256.cpp`, fixtures and vector files -- QA agent writes failing tests from the ACs and matrix; tests-only commit -- tests first.
+- [x] `recipes/recipe.schema.json`, `recipes/README.md` -- schema with tags.
+- [x] `engine/src/json/*`, `engine/src/crypto/sha256.*`, `engine/src/recipe/*`, `engine/CMakeLists.txt` -- parser, canonicalizer, SHA-256, parse stage, hash.
+- [x] `tools/recipe_hash.py`, `pyproject.toml`, `uv.lock` -- Python hash and dependency.
+- [x] `docs/design-log.md`, spine Stack table, `docs/timeline-guidebook.html`, `sprint-status.yaml` -- records.
 
 **Acceptance Criteria:**
 - Given the schema, when a test walks every property, then each is `snake_case` with a unit suffix where it holds a quantity, and carries exactly one valid `x-arcani-tag`.
@@ -90,6 +90,9 @@ Decisions (2026-11-04, build agent, under Audio's standing "settle tech forks yo
 ## Implementation Notes
 
 - Failing tests 06ba1f0 (fresh-context QA agent). Settled in the tests: error rule names (`unknown_property`, `json.duplicate_key`, `json.trailing_comma`, and the rest in `recipes/fixtures/invalid-expected.json`), shared by the engine and the Python strict loader; a syntax error's parameter is its byte offset as digits; the schema pattern itself rejects a major other than 1, so `schema_version` "2.0" is invalid for both sides; layer fields are required inside their layer; bad UTF-8 cases are built inside the tests, not stored as fixture files (the wording check fails non-UTF-8 files). Extra data file `tests/data/number_format_vectors.json` holds the 10,000 seeded values plus edges.
+
+- Implementation 3a023ea. Engine choices within the spec: strict parser depth limit 64; extra rule ids for other syntax faults (`json.unexpected_char`, `json.unexpected_end`, `json.trailing_data`, `json.invalid_number`, `json.invalid_escape`, `json.invalid_literal`, `json.control_character`, `json.expected_key`, `json.expected_colon`, `json.expected_comma`); seed bound errors use rules `minimum` and `maximum`; schema patterns end in `$(?!
+)` for the pattern trap. Review, CI, and merge still open.
 
 ## Spec Change Log
 
