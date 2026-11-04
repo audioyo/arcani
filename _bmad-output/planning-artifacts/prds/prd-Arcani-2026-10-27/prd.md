@@ -111,7 +111,7 @@ The engine generates a carrier amplitude-modulated at the theta rate with a sele
 The engine generates a separate carrier amplitude-modulated at the gamma rate, with modulation depth that follows the theta reference phase and peaks at the coupling phase, as a smooth swell or as short bursts per theta reference cycle.
 - Each gamma envelope peak lands within 2 ms of its target coupling phase on the in-file theta reference.
 - An uncoupled setting produces gamma AM at constant depth.
-- The validator rejects a coupled gamma PAC layer when the recipe has no theta reference. The recipe has no field for choosing a different coupling target.
+- The validator rejects a coupled gamma PAC layer wherever gamma level and depth are non-zero while the theta reference is absent, at zero level, or at zero AM depth. Zero level means the theta reference layer's gain, including its ramp, evaluated per sample, is exactly zero; master gain scales both layers alike and does not count. Gamma level uses the same definition. (spine AD-5; design log 2026-11-04 (ee)). The recipe has no field for choosing a different coupling target.
 - Changing the binaural beat rate in a recipe leaves every gamma envelope peak time unchanged (tested).
 - Carrier waveform selectable: sine, triangle, softened square.
 
@@ -131,7 +131,7 @@ The engine applies per-layer gain ramps from the recipe and a final limiter that
 #### FR-6: Deterministic synthesis
 Same recipe, engine version, seed, and sample rate produce byte-identical output on the same platform and build. No unseeded randomness anywhere in the engine, including the stem sequencer (FR-24), and output does not depend on the audio buffer size.
 - Across platforms (PC, Android, iOS), renders match within the reference tolerance (-100 dBFS). This is the provisional floor.
-- Decided in the architecture step: the whole engine (synthesis core, stem decoder, resampler, built-in effects, 3D renderer) is bit-exact across platforms. A component the Phase 0 spike proves cannot be exact falls back to the -100 dBFS floor, logged in the design log (spine AD-9; design log 2026-10-27 (j)).
+- Decided in the architecture step: the whole engine (synthesis core, stem decoder, resampler, built-in effects, 3D renderer) is bit-exact across platforms. A component that cannot be exact on a platform falls back to the -100 dBFS floor for that platform and component only, through a cited design log entry that shows the cause lies outside the AD-9 rules and gets the independent review CLAUDE.md rule 4 requires (spine AD-9; design log 2026-10-27 (j), 2026-11-04 (ee)).
 - The engine renders natively at 44.1 and 48 kHz; byte identity holds per sample rate (spine AD-10).
 
 **Notes:** Current proposed values: gamma rate default 40 Hz, locked range 30 to 60 Hz; coupling phase default 0 degrees (peak). Theta rate default is open. All are in the design log and need independent review before they lock (§11).
@@ -321,7 +321,7 @@ Numbers are the provisional thresholds from the plan's Test thresholds table. Ph
 
 | NFR | Requirement |
 | --- | --- |
-| Determinism | Byte-identical for the same recipe, engine version, seed, and sample rate on one platform and build; within -100 dBFS across platforms (provisional floor); bit-exact synthesis core across platforms (target) |
+| Determinism | Byte-identical for the same recipe, engine version, seed, and sample rate on one platform and build; bit-exact across platforms for the whole engine (FR-6, spine AD-9); -100 dBFS fallback only per cited (platform, component) entry whose cause lies outside the AD-9 rules, with a rule-4 review (design log 2026-11-04 (ee)) |
 | Accuracy | Carriers and rates within 0.01 Hz, including along rate curves; theta reference drift under 1 ms over an 8-hour render (an engine endurance test, not a session length) |
 | Isolation | Binaural cross-ear leakage at least 90 dB down at engine output, 60 dB after the master chain |
 | Coupling | Gamma envelope peaks within 2 ms of the coupling phase |

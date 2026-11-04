@@ -31,7 +31,7 @@
   summary: Extend the AD-9 flag check (and the symbol denylist where it applies) from `engine/` sources to `cli/` once the WAV writer or any sample conversion lands there.
   evidence: Review pass 1 finding 21 (part 2); flags are already project-wide and a test asserts `cli/main.cpp` has them, but the checker enforces engine sources only. Story 1.4 or 1.6 is the trigger.
 - source_spec: `_bmad-output/implementation-artifacts/spec-0-1-part-3-four-platform-ci-and-hash-compare.md`
-  summary: Run the NDK arm64 hash probe on a physical Android phone, in addition to the static binary on the hosted arm64 Linux runner.
+  summary: Run the NDK arm64 hash probe on a physical Android phone, in addition to the static binary on the hosted arm64 Linux runner. Owner since 2026-11-04: the Phase 0 part 2 stack spike, which must run the engine library from the real Android app build (same NDK as `toolchain.json`) on a physical phone and match the hashes before it closes (AD-9, design log 2026-11-04 (ee)).
   evidence: No phone is available yet (Audio, 2026-11-02); the hosted run uses real arm64 hardware and the real NDK compiler but not the Android OS. Design log 2026-11-02 (aa).
 - source_spec: `_bmad-output/implementation-artifacts/spec-0-2-engine-sine-oscillator-spike-that-ships.md`
   summary: (closed by Story 0.3: `tests/tables/*.tsv`, loaders and assertion call in `tests/assertions/`, design log 2026-11-03 (cc)) Story 0.3 absorbs `tests/tables/thresholds.json` and `tests/tables/ranges.json` (C++ and Python loaders, uncited-row failure, two-way coverage, design log gate) and replaces the configure-time header in `tests/cpp/SpecTables.cmake`.
@@ -40,8 +40,33 @@
   summary: (closed by Story 0.2: all four platforms byte-identical, full run 41648370470, design log 2026-11-03 (bb)) Record the four-platform `sine-44100` and `sine-48000` hash result from the pull request's `full` run in design log 2026-11-03 (bb), or apply the defined fallback if a platform cannot match.
   evidence: Pushing waits for Audio's go-ahead; local windows-x64 hashes are in the entry.
 - source_spec: `_bmad-output/implementation-artifacts/spec-0-2-engine-sine-oscillator-spike-that-ships.md`
-  summary: Add `sine-44100` and `sine-48000` entries to `ci/hash_expected.json` once the first four-platform `full` run confirms their hashes, so a toolchain change that shifts every platform alike fails CI.
+  summary: Add `sine-44100` and `sine-48000` entries to `ci/hash_expected.json` once the first four-platform `full` run confirms their hashes, so a toolchain change that shifts every platform alike fails CI. Now an AC of Story 1.6 (design log 2026-11-04 (ee)).
   evidence: Review pass 1 finding B6 (Story 0.2); today the sine components are compared only against `windows-x64` in the same run, and `ci/hash_expected.json` was on this story's do-not-change list.
 - source_spec: `_bmad-output/implementation-artifacts/spec-0-4-ci-wording-check.md`
   summary: Add the wording check (`uv run python tools/check_wording.py`) to the CLAUDE.md "Tests" commands so it runs locally after every change, not only in CI.
   evidence: Review pass 1 finding B12 (Story 0.4); the fix edits an agent-context file, which Audio owns, and Audio has an uncommitted CLAUDE.md edit in progress.
+- source_spec: `_bmad-output/implementation-artifacts/spec-0-5-independent-review-of-the-pending-architecture-decisions.md`
+  summary: Phase 1 (stems): state that the AD-20 spacing rule applies between Core layers and any Tone source with a component model, and that broadband stems are handled by the FR-25 carrier guard; read literally, AD-20 would reject every stem recipe.
+  evidence: Review A, AD-20 finding 4.
+- source_spec: `_bmad-output/implementation-artifacts/spec-0-5-independent-review-of-the-pending-architecture-decisions.md`
+  summary: Phase 2 (Orbit): decide whether the AD-20 "within 40 dB of a layer's strongest line" reading is per ear or overall once Orbit makes gamma louder in one ear; and revisit adversary H26 (gamma mostly in one ear while theta is in both) when Orbit width ranges are set (FR-27).
+  evidence: Review A, AD-20 finding 6 and AD-5 finding 3. No v0.1 effect.
+- source_spec: `_bmad-output/implementation-artifacts/spec-0-5-independent-review-of-the-pending-architecture-decisions.md`
+  summary: Fix the Sleep theta reference carrier bound in `starter-recipes.md`: "at least 156 Hz" comes from entry (m)'s 3 Hz theta rate; with the steady 2 Hz rate of entry (n) the bound is 155 Hz (103 + 50 + 2). The 450 Hz carrier passes either way.
+  evidence: Review A, AD-20 finding 7. Fix when that file is next touched.
+- source_spec: `_bmad-output/implementation-artifacts/spec-0-5-independent-review-of-the-pending-architecture-decisions.md`
+  summary: Audio to consider clarifying CLAUDE.md Signal facts, spacing rule: "the binaural pair are exempt" can be read as exempting the whole binaural layer; AD-20 now says the two binaural carriers are exempt from each other, since they never share an ear (design log 2026-10-27 (e)).
+  evidence: Review A, AD-20 finding 1. CLAUDE.md is Audio's rules file and was not edited in Story 0.5.
+- source_spec: `_bmad-output/implementation-artifacts/spec-0-5-independent-review-of-the-pending-architecture-decisions.md`
+  summary: Phase 3 app build: set the APK `abiFilters` to arm64-v8a only (AD-9), and pin the Android Gradle build's `ndkVersion` to the `toolchain.json` NDK with the AD-9 flags checked on that build.
+  evidence: Review B, AD-9 Q2 risk 2 and Q3 table; no story exists yet (epics.md covers v0.1).
+- source_spec: `_bmad-output/implementation-artifacts/spec-0-5-independent-review-of-the-pending-architecture-decisions.md`
+  summary: Tone zone effects (Phase 1): IEEE denormals can be slow on x86 in decaying filter or reverb tails; avoid producing them arithmetically, never by flushing, since AD-9 now requires IEEE denormal handling.
+  evidence: Review B, AD-9 Q3 table, denormal row.
+- source_spec: `_bmad-output/implementation-artifacts/spec-0-5-independent-review-of-the-pending-architecture-decisions.md`
+  summary: Refresh the dev PC's uv-managed Python 3.14 patch occasionally (`uv python upgrade`); 3.14.10 is a security release. Cannot change engine bytes.
+  evidence: Review B, Stack findings, Python row.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-0-5-independent-review-of-the-pending-architecture-decisions.md`
+  summary: Make CI enforce the narrowed AD-9 fallback, so a `ci/hash_tolerance.json` entry must name its rule-4 review and why the cause lies outside the AD-9 code rules, not only cite a design log entry.
+  evidence: `tools/hash_compare.py` accepts any entry that cites a design log entry (design log 2026-11-02 (aa)); the narrowed condition from design log 2026-11-04 (ee) is prose only. Natural owner: Story 1.6 or Story 6.1.

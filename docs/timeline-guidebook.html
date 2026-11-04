@@ -275,8 +275,8 @@
    ===================================================================== */
 
 var LAST_UPDATED = "2026-11-04";
-var CURRENT = "0.4";   // story id being worked on
-var NEXT    = "0.5";   // story id that comes next
+var CURRENT = "0.5";   // story id being worked on
+var NEXT    = "1.1";   // story id that comes next
 
 // Workflow step names, used by every story unless it lists its own "stepNames".
 var STEP_NAMES = [
@@ -352,11 +352,11 @@ var EPICS = [
     ],
     meta:"PR #3 merged 2026-11-03 (37e2607). sprint-status.yaml set to done in the Story 0.4 branch (be413df)." },
 
-  { id:"0.4", title:"CI wording check", status:"review",
+  { id:"0.4", title:"CI wording check", status:"done",
     plain:"CI catches banned project terms, comparable product names, claim words, and em dashes, so the copy rules hold without anyone reading every line.",
     spec:["spec-0-4-ci-wording-check.md"],
-    steps:[true,true,true,true,true,false,false],
-    stepNotes:["Approved by Audio 2026-11-03","3ffaa7b","1258109 to be413df; 818 passed locally","3 reviewers; 13 fixes in 32e4e49; triage in the spec (735bd6e)","PR #4: fast and full tiers green on 7a238bb (11 checks)","",""],
+    steps:[true,true,true,true,true,true,true],
+    stepNotes:["Approved by Audio 2026-11-03","3ffaa7b","1258109 to be413df; 818 passed locally","3 reviewers; 13 fixes in 32e4e49; triage in the spec (735bd6e)","PR #4: fast and full tiers green on 342e625 (11 checks)","PR #4 merged 2026-11-04 (81f201b)","sprint-status.yaml set to done in the Story 0.5 branch"],
     acs:[
       ["x","Term list data file (tools/wording/terms.tsv) scanned against docs, code, and recipes; a match fails with file, line, and term; the term list itself is exempt"],
       ["x","Any em dash in a scanned file fails with file and line"],
@@ -365,18 +365,21 @@ var EPICS = [
       ["x","The current repo passes, with existing violations fixed (project-plan.md split and reworded)"],
       ["x","Both fast CI jobs run the check before the build"]
     ],
-    meta:"Design log entry (dd). Branch story/0-4-ci-wording-check pushed; PR #4 opened 2026-11-03. Deferred: add the check to the CLAUDE.md commands." },
+    meta:"Design log entry (dd). PR #4 merged 2026-11-04 (81f201b). Deferred: add the check to the CLAUDE.md commands." },
 
-  { id:"0.5", title:"Independent review of the pending architecture decisions", status:"backlog",
+  { id:"0.5", title:"Independent review of the pending architecture decisions", status:"review",
     plain:"A fresh reviewer checks the decisions still marked review pending, so any change costs a little rework now instead of a lot later.",
     stepNames:["Review scope and reviewer named","Each decision reviewed against PRD, SPEC, CLAUDE.md, research library","Findings saved beside the spine's existing reviews","Each decision locked (tag removed) or changed with a design log entry","Affected stories updated","Records committed and pushed","sprint-status.yaml and guidebook updated"],
-    steps:S7(),
+    spec:["spec-0-5-independent-review-of-the-pending-architecture-decisions.md"],
+    steps:[true,true,true,true,true,true,false],
+    stepNotes:["Two fresh-context reviewers: A (AD-4, AD-5, AD-19, AD-20), B (AD-9, Stack); failing tests b52ff92","Against PRD, SPEC, CLAUDE.md, research library, S0.2 result (design log (bb))","reviews/review-independent-s0-5.md (4ad23f3)","AD-4, AD-19, AD-20 locked; AD-5, AD-9, Stack changed with Audio's approval; design log (ee)","epics.md 0.1, 1.2, 1.4, 1.6, 2.2 to 2.5, 4.5, 6.3 to 6.5; SPEC CAP-4; PRD FR-3, FR-6; code review: 16 fixes in 1735aeb, triage in the spec (144d2b1)","Pushed c2bdd6f; PR #5 opened 2026-11-04","sprint-status.yaml set to review (144d2b1); done after merge"],
     acs:[
-      [" ","AD-4, AD-5, AD-9, AD-19, AD-20, and the Stack table each locked or changed, by a fresh-context agent or a human Audio names"],
-      [" ","Review findings saved beside the spine's existing reviews"],
-      [" ","AD-9 review confirms or changes the fallback scope using the S0.2 result"],
+      ["x","AD-4, AD-5, AD-9, AD-19, AD-20, and the Stack table each locked or changed, by a fresh-context agent or a human Audio names"],
+      ["x","Review findings saved beside the spine's existing reviews"],
+      ["x","AD-9 review confirms or changes the fallback scope using the S0.2 result"],
       [" ","Done before Epic 1 starts"]
-    ] }
+    ],
+    meta:"Design log entry (ee). Spine has no [REVIEW PENDING] tag left; the review Open Question is resolved." }
   ]
 },
 {
@@ -688,6 +691,12 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-04","c2bdd6f","0.5","Pushed; PR #5 opened into main"],
+  ["2026-11-04","144d2b1","0.5","Code review: 3 reviewers, 16 fixes in 1735aeb, 1 deferred, 8 rejected; story moved to review"],
+  ["2026-11-04","4ad23f3","0.5","Review closed: six verdicts applied to the spine, design log (ee), stories updated; pytest and wording check pass"],
+  ["2026-11-04","b52ff92","0.5","Failing tests committed (tests only)"],
+  ["2026-11-04","81f201b","0.4","PR #4 merged into main; sprint-status.yaml set to done in the Story 0.5 branch"],
+  ["2026-11-04","342e625","0.4","CI green again after the guidebook tick (11 checks)"],
   ["2026-11-04","7a238bb","0.4","CI green on PR #4: fast tier and all four full-tier platforms (11 checks)"],
   ["2026-11-03","735bd6e","0.4","Pushed; PR #4 opened"],
   ["2026-11-03","735bd6e","0.4","Spec marked done, review triage recorded, story moved to review"],

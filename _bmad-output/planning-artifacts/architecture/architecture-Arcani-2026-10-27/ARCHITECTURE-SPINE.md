@@ -7,7 +7,7 @@ paradigm: 'Functional core with adapters (hexagonal), split into a fixed-topolog
 scope: 'Whole Arcani product: engine, CLI renderer, Python reference, test harness, desktop designer, Android and iOS apps, content storage. Deep for v0.1 and the Phase 0 Android spike; later phases fixed only where they shape the engine now.'
 status: final
 created: '2026-10-27'
-updated: '2026-10-27'
+updated: '2026-11-04'
 binds: [FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-14, FR-15, FR-16, FR-17, FR-18, FR-19, FR-20, FR-21, FR-22, FR-23, FR-24, FR-25, FR-26, FR-27, FR-28, FR-29, FR-30, FR-31, FR-32, FR-33, FR-34, FR-35, FR-36, FR-37, FR-38]
 sources:
   - _bmad-output/planning-artifacts/prds/prd-Arcani-2026-10-27/prd.md
@@ -24,7 +24,7 @@ companions:
 
 # Architecture Spine: Arcani
 
-**Review status.** ADs marked `[REVIEW PENDING]` and the Stack table lock only after the independent review CLAUDE.md rule 4 requires. Until then they bind v0.1 work as written; a change goes through the memlog and the design log.
+**Review status.** The independent review CLAUDE.md rule 4 requires closed on 2026-11-04 (Story 0.5, `reviews/review-independent-s0-5.md`, design log 2026-11-04 (ee)): AD-4, AD-19, and AD-20 locked with wording edits; AD-5, AD-9, and the Stack table changed with Audio's approval, then locked. A later change to any AD goes through the memlog and the design log.
 
 ## Design Paradigm
 
@@ -89,17 +89,17 @@ Dependency direction: hosts depend on the C API; the C API depends on the engine
 - **Prevents:** free routing reaching an entrainment layer; the designer exposing Core wiring.
 - **Rule:** The recipe schema has no routing fields for the Core zone, only parameters. The Tone zone is a directed graph of stem sources and built-in effects described in the recipe. No Tone graph node can take a Core signal, Core state, or the binaural path as input.
 
-### AD-4: Fixed mix order, binaural joins last, limiter stays idle [ADOPTED] [REVIEW PENDING]
+### AD-4: Fixed mix order, binaural joins last, limiter stays idle [ADOPTED]
 
 - **Binds:** engine mix stage, 3D renderer, master chain (FR-4, FR-5, FR-25, FR-27)
 - **Prevents:** the binaural pair passing through any spatial, HRTF, ambisonic, reverb, width, or channel-mixing stage (the bug that broke an earlier project); limiter gain modulation reaching the binaural pair.
-- **Rule:** The mix order is fixed as drawn in *Signal flow*. The binaural path is two sine oscillators and per-channel gain, summed into the stereo bus after every spatial and effect stage. The master chain contains only per-channel gain and a stereo-linked limiter, with its algorithm in the signal spec; no mid/side, crossfeed, width, matrix, or any operation that mixes channels. At the stored loudness gain the limiter must stay idle: its gain reduction stays under a bound set in the design log, asserted on every render. The engine never sums or downmixes its output channels. A structural test checks the stage list; the signal isolation test (FR-4) checks the output.
+- **Rule:** The mix order is fixed as drawn in *Signal flow*. The binaural path is two sine oscillators and per-channel gain, summed into the stereo bus after every spatial and effect stage. The master chain contains only per-channel gain and a stereo-linked limiter, with its algorithm in the signal spec; no mid/side, crossfeed, width, matrix, or any operation that mixes channels. At the stored loudness gain the limiter must stay idle: its gain reduction stays under a bound set in the design log (v0.1: zero gain reduction; master chain output equals input times master gain, bit for bit; design log 2026-10-28 (p)), asserted on every render. Any non-zero bound is a design log entry with measured gain-reduction data (design log (p), Revisit). The engine never sums or downmixes its output channels. A structural test checks the stage list; the signal isolation test (FR-4) checks the output.
 
-### AD-5: Gamma couples only to the theta reference [ADOPTED] [REVIEW PENDING]
+### AD-5: Gamma couples only to the theta reference [ADOPTED]
 
 - **Binds:** gamma PAC layer, recipe schema, validator (FR-3, FR-4)
 - **Prevents:** gamma coupled to a binaural beat, which has no waveform in the file.
-- **Rule:** Gamma modulation depth is a function of the theta reference phase only, as defined per envelope shape in the signal spec. The schema has no coupling-target field. The validator rejects coupled gamma wherever gamma depth is non-zero while the theta reference is absent or at zero depth. Test: changing the binaural beat rate or phase leaves every gamma envelope peak time unchanged to the sample.
+- **Rule:** Coupled gamma modulation depth is a function of the theta reference phase only, plus static recipe parameters (shape, coupling phase, coupling depth), as defined per envelope shape in the signal spec. Uncoupled gamma has constant AM depth (FR-3). The schema has no coupling-target field. The validator rejects coupled gamma wherever gamma level and depth are both non-zero while the theta reference is absent, at zero level, or at zero AM depth (design log 2026-11-04 (ee)). Zero level means the theta reference layer's gain, including its ramp, evaluated per sample, is exactly zero; master gain scales both layers alike and does not count. Gamma level uses the same definition. Test: changing the binaural beat rate or phase leaves every gamma envelope peak time unchanged to the sample.
 
 ### AD-6: The Tone zone never reads Core timing and carries no entrainment-rate rhythm
 
@@ -119,11 +119,11 @@ Dependency direction: hosts depend on the C API; the C API depends on the engine
 - **Prevents:** device or Atmos spatializers deciding the sound; HRTF applied to the binaural pair; motion shifting frequencies.
 - **Rule:** One engine-owned 3D object renderer places and moves the gamma PAC layer (Orbit) and Tone zone stems (static or moving, per recipe). The theta reference and binaural layer never enter it. Motion applies no Doppler or pitch shift. The engine outputs plain stereo. No head tracking in v1. The app never hands audio to an OS or Dolby spatializer.
 
-### AD-9: The engine is bit-exact across platforms [REVIEW PENDING]
+### AD-9: The engine is bit-exact across platforms
 
 - **Binds:** all engine code: Core, stem decoder, resampler, built-in effects, 3D renderer (FR-6, FR-35)
 - **Prevents:** PC, Android, and iOS producing different samples for the same plan.
-- **Rule:** Engine code uses engine-owned math for sine and every transcendental (no libm), 64-bit integer phase accumulators, and no `long double`. Every toolchain compiles the engine with `-ffp-contract=off` and no fast-math (clang-cl through `/clang:`), and CI fails if the flags are missing. The engine sets its own denormal mode on entry to each render call. Android ships arm64-v8a only. Stems decode through an engine-owned decoder, never the OS. CI renders on Windows x64 (clang-cl), Linux or Windows arm64 (Clang), macOS arm64 (Apple clang), and an Android NDK arm64 build on emulator or device, and compares hashes. A component the Phase 0 spike proves cannot be exact falls back to the -100 dBFS tolerance, with the reason in the design log.
+- **Rule:** Engine code uses engine-owned math for sine and every transcendental (no libm), 64-bit integer phase accumulators, no `long double`, and no explicit fused multiply-add. Every float-to-integer conversion clamps to the target range first and never receives NaN, by a rule in the signal spec. Every toolchain compiles the engine with `-ffp-contract=off` and no fast-math (clang-cl through `/clang:`), and CI fails if the flags are missing. On entry to each C API call that does floating-point work (compile, render, seek) the engine sets IEEE denormal handling (no flush to zero, no denormals-are-zero) and restores the host's mode on every return, including an error status. x86 targets are x86-64 only; Android ships arm64-v8a only. Stems decode through an engine-owned decoder (AD-7), never the OS. CI renders on Windows x64 (clang-cl), Windows arm64 (clang-cl), macOS arm64 (Apple clang), and Android NDK arm64 (the NDK build, linked statically, run on hosted arm64 Linux; design log 2026-11-02 (aa)), and compares hashes exactly against Windows x64 and against the expected hashes in the repo. Before the Phase 0 part 2 stack spike closes, the engine library from the real Android app build matches the same hashes on a physical phone. A component that cannot be exact on a platform falls back to the -100 dBFS tolerance for that platform and component only, through a `ci/hash_tolerance.json` entry that cites a design log entry; the entry shows the cause lies outside these rules (a Core zone mismatch is a bug, not a fallback) and gets the independent review CLAUDE.md rule 4 requires. S0.2 result: byte-identical on all four platforms with no fallback (design log 2026-11-03 (bb)); rule text from design log 2026-11-04 (ee).
 
 ### AD-10: Output is independent of block size; native 44.1 and 48 kHz
 
@@ -179,17 +179,17 @@ Dependency direction: hosts depend on the C API; the C API depends on the engine
 - **Prevents:** visual flicker acting as an untracked entrainment stimulus or a photosensitivity risk.
 - **Rule:** The visualizer reads only a slow session-arc snapshot (levels and session position, smoothed below a rate set in the design log), never raw Core phase. It never flashes or pulses at theta, gamma, or beat rates and never exceeds 3 flashes per second (WCAG 2.3.1). It stops drawing when the screen is off.
 
-### AD-19: One signal spec is the only source of formulas [REVIEW PENDING]
+### AD-19: One signal spec is the only source of formulas
 
 - **Binds:** engine, Python reference, validator, tests (FR-1 to FR-12)
 - **Prevents:** engine and reference choosing different but reasonable formulas and failing the -100 dBFS match, or a test measuring something different from what the engine makes.
-- **Rule:** `docs/signal-spec.md` defines, as exact formulas evaluated per sample: envelope shapes and their 0 degree point, coupling depth function, bursts, ramp and rate-curve laws, phase increment quantization and accumulator width, loop seam behavior, limiter, resampler, internal block size, loudness measurement window, and the spectral component model per shape. Engine and reference implement it; neither defines a formula of its own. A shape or stage not in the spec does not exist.
+- **Rule:** `docs/signal-spec.md` defines every formula evaluated per sample: envelope shapes and their 0 degree point, coupling depth function, bursts, per-layer AM and carrier laws, ramp and rate-curve laws, phase increment quantization and accumulator width, the seconds-to-samples rule, the sine, loop seam behavior, limiter, resampler, PRNG, internal block size, loudness measurement window, and the spectral component model per shape. For each transcendental it gives the ideal function, which the reference renders, and the engine algorithm with its error bound and pinned output bits (design log 2026-10-28 (o)). Engine and reference implement it; neither defines a formula of its own. A shape or stage not in the spec does not exist.
 
-### AD-20: Carrier and spacing rules come from one spectral component table [REVIEW PENDING]
+### AD-20: Carrier and spacing rules come from one spectral component table
 
 - **Binds:** validator, test suite, carrier guard, 3D renderer (FR-8, FR-9, FR-25)
 - **Prevents:** the validator and the tests disagreeing on what collides; the carrier guard reading Core state at runtime.
-- **Rule:** Every modulated carrier is at least 4 times its modulation rate. In each ear, at least the spacing value (50 Hz placeholder, design log (e)) separates any spectral component of one layer from any of another layer, including both binaural carriers; a layer's own components and the binaural pair are exempt. Spectral components (within 40 dB of a layer's strongest line, placeholder) are computed analytically from the spec's component model; the validator checks them across the whole session, including along rate curves. A shape with no component model is rejected. The compiler writes the notch frequencies for the carrier guard into the plan as static data.
+- **Rule:** Every modulated carrier is at least 4 times its modulation rate. In each ear, on the signal that ear receives after the 3D renderer, at least the spacing value (50 Hz placeholder, design log (e)) separates any spectral component of one layer from any of another layer, including both binaural carriers; a layer's own components are exempt, and the two binaural carriers are exempt from each other, since they never share an ear (design log (e)). Spectral components (within 40 dB of a layer's strongest line, placeholder, design log (i)) are computed analytically from the spec's component model; the validator checks both rules across the whole session, including along rate curves. A shape with no component model is rejected. The compiler writes the carrier guard's notch schedule into the plan as static data.
 
 ### AD-21: One recipe hash and one determinism key
 
@@ -240,18 +240,23 @@ Dependency direction: hosts depend on the C API; the C API depends on the engine
 
 | Name | Version |
 | --- | --- |
+| Version source | `toolchain.json` (tools, with download SHA-256), `pyproject.toml` and `uv.lock` (Python packages); CMake configure fails on a CMake or compiler mismatch (design log 2026-11-02 (y), (aa)). A change needs a design log line and a passing full-tier hash check. |
 | C++ (engine, CLI) | C++20 |
-| Clang: clang-cl (Windows), Android NDK clang, Apple clang | NDK r30; others pinned in the first build story |
+| LLVM: clang-cl (Windows x64 and arm64), clang (Linux) | 23.1.4 |
+| Apple clang (macOS arm64) | 17.0.0.17000013, Xcode 16.4 on `macos-15`; re-pin to an App Store accepted Xcode (26 or later) before any iOS build |
+| Android NDK (arm64-v8a) | r30 (30.0.16248370), clang 21.0.0, API level 21; the app build uses the same NDK |
 | CMake | 4.4.5 |
+| Ninja | 1.13.2 |
 | Catch2 (C++ tests) | 3.16.1 |
-| miniaudio (host audio I/O only) | 0.11.25 at commit 1df46ae or later, `MA_NO_DECODING`, `MA_NO_ENCODING` |
-| Python (reference renderer, signal tests) | 3.14 |
+| Python (reference renderer, signal tests) | 3.14, latest patch managed by uv |
 | uv | 0.13.6 |
 | NumPy | 2.5.4 |
-| pytest | pinned in the first build story |
-| Flutter (designer and apps, via dart:ffi) | 3.47.1 or later 3.47.x; re-pin at the Phase 0 spike |
-| Stem codec | Opus (fixed-point libopus build, vendored) or FLAC; proven bit-exact in Phase 0 |
-| CI | GitHub Actions: windows x64, ubuntu-24.04-arm or windows-11-arm, macOS arm64, Android NDK arm64 |
+| pytest | 9.2.0 |
+| PyYAML (tests) | 6.0.3 |
+| miniaudio (host audio I/O only) | 0.11.26 or later 0.11.x (contains the CVE-2026-32837 fix), `MA_NO_DECODING`, `MA_NO_ENCODING`; pinned exactly in the first host story |
+| Flutter (designer and apps, via dart:ffi) | 3.47.8 or later 3.47.x (security fixes in 3.47.2 and 3.47.8); exact pin at the Phase 0 stack spike |
+| Stem codec | Opus (fixed-point libopus build, vendored, current 1.6.1) or FLAC; proven bit-exact under AD-9 in the story that adds stem decoding (Phase 1) |
+| CI | GitHub Actions, hosted runners only, public repo, $0 spending cap. Fast: `windows-2025`, `ubuntu-24.04`. Full adds `windows-11-arm`, `macos-15`, NDK build on `ubuntu-24.04`, NDK probe and contraction must-fail on `ubuntu-24.04-arm` (design log 2026-11-02 (aa)) |
 
 ## Structural Seed
 
@@ -336,7 +341,8 @@ arcani/
 | Limiter idle bound value (AD-4): resolved for v0.1 as zero gain reduction, design log 2026-10-28 (p); revisit when the Phase 1 master level and stems arrive | Audio with build agents | Phase 1 master chain |
 | Tone zone rate ranges and visualizer smoothing rate (AD-6, AD-18) | Audio | Phase 1 gate |
 | Loudness target values per recipe for v0.1: resolved, -36 LUFS-I for every starter, design log 2026-10-27 (m) | Audio | none |
-| Independent review of AD-4, AD-5, AD-9, AD-19, AD-20 and the Stack (CLAUDE.md rule 4) | Audio | End of Phase 0 |
+| Independent review of AD-4, AD-5, AD-9, AD-19, AD-20 and the Stack (CLAUDE.md rule 4): resolved 2026-11-04, Story 0.5, `reviews/review-independent-s0-5.md`, design log 2026-11-04 (ee) | Audio | none |
+| Physical-phone hash run of the engine library from the real Android app build (AD-9, design log 2026-11-04 (ee)) | Audio | Phase 0 part 2 stack spike close |
 
 ## Deferred
 
