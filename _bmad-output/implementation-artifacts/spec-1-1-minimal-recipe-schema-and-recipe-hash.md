@@ -91,8 +91,7 @@ Decisions (2026-11-04, build agent, under Audio's standing "settle tech forks yo
 
 - Failing tests 06ba1f0 (fresh-context QA agent). Settled in the tests: error rule names (`unknown_property`, `json.duplicate_key`, `json.trailing_comma`, and the rest in `recipes/fixtures/invalid-expected.json`), shared by the engine and the Python strict loader; a syntax error's parameter is its byte offset as digits; the schema pattern itself rejects a major other than 1, so `schema_version` "2.0" is invalid for both sides; layer fields are required inside their layer; bad UTF-8 cases are built inside the tests, not stored as fixture files (the wording check fails non-UTF-8 files). Extra data file `tests/data/number_format_vectors.json` holds the 10,000 seeded values plus edges.
 
-- Implementation 3a023ea. Engine choices within the spec: strict parser depth limit 64; extra rule ids for other syntax faults (`json.unexpected_char`, `json.unexpected_end`, `json.trailing_data`, `json.invalid_number`, `json.invalid_escape`, `json.invalid_literal`, `json.control_character`, `json.expected_key`, `json.expected_colon`, `json.expected_comma`); seed bound errors use rules `minimum` and `maximum`; schema patterns end in `$(?!
-)` for the pattern trap. Review, CI, and merge still open.
+- Implementation 3a023ea. Engine choices within the spec: strict parser depth limit 64; extra rule ids for other syntax faults (`json.unexpected_char`, `json.unexpected_end`, `json.trailing_data`, `json.invalid_number`, `json.invalid_escape`, `json.invalid_literal`, `json.control_character`, `json.expected_key`, `json.expected_colon`, `json.expected_comma`); seed bound errors use rules `minimum` and `maximum`; schema patterns end in `$(?!\n)` for the pattern trap. Review, CI, and merge still open.
 
 ## Spec Change Log
 
