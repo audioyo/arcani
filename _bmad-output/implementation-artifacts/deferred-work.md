@@ -46,15 +46,6 @@
   summary: Add the wording check (`uv run python tools/check_wording.py`) to the CLAUDE.md "Tests" commands so it runs locally after every change, not only in CI.
   evidence: Review pass 1 finding B12 (Story 0.4); the fix edits an agent-context file, which Audio owns, and Audio has an uncommitted CLAUDE.md edit in progress.
 - source_spec: `_bmad-output/implementation-artifacts/spec-0-5-independent-review-of-the-pending-architecture-decisions.md`
-  summary: Story 4.5: state the limiter's latency (zero, or a fixed sample count per sample rate) in §limiter, and compare the limiter-idle assertion against input delayed by that count; AD-24 matched latency and coupling timing must account for it.
-  evidence: Review A, AD-4 finding 3 (`reviews/review-independent-s0-5.md`). Changing the latency after golden files exist would shift every sample and invalidate every golden file.
-- source_spec: `_bmad-output/implementation-artifacts/spec-0-5-independent-review-of-the-pending-architecture-decisions.md`
-  summary: Story 2.5 (optional): strengthen the AD-5 behavioral test so the gamma tap is byte-identical when the binaural layer is toggled or its beat rate and phase change, not only peak times unchanged to the sample.
-  evidence: Review A, AD-5 finding 4. Gamma shares no state with the binaural oscillators, so byte identity is both stricter and simpler.
-- source_spec: `_bmad-output/implementation-artifacts/spec-0-5-independent-review-of-the-pending-architecture-decisions.md`
-  summary: Stories 2.2 to 2.4: when each section states its reference-match margin, count sine evaluations per tap (gamma: carrier, gamma-rate AM, theta-phase depth function), not layers; about three gives about -110.5 dBFS worst case, still under -100 dBFS. The -120 dBFS sine bound is unchanged.
-  evidence: Review A, AD-19 margin check; design log 2026-10-28 (o) counted layers.
-- source_spec: `_bmad-output/implementation-artifacts/spec-0-5-independent-review-of-the-pending-architecture-decisions.md`
   summary: Phase 1 (stems): state that the AD-20 spacing rule applies between Core layers and any Tone source with a component model, and that broadband stems are handled by the FR-25 carrier guard; read literally, AD-20 would reject every stem recipe.
   evidence: Review A, AD-20 finding 4.
 - source_spec: `_bmad-output/implementation-artifacts/spec-0-5-independent-review-of-the-pending-architecture-decisions.md`
@@ -66,9 +57,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-0-5-independent-review-of-the-pending-architecture-decisions.md`
   summary: Audio to consider clarifying CLAUDE.md Signal facts, spacing rule: "the binaural pair are exempt" can be read as exempting the whole binaural layer; AD-20 now says the two binaural carriers are exempt from each other, since they never share an ear (design log 2026-10-27 (e)).
   evidence: Review A, AD-20 finding 1. CLAUDE.md is Audio's rules file and was not edited in Story 0.5.
-- source_spec: `_bmad-output/implementation-artifacts/spec-0-5-independent-review-of-the-pending-architecture-decisions.md`
-  summary: PRD §5 NFR "Determinism" still reads "bit-exact synthesis core (target)" and "within -100 dBFS (provisional floor)"; align it with FR-6 and the locked AD-9 (whole engine bit-exact, narrowed fallback).
-  evidence: Review B, AD-9 low note (PRD drift).
 - source_spec: `_bmad-output/implementation-artifacts/spec-0-5-independent-review-of-the-pending-architecture-decisions.md`
   summary: Phase 3 app build: set the APK `abiFilters` to arm64-v8a only (AD-9), and pin the Android Gradle build's `ndkVersion` to the `toolchain.json` NDK with the AD-9 flags checked on that build.
   evidence: Review B, AD-9 Q2 risk 2 and Q3 table; no story exists yet (epics.md covers v0.1).

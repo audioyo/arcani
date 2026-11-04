@@ -30,7 +30,7 @@ IDs match the PRD. Wording follows the SPEC capability that refines each one.
 
 FR-1: Engine clock (CAP-2). One engine clock drives every rate and phase. Theta reference phase error under 1 ms after an 8-hour render. Every carrier and rate within 0.01 Hz of the recipe; along a rate curve, instantaneous rate within 0.01 Hz of the schedule with continuous phase.
 FR-2: Theta reference (CAP-3). A carrier AM at the theta rate with a sine, smoothed on-off, sawtooth, or reverse saw envelope; carrier, rate, and shape come from the recipe. Shape matches the reference renderer; hard-edged shapes pass the click test. Custom curves are rejected until the signal spec models them.
-FR-3: Gamma PAC layer (CAP-4). A separate sine carrier AM at the gamma rate whose depth follows theta reference phase and peaks at the coupling phase, as a smooth swell, as 50 ms bursts (full width, 10 ms raised-cosine edges inside, depth-gated), or uncoupled at constant depth. The carrier plays continuously. Every gamma envelope peak within 2 ms of its coupling phase. Changing binaural beat rate or phase leaves every gamma peak time unchanged to the sample. Coupled gamma is rejected when the theta reference is absent, at zero level, or at zero depth (AD-5, design log 2026-11-04 (ee)). Non-sine gamma carriers are rejected in v0.1.
+FR-3: Gamma PAC layer (CAP-4). A separate sine carrier AM at the gamma rate whose depth follows theta reference phase and peaks at the coupling phase, as a smooth swell, as 50 ms bursts (full width, 10 ms raised-cosine edges inside, depth-gated), or uncoupled at constant depth. The carrier plays continuously. Every gamma envelope peak within 2 ms of its coupling phase. Changing binaural beat rate or phase leaves every gamma peak time unchanged to the sample. Coupled gamma is rejected when the theta reference is absent, at zero level, or at zero AM depth, wherever gamma level and depth are non-zero (AD-5, design log 2026-11-04 (ee)). Non-sine gamma carriers are rejected in v0.1.
 FR-4: Binaural layer on an isolated path (CAP-5). Two pure sines, one per ear, whose frequencies may follow a recipe rate curve, joining the stereo bus after every other stage with only the master chain after them. Muted-ear isolation at least 90 dB at engine output and 60 dB after the master chain, at any beat rate including 0 Hz. Structural stage-list test. A non-sine binaural waveform is rejected with a named rule (`binaural.waveform`, "non-sine binaural not modeled", limit sine). The engine never sums or downmixes channels.
 FR-5: Gain ramps, loudness gain, limiter (CAP-6). Per-layer and master gain ramps from the recipe; loudness gain measured at export and stored in the recipe; stereo-linked limiter idle at that gain. No gain ramp completes in under 10 ms. Integrated loudness within 1 LU of target; true peak at or below -1 dBTP. Limiter gain reduction exactly zero on every v0.1 render. `final` compile rejects a missing gain or a mismatched loudness hash.
 FR-6: Deterministic synthesis (CAP-7). Output is a pure function of recipe, engine version, seed, and sample rate. Repeat renders byte-identical; identical bytes at 1, 64, 512, 4096 frames per call; identical hashes across the AD-9 matrix or a logged -100 dBFS fallback; native 44.1 and 48 kHz with no resampling; every report carries the determinism key.
@@ -74,15 +74,15 @@ NFR19: Clean room. No third-party program names, recipes, recordings, scripts, l
 
 From the architecture spine and SPEC constraints.
 
-- **No starter template.** Greenfield C++20 and Python. The first story builds the skeleton: CMake 4.4.5, Clang toolchains pinned (clang-cl, Apple clang, NDK r30), Catch2 3.16.1, Python 3.14, uv 0.13.6, NumPy 2.5.4, pytest pinned, GitHub Actions matrix. Source tree per spine: `engine/`, `cli/`, `reference/`, `tests/`, `recipes/`, `golden/`, `docs/`.
-- **Signal spec (CAP-1, AD-19).** `docs/signal-spec.md` is the only formula source: envelope shapes and 0 degree points, coupling depth function, bursts, ramp and rate-curve laws, phase increment quantization and accumulator width, loop seam behavior, limiter, internal block size, seconds-to-samples rule, loudness window, spectral component model per shape. Each story writes the section it needs; it merges before engine or reference implement it.
+- **No starter template.** Greenfield C++20 and Python. The first story builds the skeleton with the versions in the spine Stack table, pinned in `toolchain.json` (tools) and `uv.lock` (Python packages), and a GitHub Actions matrix. Source tree per spine: `engine/`, `cli/`, `reference/`, `tests/`, `recipes/`, `golden/`, `docs/`.
+- **Signal spec (CAP-1, AD-19).** `docs/signal-spec.md` is the only formula source: envelope shapes and 0 degree points, coupling depth function, bursts, per-layer AM and carrier laws, ramp and rate-curve laws, phase increment quantization and accumulator width, seconds-to-samples rule, the sine, loop seam behavior, limiter, resampler, PRNG, internal block size, loudness window, spectral component model per shape. For each transcendental it gives the ideal function, which the reference renders, and the engine algorithm with its error bound and pinned output bits (design log 2026-10-28 (o)). Each story writes the section it needs; it merges before engine or reference implement it.
 - **C API (CAP-10, AD-12).** One `arc_`-prefixed C API with plain C types: compile (`measure`, `final`), render frames, seek, per-layer taps, warnings, engine version. Status code plus structured error (parameter, value, rule, limit). CLI and C++ tests use only the public header.
 - **Pure core (AD-1).** `engine/` depends only on the C++ standard library. Seek is a pure function of (plan, seed, sample rate, sample index). No threads, clocks, devices, files, or UI.
-- **Bit-exact math (AD-9).** No libm transcendentals (engine-owned sine), 64-bit integer phase accumulators, no `long double`, no explicit fused multiply-add, `-ffp-contract=off`, no fast-math, IEEE denormal handling set on entry to each render call and the host's mode restored on return, every float-to-integer conversion clamped to the target range first and never given NaN (signal spec rule), x86-64 only. CI fails if the flags are missing. Fallback to -100 dBFS only per cited (platform, component) entry whose cause lies outside these rules, with a rule-4 review (design log 2026-11-04 (ee)).
+- **Bit-exact math (AD-9).** No libm transcendentals (engine-owned sine), 64-bit integer phase accumulators, no `long double`, no explicit fused multiply-add, `-ffp-contract=off`, no fast-math, IEEE denormal handling set on entry to each C API call that does floating-point work (compile, render, seek) and the host's mode restored on every return, including an error status, every float-to-integer conversion clamped to the target range first and never given NaN (signal spec rule), x86-64 only. CI fails if the flags are missing. Fallback to -100 dBFS only per cited (platform, component) entry whose cause lies outside these rules, with a rule-4 review (design log 2026-11-04 (ee)).
 - **Real-time contract (AD-11).** The render call never allocates, locks, blocks, or does I/O, and never throws or logs.
 - **Fixed internal block (AD-10).** Renderer processes in a fixed internal block sized by the signal spec and buffers to the host's request.
 - **Fixed topology (AD-3, AD-4).** Schema has no routing fields and no coupling-target field. Stage order: theta, gamma, stereo bus, binaural join, master chain (per-channel gain plus stereo-linked limiter). No channel-mixing operation anywhere.
-- **Coupling input (AD-5).** The coupled gamma depth function takes theta reference phase as its only signal input, plus static recipe parameters (shape, coupling phase, coupling depth); uncoupled gamma has constant AM depth. Coupled gamma is rejected wherever gamma level and depth are non-zero while the theta reference is absent, at zero level, or at zero AM depth.
+- **Coupling input (AD-5).** The coupled gamma depth function takes theta reference phase as its only signal input, plus static recipe parameters (shape, coupling phase, coupling depth); uncoupled gamma has constant AM depth. Coupled gamma is rejected wherever gamma level and depth are non-zero while the theta reference is absent, at zero level, or at zero AM depth. Zero level means the theta reference layer's gain, including its ramp, evaluated per sample, is exactly zero; master gain scales both layers alike and does not count. Gamma level uses the same definition.
 - **Loudness (AD-13).** The CLI compiles in `measure` mode, renders, measures integrated loudness (BS.1770, gated) over the spec's window (the steady part, ramps and fades excluded; design log 2026-11-01 (w), (x)), and writes gain plus a loudness hash over loudness-relevant schema fields.
 - **Seed and randomness (AD-14, AD-25).** All randomness from an engine-owned counter-based PRNG keyed by (seed, stream, index). In v0.1 the Core draws no random values and WAV output rounds to 24 bits with no dither, so v0.1 has no random consumer; tooling always uses the recipe seed and the report carries it.
 - **Hashing (AD-21).** Recipe hash SHA-256 over RFC 8785 canonical JSON excluding stored gain, loudness hash, and schema-marked non-audio fields. Determinism key = recipe hash + pinned asset hashes (none in v0.1) + engine version + sample rate.
@@ -409,9 +409,10 @@ So that every host uses the same entry point and a leak between ears fails a tes
 **When** render frames is called after compile
 **Then** zero allocations occur during render calls
 
-**Given** a render call
+**Given** a C API call that does floating-point work (compile, render, seek)
 **When** it starts
-**Then** the engine sets IEEE denormal handling (no flush to zero, no denormals-are-zero) on entry and restores the host's mode on return (AD-9), verified by a test that renders identically after the host sets flush-to-zero, and by a test that the host's mode is unchanged after the call
+**Then** the engine sets IEEE denormal handling (no flush to zero, no denormals-are-zero) on entry and restores the host's mode on every return, including an error status (AD-9), verified by a test that renders identically after the host sets flush-to-zero, a test that the host's mode is unchanged after each call, and a test that the host's mode is unchanged after a call that returns an error status
+**And** setting the mode uses the x86-64 MXCSR and AArch64 FPCR intrinsics, which the symbol and pragma checks must allow, while `fesetenv` and `FENV_ACCESS` stay out of `engine/` (reviewer B, design log 2026-11-04 (ee))
 
 ### Story 1.3: Validator framework, locked ranges, and carrier rule
 
@@ -451,7 +452,7 @@ So that every rule can be checked without ears and every render carries its own 
 **Given** `docs/signal-spec.md`
 **When** §24-bit rounding merges
 **Then** it defines the clamp to the 24-bit range, NaN handling, and the tie rule applied before every float-to-integer conversion (AD-9), with worked test vectors
-**And** a fixture with a sample above full scale writes the clamped value the spec defines, and its must-fail case (the sample converted without the clamp) is caught
+**And** fixtures with a sample above full scale, a sample of exactly +1.0, a sample below -1.0, and a NaN sample each write the value the spec defines, and each has a must-fail case (the sample converted without the rule) that is caught
 
 **Given** a render
 **When** the report is written
@@ -565,6 +566,7 @@ So that the gamma layer exists on its own and an uncoupled control is available.
 **Given** `docs/signal-spec.md`
 **When** §gamma merges
 **Then** it defines the gamma AM law and the uncoupled setting, with worked test vectors
+**And** it states the reference-match margin counting sine evaluations per tap, not layers (design log 2026-11-04 (ee))
 
 **Given** a recipe with gamma set uncoupled
 **When** it is compiled
@@ -591,6 +593,7 @@ So that the coupling is exact and measurable in the sound itself.
 **When** §coupling merges
 **Then** it defines the depth function per theta shape, taking theta reference phase as its only input, with worked test vectors
 **And** a structural test confirms the engine's gamma depth function takes theta phase as its only input (AD-5)
+**And** it states the reference-match margin counting sine evaluations per tap, not layers (design log 2026-11-04 (ee))
 
 **Given** the coupling timing tool, which demodulates the gamma envelope from the gamma tap and recovers theta phase from the theta tap
 **When** it is first calibrated on Python-synthesized signals with known peak times
@@ -602,7 +605,7 @@ So that the coupling is exact and measurable in the sound itself.
 **Then** every gamma envelope peak is within 2 ms of its coupling phase
 **And** must-fail renders doctored in the harness with the swell shifted 3 ms fail, while a 1 ms shift passes, at 25 and 100 percent depth
 
-**Given** coupled gamma with no theta reference, with the theta reference at zero level, or with theta reference AM depth at zero, wherever gamma level and depth are non-zero (AD-5, design log 2026-11-04 (ee))
+**Given** coupled gamma with no theta reference, with the theta reference at zero level, or with theta reference AM depth at zero, wherever gamma level and depth are non-zero (AD-5, design log 2026-11-04 (ee)). Zero level means the theta reference layer's gain, including its ramp, evaluated per sample, is exactly zero; master gain scales both layers alike and does not count. Gamma level uses the same definition.
 **When** it is compiled
 **Then** it is rejected with a named rule
 **And** a must-fail fixture where a theta-only fade to silence ends before a coupled gamma fade is rejected
@@ -640,6 +643,7 @@ So that the binaural layer stays dichotic and exact, with nothing coupled to it.
 **Given** a fixture with coupled gamma and binaural at a different beat rate, with values hand-checked against the spacing rule (re-confirmed by the validator in Epic 3)
 **When** the binaural beat rate and phase are swept across renders
 **Then** every gamma envelope peak time is unchanged to the sample (AD-5)
+**And** (optional, stricter) the gamma tap is byte-identical when the binaural layer is toggled or its beat rate or phase changes (design log 2026-11-04 (ee))
 
 **Given** binaural renders
 **When** compared with the reference
@@ -656,6 +660,7 @@ So that the Focus layer has its burst shape without clicks or spectral spread in
 **Given** `docs/signal-spec.md`
 **When** §bursts merges
 **Then** it defines a 50 ms full-width burst with 10 ms raised-cosine edges inside it (30 ms plateau), depth-gated so the carrier plays continuously, centered on the coupling phase (design log 2026-10-28 (o)), with worked test vectors
+**And** it states the reference-match margin counting sine evaluations per tap, not layers (design log 2026-11-04 (ee))
 
 **Given** the spectrum tool, introduced in this story and first calibrated on Python-synthesized multi-tone signals with known lines and levels, within the frequency and level tolerances in the threshold table
 **When** it reports those lines
@@ -958,6 +963,7 @@ So that every render is exactly the sound the recipe describes, with no hidden g
 **Given** `docs/signal-spec.md`
 **When** §limiter merges
 **Then** it defines the stereo-linked limiter, its ceiling, and its gain-reduction tap, with worked test vectors
+**And** it states the limiter's latency, zero in v0.1, since a lookahead added later would shift every sample and invalidate every golden file (design log 2026-11-04 (ee))
 
 **Given** every v0.1 render, starters and fixtures
 **When** the limiter idle assertion runs
@@ -1114,6 +1120,7 @@ So that the first mode is ready to hear and sign.
 **Given** `recipes/focus.json` with the values in `starter-recipes.md` (450 Hz theta reference carrier, sine AM at 6 Hz, 75 percent depth; 250 Hz gamma PAC carrier, AM at 40 Hz, 50 ms bursts at coupling phase 0 degrees, depth 100 percent; no binaural layer; 5 min ramp-in, looping body, max run time 45 min; -36 LUFS-I)
 **When** it is compiled in `final` mode with its stored gain
 **Then** it passes the validator, including the spacing rule between the burst components and the 450 Hz theta reference
+**And** it passes the AD-5 zero-level check from the first sample (design log 2026-11-04 (ee))
 
 **Given** the recipe JSON Schema
 **When** this story adds the describe-the-sound fields (when to use, evidence strength) that every starter carries
@@ -1140,6 +1147,7 @@ So that the second mode is ready to hear and sign.
 **Given** `recipes/learn.json` with the values in `starter-recipes.md` (450 Hz theta reference carrier, sine AM at 5.5 Hz, 75 percent depth; 250 Hz gamma PAC carrier, AM at 40 Hz, smooth swell peaking at coupling phase 0 degrees, depth 100 percent; no binaural layer; 5 min ramp-in, looping body, max run time 20 min; -36 LUFS-I)
 **When** it is compiled in `final` mode with its stored gain
 **Then** it passes the validator
+**And** it passes the AD-5 zero-level check from the first sample (design log 2026-11-04 (ee))
 
 **Given** the Learn recipe
 **When** it is rendered at 44.1 and 48 kHz to the max run time
