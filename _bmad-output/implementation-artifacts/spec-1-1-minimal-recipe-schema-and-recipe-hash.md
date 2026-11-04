@@ -2,7 +2,7 @@
 title: 'Story 1.1: minimal recipe schema and recipe hash'
 type: 'feature'
 created: '2026-11-04'
-status: 'in-progress'
+status: 'in-review'
 baseline_commit: '5ccdf78b86f8722133d33ccb86a4a67d9ec4cb93'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -95,9 +95,37 @@ Decisions (2026-11-04, build agent, under Audio's standing "settle tech forks yo
 
 - Orchestrator check 0093a50: tests unchanged since 06ba1f0 apart from the generated `tests/data/recipe_hash_vectors.json`. Two clean `windows-clang-cl` workflow runs: the first ctest run failed once (11 s, output not captured) and was not reproduced in six later runs or a second clean build (53 cases, 1,673 assertions pass); treat as unexplained until CI confirms. `uv run pytest` 999 passed, 2 NDK-only skips; wording and pragma checks exit 0. Matrix audit: every row has a passing engine and Python test.
 
+- Review pass 1 patches b05f867 (14 patch findings, triage below). Orchestrator check on a clean build: ctest 56 cases, 2,040 assertions pass; `uv run pytest` 1,045 passed, 2 NDK-only skips; wording, pragma, table-log, row-coverage, compile-flag, and engine-symbol checks pass.
+
 ## Spec Change Log
 
 ## Review Triage Log
+
+Pass 1 (2026-11-04): blind hunter (BH), edge case hunter (EC), verification gap (VG), all fresh context.
+
+| # | Finding | Verdict | Evidence | Route |
+|---|---------|---------|----------|-------|
+| 1 | VG: engine pattern checks (`date` month and day, version leading zeros, trailing newline on `engine_version`, `date`, `loudness_hash`) have no engine-side must-fail case | medium | grep of fixtures finds none; relaxing `date_ok` or `plain_number` keeps every C++ test green | patch |
+| 2 | VG: high surrogate followed by an escaped non-low surrogate untested in C++ | low | only `\ud800A` (raw A) and `\ud800 ` exist; both stop at the earlier `\u` check | patch |
+| 3 | VG other, BH: `parse names each strict rule` lists `{"a":1,"a":2}` twice; escaped-key case lost | low | `tests/cpp/test_json.cpp:258-259` identical | patch |
+| 4 | EC, VG other, BH: `"01.0"` and `"2.01"` reported as `schema_version.major` instead of `pattern` | low | `recipe.cpp` check_value uses `all_digits`, not `plain_number`, before the major rule | patch |
+| 5 | EC: duplicate key followed by a later syntax fault gives a different rule in engine and Python; several duplicates report different keys | low | engine checks duplicates after the whole object in sorted order (`value.cpp:321-333`); Python checks each key as read | patch |
+| 6 | EC: Python `json.invalid_number` offset is the current position, engine uses the number start | low | `tools/recipe_hash.py:222,228,237` call `fail` without `start`; engine `value.cpp:462-496` passes `start` | patch |
+| 7 | BH: no shared table checks rule plus byte offset on both sides | medium | `invalid-expected.json` has no offsets; findings 5 and 6 slipped through | patch |
+| 8 | EC, BH: `recipe_hash.py` prints a hash for structurally invalid recipes | low | CLI runs only the strict loader; no current consumer; the tool must stay stdlib only | patch (state it in help and docstring) |
+| 9 | EC: CLI traceback on a missing or directory path | low | `main` catches only `StrictJSONError` | patch |
+| 10 | BH: hash vectors are written by the Python tool, so a bug shared by both sides would pass | low | engine and Python read tags differently, but no test pins canonical bytes | patch (one hand-written canonical text plus hashlib hash) |
+| 11 | BH: no reason logged for keeping `schema_version` in the hash | low | design log (ff) gives a reason for `engine_version` only | patch (one sentence in (ff)) |
+| 12 | BH: test accepts both `schema_version` and `/schema_version` as the parameter | low | `test_recipe.cpp` accepts either; engine emits the JSON Pointer | patch (require `/schema_version`) |
+| 13 | EC, BH: `canonicalize` assumes valid UTF-8 for hand-built `Value` strings | low | only the parser builds values today; a precondition comment is a direct fix | patch (document precondition) |
+| 14 | BH: `date` accepts impossible dates such as 2026-02-31 | low | schema and engine agree (shape only); a calendar check adds branches on both sides | patch (state shape-only in README) |
+| 15 | EC, BH: a fractional seed that rounds to an integer in binary64 is accepted | false | JSON numbers are binary64 (I-JSON); jsonschema and the engine both see the rounded integer, and the hash uses that value, so the tools agree | reject |
+| 16 | EC: `format_number` treats NaN or infinity as finite | false | no caller can pass one: the parser rejects non-finite input and nothing else builds numbers | reject |
+| 17 | EC: boolean schema node crashes `load_tags` | false | the repo schema has no boolean subschemas | reject |
+| 18 | BH: no input size, string length, or member count cap | low | no host passes input yet; a cap adds a rule on both sides; belongs to the Story 1.2 C API input contract | reject |
+| 19 | BH: `loudness_gain_db` and `loudness_hash` can appear one without the other | false | both optional by decision; pairing is the `final` mode check (AD-13, Story 4.2) | reject |
+| 20 | BH: records disagree on status; guidebook UPDATE_LOG missing record commits | low | `in-review` is the spec's review state, sprint status moves at present; record-only commits are not story sections | patch (records at close) |
+| 21 | VG other, BH: unexplained one-off ctest failure | maybe-false | six reruns and a second clean build pass; CI on both fast platforms will show recurrence | defer (unverified medium) |
 
 ## Design Notes
 
