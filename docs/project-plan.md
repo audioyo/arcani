@@ -73,7 +73,7 @@ Our rules:
 3. Every signal choice traces to a published study or our own listening tests, recorded in a design log.
 4. Before launch, a patent attorney runs freedom-to-operate on the Brain.fm and Endel families plus newer filings on earphone brainwave induction.
 
-One v5 element stays out of the app: its session arc was modeled on the earlier project's guided exercises (details in the research file). The app's session arcs are designed from scratch, so nothing in them reads as an imitation. Generic elements like pink noise and a gentle fade-in are fine on their own.
+One v5 element stays out of the app: its session arc was modeled on the earlier project's guided exercises (details in [IP and clean-room research](research-ip-and-clean-room.md#patents-and-brand-names)). The app's session arcs are designed from scratch, so nothing in them reads as an imitation. Generic elements like pink noise and a gentle fade-in are fine on their own.
 
 ## Signal architecture
 

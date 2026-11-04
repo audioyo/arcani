@@ -10,21 +10,34 @@ directory PATH is walked recursively. Exemptions apply to every file: each
 glob (fnmatch, where `*` also crosses `/`) is matched against the file's
 repo-relative POSIX path, or its absolute POSIX path outside the repo.
 
-The whole text of each file is checked, not only comments and strings.
+Run it locally from the repo root:
+
+    uv run python tools/check_wording.py
+
+By default only tracked files are scanned, so a new file is checked after
+`git add`.
+
+The whole text of each file is checked, not only comments and strings, and
+each term is matched over the whole text, so a multi-word term split by a
+line wrap still matches (multi-word patterns use `\\s+` between words).
 
 Term list: tab-separated, header row `id, pattern, case, category, source`.
-`pattern` is a Python regex matched at word boundaries; `case` is
+`pattern` is a Python regex matched at word boundaries that also break at
+`_`, so a term inside a snake_case identifier matches; `case` is
 `sensitive` or `insensitive`; `category` is `project-term`,
 `comparable-name`, or `claim`; `source` must not be empty; ids are unique.
 
 Exemption list: one glob per line, each followed by ` # reason`. Blank
 lines and lines starting with `#` are ignored.
 
-Files with a NUL byte in their first 8 KiB are skipped as binary. A file
-that is not valid UTF-8 fails.
+Files with a NUL byte in their first 8 KiB are skipped as binary, except a
+UTF-16 file (byte order mark FF FE or FE FF), which fails as not UTF-8. A
+file that is not valid UTF-8 fails.
 
 Output: one line per match, `<path>:<line>: <matched text>: term <id>` or
-`<path>:<line>: em dash` (U+2014). Exit 0 when nothing matches, printing
+`<path>:<line>: em dash` (U+2014, or its named, decimal, or hex HTML entity, in any
+case), on the line where the match starts; whitespace in
+the matched text is shown as single spaces. Exit 0 when nothing matches, printing
 how many files were scanned; 1 on any match or undecodable file; 2 on a
 setup error (bad term row, unreasoned exemption, missing terms or exempt
 file, missing PATH, git failure).
@@ -33,6 +46,7 @@ Standard library only.
 """
 
 import argparse
+import bisect
 import fnmatch
 import re
 import subprocess
@@ -46,6 +60,14 @@ COLUMNS = ["id", "pattern", "case", "category", "source"]
 CASES = {"sensitive": 0, "insensitive": re.IGNORECASE}
 CATEGORIES = {"project-term", "comparable-name", "claim"}
 EM_DASH = chr(0x2014)
+BOM = chr(0xFEFF)
+# The em dash itself or its HTML entity forms (named, decimal, hex).
+EM_DASH_RE = re.compile(EM_DASH + r"|&m(?:dash);|&#0*8212;|&#x0*2014;", re.IGNORECASE)
+# Word boundaries that also break at `_`, so a term inside a snake_case
+# identifier still matches.
+WORD_START = r"(?<![^\W_])"
+WORD_END = r"(?![^\W_])"
+UTF16_BOMS = (b"\xff\xfe", b"\xfe\xff")
 BINARY_PROBE = 8192
 
 
@@ -60,7 +82,7 @@ def read_lines(path):
         raise SetupError(f"{path}: file not found")
     except (OSError, UnicodeDecodeError) as exc:
         raise SetupError(f"{path}: cannot read: {exc}")
-    if text.startswith("﻿"):
+    if text.startswith(BOM):
         text = text[1:]
     if text.endswith("\n"):
         text = text[:-1]
@@ -98,7 +120,8 @@ def load_terms(path):
         if not row["pattern"]:
             raise SetupError(f"{where}: empty pattern")
         try:
-            regex = re.compile(rf"\b(?:{row['pattern']})\b", CASES[row["case"]])
+            regex = re.compile(rf"{WORD_START}(?:{row['pattern']}){WORD_END}",
+                               CASES[row["case"]])
         except re.error as exc:
             raise SetupError(f"{where}: pattern does not compile: {exc}")
         terms.append((row_id, regex))
@@ -152,14 +175,22 @@ def walk(paths):
 
 
 def check_text(shown, text, terms):
+    """Matches each term over the whole text, so a multi-word term split by a
+    line wrap still matches; each hit is reported on the line it starts on."""
+    newlines = [i for i, c in enumerate(text) if c == "\n"]
+
+    def line_of(offset):
+        return bisect.bisect_right(newlines, offset - 1) + 1
+
     hits = []
-    for number, line in enumerate(text.split("\n"), start=1):
-        for row_id, regex in terms:
-            for m in regex.finditer(line):
-                hits.append(f"{shown}:{number}: {m.group(0)}: term {row_id}")
-        for _ in range(line.count(EM_DASH)):
-            hits.append(f"{shown}:{number}: em dash")
-    return hits
+    for row_id, regex in terms:
+        for m in regex.finditer(text):
+            matched = " ".join(m.group(0).split())
+            hits.append((m.start(), f"{shown}:{line_of(m.start())}: {matched}: term {row_id}"))
+    for m in EM_DASH_RE.finditer(text):
+        hits.append((m.start(), f"{shown}:{line_of(m.start())}: em dash"))
+    hits.sort(key=lambda h: h[0])
+    return [message for _, message in hits]
 
 
 def main(argv):
@@ -189,6 +220,10 @@ def main(argv):
             data = path.read_bytes()
         except OSError as exc:
             problems.append(f"{shown}: cannot read: {exc}")
+            continue
+        if data.startswith(UTF16_BOMS):
+            scanned += 1
+            problems.append(f"{shown}: not valid UTF-8 text: UTF-16 byte order mark")
             continue
         if b"\0" in data[:BINARY_PROBE]:
             continue

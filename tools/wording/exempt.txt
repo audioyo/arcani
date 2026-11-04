@@ -9,3 +9,4 @@ _bmad/** # vendored agent tooling, not project copy
 tests/fixtures/wording/terms.tsv # the fixture term list holds every fixture term
 tests/fixtures/wording/mustfail/** # must-fail fixtures: each holds a listed term or an em dash on purpose
 tests/fixtures/wording/research/** # research-path fixture: passes only through this exemption
+tests/fixtures/wording/mustfail_real/** # must-fail fixture for the real term list: one sample hit per term id

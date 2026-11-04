@@ -26,11 +26,14 @@ Contract with tools/check_wording.py (standard library only):
 
 Fixtures live in tests/fixtures/wording/ with their own terms.tsv and
 exemption files. The repo's exempt.txt must cover the fixture terms.tsv,
-mustfail/**, and research/** there. This file is not exempt, so it spells no
+mustfail/**, mustfail_real/**, and research/** there. mustfail_real holds
+one sample hit per real term id, including a wrapped multi-word term, a
+snake_case identifier, and a URL form. This file is not exempt, so it spells no
 listed term: it reads them from the fixture term list.
 """
 
 import csv
+import fnmatch
 import re
 import subprocess
 import sys
@@ -45,6 +48,7 @@ TERMS = FIXTURES / "terms.tsv"
 EXEMPT = FIXTURES / "exempt.txt"
 EXEMPT_NONE = FIXTURES / "exempt_none.txt"
 MUSTFAIL = FIXTURES / "mustfail"
+MUSTFAIL_REAL = FIXTURES / "mustfail_real"
 PASS = FIXTURES / "pass"
 RESEARCH = FIXTURES / "research"
 BAD = FIXTURES / "bad"
@@ -292,10 +296,58 @@ def test_missing_path_is_a_setup_error(tmp_path):
 # ---------------------------------------------------- repo defaults, real data
 
 
+def repo_exempt_globs():
+    lines = (REPO_ROOT / "tools" / "wording" / "exempt.txt").read_text(encoding="utf-8").splitlines()
+    return [line.partition(" # ")[0].strip() for line in lines
+            if line.strip() and not line.startswith("#")]
+
+
 def test_repo_passes_by_default():
     code, out = run_checker(terms=None, exempt=None)
     assert code == 0, out
-    assert re.search(r"\b\d+\b", out), out
+    m = re.search(r"(\d+) file\(s\) scanned", out)
+    assert m and int(m.group(1)) > 0, out
+    # The plan is the file this story fixed: it must be tracked and not exempt.
+    plan = "docs/project-plan.md"
+    tracked = subprocess.run(["git", "ls-files", "--error-unmatch", plan], cwd=REPO_ROOT,
+                             capture_output=True, text=True)
+    assert tracked.returncode == 0, tracked.stderr
+    assert not any(fnmatch.fnmatchcase(plan, g) for g in repo_exempt_globs()), plan
+
+
+def test_repo_terms_each_hit_the_real_mustfail_fixture():
+    with (REPO_ROOT / "tools" / "wording" / "terms.tsv").open(encoding="utf-8", newline="") as f:
+        ids = {row["id"] for row in csv.DictReader(f, delimiter="\t")}
+    code, out = run_checker(MUSTFAIL_REAL, terms=None, exempt=EXEMPT_NONE)
+    assert code == 1, out
+    reported = {re.search(r": term (\S+)$", line.rstrip()).group(1) for line in term_lines(out)}
+    assert reported == ids, (sorted(ids - reported), sorted(reported - ids))
+
+
+def test_repo_exempts_the_real_mustfail_fixture():
+    code, out = run_checker(MUSTFAIL_REAL, terms=None, exempt=None)
+    assert code == 0, out
+
+
+def test_em_dash_entities_fail(tmp_path):
+    amp = "&"
+    entities = [amp + "mdash;", amp + "MDash;", amp + "#8212;", amp + "#x2014;", amp + "#X2014;"]
+    (tmp_path / "a.html").write_text("\n".join(f"a {e} b" for e in entities) + "\n",
+                                     encoding="utf-8")
+    code, out = run_checker(tmp_path, exempt=tmp_exempt(tmp_path))
+    assert code == 1, out
+    assert len(dash_lines(out)) == len(entities), out
+    (tmp_path / "a.html").write_text('x = "\\u2014"\n', encoding="utf-8")
+    code, out = run_checker(tmp_path, exempt=tmp_exempt(tmp_path))
+    assert code == 0, out
+
+
+@pytest.mark.parametrize("bom,codec", [(b"\xff\xfe", "utf-16-le"), (b"\xfe\xff", "utf-16-be")])
+def test_utf16_file_fails_as_not_utf8(tmp_path, bom, codec):
+    (tmp_path / "wide.txt").write_bytes(bom + "plain text\n".encode(codec))
+    code, out = run_checker(tmp_path, exempt=tmp_exempt(tmp_path))
+    assert code == 1, out
+    assert "wide.txt" in out and "not valid UTF-8" in out, out
 
 
 def test_repo_term_list_is_exempt():

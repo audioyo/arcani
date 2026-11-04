@@ -14,7 +14,7 @@ The signal plan is reconciled against Monroe Technical Reference v5 (called v5 i
 | [US 2013/0010967 A1, Google Patents](https://patents.google.com/patent/US20130010967A1) | SAM application status and scope | High, as reported by Google; not a legal opinion |
 | [Monroe Sound Science page](https://www.monroeinstitute.org/pages/monroe-sound-science) | Public description of MSS technique families | High |
 
-The "earlier project" the plan mentions is the Monroe challenge: a hiring challenge whose submitted track (built from v5) drew the reviewer feedback quoted in the plan's "Lessons from the earlier project" section.
+The "earlier project" the plan mentions is the Monroe challenge: a hiring challenge whose submitted track (built from v5) drew the reviewer feedback quoted in the plan's "Lessons from the earlier project" section. The plan's "research partner" goal (its partnership-ready principle and its BMAD handoff) refers to the Monroe Institute.
 
 ## Patents and brand names
 
@@ -41,4 +41,4 @@ The plan's spatial motion layer uses standard object panning rather than the aba
 | What moves | The entrainment tone itself | The gamma PAC layer; carriers stay fixed and dichotic |
 | Name | Spatial Angle Modulation | Working name: Orbit layer |
 
-The plan's open decision on the term "SAP" in the project description: if it means SAM-style spatial motion, the plan's Orbit layer is our clean-room version and the description should use that name.
+The open decision on the term "SAP" in the project description is in the plan's [Open decisions](project-plan.md#open-decisions-risks-and-bmad-handoff).
