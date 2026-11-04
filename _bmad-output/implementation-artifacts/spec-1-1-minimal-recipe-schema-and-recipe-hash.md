@@ -89,6 +89,8 @@ Decisions (2026-11-04, build agent, under Audio's standing "settle tech forks yo
 
 ## Implementation Notes
 
+- Failing tests 06ba1f0 (fresh-context QA agent). Settled in the tests: error rule names (`unknown_property`, `json.duplicate_key`, `json.trailing_comma`, and the rest in `recipes/fixtures/invalid-expected.json`), shared by the engine and the Python strict loader; a syntax error's parameter is its byte offset as digits; the schema pattern itself rejects a major other than 1, so `schema_version` "2.0" is invalid for both sides; layer fields are required inside their layer; bad UTF-8 cases are built inside the tests, not stored as fixture files (the wording check fails non-UTF-8 files). Extra data file `tests/data/number_format_vectors.json` holds the 10,000 seeded values plus edges.
+
 ## Spec Change Log
 
 ## Review Triage Log
