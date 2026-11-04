@@ -367,16 +367,19 @@ var EPICS = [
     ],
     meta:"Design log entry (dd). PR #4 merged 2026-11-04 (81f201b). Deferred: add the check to the CLAUDE.md commands." },
 
-  { id:"0.5", title:"Independent review of the pending architecture decisions", status:"backlog",
+  { id:"0.5", title:"Independent review of the pending architecture decisions", status:"in-progress",
     plain:"A fresh reviewer checks the decisions still marked review pending, so any change costs a little rework now instead of a lot later.",
     stepNames:["Review scope and reviewer named","Each decision reviewed against PRD, SPEC, CLAUDE.md, research library","Findings saved beside the spine's existing reviews","Each decision locked (tag removed) or changed with a design log entry","Affected stories updated","Records committed and pushed","sprint-status.yaml and guidebook updated"],
-    steps:S7(),
+    spec:["spec-0-5-independent-review-of-the-pending-architecture-decisions.md"],
+    steps:[true,true,true,true,true,false,false],
+    stepNotes:["Two fresh-context reviewers: A (AD-4, AD-5, AD-19, AD-20), B (AD-9, Stack); failing tests b52ff92","Against PRD, SPEC, CLAUDE.md, research library, S0.2 result (design log (bb))","reviews/review-independent-s0-5.md (4ad23f3)","AD-4, AD-19, AD-20 locked; AD-5, AD-9, Stack changed with Audio's approval; design log (ee)","epics.md 0.1, 1.2, 1.4, 1.6, 2.3, 6.5; SPEC CAP-4","Committed 4ad23f3; push waits for Audio's go-ahead","sprint-status.yaml in-progress until review and merge"],
     acs:[
-      [" ","AD-4, AD-5, AD-9, AD-19, AD-20, and the Stack table each locked or changed, by a fresh-context agent or a human Audio names"],
-      [" ","Review findings saved beside the spine's existing reviews"],
-      [" ","AD-9 review confirms or changes the fallback scope using the S0.2 result"],
+      ["x","AD-4, AD-5, AD-9, AD-19, AD-20, and the Stack table each locked or changed, by a fresh-context agent or a human Audio names"],
+      ["x","Review findings saved beside the spine's existing reviews"],
+      ["x","AD-9 review confirms or changes the fallback scope using the S0.2 result"],
       [" ","Done before Epic 1 starts"]
-    ] }
+    ],
+    meta:"Design log entry (ee). Spine has no [REVIEW PENDING] tag left; the review Open Question is resolved." }
   ]
 },
 {
@@ -688,6 +691,8 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-04","4ad23f3","0.5","Review closed: six verdicts applied to the spine, design log (ee), stories updated; pytest and wording check pass"],
+  ["2026-11-04","b52ff92","0.5","Failing tests committed (tests only)"],
   ["2026-11-04","81f201b","0.4","PR #4 merged into main; sprint-status.yaml set to done in the Story 0.5 branch"],
   ["2026-11-04","342e625","0.4","CI green again after the guidebook tick (11 checks)"],
   ["2026-11-04","7a238bb","0.4","CI green on PR #4: fast tier and all four full-tier platforms (11 checks)"],
