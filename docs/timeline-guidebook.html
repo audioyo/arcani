@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arcani v0.1 Timeline Guidebook</title>
+<!--
+  ARCANI v0.1 TIMELINE GUIDEBOOK
+  ==============================
+  Open this file in any browser (double-click it). No server or internet needed.
+
+  UPDATE RULE (for Audio and for every agent):
+  Every time a section is completed AND a commit and/or push is made, update this file:
+    1. In the DATA block below, find the story (search for its id, for example "0.4").
+    2. Set its "status" and tick its "steps" (true = done). Tick finished acceptance criteria
+       by changing  [" ", "text"]  to  ["x", "text"].
+    3. Add a line to UPDATE_LOG (newest first) with date, commit hash, and what was finished.
+    4. Change LAST_UPDATED and CURRENT.
+    5. Commit this file with the work, or as a small follow-up commit:
+       "Update timeline guidebook (Story X.Y ...)".
+  Keep it in step with _bmad-output/implementation-artifacts/sprint-status.yaml.
+  Copy rules apply here too (this file is scanned by the CI wording check): no em dashes,
+  no banned terms, no claim words. Describe the sound, not outcomes.
+-->
+<style>
+  :root{
+    --bg:#0f1419; --panel:#161d26; --panel2:#1c2531; --line:#2a3644; --text:#e6edf3; --muted:#9aa7b4;
+    --accent:#7cc4ff; --done:#3fb950; --review:#d29922; --prog:#58a6ff; --ready:#a371f7; --backlog:#6e7681; --warn:#f0883e;
+  }
+  @media (prefers-color-scheme: light){
+    :root{ --bg:#f6f8fa; --panel:#ffffff; --panel2:#f0f3f6; --line:#d0d7de; --text:#1f2328; --muted:#59636e; --accent:#0969da; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  a{color:var(--accent)}
+  code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:.9em}
+  header{padding:28px 32px 18px;border-bottom:1px solid var(--line);background:var(--panel)}
+  header h1{margin:0 0 4px;font-size:26px}
+  header .sub{color:var(--muted)}
+  .wrap{max-width:1150px;margin:0 auto;padding:0 24px 60px}
+  nav.toc{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);padding:8px 24px;display:flex;gap:6px;flex-wrap:wrap}
+  nav.toc a{font-size:13px;text-decoration:none;padding:4px 10px;border-radius:999px;border:1px solid var(--line);color:var(--text)}
+  nav.toc a:hover{border-color:var(--accent)}
+  section{margin-top:28px}
+  h2{font-size:20px;margin:0 0 12px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  .grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .card h3{margin:0 0 6px;font-size:15px}
+  .big{font-size:30px;font-weight:700}
+  .muted{color:var(--muted)}
+  .bar{height:10px;background:var(--panel2);border-radius:999px;overflow:hidden;border:1px solid var(--line)}
+  .bar > span{display:block;height:100%;background:linear-gradient(90deg,var(--done),#56d364)}
+  .pill{display:inline-block;font-size:12px;font-weight:600;padding:2px 9px;border-radius:999px;color:#fff;white-space:nowrap}
+  .s-done{background:var(--done)} .s-review{background:var(--review)} .s-in-progress{background:var(--prog)}
+  .s-ready-for-dev{background:var(--ready)} .s-backlog{background:var(--backlog)} .s-optional{background:var(--backlog)}
+  .callout{border-left:4px solid var(--warn);background:var(--panel);padding:14px 18px;border-radius:0 10px 10px 0;border-top:1px solid var(--line);border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .callout.info{border-left-color:var(--accent)}
+  .callout h3{margin:0 0 8px}
+  ol.steps li{margin:4px 0}
+  /* road map */
+  .road{display:flex;gap:0;overflow-x:auto;padding:10px 0 4px}
+  .stop{flex:1;min-width:130px;position:relative;text-align:center;padding:0 6px}
+  .stop:before{content:"";position:absolute;top:19px;left:0;right:0;height:4px;background:var(--line);z-index:0}
+  .stop:first-child:before{left:50%} .stop:last-child:before{right:50%}
+  .dot{position:relative;z-index:1;width:42px;height:42px;border-radius:50%;margin:0 auto 6px;display:flex;align-items:center;justify-content:center;font-weight:700;border:3px solid var(--line);background:var(--panel)}
+  .dot.done{background:var(--done);border-color:var(--done);color:#fff}
+  .dot.in-progress{border-color:var(--prog);color:var(--prog)}
+  .stop .lbl{font-size:12.5px;font-weight:600}
+  .stop .pct{font-size:12px;color:var(--muted)}
+  /* epics and stories */
+  .epic{background:var(--panel);border:1px solid var(--line);border-radius:12px;margin:16px 0;overflow:hidden}
+  .epic > summary{list-style:none;cursor:pointer;padding:14px 18px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+  .epic > summary::-webkit-details-marker{display:none}
+  .epic > summary .t{font-weight:700;font-size:16px;flex:1;min-width:240px}
+  .epic > summary .mini{width:160px}
+  .epic .body{padding:0 18px 16px}
+  .goal{background:var(--panel2);border-radius:8px;padding:10px 14px;margin-bottom:10px}
+  .note{font-size:13px;color:var(--warn);margin:6px 0}
+  .story{border:1px solid var(--line);border-radius:10px;margin:10px 0;background:var(--bg)}
+  .story > summary{cursor:pointer;padding:10px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;list-style:none}
+  .story > summary::-webkit-details-marker{display:none}
+  .story > summary .sid{font-family:ui-monospace,Consolas,monospace;font-weight:700;min-width:38px}
+  .story > summary .stitle{flex:1;min-width:220px;font-weight:600}
+  .story > summary .count{font-size:12px;color:var(--muted)}
+  .story .sbody{padding:0 16px 14px;display:grid;gap:14px;grid-template-columns:1fr 1fr}
+  @media (max-width:820px){ .story .sbody{grid-template-columns:1fr} }
+  .story h4{margin:6px 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+  ul.check{list-style:none;padding:0;margin:0}
+  ul.check li{display:flex;gap:8px;align-items:flex-start;padding:3px 0;font-size:14px}
+  .box{flex:0 0 18px;height:18px;border-radius:4px;border:2px solid var(--backlog);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;margin-top:2px}
+  .box.on{background:var(--done);border-color:var(--done);color:#fff}
+  .box.half{border-color:var(--review);color:var(--review)}
+  li.on span.txt{color:var(--muted)}
+  .meta{font-size:13px;color:var(--muted);grid-column:1/-1;border-top:1px dashed var(--line);padding-top:8px}
+  .story.current{border-color:var(--prog);box-shadow:0 0 0 2px color-mix(in srgb,var(--prog) 35%,transparent)}
+  .filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0}
+  .filters button{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:999px;padding:5px 12px;cursor:pointer;font-size:13px}
+  .filters button.on{border-color:var(--accent);color:var(--accent)}
+  .filters input{flex:1;min-width:200px;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{border-bottom:1px solid var(--line);padding:7px 8px;text-align:left;vertical-align:top}
+  th{color:var(--muted);font-weight:600}
+  td.h{font-family:ui-monospace,Consolas,monospace;white-space:nowrap}
+  dl.gl{display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;margin:0}
+  dl.gl dt{font-weight:700}
+  dl.gl dd{margin:0}
+  @media print{ nav.toc,.filters{display:none} details{open:true} .story .sbody{display:grid} }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Arcani v0.1 Timeline Guidebook</h1>
+  <div class="sub">Every epic and story on the road to v0.1, what each one means in plain words, and a checklist of what is finished.
+  Last updated: <b id="lastUpdated"></b></div>
+</header>
+
+<nav class="toc">
+  <a href="#now">Where we are</a>
+  <a href="#update">How to update</a>
+  <a href="#road">Road map</a>
+  <a href="#flow">Story workflow</a>
+  <a href="#epics">Epics and stories</a>
+  <a href="#log">Update log</a>
+  <a href="#history">Project history</a>
+  <a href="#glossary">Glossary</a>
+</nav>
+
+<div class="wrap">
+
+  <!-- WHERE WE ARE -->
+  <section id="now">
+    <h2>Where we are now</h2>
+    <div class="grid">
+      <div class="card"><h3>Overall progress</h3><div class="big" id="pctAll"></div>
+        <div class="bar"><span id="barAll"></span></div><div class="muted" id="countAll" style="margin-top:6px"></div></div>
+      <div class="card"><h3>Working on now</h3><div id="nowStory"></div></div>
+      <div class="card"><h3>Up next</h3><div id="nextStory"></div></div>
+      <div class="card"><h3>Gate to watch</h3><div id="gate"></div></div>
+    </div>
+  </section>
+
+  <!-- HOW TO UPDATE -->
+  <section id="update">
+    <h2>How to update this guidebook</h2>
+    <div class="callout">
+      <h3>Rule: update this file every time a section is completed and a commit and/or push is made.</h3>
+      <p style="margin:0 0 8px">A "section" is any checklist item below: a workflow step (spec, failing tests, implementation, review, CI, merge) or an acceptance criterion.
+      This guidebook is the human-readable view of the timeline. <code>sprint-status.yaml</code> stays the machine record; keep them in step.</p>
+      <ol class="steps">
+        <li>Open <code>docs/timeline-guidebook.html</code> in your editor and scroll to the block marked <code>DATA: EDIT HERE</code> near the bottom.</li>
+        <li>Find the story by its id (for example <code>id: "0.4"</code>).</li>
+        <li>Tick each finished workflow step: change <code>false</code> to <code>true</code> in its <code>steps</code> list. Add the commit hash in the step's note if you like.</li>
+        <li>Tick each finished acceptance criterion: change <code>[" ", "..."]</code> to <code>["x", "..."]</code> (use <code>"~"</code> for partly done).</li>
+        <li>Set the story's <code>status</code> to match <code>sprint-status.yaml</code>: <code>backlog</code>, <code>ready-for-dev</code>, <code>in-progress</code>, <code>review</code>, or <code>done</code>.</li>
+        <li>Add one line at the <b>top</b> of <code>UPDATE_LOG</code>: date, short commit hash, and what was finished. Write "pushed" or "PR #N merged" when that happened.</li>
+        <li>Change <code>LAST_UPDATED</code> and, if the focus moved, <code>CURRENT</code> and <code>NEXT</code>.</li>
+        <li>Save, reload the page in the browser to check it, then commit it with the work or as a small follow-up commit: <code>Update timeline guidebook (Story X.Y ...)</code>.</li>
+      </ol>
+    </div>
+    <div class="callout info" style="margin-top:12px">
+      <h3>Instruction for agents (copy this into any story prompt if needed)</h3>
+      <p style="margin:0">"After every commit or push that completes a checklist section, update <code>docs/timeline-guidebook.html</code>: tick the finished steps and acceptance criteria in the DATA block, set the story status to match <code>sprint-status.yaml</code>, add a dated line with the commit hash to the top of <code>UPDATE_LOG</code>, and update <code>LAST_UPDATED</code>, <code>CURRENT</code>, and <code>NEXT</code>. Follow the copy rules: no em dashes, no banned terms, no claim words."</p>
+    </div>
+  </section>
+
+  <!-- ROAD MAP -->
+  <section id="road">
+    <h2>Road map: seven epics to v0.1</h2>
+    <p class="muted" style="margin-top:0">Epics run in order. Each dot fills in as its stories finish. v0.1 is done when the gate report passes and all eight starter renders carry Audio's provisional sign-off.</p>
+    <div class="road" id="roadmap"></div>
+  </section>
+
+  <!-- WORKFLOW -->
+  <section id="flow">
+    <h2>How every story moves (the workflow checklist)</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>The seven steps per story</h3>
+        <ol class="steps" style="margin:0;padding-left:20px">
+          <li><b>Spec</b>: write the story spec in <code>_bmad-output/implementation-artifacts/</code>; Audio approves it.</li>
+          <li><b>Failing tests</b>: a fresh-context QA agent commits tests only, and they fail.</li>
+          <li><b>Build it</b>: implementation commits; tests pass locally (no commit with failing tests).</li>
+          <li><b>Review</b>: code review runs; findings triaged and recorded in the spec.</li>
+          <li><b>CI green</b>: fast tier on push; full four-platform tier on the pull request.</li>
+          <li><b>Merged</b>: pull request merged into <code>main</code>.</li>
+          <li><b>Records</b>: <code>sprint-status.yaml</code>, design log, and this guidebook updated.</li>
+        </ol>
+      </div>
+      <div class="card">
+        <h3>Rules for every story</h3>
+        <ul style="margin:0;padding-left:20px">
+          <li>Tests first, from the acceptance criteria.</li>
+          <li>Every check has a passing fixture and a must-fail fixture.</li>
+          <li>Every measurement tool is calibrated on Python signals with known answers first.</li>
+          <li>Each story writes only the <code>signal-spec.md</code> section it needs, with worked test vectors, before code uses it.</li>
+          <li>Silence is not evidence: reference matches compare real waveforms.</li>
+          <li>Engine stories join the four-platform hash check at 44.1 and 48 kHz.</li>
+          <li>Thresholds come from the tables. Never hard-code them, never weaken them.</li>
+          <li>One story per branch. Every changed default gets a design log entry.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Status colors</h3>
+        <p style="margin:4px 0"><span class="pill s-done">done</span> finished and merged</p>
+        <p style="margin:4px 0"><span class="pill s-review">review</span> built, being reviewed</p>
+        <p style="margin:4px 0"><span class="pill s-in-progress">in-progress</span> being built</p>
+        <p style="margin:4px 0"><span class="pill s-ready-for-dev">ready-for-dev</span> spec ready</p>
+        <p style="margin:4px 0"><span class="pill s-backlog">backlog</span> not started</p>
+        <p style="margin:8px 0 0" class="muted">Checkboxes: <span class="box on" style="display:inline-flex">&#10003;</span> done,
+        <span class="box half" style="display:inline-flex">~</span> partly done, <span class="box" style="display:inline-flex"></span> not yet.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- EPICS -->
+  <section id="epics">
+    <h2>Epics and stories</h2>
+    <div class="filters">
+      <button data-f="all" class="on">All</button>
+      <button data-f="done">Done</button>
+      <button data-f="active">In progress or review</button>
+      <button data-f="backlog">Not started</button>
+      <button id="expand">Expand all</button>
+      <button id="collapse">Collapse all</button>
+      <input id="search" type="search" placeholder="Search stories, criteria, files...">
+    </div>
+    <div id="epicList"></div>
+  </section>
+
+  <!-- UPDATE LOG -->
+  <section id="log">
+    <h2>Update log (newest first)</h2>
+    <p class="muted" style="margin-top:0">One line per completed section with its commit or push. This is the running timeline.</p>
+    <table><thead><tr><th>Date</th><th>Commit</th><th>Story</th><th>What was finished</th></tr></thead><tbody id="logBody"></tbody></table>
+  </section>
+
+  <!-- HISTORY -->
+  <section id="history">
+    <h2>Project history before stories began</h2>
+    <table><thead><tr><th>Date</th><th>Commit</th><th>Milestone</th></tr></thead><tbody id="histBody"></tbody></table>
+  </section>
+
+  <!-- GLOSSARY -->
+  <section id="glossary">
+    <h2>Glossary</h2>
+    <div class="card">
+      <dl class="gl">
+        <dt>Audio</dt><dd>The sole developer, tester, and listener. Signs off every golden file.</dd>
+        <dt>Carrier</dt><dd>The audible tone, in Hz.</dd>
+        <dt>Rate</dt><dd>How fast something repeats, in Hz.</dd>
+        <dt>AM</dt><dd>Amplitude modulation: a carrier's volume shaped by a slower wave.</dd>
+        <dt>Theta reference</dt><dd>A carrier with AM at the theta rate (1 to 6 Hz). It exists in the file, so its phase can be measured.</dd>
+        <dt>Gamma PAC layer</dt><dd>A separate carrier with AM at the gamma rate (30 to 60 Hz). Its depth rises and falls with the theta reference and peaks at the coupling phase.</dd>
+        <dt>Binaural layer</dt><dd>Two pure sines, one per ear, on their own path. Nothing is coupled to it.</dd>
+        <dt>Recipe</dt><dd>One JSON file that fully defines a session.</dd>
+        <dt>Signal spec</dt><dd><code>docs/signal-spec.md</code>, the only source of formulas.</dd>
+        <dt>Python reference</dt><dd>An independent renderer the engine must match within -100 dBFS.</dd>
+        <dt>Fast tier / full tier</dt><dd>Fast: every push, Windows x64 and Linux. Full: every PR into main and nightly, all four platforms.</dd>
+        <dt>AD-9 platforms</dt><dd>Windows x64, Windows arm64, macOS arm64, Android NDK arm64.</dd>
+        <dt>Golden file</dt><dd>An approved render stored in Git LFS, bound to a sign-off record with the file's SHA-256.</dd>
+        <dt>Determinism key</dt><dd>Recipe hash plus engine version plus sample rate.</dd>
+        <dt>Must-fail fixture</dt><dd>A doctored input that proves a check actually catches a fault.</dd>
+        <dt>Retrospective</dt><dd>Optional look back at the end of each epic.</dd>
+      </dl>
+    </div>
+  </section>
+
+</div>
+
+<script>
+/* =====================================================================
+   DATA: EDIT HERE
+   Update after every completed section plus commit and/or push.
+   ===================================================================== */
+
+var LAST_UPDATED = "2026-11-03";
+var CURRENT = "0.4";   // story id being worked on
+var NEXT    = "0.5";   // story id that comes next
+
+// Workflow step names, used by every story unless it lists its own "stepNames".
+var STEP_NAMES = [
+  "Spec written and approved",
+  "Failing tests committed (tests only)",
+  "Implementation committed, tests pass locally",
+  "Code review done and triage recorded",
+  "CI green (fast tier on push, full tier on PR)",
+  "Pull request merged into main",
+  "sprint-status.yaml, design log, and guidebook updated"
+];
+var S7 = function(){ return [false,false,false,false,false,false,false]; };
+
+var SPEC_DIR = "../_bmad-output/implementation-artifacts/";
+
+var EPICS = [
+{
+  id: "0", title: "A trusted toolchain",
+  goal: "Prove the tools can be trusted before any sound is built: one pinned build, a CI matrix on all four platforms, one engine sine that renders identical bytes everywhere, tables held as data, an automatic wording check, and an independent review of the decisions still pending.",
+  frs: "FR-6 (cross-platform), FR-15",
+  note: "Story 0.5 must be done before Epic 1 starts.",
+  retro: "optional",
+  stories: [
+  { id:"0.1", title:"Build skeleton and CI matrix", status:"done",
+    plain:"Set up the source tree, the pinned build, and CI on every platform, so every later story is built, tested, and hash-compared the same way.",
+    spec:["spec-0-1-part-1-build-skeleton-and-fast-ci.md","spec-0-1-part-2-compile-flags-and-symbol-denylist.md","spec-0-1-part-3-four-platform-ci-and-hash-compare.md"],
+    steps:[true,true,true,true,true,true,true],
+    parts:[
+      ["x","Part 1: source tree, local build (clang-cl, CMake, Ninja, Catch2, uv), fast-tier CI, toolchain pin check (a74a043)"],
+      ["x","Part 2: compile-flag check and engine undefined-symbol denylist, each with a must-fail case (2e85006)"],
+      ["x","Part 3: four-platform full tier with the Android phone, hash compare tool, wall-time budget, nightly skip (3f2d544)"]
+    ],
+    acs:[
+      ["x","Engine, CLI stub, and Catch2 test binary build on the Windows dev PC; source tree matches the spine; uv run pytest works"],
+      ["x","Build, C++ tests, and Render commands filled in in CLAUDE.md"],
+      ["x","A runner with a different compiler version fails and names expected and found"],
+      ["x","Fast tier on every push: Windows x64 and Linux; any failure blocks merge"],
+      ["x","Full tier on PR, nightly, or manual run: all four platforms, NDK hash binary on a physical Android phone"],
+      ["x","Self-hosted Windows runner plus USB phone; runner setup and billing cap in the design log"],
+      ["x","A skipped, cancelled, or unscheduled Android job fails the run"],
+      ["x","Missing -ffp-contract=off or any fast-math flag fails CI (must-fail config proves it)"],
+      ["x","Undefined-symbol denylist fails on libm, file, thread, clock, console symbols (std::sin must-fail proves it)"],
+      ["x","Hash compare tool: exact mode fails on one LSB; tolerance mode passes below -100 dBFS, fails at -90 dBFS; every tolerance entry cites the design log"],
+      ["x","Per-platform, per-tier wall-time budget; jobs fail if over; monthly minutes estimated"],
+      ["x","Nightly full tier skipped and logged when main has not changed"]
+    ],
+    meta:"Branch story/0-1-build-skeleton-and-ci-matrix (archived). PR #1 merged 2026-11-03 (2819658)." },
+
+  { id:"0.2", title:"Engine sine oscillator (spike that ships)", status:"done",
+    plain:"Prove the engine's sine is accurate and bit-identical on all four platforms first, because everything else is built on it.",
+    spec:["spec-0-2-engine-sine-oscillator-spike-that-ships.md"],
+    steps:[true,true,true,true,true,true,true],
+    acs:[
+      ["x","signal-spec.md core and sine sections merged: 64-bit phase accumulator, increment quantization, seconds-to-samples rule, ideal sine, -120 dBFS bound, worked test vectors (49b0a52)"],
+      ["x","Engine sine error against the ideal sine is at most -120 dBFS over a full cycle"],
+      ["x","Fixed sine render at 44.1 and 48 kHz has the same SHA-256 on all four platforms (byte-identical, 6177e90)"],
+      ["x","Phase error from integer increments over 8 hours is under 1 ms"],
+      ["x","Increment quantization error under 0.01 Hz for every carrier and rate in the locked ranges"],
+      ["x","Fallback path defined if a platform cannot match (not needed: all four matched)"]
+    ],
+    meta:"Floating-point pragma check added to both CI workflows. Pinning the sine hashes was deferred (see deferred-work.md). PR #2 merged 2026-11-03 (0dbe46f)." },
+
+  { id:"0.3", title:"Threshold and range tables as data", status:"done",
+    plain:"Hold every threshold and locked range in data files with C++ and Python loaders, so no number is hard-coded and every value traces to its source.",
+    spec:["spec-0-3-threshold-and-range-tables-as-data.md"],
+    steps:[true,true,true,true,true,true,true],
+    acs:[
+      ["x","Threshold and range TSV files under tests/; every row has ID, value, unit, source; values match the spec tables"],
+      ["x","A row with no source citation makes either loader fail and name the row"],
+      ["x","C++ and Python loaders return identical IDs, values, and units (cross-check)"],
+      ["x","Changing a data file without a design log entry naming the row fails CI (must-fail proves it)"],
+      ["x","Two-way coverage: every assertion reports its row; unused rows fail unless marked pending with a story; a pending row whose story is done fails"]
+    ],
+    meta:"PR #3 merged 2026-11-03 (37e2607). sprint-status.yaml set to done in the Story 0.4 branch (be413df)." },
+
+  { id:"0.4", title:"CI wording check", status:"review",
+    plain:"CI catches banned project terms, comparable product names, claim words, and em dashes, so the copy rules hold without anyone reading every line.",
+    spec:["spec-0-4-ci-wording-check.md"],
+    steps:[true,true,true,true,false,false,false],
+    stepNotes:["Approved by Audio 2026-11-03","3ffaa7b","1258109 to be413df; 818 passed locally","3 reviewers; 13 fixes in 32e4e49; triage in the spec (735bd6e)","PR #4 opened 2026-11-03; waiting for fast and full tiers","",""],
+    acs:[
+      ["x","Term list data file (tools/wording/terms.tsv) scanned against docs, code, and recipes; a match fails with file, line, and term; the term list itself is exempt"],
+      ["x","Any em dash in a scanned file fails with file and line"],
+      ["x","Research files pass through a path exemption list kept in the repo (each line has a reason)"],
+      ["x","Must-fail fixtures (em dash doc, recipe claim word, banned term in a comment) each fail"],
+      ["x","The current repo passes, with existing violations fixed (project-plan.md split and reworded)"],
+      [" ","Both fast CI jobs run the check before the build"]
+    ],
+    meta:"Design log entry (dd). Branch story/0-4-ci-wording-check pushed; PR #4 opened 2026-11-03. Deferred: add the check to the CLAUDE.md commands." },
+
+  { id:"0.5", title:"Independent review of the pending architecture decisions", status:"backlog",
+    plain:"A fresh reviewer checks the decisions still marked review pending, so any change costs a little rework now instead of a lot later.",
+    stepNames:["Review scope and reviewer named","Each decision reviewed against PRD, SPEC, CLAUDE.md, research library","Findings saved beside the spine's existing reviews","Each decision locked (tag removed) or changed with a design log entry","Affected stories updated","Records committed and pushed","sprint-status.yaml and guidebook updated"],
+    steps:S7(),
+    acs:[
+      [" ","AD-4, AD-5, AD-9, AD-19, AD-20, and the Stack table each locked or changed, by a fresh-context agent or a human Audio names"],
+      [" ","Review findings saved beside the spine's existing reviews"],
+      [" ","AD-9 review confirms or changes the fallback scope using the S0.2 result"],
+      [" ","Done before Epic 1 starts"]
+    ] }
+  ]
+},
+{
+  id: "1", title: "Render a recipe end to end",
+  goal: "Render a minimal recipe from the command line to a WAV plus a report, byte-identical at any block size, matched against the Python reference, with a failing test if anything leaks between ears and every field range-checked from the start.",
+  frs: "FR-4 (structure), FR-6, FR-7 (core), FR-8, FR-9 (carrier rule), FR-10, FR-11, FR-12 (stub chain), FR-13 (core)",
+  note: "Starts only after Story 0.5 is done.",
+  retro: "optional",
+  stories: [
+  { id:"1.1", title:"Minimal recipe schema and recipe hash", status:"backlog",
+    plain:"A versioned recipe format with a stable hash, so a recipe means one thing to every tool and any change to its sound is detectable.",
+    steps:S7(), acs:[
+      [" ","JSON Schema in recipes/: snake_case fields with units in names, each tagged loudness-relevant, hash-excluded, or neither; unknown fields (routing, coupling_target) rejected"],
+      [" ","Engine-owned strict JSON parser, standard library only; schema and compiler accept and reject the same fixtures"],
+      [" ","Unsupported schema major version rejected with parameter, value, rule, limit"],
+      [" ","Recipe hash: SHA-256 of RFC 8785 canonical JSON, same in engine and Python; key order and whitespace do not change it"],
+      [" ","Editing a hash-excluded field keeps the hash; editing an audio field changes it"]
+    ] },
+  { id:"1.2", title:"C API, fixed stage list, seek, and isolation assertion", status:"backlog",
+    plain:"One arc_ C API over a fixed stage list, with seek and a binaural isolation test from day one.",
+    steps:S7(), acs:[
+      [" ","Public header: compile (measure, final), render, seek, per-layer taps, warnings, engine version, plan release; structured errors; render never throws or logs"],
+      [" ","Stage order: theta reference, gamma PAC layer, stereo bus, binaural join, master chain; no stage mixes, sums, or swaps channels"],
+      [" ","Muted-ear isolation: at least 90 dB at engine output, 60 dB after the master chain; calibrated first; 0.1 percent crosstalk must-fail fails"],
+      [" ","Seek to sample k gives byte-identical samples to a full render (k at 0, inside a block, on a block edge)"],
+      [" ","Zero heap allocations during render calls"],
+      [" ","Engine sets its own denormal mode on entry; output unchanged if the host sets a different mode"]
+    ] },
+  { id:"1.3", title:"Validator framework, locked ranges, and carrier rule", status:"backlog",
+    plain:"Every recipe value is checked against its locked range and the carrier rule, so no out-of-range recipe can render.",
+    steps:S7(), acs:[
+      [" ","Every range-governed field names its range row ID; a field without a row fails a test"],
+      [" ","Out-of-range value: no plan, no output, error names parameter, value, rule, limit; inclusive and exclusive bounds tested"],
+      [" ","Carrier rule rejects any carrier under 4 times the worst-case rate (pass at exactly 4x, fail just under, interval max case)"]
+    ] },
+  { id:"1.4", title:"Command-line renderer, report, and render speed", status:"backlog",
+    plain:"Render any recipe from the command line to a WAV plus a machine-readable report.",
+    steps:S7(), acs:[
+      [" ","2-channel 24-bit WAV, 48 kHz default or 44.1 kHz, no dither; other rates refused; CLI uses only the public header"],
+      [" ","JSON report: per assertion name, row ID, threshold, measured, pass or fail; plus determinism key, seed, engine version"],
+      [" ","Rejected recipe: no WAV, prints parameter, value, rule, limit, exits non-zero"],
+      [" ","At least 20 times real time on the dev PC; marked not applicable on other machines"]
+    ] },
+  { id:"1.5", title:"Python reference renderer for the stub chain", status:"backlog",
+    plain:"An independent Python renderer that agrees with the engine sample by sample, so bugs show up as numbers.",
+    steps:S7(), acs:[
+      [" ","reference/ reads recipe JSON, double precision, implements core and sine sections, uses the ideal sine, passes worked vectors; imports no engine code"],
+      [" ","Engine float output and taps within -100 dBFS of the reference at 44.1 and 48 kHz"],
+      [" ","Below the minimum level the match fails as silent; a -90 dBFS doctored error fails"]
+    ] },
+  { id:"1.6", title:"Determinism and block-size invariance", status:"backlog",
+    plain:"Every render is a pure function of recipe, engine version, seed, and sample rate.",
+    steps:S7(), acs:[
+      [" ","Two renders (same process and separate processes) are byte-identical"],
+      [" ","Byte-identical at 1, 64, 512, 4096, and 997 frames per call"],
+      [" ","Determinism key equals recipe hash plus engine version plus sample rate"],
+      [" ","Denylist extended with unseeded randomness sources; fixture joins the cross-platform hash check"]
+    ] }
+  ]
+},
+{
+  id: "2", title: "Every Core layer, exact and on time",
+  goal: "Render the theta reference, the gamma PAC layer (uncoupled, smooth swell, bursts), and the binaural layer, each proven on timing, frequency, isolation, and reference match, with rate curves and seamless loops.",
+  frs: "FR-1, FR-2, FR-3, FR-4, FR-7 (rate curves, looping), FR-12, FR-13 (fixtures)",
+  note: "Order is fixed and not numeric: 2.1, 2.2, 2.3, 2.5, 2.4, 2.6, 2.7. Story 2.5 runs before 2.4 so the coupling independence test exists before bursts.",
+  retro: "optional",
+  stories: [
+  { id:"2.1", title:"Theta reference envelopes", status:"backlog",
+    plain:"A carrier with AM at the theta rate using a sine, smoothed on-off, sawtooth, or reverse saw envelope.",
+    steps:S7(), acs:[
+      [" ","signal-spec theta section: each shape, its 0 degree point, edge smoothing, depth law, worked vectors"],
+      [" ","Carrier 100 to 500 Hz, rate 1 to 6 Hz, depth 0 to 100 percent range-checked; carrier rule checked; custom curves rejected"],
+      [" ","All four shapes at low and high rates match the reference within -100 dBFS"],
+      [" ","Carrier and rate within 0.01 Hz (frequency tool calibrated first)"],
+      [" ","Click tool (8 kHz high-pass, -60 dBFS) calibrated; hard-edged shapes pass; unsmoothed sawtooth must-fail fails"]
+    ] },
+  { id:"2.2", title:"Gamma PAC layer, uncoupled", status:"backlog",
+    plain:"A separate gamma carrier with AM at the gamma rate at constant depth: the uncoupled control.",
+    steps:S7(), acs:[
+      [" ","signal-spec gamma section with worked vectors"],
+      [" ","Carrier 200 to 500 Hz, rate 30 to 60 Hz, depth range-checked; 200 Hz at 60 Hz rejected, 240 Hz accepted"],
+      [" ","Non-sine gamma carriers rejected"],
+      [" ","40 and 60 Hz at 25 and 100 percent depth match the reference; within 0.01 Hz; constant depth"]
+    ] },
+  { id:"2.3", title:"Gamma coupled, smooth swell", status:"backlog",
+    plain:"Gamma depth rises and falls with the theta reference and peaks at the coupling phase.",
+    steps:S7(), acs:[
+      [" ","signal-spec coupling section; depth function takes theta phase as its only input (structural test)"],
+      [" ","Coupling timing tool calibrated on Python signals; never reads engine internals"],
+      [" ","Every gamma envelope peak within 2 ms of its coupling phase (all shapes, 0/90/180/270 degrees); 3 ms shift fails, 1 ms passes"],
+      [" ","Coupled gamma without a theta reference, or at zero theta depth, is rejected"],
+      [" ","Matches the reference; gamma carrier plays continuously"]
+    ] },
+  { id:"2.5", title:"Binaural layer", status:"backlog",
+    plain:"Two pure sines, one per ear, whose beat rate can follow a rate curve, joining after every other stage.",
+    steps:S7(), acs:[
+      [" ","signal-spec binaural and rate-curve sections: right = left + beat(t), closed-form phase integral, worked vectors"],
+      [" ","Carriers below 1000 Hz and beat 0 to below 30 Hz range-checked; non-sine waveform rejected (binaural.waveform)"],
+      [" ","Isolation at least 90 dB / 60 dB at several beat rates including 0 Hz and a 0 to 3 Hz cycle"],
+      [" ","Instantaneous rate within 0.01 Hz of the schedule with continuous phase"],
+      [" ","Sweeping binaural beat rate and phase leaves every gamma peak time unchanged to the sample"],
+      [" ","Each ear's tap and the output match the reference"]
+    ] },
+  { id:"2.4", title:"Gamma coupled, 50 ms bursts", status:"backlog",
+    plain:"Gamma as 50 ms bursts centered on the coupling phase, depth-gated with soft edges, with no clicks.",
+    steps:S7(), acs:[
+      [" ","signal-spec bursts section: 50 ms full width, 10 ms raised-cosine edges, carrier continuous, worked vectors"],
+      [" ","Spectrum tool calibrated on multi-tone signals; a moved line must-fail is caught"],
+      [" ","Burst spectra at 40, 45, 60 Hz reproduce the burst-edge-taper research run figures; rectangular burst must-fail fails"],
+      [" ","Each burst center within 2 ms of its coupling phase"],
+      [" ","No click above -60 dBFS at burst edges; matches the reference"]
+    ] },
+  { id:"2.6", title:"Rate curves on theta and gamma rates", status:"backlog",
+    plain:"The theta and gamma rates follow recipe rate curves using the same law as the binaural beat.",
+    steps:S7(), acs:[
+      [" ","Same rate-curve law as 2.5; no new formula"],
+      [" ","Worst case over the whole curve is range-checked and carrier-rule-checked; must-fail curve rejected"],
+      [" ","Instantaneous rate within 0.01 Hz with continuous phase"],
+      [" ","Coupling timing within 2 ms along a theta rate curve"],
+      [" ","Matches the reference"]
+    ] },
+  { id:"2.7", title:"Looping body and seams", status:"backlog",
+    plain:"Looping recipes play an opening once and repeat the body seamlessly until the max run time.",
+    steps:S7(), acs:[
+      [" ","signal-spec loop section: body length for continuous phase at the seam, ending at max run time"],
+      [" ","Looping recipe without a max run time, or with one out of range, is rejected"],
+      [" ","Opening plays once; no click or phase jump at any seam; coupling within 2 ms across seams"],
+      [" ","Seek inside a later loop is byte-identical to a continuous render"],
+      [" ","Matches the reference"]
+    ] }
+  ]
+},
+{
+  id: "3", title: "The validator catches collisions",
+  goal: "Reject any recipe whose layers come too close in either ear, at any point including along rate curves. The four starters' layer configurations are proven to pass here.",
+  frs: "FR-9 (spacing rule)",
+  retro: "optional",
+  stories: [
+  { id:"3.1", title:"Spectral component table per shape", status:"backlog",
+    plain:"One analytic table of every layer's spectral lines, so the validator and the tests agree on what each layer puts in each ear.",
+    steps:S7(), acs:[
+      [" ","signal-spec components section for every shape; component = any line within 40 dB of the layer's strongest"],
+      [" ","Compiler lists per ear and per layer every component frequency (or interval) and level; unmodeled shape rejected"],
+      [" ","Measured reference spectra match the analytic table; a dropped side frequency must-fail is caught"]
+    ] },
+  { id:"3.2", title:"Spacing rule per ear, whole session", status:"backlog",
+    plain:"Reject any recipe whose layers come within 50 Hz of each other in either ear, anywhere in the session.",
+    steps:S7(), acs:[
+      [" ","At least 50 Hz between components of different layers, per ear; own components and the binaural pair exempt; exactly 50 Hz passes"],
+      [" ","Closed-form worst case over rate curves, no sampling"],
+      [" ","Failure names parameter, value, rule, limit, both components, layers, ear, and where"],
+      [" ","250/256 Hz binaural beside a 260 Hz gamma side line is rejected (right ear)"],
+      [" ","All four starter configurations and the coupled-gamma-plus-binaural fixture pass"]
+    ] },
+  { id:"3.3", title:"Early listening preview", status:"backlog",
+    plain:"Hear short renders of the four starter configurations early, so a harsh carrier or rough pulse is caught long before sign-off.",
+    stepNames:["Preview plan written","Preview level default logged in design log (-30 dBFS peak)","Previews rendered (about 3 min, 48 kHz, marked unsigned)","Listening on earbuds and headphones","Observations recorded in plain words","Proposed changes routed to owning stories","sprint-status.yaml and guidebook updated"],
+    steps:S7(), acs:[
+      [" ","About 3 minute previews at 48 kHz, with loop seams for Focus and Learn; marked preview and unsigned; never stored as golden"],
+      [" ","Preview level: analytic sample peak of summed layers at -30 dBFS (logged)"],
+      [" ","Every observation recorded; proposed default or range changes logged and routed before Epic 4"]
+    ] }
+  ]
+},
+{
+  id: "4", title: "Safe, steady loudness",
+  goal: "Every render hits its loudness target under the true-peak ceiling, gain ramps are smooth, the limiter provably never acts, and the CLI measures and stores the loudness gain.",
+  frs: "FR-5, FR-11 (loudness gain), FR-12 (master chain)",
+  note: "Order is fixed: meter first, ramps before the limiter.",
+  retro: "optional",
+  stories: [
+  { id:"4.1", title:"Loudness meter", status:"backlog",
+    plain:"A loudness meter proven against the EBU compliance signals before it judges any render.",
+    steps:S7(), acs:[
+      [" ","signal-spec loudness section: BS.1770 gating and the steady-part measurement window; too-short steady part rejected"],
+      [" ","Python and CLI meters each pass EBU Tech 3341 signals (fetched at a pinned address, SHA-256 checked); gating-off must-fail fails"],
+      [" ","Both meters agree on any render within the Tech 3341 tolerance"],
+      [" ","Within 1 LU of target passes; 1.5 LU over fails"]
+    ] },
+  { id:"4.2", title:"Stored loudness gain", status:"backlog",
+    plain:"The CLI measures each recipe's loudness once and stores the gain in the recipe.",
+    steps:S7(), acs:[
+      [" ","Measure command writes gain and loudness hash; measuring twice writes identical bytes"],
+      [" ","final mode rejects a missing gain or a changed loudness-relevant field"],
+      [" ","final render within 1 LU of target; 1.5 LU off must-fail fails"],
+      [" ","Whole-render loudness recorded and never more than 1 LU over target"],
+      [" ","CI never writes a gain (must-fail step caught)"]
+    ] },
+  { id:"4.3", title:"True peak", status:"backlog",
+    plain:"Every render's true peak measured with oversampling and held at or below -1 dBTP.",
+    steps:S7(), acs:[
+      [" ","True-peak tool passes Tech 3341 and known inter-sample peak signals"],
+      [" ","Inter-sample peak must-fail fails where a sample-peak check would pass"],
+      [" ","Every final 24-bit render at or below -1 dBTP"],
+      [" ","Measure command writes no gain if true peak would exceed the ceiling"]
+    ] },
+  { id:"4.4", title:"Gain ramps", status:"backlog",
+    plain:"Per-layer and master gain ramps, none faster than 10 ms, so fades and ramp-ins are smooth.",
+    steps:S7(), acs:[
+      [" ","signal-spec ramps section with worked vectors"],
+      [" ","Tap before and after layer gain; bit-identical at unity"],
+      [" ","Ramp under 10 ms rejected; exactly 10 ms passes"],
+      [" ","Ramp tool calibrated; 5 ms fade must-fail fails; no click at ramp edges"],
+      [" ","Loudness window excludes ramps; superseded-window must-fail fails"],
+      [" ","Fade to silence ends in exact zeros; matches the reference"]
+    ] },
+  { id:"4.5", title:"Limiter idle", status:"backlog",
+    plain:"Proof that the stereo-linked limiter never acts on any v0.1 render.",
+    steps:S7(), acs:[
+      [" ","signal-spec limiter section with worked vectors"],
+      [" ","Gain-reduction tap exactly unity on every render; output equals input times master gain, bit for bit"],
+      [" ","Driven-limiter must-fail fails idle check; both channels get equal reduction; isolation still 60 dB"],
+      [" ","Driven-limiter render matches the reference"]
+    ] }
+  ]
+},
+{
+  id: "5", title: "Holds up for hours",
+  goal: "Eight-hour renders stay on time and no render has a click, dropout, or invalid sample, with the full tier sharded to fit CI limits.",
+  frs: "FR-1 (whole-session drift), FR-13, FR-15 (full tier)",
+  retro: "optional",
+  stories: [
+  { id:"5.1", title:"Whole-session 8-hour drift and full-tier sharding", status:"backlog",
+    plain:"An 8-hour render stays on time at hour eight, with long renders split to fit CI.",
+    steps:S7(), acs:[
+      [" ","At hour eight: theta phase error under 1 ms, gamma peaks within 2 ms, rates within 0.01 Hz"],
+      [" ","Exactly 8 h passes; one sample longer rejected"],
+      [" ","One-sample-per-hour drift must-fail fails at hour eight"],
+      [" ","Fast tier computes drift analytically for every fixture and starter"],
+      [" ","Shards joined are byte-identical to one render and fit the wall-time budget"],
+      [" ","Reference matches windows at start, hour four, hour eight"]
+    ] },
+  { id:"5.2", title:"Clicks, dropouts, NaN and infinite values", status:"backlog",
+    plain:"Every render scanned end to end for clicks, dropouts, and invalid samples.",
+    steps:S7(), acs:[
+      [" ","Click scan covers the whole render; single-sample step must-fail fails"],
+      [" ","Dropout tool calibrated; 1 ms zero run passes, one sample longer fails; silent stretches exempt"],
+      [" ","Any NaN or infinite value fails (must-fails for each)"]
+    ] }
+  ]
+},
+{
+  id: "6", title: "Four starters you have heard and signed",
+  goal: "Focus, Learn, Relax, and Sleep render and pass every check, and each carries Audio's provisional sign-off bound to the exact file heard. Closes v0.1.",
+  frs: "FR-14, FR-16, FR-17",
+  retro: "optional",
+  stories: [
+  { id:"6.1", title:"Golden records and Git LFS", status:"backlog",
+    plain:"Approved renders stored as golden files with a sign-off record bound to the exact bytes heard.",
+    steps:S7(), acs:[
+      [" ","golden/ in Git LFS, keyed by determinism key, with stage, signer, date, SHA-256, coverage"],
+      [" ","CI compares render hash with the record; mismatch or missing golden fails; CI never downloads WAVs"],
+      [" ","Tolerance-mode platforms compare against the Windows x64 render instead"],
+      [" ","LFS storage and bandwidth quota checked (about 4.6 GB)"],
+      [" ","Hash mismatch reports unsigned; sign-off survives a re-key when bytes match"],
+      [" ","Only the sign-off tool writes goldens; pending entries fail once 6.7 is done"]
+    ] },
+  { id:"6.2", title:"Listening checklist", status:"backlog",
+    plain:"A listening checklist a tester with no signal background can follow.",
+    steps:S7(), acs:[
+      [" ","docs/listening-checklist.md covers clicks and seams, 40 Hz gamma AM roughness, comfort, carrier audibility, loudness, ear balance, unevenness; asks about the sound only"],
+      [" ","Names the setup (Reaper, RX, earbuds, headphones) and produces a result file per render"],
+      [" ","Transition list tool lists opening, seams, ramps, fades, ending (tested on a fixture)"]
+    ] },
+  { id:"6.3", title:"Focus starter", status:"backlog",
+    plain:"recipes/focus.json: 450 Hz theta reference at 6 Hz, 250 Hz gamma PAC at 40 Hz in 50 ms bursts, looping to 45 min, -36 LUFS-I.",
+    steps:S7(), acs:[
+      [" ","Passes the validator in final mode, including spacing between burst lines and the 450 Hz theta reference"],
+      [" ","Describe-the-sound fields added to the schema, tagged hash-excluded"],
+      [" ","Passes every assertion at 44.1 and 48 kHz; hashes match on all platforms; matches the reference"],
+      [" ","Rationale cites the design log; note matches listening-modes.md; listed as awaiting sign-off"]
+    ] },
+  { id:"6.4", title:"Learn starter", status:"backlog",
+    plain:"recipes/learn.json: 450 Hz theta reference at 5.5 Hz, 250 Hz gamma PAC at 40 Hz smooth swell, looping to 20 min, -36 LUFS-I.",
+    steps:S7(), acs:[
+      [" ","Passes the validator in final mode"],
+      [" ","Passes every assertion at both rates; hashes match; matches the reference"],
+      [" ","Rationale and note checked; listed as awaiting sign-off"]
+    ] },
+  { id:"6.5", title:"Relax starter", status:"backlog",
+    plain:"recipes/relax.json: 450 Hz theta reference at 6 Hz ramping in over 10 min, 250 Hz gamma PAC at 40 Hz swell at 25 percent ramping in over 2 min, 30 min, -36 LUFS-I.",
+    steps:S7(), acs:[
+      [" ","Passes the validator in final mode"],
+      [" ","Passes every assertion at both rates; hashes match; matches the reference"],
+      [" ","Coupling within 2 ms during the level ramps, measured before layer gain"],
+      [" ","Rationale and note checked; listed as awaiting sign-off"]
+    ] },
+  { id:"6.6", title:"Sleep starter", status:"backlog",
+    plain:"recipes/sleep.json: 450 Hz theta reference at 2 Hz, binaural at 100 Hz with beat cycling 0 to 3 Hz every 60 s, 45 min with a 5 min fade to silence, -36 LUFS-I.",
+    steps:S7(), acs:[
+      [" ","Passes the validator, including spacing between the binaural pair and the theta reference"],
+      [" ","Passes every assertion at both rates; hashes match; matches the reference"],
+      [" ","Isolation passes across the whole beat cycle; final sample exactly zero; no longer than 45 min"],
+      [" ","Rationale and note checked; listed as awaiting sign-off"]
+    ] },
+  { id:"6.7", title:"Provisional sign-off session and v0.1 gate report", status:"backlog",
+    plain:"Audio listens to every starter render against the checklist, signs the approved ones, and one report says whether v0.1 is done.",
+    stepNames:["All eight starter renders ready (4 starters x 2 rates)","Full listen at 48 kHz per starter","44.1 kHz spot check of every transition-list entry","Sign-off records written and goldens committed","Gate report generated from full-tier CI artifacts","Gate report passes (all assertions, hashes, sign-offs, S0.5 outcome)","v0.1 declared done; sprint-status.yaml and guidebook updated"],
+    steps:S7(), acs:[
+      [" ","Each approved render gets a provisional sign-off bound to its SHA-256 and committed as golden; incomplete spot checks refused"],
+      [" ","Sign-off tool shows what is heard and what remains when a session resumes"],
+      [" ","A failed checklist item is logged, fixed in its owning story, re-rendered, and heard again"],
+      [" ","Gate report lists every assertion for all starters, rates, and platforms, the hashes, the eight goldens, and the S0.5 outcome"],
+      [" ","v0.1 is done when everything passes and all eight goldens carry provisional sign-off"]
+    ] }
+  ]
+}
+];
+
+// Running timeline: add newest entries at the TOP.
+var UPDATE_LOG = [
+  ["2026-11-03","735bd6e","0.4","Pushed; PR #4 opened"],
+  ["2026-11-03","735bd6e","0.4","Spec marked done, review triage recorded, story moved to review"],
+  ["2026-11-03","32e4e49","0.4","Review fixes: 13 findings from 3 reviewers"],
+  ["2026-11-03","be413df","0.4","Implementation committed (1258109, ddb43b6, 3b0ad28, be413df); 0.3 marked done in sprint status"],
+  ["2026-11-03","3ffaa7b","0.4","Failing tests committed (tests only)"],
+  ["2026-11-03","(this file)","-","Timeline guidebook created"],
+  ["2026-11-03","-","0.4","Spec drafted and approved: spec-0-4-ci-wording-check.md"],
+  ["2026-11-03","37e2607","0.3","PR #3 merged into main"],
+  ["2026-11-03","4493020","0.3","Spec marked done, story moved to review"],
+  ["2026-11-03","bb50f53","0.3","Review fixes: row coverage tightened"],
+  ["2026-11-03","8c8d25e","0.3","Implementation: TSV tables, C++ and Python loaders, log gate, row coverage"],
+  ["2026-11-03","971b434","0.3","Failing tests committed (tests only)"],
+  ["2026-11-03","8a673ce","0.3","Spec added; Story 0.2 marked done"],
+  ["2026-11-03","0dbe46f","0.2","PR #2 merged into main"],
+  ["2026-11-03","6177e90","0.2","Four-platform hash result: byte-identical"],
+  ["2026-11-03","e5fae72","0.2","Review triage recorded"],
+  ["2026-11-03","1038615","0.2","Implementation: engine phase rules and sine"],
+  ["2026-11-03","b1e0e25","0.2","Failing tests committed (tests only)"],
+  ["2026-11-03","49b0a52","0.2","signal-spec core and sine sections merged"],
+  ["2026-11-03","2819658","0.1","PR #1 merged into main"],
+  ["2026-11-03","3f2d544","0.1","Part 3: passing full run recorded"],
+  ["2026-11-02","2f80a97","0.1","Part 3: four-platform tier, hash compare, budgets, nightly skip"],
+  ["2026-11-02","2e85006","0.1","Part 2: fast CI passing"],
+  ["2026-11-02","a74a043","0.1","Part 1: done after CI passes"],
+  ["2026-11-02","7031b28","0.1","Story planned and marked in progress"]
+];
+
+var HISTORY = [
+  ["2026-11-02","9407a0c","Sprint status tracking added"],
+  ["2026-11-01","89694f9","v0.1 epics and stories finalized after validation"],
+  ["2026-10-29","80cdf2b","Limiter idle bound set to zero gain reduction"],
+  ["2026-10-28","f77ecfa","First story breakdown (Epics 0 to 3); burst and sine decisions logged"],
+  ["2026-10-27","8362b02","v0.1 spec added"],
+  ["2026-10-27","249a8c4","Architecture spine added"],
+  ["2026-10-27","f9f2497","PRD added"],
+  ["2026-10-27","9048bd6","Initial commit: project plan, BMAD setup, research, design log"]
+];
+
+/* =====================================================================
+   END OF DATA. Rendering code below; no need to edit.
+   ===================================================================== */
+
+function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function allStories(){ var a=[]; EPICS.forEach(function(e){ e.stories.forEach(function(s){ s._epic=e; a.push(s); }); }); return a; }
+function find(id){ return allStories().filter(function(s){ return s.id===id; })[0]; }
+function boxFor(m){ return m==="x" ? '<span class="box on">&#10003;</span>' : (m==="~" ? '<span class="box half">~</span>' : '<span class="box"></span>'); }
+function epicPct(e){ var d=e.stories.filter(function(s){return s.status==="done";}).length; return {d:d,t:e.stories.length,p:Math.round(100*d/e.stories.length)}; }
+function storyLine(s){ return s ? '<div><b>Story '+esc(s.id)+'</b> '+esc(s.title)+'</div><div style="margin-top:6px"><span class="pill s-'+s.status+'">'+s.status+'</span></div><div class="muted" style="margin-top:6px;font-size:13px">'+esc(s.plain)+'</div>' : '<span class="muted">None</span>'; }
+
+function render(){
+  document.getElementById("lastUpdated").textContent = LAST_UPDATED;
+  var all = allStories(), done = all.filter(function(s){return s.status==="done";}).length;
+  var pct = Math.round(100*done/all.length);
+  document.getElementById("pctAll").textContent = pct+"%";
+  document.getElementById("barAll").style.width = pct+"%";
+  document.getElementById("countAll").textContent = done+" of "+all.length+" stories done across "+EPICS.length+" epics";
+  document.getElementById("nowStory").innerHTML = storyLine(find(CURRENT));
+  document.getElementById("nextStory").innerHTML = storyLine(find(NEXT));
+  var s05 = find("0.5");
+  document.getElementById("gate").innerHTML = '<div><b>Epic 1 waits for Story 0.5</b></div><div class="muted" style="font-size:13px;margin-top:6px">The independent review of AD-4, AD-5, AD-9, AD-19, AD-20, and the Stack must be done first.</div><div style="margin-top:6px">Story 0.5: <span class="pill s-'+s05.status+'">'+s05.status+'</span></div>';
+
+  // road map
+  var road = "";
+  EPICS.forEach(function(e){
+    var p = epicPct(e), cls = p.d===p.t ? "done" : (e.stories.some(function(s){return s.status!=="backlog";}) ? "in-progress" : "");
+    road += '<div class="stop"><a href="#epic-'+e.id+'" style="text-decoration:none;color:inherit"><div class="dot '+cls+'">'+e.id+'</div><div class="lbl">'+esc(e.title)+'</div><div class="pct">'+p.d+' / '+p.t+' stories</div></a></div>';
+  });
+  var v01 = find("6.7").status==="done";
+  road += '<div class="stop"><div class="dot '+(v01?"done":"")+'">&#9733;</div><div class="lbl">v0.1 signed off</div><div class="pct">'+(v01?"done":"not yet")+'</div></div>';
+  document.getElementById("roadmap").innerHTML = road;
+
+  // epics
+  var html = "";
+  EPICS.forEach(function(e){
+    var p = epicPct(e);
+    var est = p.d===p.t ? "done" : (e.stories.some(function(s){return s.status!=="backlog";}) ? "in-progress" : "backlog");
+    html += '<details class="epic" id="epic-'+e.id+'"'+(est==="in-progress"?" open":"")+'><summary>'
+      + '<span class="t">Epic '+e.id+': '+esc(e.title)+'</span>'
+      + '<span class="pill s-'+est+'">'+est+'</span>'
+      + '<span class="mini"><div class="bar"><span style="width:'+p.p+'%"></span></div><div class="muted" style="font-size:12px">'+p.d+' of '+p.t+' done</div></span>'
+      + '</summary><div class="body"><div class="goal"><b>Goal:</b> '+esc(e.goal)+'<div class="muted" style="font-size:13px;margin-top:4px">Requirements covered: '+esc(e.frs)+'</div></div>'
+      + (e.note ? '<div class="note">&#9888; '+esc(e.note)+'</div>' : '');
+    e.stories.forEach(function(s){
+      var names = s.stepNames || STEP_NAMES;
+      var sd = s.steps.filter(Boolean).length, ad = s.acs.filter(function(a){return a[0]==="x";}).length;
+      var hay = (s.id+" "+s.title+" "+s.plain+" "+s.acs.map(function(a){return a[1];}).join(" ")+" "+(s.spec||[]).join(" ")+" "+(s.meta||"")).toLowerCase();
+      html += '<details class="story'+(s.id===CURRENT?" current":"")+'" data-status="'+s.status+'" data-hay="'+esc(hay)+'"'+(s.id===CURRENT?" open":"")+'><summary>'
+        + '<span class="sid">'+esc(s.id)+'</span><span class="stitle">'+esc(s.title)+(s.id===CURRENT?' <span class="muted">(working on now)</span>':'')+'</span>'
+        + '<span class="count">steps '+sd+'/'+names.length+' &middot; criteria '+ad+'/'+s.acs.length+'</span>'
+        + '<span class="pill s-'+s.status+'">'+s.status+'</span></summary><div class="sbody">'
+        + '<div style="grid-column:1/-1" class="muted">'+esc(s.plain)+'</div>'
+        + '<div><h4>Workflow checklist</h4><ul class="check">';
+      names.forEach(function(n,i){
+        var on = !!s.steps[i], note = s.stepNotes && s.stepNotes[i] ? ' <span class="muted">('+esc(s.stepNotes[i])+')</span>' : '';
+        html += '<li class="'+(on?"on":"")+'">'+boxFor(on?"x":(note?"~":" "))+'<span class="txt">'+esc(n)+note+'</span></li>';
+      });
+      html += '</ul>';
+      if (s.parts){ html += '<h4 style="margin-top:12px">Parts</h4><ul class="check">'; s.parts.forEach(function(a){ html += '<li class="'+(a[0]==="x"?"on":"")+'">'+boxFor(a[0])+'<span class="txt">'+esc(a[1])+'</span></li>'; }); html += '</ul>'; }
+      html += '</div><div><h4>Acceptance criteria</h4><ul class="check">';
+      s.acs.forEach(function(a){ html += '<li class="'+(a[0]==="x"?"on":"")+'">'+boxFor(a[0])+'<span class="txt">'+esc(a[1])+'</span></li>'; });
+      html += '</ul></div><div class="meta">';
+      if (s.spec){ html += 'Spec: '+s.spec.map(function(f){ return '<a href="'+SPEC_DIR+f+'">'+esc(f)+'</a>'; }).join(", ")+'<br>'; }
+      else { html += 'Spec: not written yet. Full acceptance criteria: <a href="../_bmad-output/planning-artifacts/epics.md">epics.md</a><br>'; }
+      if (s.meta) html += esc(s.meta);
+      html += '</div></div></details>';
+    });
+    html += '<div class="muted" style="font-size:13px;margin-top:8px">Epic '+e.id+' retrospective: <span class="pill s-'+(e.retro==="done"?"done":"optional")+'">'+e.retro+'</span></div></div></details>';
+  });
+  document.getElementById("epicList").innerHTML = html;
+
+  document.getElementById("logBody").innerHTML = UPDATE_LOG.map(function(r){ return '<tr><td>'+esc(r[0])+'</td><td class="h">'+esc(r[1])+'</td><td>'+esc(r[2])+'</td><td>'+esc(r[3])+'</td></tr>'; }).join("");
+  document.getElementById("histBody").innerHTML = HISTORY.map(function(r){ return '<tr><td>'+esc(r[0])+'</td><td class="h">'+esc(r[1])+'</td><td>'+esc(r[2])+'</td></tr>'; }).join("");
+}
+
+// filters and search
+var currentFilter = "all";
+function applyFilter(){
+  var q = document.getElementById("search").value.toLowerCase().trim();
+  document.querySelectorAll(".story").forEach(function(el){
+    var st = el.getAttribute("data-status"), ok = true;
+    if (currentFilter==="done") ok = st==="done";
+    else if (currentFilter==="active") ok = st==="in-progress" || st==="review" || st==="ready-for-dev";
+    else if (currentFilter==="backlog") ok = st==="backlog";
+    if (q && el.getAttribute("data-hay").indexOf(q)<0) ok = false;
+    el.style.display = ok ? "" : "none";
+    if (ok && (q || currentFilter!=="all")) el.parentElement.parentElement.open = true;
+  });
+}
+document.addEventListener("DOMContentLoaded", function(){
+  render();
+  document.querySelectorAll(".filters button[data-f]").forEach(function(b){
+    b.addEventListener("click", function(){
+      document.querySelectorAll(".filters button[data-f]").forEach(function(x){ x.classList.remove("on"); });
+      b.classList.add("on"); currentFilter = b.getAttribute("data-f"); applyFilter();
+    });
+  });
+  document.getElementById("search").addEventListener("input", applyFilter);
+  document.getElementById("expand").addEventListener("click", function(){ document.querySelectorAll("details").forEach(function(d){ d.open=true; }); });
+  document.getElementById("collapse").addEventListener("click", function(){ document.querySelectorAll("details").forEach(function(d){ d.open=false; }); });
+  window.addEventListener("beforeprint", function(){ document.querySelectorAll("details").forEach(function(d){ d.open=true; }); });
+});
+</script>
+</body>
+</html>
+

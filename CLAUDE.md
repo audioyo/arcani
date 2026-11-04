@@ -79,3 +79,4 @@ Run the fast tests after every change. Do not commit with failing tests. Golden 
 - BMAD drives planning: brief (the plan doc), then PRD, architecture, and stories.
 - One story per branch. Keep commits small, with messages that say what changed and why.
 - Log every changed default or threshold in the design log with its source or test result.
+- After every commit or push that completes a story section (spec, failing tests, implementation, review, CI, merge, or an acceptance criterion), update `docs/timeline-guidebook.html`: tick the steps and criteria in its DATA block, match the status in `sprint-status.yaml`, and add a dated line with the commit hash to `UPDATE_LOG`.
