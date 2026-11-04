@@ -274,7 +274,7 @@
    Update after every completed section plus commit and/or push.
    ===================================================================== */
 
-var LAST_UPDATED = "2026-11-03";
+var LAST_UPDATED = "2026-11-04";
 var CURRENT = "0.4";   // story id being worked on
 var NEXT    = "0.5";   // story id that comes next
 
@@ -355,15 +355,15 @@ var EPICS = [
   { id:"0.4", title:"CI wording check", status:"review",
     plain:"CI catches banned project terms, comparable product names, claim words, and em dashes, so the copy rules hold without anyone reading every line.",
     spec:["spec-0-4-ci-wording-check.md"],
-    steps:[true,true,true,true,false,false,false],
-    stepNotes:["Approved by Audio 2026-11-03","3ffaa7b","1258109 to be413df; 818 passed locally","3 reviewers; 13 fixes in 32e4e49; triage in the spec (735bd6e)","PR #4 opened 2026-11-03; waiting for fast and full tiers","",""],
+    steps:[true,true,true,true,true,false,false],
+    stepNotes:["Approved by Audio 2026-11-03","3ffaa7b","1258109 to be413df; 818 passed locally","3 reviewers; 13 fixes in 32e4e49; triage in the spec (735bd6e)","PR #4: fast and full tiers green on 7a238bb (11 checks)","",""],
     acs:[
       ["x","Term list data file (tools/wording/terms.tsv) scanned against docs, code, and recipes; a match fails with file, line, and term; the term list itself is exempt"],
       ["x","Any em dash in a scanned file fails with file and line"],
       ["x","Research files pass through a path exemption list kept in the repo (each line has a reason)"],
       ["x","Must-fail fixtures (em dash doc, recipe claim word, banned term in a comment) each fail"],
       ["x","The current repo passes, with existing violations fixed (project-plan.md split and reworded)"],
-      [" ","Both fast CI jobs run the check before the build"]
+      ["x","Both fast CI jobs run the check before the build"]
     ],
     meta:"Design log entry (dd). Branch story/0-4-ci-wording-check pushed; PR #4 opened 2026-11-03. Deferred: add the check to the CLAUDE.md commands." },
 
@@ -688,6 +688,7 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-04","7a238bb","0.4","CI green on PR #4: fast tier and all four full-tier platforms (11 checks)"],
   ["2026-11-03","735bd6e","0.4","Pushed; PR #4 opened"],
   ["2026-11-03","735bd6e","0.4","Spec marked done, review triage recorded, story moved to review"],
   ["2026-11-03","32e4e49","0.4","Review fixes: 13 findings from 3 reviewers"],
