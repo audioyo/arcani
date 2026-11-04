@@ -221,6 +221,29 @@ def test_strict_loader_rejects_other_malformed_input(text):
         tool.strict_loads(text)
 
 
+ERROR_VECTORS = REPO_ROOT / "tests" / "data" / "json_error_vectors.json"
+
+
+def error_vectors():
+    return json.loads(ERROR_VECTORS.read_text(encoding="utf-8"))["cases"]
+
+
+def test_error_vectors_cover_every_json_rule():
+    rules = {c["rule"] for c in error_vectors()}
+    assert JSON_RULES <= rules
+    used = {e["rule"] for e in expected().values() if e.get("rule", "").startswith("json.")}
+    assert used <= rules
+
+
+@pytest.mark.parametrize("case", error_vectors(), ids=lambda c: c["name"])
+def test_strict_loader_matches_the_shared_rule_and_offset(case):
+    # tests/cpp/test_json.cpp runs the same vectors against the engine parser.
+    tool = load_tool()
+    with pytest.raises(tool.StrictJSONError) as info:
+        tool.strict_loads(bytes.fromhex(case["input_hex"]))
+    assert (info.value.rule, info.value.offset) == (case["rule"], case["offset"])
+
+
 def test_strict_loader_accepts_largest_finite_and_surrogate_pairs():
     tool = load_tool()
     assert tool.strict_loads(b"[1.7976931348623158e308]") == [1.7976931348623157e308]

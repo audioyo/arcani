@@ -12,8 +12,10 @@
 
 namespace arcani::json {
 
-// Canonical UTF-8 text of v. Numbers in v must be finite (the parser never
-// produces anything else).
+// Canonical UTF-8 text of v. Preconditions: every number in v is finite and
+// every string and key is valid UTF-8. Values from parse() always meet both;
+// a value built by hand must too (invalid UTF-8 is not detected and gives
+// wrong key order and output).
 std::string canonicalize(const Value& v);
 
 }  // namespace arcani::json

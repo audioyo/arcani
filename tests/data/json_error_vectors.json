@@ -1,0 +1,221 @@
+{
+  "description": "Strict JSON parser faults shared by tests/cpp/test_json.cpp and tests/python/test_recipe_fixtures.py: the engine parser and tools/recipe_hash.py must both report exactly this rule and byte offset for each input (UTF-8 bytes as hex).",
+  "cases": [
+    {
+      "name": "bom",
+      "input_hex": "efbbbf5b315d",
+      "rule": "json.bom",
+      "offset": 0
+    },
+    {
+      "name": "invalid-utf8-continuation",
+      "input_hex": "5b226180225d",
+      "rule": "json.invalid_utf8",
+      "offset": 3
+    },
+    {
+      "name": "invalid-utf8-after-multibyte",
+      "input_hex": "5b22c3a9e282225d",
+      "rule": "json.invalid_utf8",
+      "offset": 4
+    },
+    {
+      "name": "line-comment",
+      "input_hex": "5b315d2f2f63",
+      "rule": "json.comment",
+      "offset": 3
+    },
+    {
+      "name": "block-comment",
+      "input_hex": "2f2a632a2f5b315d",
+      "rule": "json.comment",
+      "offset": 0
+    },
+    {
+      "name": "slash-alone",
+      "input_hex": "5b315d2f",
+      "rule": "json.unexpected_char",
+      "offset": 3
+    },
+    {
+      "name": "trailing-comma-array",
+      "input_hex": "5b312c5d",
+      "rule": "json.trailing_comma",
+      "offset": 3
+    },
+    {
+      "name": "trailing-comma-object",
+      "input_hex": "7b2261223a312c207d",
+      "rule": "json.trailing_comma",
+      "offset": 8
+    },
+    {
+      "name": "nan",
+      "input_hex": "5b4e614e5d",
+      "rule": "json.non_finite",
+      "offset": 1
+    },
+    {
+      "name": "minus-infinity",
+      "input_hex": "5b312c2d496e66696e6974795d",
+      "rule": "json.non_finite",
+      "offset": 3
+    },
+    {
+      "name": "overflow",
+      "input_hex": "5b302c31653430305d",
+      "rule": "json.number_overflow",
+      "offset": 3
+    },
+    {
+      "name": "leading-zero",
+      "input_hex": "5b2d30315d",
+      "rule": "json.leading_zero",
+      "offset": 1
+    },
+    {
+      "name": "lone-high-surrogate",
+      "input_hex": "5b2261625c7564383030225d",
+      "rule": "json.lone_surrogate",
+      "offset": 4
+    },
+    {
+      "name": "lone-low-surrogate",
+      "input_hex": "5b225c7564633030225d",
+      "rule": "json.lone_surrogate",
+      "offset": 2
+    },
+    {
+      "name": "high-surrogate-then-non-low",
+      "input_hex": "5b225c75643830305c7530303431225d",
+      "rule": "json.lone_surrogate",
+      "offset": 2
+    },
+    {
+      "name": "depth",
+      "input_hex": "5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d",
+      "rule": "json.depth",
+      "offset": 64
+    },
+    {
+      "name": "duplicate-key",
+      "input_hex": "7b2261223a312c2261223a327d",
+      "rule": "json.duplicate_key",
+      "offset": 7
+    },
+    {
+      "name": "duplicate-key-escaped",
+      "input_hex": "7b2261223a312c225c7530303631223a327d",
+      "rule": "json.duplicate_key",
+      "offset": 7
+    },
+    {
+      "name": "duplicate-then-trailing-comma",
+      "input_hex": "7b2261223a312c2261223a322c7d",
+      "rule": "json.duplicate_key",
+      "offset": 7
+    },
+    {
+      "name": "two-different-duplicates",
+      "input_hex": "7b2261223a312c2262223a322c2262223a332c2261223a347d",
+      "rule": "json.duplicate_key",
+      "offset": 13
+    },
+    {
+      "name": "duplicate-after-multibyte-key",
+      "input_hex": "7b22c3a9223a312c22c3a9223a327d",
+      "rule": "json.duplicate_key",
+      "offset": 8
+    },
+    {
+      "name": "trailing-comma-after-multibyte",
+      "input_hex": "5b22c3a9222c5d",
+      "rule": "json.trailing_comma",
+      "offset": 6
+    },
+    {
+      "name": "control-character",
+      "input_hex": "5b226101225d",
+      "rule": "json.control_character",
+      "offset": 3
+    },
+    {
+      "name": "invalid-escape",
+      "input_hex": "5b225c78225d",
+      "rule": "json.invalid_escape",
+      "offset": 2
+    },
+    {
+      "name": "invalid-literal",
+      "input_hex": "5b7472755d",
+      "rule": "json.invalid_literal",
+      "offset": 1
+    },
+    {
+      "name": "unexpected-end-array",
+      "input_hex": "5b312c",
+      "rule": "json.unexpected_end",
+      "offset": 3
+    },
+    {
+      "name": "unexpected-end-string",
+      "input_hex": "22616263",
+      "rule": "json.unexpected_end",
+      "offset": 4
+    },
+    {
+      "name": "unexpected-end-empty",
+      "input_hex": "",
+      "rule": "json.unexpected_end",
+      "offset": 0
+    },
+    {
+      "name": "unexpected-char-plus",
+      "input_hex": "5b2b315d",
+      "rule": "json.unexpected_char",
+      "offset": 1
+    },
+    {
+      "name": "invalid-number-fraction",
+      "input_hex": "5b312e5d",
+      "rule": "json.invalid_number",
+      "offset": 1
+    },
+    {
+      "name": "invalid-number-minus",
+      "input_hex": "5b2d5d",
+      "rule": "json.invalid_number",
+      "offset": 1
+    },
+    {
+      "name": "invalid-number-exponent",
+      "input_hex": "5b322c31652b5d",
+      "rule": "json.invalid_number",
+      "offset": 3
+    },
+    {
+      "name": "trailing-data",
+      "input_hex": "5b315d205b325d",
+      "rule": "json.trailing_data",
+      "offset": 4
+    },
+    {
+      "name": "expected-key",
+      "input_hex": "7b613a317d",
+      "rule": "json.expected_key",
+      "offset": 1
+    },
+    {
+      "name": "expected-colon",
+      "input_hex": "7b22612220317d",
+      "rule": "json.expected_colon",
+      "offset": 5
+    },
+    {
+      "name": "expected-comma",
+      "input_hex": "5b3120325d",
+      "rule": "json.expected_comma",
+      "offset": 3
+    }
+  ]
+}

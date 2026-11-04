@@ -22,6 +22,26 @@
     "byte-order-mark.json": {
       "rule": "json.bom"
     },
+    "date-day-00.json": {
+      "parameter": "/date",
+      "rule": "pattern",
+      "schema_keyword": "pattern"
+    },
+    "date-day-32.json": {
+      "parameter": "/date",
+      "rule": "pattern",
+      "schema_keyword": "pattern"
+    },
+    "date-month-00.json": {
+      "parameter": "/date",
+      "rule": "pattern",
+      "schema_keyword": "pattern"
+    },
+    "date-month-13.json": {
+      "parameter": "/date",
+      "rule": "pattern",
+      "schema_keyword": "pattern"
+    },
     "date-not-iso.json": {
       "parameter": "/date",
       "rule": "pattern",
@@ -32,6 +52,11 @@
     },
     "duplicate-key.json": {
       "rule": "json.duplicate_key"
+    },
+    "engine-version-leading-zero.json": {
+      "parameter": "/engine_version",
+      "rule": "pattern",
+      "schema_keyword": "pattern"
     },
     "engine-version-two-parts.json": {
       "parameter": "/engine_version",
@@ -134,11 +159,26 @@
     "number-overflow.json": {
       "rule": "json.number_overflow"
     },
+    "schema-version-major-2-minor-leading-zero.json": {
+      "parameter": "/schema_version",
+      "rule": "pattern",
+      "schema_keyword": "pattern"
+    },
     "schema-version-major-2.json": {
       "parameter": "/schema_version",
       "value": "2.0",
       "rule": "schema_version.major",
       "limit": "1"
+    },
+    "schema-version-major-leading-zero.json": {
+      "parameter": "/schema_version",
+      "rule": "pattern",
+      "schema_keyword": "pattern"
+    },
+    "schema-version-minor-leading-zero.json": {
+      "parameter": "/schema_version",
+      "rule": "pattern",
+      "schema_keyword": "pattern"
     },
     "schema-version-no-minor.json": {
       "parameter": "/schema_version",

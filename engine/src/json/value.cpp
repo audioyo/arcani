@@ -2,8 +2,8 @@
 
 #include "json/value.hpp"
 
-#include <algorithm>
 #include <cstdint>
+#include <set>
 
 #include "json/number.hpp"
 
@@ -271,7 +271,7 @@ class Parser {
       return false;
     }
     std::vector<Value::Member> members;
-    std::vector<std::size_t> key_offsets;
+    std::set<std::string> seen;  // keys of the members read so far
     if (peek() == '}') {
       ++i_;
       out = Value::object_value(std::move(members));
@@ -286,7 +286,15 @@ class Parser {
       }
       const std::size_t key_at = i_;
       std::string key;
-      if (!parse_string(key) || !skip_ws()) {
+      if (!parse_string(key)) {
+        return false;
+      }
+      // Duplicate keys, compared after unescaping, as each key is read: the
+      // first duplicate in document order is reported, at its opening quote.
+      if (!seen.insert(key).second) {
+        return fail("json.duplicate_key", key_at, key);
+      }
+      if (!skip_ws()) {
         return false;
       }
       if (peek() != ':' || at_end()) {
@@ -301,7 +309,6 @@ class Parser {
         return false;
       }
       members.emplace_back(std::move(key), std::move(value));
-      key_offsets.push_back(key_at);
       const char c = peek();
       if (c == ',' && !at_end()) {
         ++i_;
@@ -316,19 +323,6 @@ class Parser {
         break;
       } else {
         return at_end() ? fail("json.unexpected_end", i_) : fail("json.expected_comma", i_);
-      }
-    }
-    // Duplicate keys, compared after unescaping: report the later occurrence.
-    std::vector<std::size_t> order(members.size());
-    for (std::size_t k = 0; k < order.size(); ++k) {
-      order[k] = k;
-    }
-    std::sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
-      return members[a].first != members[b].first ? members[a].first < members[b].first : a < b;
-    });
-    for (std::size_t k = 1; k < order.size(); ++k) {
-      if (members[order[k]].first == members[order[k - 1]].first) {
-        return fail("json.duplicate_key", key_offsets[order[k]], members[order[k]].first);
       }
     }
     out = Value::object_value(std::move(members));

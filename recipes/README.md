@@ -24,6 +24,8 @@ Session recipes. One JSON recipe fully defines a session. The four v0.1 starter 
 | `binaural.carrier_left_hz` | number, Hz | yes, in its layer | loudness-relevant |
 | `binaural.beat_rate_hz` | number, Hz | yes, in its layer | loudness-relevant |
 
+`date` is checked for shape only (`YYYY-MM-DD`, month 01 to 12, day 01 to 31), not for whether the date exists: `2026-02-31` passes.
+
 Names are `snake_case`, with a unit suffix (`_hz`, `_deg`, `_db`, `_lufs`, `_s`) on every quantity. Layers are fixed top-level keys, never an array.
 
 ## Tags

@@ -11,6 +11,10 @@ no byte order mark, valid UTF-8, no comments, no trailing commas, no leading
 zeros, no NaN or Infinity, no number that overflows binary64, no duplicate
 keys, no lone surrogate escapes, and nesting no deeper than MAX_DEPTH.
 
+This tool checks JSON syntax only, not the recipe schema: a recipe the
+schema rejects still gets a hash here, and that hash means nothing. Validate
+against recipes/recipe.schema.json (or parse with the engine) first.
+
 Usage:
   python tools/recipe_hash.py RECIPE.json [...]   print each recipe hash
   python tools/recipe_hash.py --write-vectors     refresh the vectors file
@@ -219,13 +223,13 @@ class _Parser:
             while self.peek() != "" and self.peek() in digits:
                 self.i += 1
         else:
-            self.fail("json.invalid_number")
+            self.fail("json.invalid_number", start)
         is_int = True
         if self.peek() == ".":
             is_int = False
             self.i += 1
             if not (self.peek() != "" and self.peek() in digits):
-                self.fail("json.invalid_number")
+                self.fail("json.invalid_number", start)
             while self.peek() != "" and self.peek() in digits:
                 self.i += 1
         if self.peek() in ("e", "E"):
@@ -234,7 +238,7 @@ class _Parser:
             if self.peek() in ("+", "-"):
                 self.i += 1
             if not (self.peek() != "" and self.peek() in digits):
-                self.fail("json.invalid_number")
+                self.fail("json.invalid_number", start)
             while self.peek() != "" and self.peek() in digits:
                 self.i += 1
         text = s[start:self.i]
@@ -437,7 +441,9 @@ def compute_vectors():
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Recipe hash: SHA-256 over RFC 8785 canonical "
-                                     "JSON minus the schema's hash-excluded fields.")
+                                     "JSON minus the schema's hash-excluded fields. Checks JSON "
+                                     "syntax only, not the schema: the hash of a recipe the "
+                                     "schema rejects means nothing.")
     parser.add_argument("recipes", nargs="*", type=Path, help="recipe files to hash")
     parser.add_argument("--write-vectors", action="store_true",
                         help=f"write every valid fixture's hash to {VECTORS_PATH.relative_to(REPO_ROOT).as_posix()}")
@@ -451,7 +457,7 @@ def main(argv=None):
     for path in args.recipes:
         try:
             print(f"{hash_bytes(path.read_bytes(), schema)}  {path}")
-        except StrictJSONError as err:
+        except (StrictJSONError, OSError) as err:
             print(f"{path}: {err}", file=sys.stderr)
             status = 1
     if not args.write_vectors and not args.recipes:

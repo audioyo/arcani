@@ -57,6 +57,7 @@
 #if __has_include("recipe/recipe.hpp") && __has_include("recipe/field_table.hpp") && \
     __has_include("json/value.hpp")
 
+#include "crypto/sha256.hpp"
 #include "json/value.hpp"
 #include "recipe/field_table.hpp"
 #include "recipe/recipe.hpp"
@@ -74,6 +75,7 @@
 namespace fs = std::filesystem;
 namespace json = arcani::json;
 namespace recipe = arcani::recipe;
+namespace crypto = arcani::crypto;
 
 namespace {
 
@@ -271,12 +273,7 @@ TEST_CASE("engine rejects every invalid fixture with the expected error", "[reci
       }
     }
     if (const auto* param = member(*want, "parameter")) {
-      if (name == "schema-version-major-2.json") {
-        // The spec names this parameter `schema_version`; a JSON Pointer is also accepted.
-        CHECK((r.error.parameter == "/schema_version" || r.error.parameter == "schema_version"));
-      } else {
-        CHECK(r.error.parameter == param->string());
-      }
+      CHECK(r.error.parameter == param->string());
     }
     if (const auto* value = member(*want, "value")) {
       CHECK(r.error.value == value->string());
@@ -301,6 +298,43 @@ TEST_CASE("engine rejects bad UTF-8 inside a recipe", "[recipe][fixtures]") {
     CHECK(r.error.rule == "json.invalid_utf8");
     CHECK(r.error.parameter == std::to_string(at + 7));
   }
+}
+
+TEST_CASE("engine pattern checks reject a final newline in every patterned field",
+          "[recipe][fixtures]") {
+  // Mirrors the Python pattern-trap test: Python's $ matches before a final
+  // newline, so each pattern (and the engine's hand-written check) must not.
+  const std::string base = fixture("valid", "both-layers.json");
+  for (const char* field : {"schema_version", "engine_version", "date", "loudness_hash"}) {
+    INFO(field);
+    const std::string key = std::string("\"") + field + "\": \"";
+    const auto key_at = base.find(key);
+    REQUIRE(key_at != std::string::npos);
+    const auto close = base.find('"', key_at + key.size());
+    REQUIRE(close != std::string::npos);
+    std::string text = base;
+    text.insert(close, "\\n");  // the JSON escape for a newline
+    const auto r = recipe::parse(text);
+    REQUIRE_FALSE(r.recipe.has_value());
+    CHECK(r.error.rule == "pattern");
+    CHECK(r.error.parameter == std::string("/") + field);
+  }
+}
+
+TEST_CASE("recipe hash equals SHA-256 of the hand-written canonical text", "[recipe][hash]") {
+  // Written out by hand from both-layers.json, not by any tool: hash-excluded
+  // fields removed, keys sorted, integral numbers without a fraction. The hex
+  // is hashlib.sha256 of this literal; tests/python/test_recipe_hash.py checks
+  // the same literal against the Python tool.
+  const std::string canonical =
+      R"({"binaural":{"beat_rate_hz":6,"carrier_left_hz":400},"engine_version":"0.0.1",)"
+      R"("length_s":600,"loudness_target_lufs":-16,"schema_version":"1.0","seed":42,)"
+      R"("theta_reference":{"carrier_hz":200}})";
+  const std::string want = "154db16986eae01f0cefdce72bf0e1b8fd38eaf5abcf69f61064cc77d3e11127";
+  CHECK(crypto::sha256_hex(canonical) == want);
+  const auto r = recipe::parse(fixture("valid", "both-layers.json"));
+  REQUIRE(r.recipe.has_value());
+  CHECK(r.recipe->hash == want);
 }
 
 TEST_CASE("engine parse stage fills the recipe fields", "[recipe]") {

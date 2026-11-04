@@ -162,7 +162,7 @@ std::optional<Error> check_value(const Field& f, const Value& v) {
     if (parts.size() == 2 && parts[0] == "1" && plain_number(parts[1])) {
       return std::nullopt;
     }
-    if (parts.size() == 2 && all_digits(parts[0]) && all_digits(parts[1]) && parts[0] != "1") {
+    if (parts.size() == 2 && plain_number(parts[0]) && plain_number(parts[1])) {
       return make_error(pointer, v.string(), "schema_version.major", kSupportedSchemaMajors);
     }
     return make_error(pointer, v.string(), "pattern", kSchemaVersionPattern);

@@ -140,6 +140,23 @@ def test_hash_is_lowercase_hex_and_follows_the_definition():
     assert tool.hash_bytes(fixture(BASE)) == got
 
 
+def test_hash_equals_sha256_of_the_hand_written_canonical_text():
+    # Written out by hand from both-layers.json, not by the tool: hash-excluded
+    # fields removed, keys sorted, integral numbers without a fraction.
+    # tests/cpp/test_recipe.cpp checks the same literal and hex on the engine.
+    canonical = (
+        '{"binaural":{"beat_rate_hz":6,"carrier_left_hz":400},"engine_version":"0.0.1",'
+        '"length_s":600,"loudness_target_lufs":-16,"schema_version":"1.0","seed":42,'
+        '"theta_reference":{"carrier_hz":200}}').encode("utf-8")
+    want = hashlib.sha256(canonical).hexdigest()
+    assert want == "154db16986eae01f0cefdce72bf0e1b8fd38eaf5abcf69f61064cc77d3e11127"
+    tool = load_tool()
+    assert tool.canonicalize(drop(drop(drop(drop(drop(base_value(), "/author"), "/date"),
+                                             "/rationale"), "/loudness_gain_db"),
+                                  "/loudness_hash")) == canonical
+    assert tool.hash_bytes(fixture(BASE)) == want
+
+
 def test_hash_does_not_mutate_its_input():
     tool = load_tool()
     value = base_value()

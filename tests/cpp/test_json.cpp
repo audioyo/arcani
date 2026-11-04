@@ -256,7 +256,7 @@ TEST_CASE("parse keeps the integral flag and decodes values", "[json]") {
 TEST_CASE("parse names each strict rule", "[json][strict]") {
   const std::pair<std::string, const char*> cases[] = {
       {R"({"a":1,"a":2})", "json.duplicate_key"},
-      {R"({"a":1,"a":2})", "json.duplicate_key"},
+      {R"({"a":1,"\u0061":2})", "json.duplicate_key"},
       {"[1,]", "json.trailing_comma"},
       {R"({"a":1,})", "json.trailing_comma"},
       {"[NaN]", "json.non_finite"},
@@ -271,6 +271,7 @@ TEST_CASE("parse names each strict rule", "[json][strict]") {
       {R"(["\ud800"])", "json.lone_surrogate"},
       {R"(["\udc00"])", "json.lone_surrogate"},
       {R"(["\ud800A"])", "json.lone_surrogate"},
+      {R"(["\ud800\u0041"])", "json.lone_surrogate"},
       {"\xEF\xBB\xBF[1]", "json.bom"},
       {"[\"\x80\"]", "json.invalid_utf8"},
       {"[\"\xFF\"]", "json.invalid_utf8"},
@@ -282,6 +283,22 @@ TEST_CASE("parse names each strict rule", "[json][strict]") {
   for (const auto& [text, rule] : cases) {
     INFO(text);
     CHECK(rule_of(text) == rule);
+  }
+}
+
+TEST_CASE("parse gives the shared rule and byte offset for each fault", "[json][strict]") {
+  // tests/data/json_error_vectors.json; tests/python/test_recipe_fixtures.py
+  // requires the same rule and offset from tools/recipe_hash.py.
+  const auto vectors = load("json_error_vectors.json");
+  const auto& cases = at(vectors, "cases").array();
+  REQUIRE(cases.size() >= 20);
+  for (const auto& c : cases) {
+    INFO(at(c, "name").string());
+    const std::string text = unhex(at(c, "input_hex").string());
+    const auto r = json::parse(text);
+    REQUIRE_FALSE(r.value.has_value());
+    CHECK(r.error.rule == at(c, "rule").string());
+    CHECK(r.error.offset == static_cast<std::size_t>(at(c, "offset").number()));
   }
 }
 
