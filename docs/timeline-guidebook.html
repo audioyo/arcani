@@ -275,8 +275,8 @@
    ===================================================================== */
 
 var LAST_UPDATED = "2026-11-04";
-var CURRENT = "0.5";   // story id being worked on
-var NEXT    = "1.1";   // story id that comes next
+var CURRENT = "1.1";   // story id being worked on
+var NEXT    = "1.2";   // story id that comes next
 
 // Workflow step names, used by every story unless it lists its own "stepNames".
 var STEP_NAMES = [
@@ -367,19 +367,19 @@ var EPICS = [
     ],
     meta:"Design log entry (dd). PR #4 merged 2026-11-04 (81f201b). Deferred: add the check to the CLAUDE.md commands." },
 
-  { id:"0.5", title:"Independent review of the pending architecture decisions", status:"review",
+  { id:"0.5", title:"Independent review of the pending architecture decisions", status:"done",
     plain:"A fresh reviewer checks the decisions still marked review pending, so any change costs a little rework now instead of a lot later.",
     stepNames:["Review scope and reviewer named","Each decision reviewed against PRD, SPEC, CLAUDE.md, research library","Findings saved beside the spine's existing reviews","Each decision locked (tag removed) or changed with a design log entry","Affected stories updated","Records committed and pushed","sprint-status.yaml and guidebook updated"],
     spec:["spec-0-5-independent-review-of-the-pending-architecture-decisions.md"],
-    steps:[true,true,true,true,true,true,false],
-    stepNotes:["Two fresh-context reviewers: A (AD-4, AD-5, AD-19, AD-20), B (AD-9, Stack); failing tests b52ff92","Against PRD, SPEC, CLAUDE.md, research library, S0.2 result (design log (bb))","reviews/review-independent-s0-5.md (4ad23f3)","AD-4, AD-19, AD-20 locked; AD-5, AD-9, Stack changed with Audio's approval; design log (ee)","epics.md 0.1, 1.2, 1.4, 1.6, 2.2 to 2.5, 4.5, 6.3 to 6.5; SPEC CAP-4; PRD FR-3, FR-6; code review: 16 fixes in 1735aeb, triage in the spec (144d2b1)","Pushed c2bdd6f; PR #5 opened 2026-11-04","sprint-status.yaml set to review (144d2b1); done after merge"],
+    steps:[true,true,true,true,true,true,true],
+    stepNotes:["Two fresh-context reviewers: A (AD-4, AD-5, AD-19, AD-20), B (AD-9, Stack); failing tests b52ff92","Against PRD, SPEC, CLAUDE.md, research library, S0.2 result (design log (bb))","reviews/review-independent-s0-5.md (4ad23f3)","AD-4, AD-19, AD-20 locked; AD-5, AD-9, Stack changed with Audio's approval; design log (ee)","epics.md 0.1, 1.2, 1.4, 1.6, 2.2 to 2.5, 4.5, 6.3 to 6.5; SPEC CAP-4; PRD FR-3, FR-6; code review: 16 fixes in 1735aeb, triage in the spec (144d2b1)","Pushed c2bdd6f; PR #5 green on b07459d (11 checks); squash-merged 2026-11-04 (284fe2d)","sprint-status.yaml set to done after the merge"],
     acs:[
       ["x","AD-4, AD-5, AD-9, AD-19, AD-20, and the Stack table each locked or changed, by a fresh-context agent or a human Audio names"],
       ["x","Review findings saved beside the spine's existing reviews"],
       ["x","AD-9 review confirms or changes the fallback scope using the S0.2 result"],
-      [" ","Done before Epic 1 starts"]
+      ["x","Done before Epic 1 starts"]
     ],
-    meta:"Design log entry (ee). Spine has no [REVIEW PENDING] tag left; the review Open Question is resolved." }
+    meta:"Design log entry (ee). Spine has no [REVIEW PENDING] tag left; the review Open Question is resolved. PR #5 squash-merged 2026-11-04 (284fe2d). Open item: physical-phone hash run before the Phase 0 part 2 stack spike closes." }
   ]
 },
 {
@@ -691,6 +691,8 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-04","284fe2d","0.5","PR #5 squash-merged into main; sprint-status.yaml set to done; Epic 0 stories all done; Epic 1 unblocked"],
+  ["2026-11-04","b07459d","0.5","CI green on PR #5: fast tier and all four full-tier platforms (11 checks)"],
   ["2026-11-04","c2bdd6f","0.5","Pushed; PR #5 opened into main"],
   ["2026-11-04","144d2b1","0.5","Code review: 3 reviewers, 16 fixes in 1735aeb, 1 deferred, 8 rejected; story moved to review"],
   ["2026-11-04","4ad23f3","0.5","Review closed: six verdicts applied to the spine, design log (ee), stories updated; pytest and wording check pass"],

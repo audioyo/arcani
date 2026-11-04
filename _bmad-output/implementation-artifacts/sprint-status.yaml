@@ -30,19 +30,19 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 11-01-2026 21:26
-last_updated: 11-04-2026 06:20
+last_updated: 11-04-2026 08:18
 project: Arcani
 project_key: NOKEY
 tracking_system: file-system
 story_location: 
   C:\Users\goegl\OneDrive\Documents\Antigravity\Arcani\_bmad-output\implementation-artifacts
 development_status:
-  epic-0: in-progress
+  epic-0: done
   0-1-build-skeleton-and-ci-matrix: done
   0-2-engine-sine-oscillator-spike-that-ships: done
   0-3-threshold-and-range-tables-as-data: done
   0-4-ci-wording-check: done
-  0-5-independent-review-of-the-pending-architecture-decisions: review
+  0-5-independent-review-of-the-pending-architecture-decisions: done
   epic-0-retrospective: optional
 
   epic-1: backlog
