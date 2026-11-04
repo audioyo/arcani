@@ -389,11 +389,11 @@ var EPICS = [
   note: "Starts only after Story 0.5 is done.",
   retro: "optional",
   stories: [
-  { id:"1.1", title:"Minimal recipe schema and recipe hash", status:"in-progress",
+  { id:"1.1", title:"Minimal recipe schema and recipe hash", status:"review",
     plain:"A versioned recipe format with a stable hash, so a recipe means one thing to every tool and any change to its sound is detectable.",
     spec:["spec-1-1-minimal-recipe-schema-and-recipe-hash.md"],
-    steps:[true,true,true,false,false,false,false],
-    stepNotes:["Spec b87200c; Audio approved proceeding 2026-11-04, kept as one story (about 2,500 tokens)","06ba1f0: 162 new Python and 3 C++ cases fail; existing tests pass","3a023ea: all ctest and pytest pass; wording, pragma, symbol, and flag checks pass","","","",""],
+    steps:[true,true,true,true,false,false,false],
+    stepNotes:["Spec b87200c; Audio approved proceeding 2026-11-04, kept as one story (about 2,500 tokens)","06ba1f0: 162 new Python and 3 C++ cases fail; existing tests pass","3a023ea: all ctest and pytest pass; wording, pragma, symbol, and flag checks pass","3 fresh-context reviewers: 21 findings, 14 patched in b05f867, 6 rejected, 1 deferred; triage in the spec (6a30008)","","","sprint-status.yaml set to review (9d1ce43); done after merge"],
     acs:[
       ["x","JSON Schema in recipes/: snake_case fields with units in names, each tagged loudness-relevant, hash-excluded, or neither; unknown fields (routing, coupling_target) rejected"],
       ["x","Engine-owned strict JSON parser, standard library only; schema and compiler accept and reject the same fixtures"],
@@ -694,6 +694,7 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-04","9d1ce43","1.1","Code review closed: 3 reviewers, 21 findings, 14 patched in b05f867, 6 rejected, 1 deferred; clean build 56 C++ cases and 1,045 pytest pass; story moved to review"],
   ["2026-11-04","3a023ea","1.1","Implementation committed: recipe schema, engine strict JSON parser, number conversion, RFC 8785, SHA-256, field table, parse stage, recipe hash, Python hash tool, jsonschema pin; all tests pass locally"],
   ["2026-11-04","06ba1f0","1.1","Failing tests committed by a fresh-context QA agent: 4 Python and 3 C++ test files, 65 recipe fixtures, RFC 8785, SHA-256, and number vectors"],
   ["2026-11-04","b87200c","1.1","Spec written and approved; Epic 1 context compiled; story and Epic 1 set to in-progress"],
