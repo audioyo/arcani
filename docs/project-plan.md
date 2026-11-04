@@ -8,10 +8,10 @@ We are building an Endel-style procedural soundscape app with an original entrai
 
 Guiding principles:
 
-- **Clean room.** Every signal design comes from public science and our own engineering, never from Monroe recipes, recordings, names, or confidential material.
-- **Partnership-ready.** The app should be something we could show the Monroe Institute with pride and no awkwardness. Nothing in it should need explaining away.
-- **Honest claims.** We describe what the audio is and how it was designed. We do not claim proven brain or health effects.
-- **Lessons kept.** The QC failure from the Monroe challenge (carriers summed to a monaural beat) becomes an automated test, not a memory.
+- **Clean room.** Every signal design comes from public science and our own engineering, never from the earlier project's recipes, recordings, names, or confidential material.
+- **Partnership-ready.** The app should be something we could show any research partner with pride and no awkwardness. Nothing in it should need explaining away.
+- **Honest claims.** We describe the sound: its carriers, modulation types, and rates, and how it was designed. We promise no outcomes.
+- **Lessons kept.** The QC failure from the earlier project's challenge (carriers summed to a monaural beat) becomes an automated test, not a memory.
 
 ## Project rules
 
@@ -24,7 +24,7 @@ These rules apply to every phase, every agent, and every recipe. Where a rule an
 5. **Double-check big decisions.** Stack choice, signal architecture, defaults, and anything that would be costly to undo get an independent review (a fresh agent or outside expert) before they are locked.
 6. **Easy designer.** The desktop designer uses plain labels, shows the signal it is making (waveform, spectrum, per-ear view), and warns before an unsafe or meaningless setting.
 7. **No ambiguity.** Every signal is named by role and spelled out as carrier frequency, modulation type, and modulation rate. Words like "60 Hz isochronic tone" are never used alone, because they can be read two ways.
-8. **Lessons stay fixed.** The Monroe challenge mistakes (next section) each have a guard in the engine or test suite, so they cannot recur.
+8. **Lessons stay fixed.** The earlier project's challenge mistakes (next section) each have a guard in the engine or test suite, so they cannot recur.
 
 Vocabulary used in this doc:
 
@@ -38,7 +38,7 @@ Vocabulary used in this doc:
 | AM | Amplitude modulation: a carrier's volume shaped by a slower wave |
 | PAC | The gamma layer's strength rises and falls with a theta-rate wave that exists in the file |
 
-## Lessons from the Monroe challenge
+## Lessons from the earlier project
 
 The reviewer found three design errors in the submitted track. Each is now a rule with a guard, and the v5 values that caused them are replaced below.
 
@@ -58,39 +58,22 @@ One wording lesson too: v5 described the gamma layer as a "60 Hz isochronic tone
 
 ## Source materials
 
-The signal plan is reconciled against Monroe Technical Reference v5, shared in this conversation. Values that appear only in earlier discussion, not in v5, are marked as open decisions.
-
-| Source | What it supplied | Confidence |
-| --- | --- | --- |
-| Monroe Technical Reference v5 | Carrier and gamma frequencies, PAC coupling, static-carrier rule, mix levels, research citations | High; source document |
-| Theta-gamma conversation, post-feedback analysis | Ambisonic decoder crosstalk caused the monaural beat; carriers must bypass spatial processing | High |
-| This conversation | Endel model, phases, AI-then-human stems, offline stem generation, Android first | High |
-| [US 2013/0010967 A1, Google Patents](https://patents.google.com/patent/US20130010967A1) | SAM application status and scope | High, as reported by Google; not a legal opinion |
-| [Monroe Sound Science page](https://www.monroeinstitute.org/pages/monroe-sound-science) | Public description of MSS technique families | High |
+The signal plan is reconciled against the earlier project's Technical Reference v5 (called v5 below), shared in the planning conversation. Values that appear only in earlier discussion, not in v5, are marked as open decisions. The full source table, with confidence for each source, is in [IP and clean-room research](research-ip-and-clean-room.md#source-materials).
 
 Every study cited in v5, plus those added since, is checked one by one in Research library, with what it actually tested and whether it supports how we use it.
 
 ## IP and clean-room rules
 
-The Monroe patents are not the real legal risk: the old binaural patents have expired by term, and the SAM application was abandoned without ever being granted. The live risk is other companies' active patents on audio modulation, which need a freedom-to-operate review before launch. This is a working read, not legal advice.
-
-| Item | Status | What it means for us |
-| --- | --- | --- |
-| Monroe binaural patents (US 3884218, 5213562, 5356368) | Expired by term | Basic binaural beat generation is free to use |
-| [SAM application US 2013/0010967](https://patents.google.com/patent/US20130010967A1) and its divisional US 2015/0016613 | Abandoned in 2015 for failure to respond to an office action; never granted | No enforceable rights, but we still design our own spatial method and never use the SAM name |
-| Brain.fm patents citing the SAM family (US 11205414, 11957467, 11966661, 11392345) | Active, per the citing list | Cover neural stimulation through modulated audio; closest risk to our PAC and isochronic layers |
-| Endel patents | Endel says its tech is patented | Check claims on adaptive, input-driven soundscape generation |
-| Monroe, Hemi-Sync, Monroe Sound Science, Gateway, Focus levels | Brand names | Never in the app, store listing, or marketing |
-| Monroe recordings, scripts, voice guidance | Copyrighted | Never sampled, imitated, or referenced |
+The patent status of the earlier project's patents and of other companies' modulated-audio patents, and the list of brand names we never use, are kept in [IP and clean-room research](research-ip-and-clean-room.md#patents-and-brand-names), because that file describes sources. In short: the old binaural patents have expired, the spatial-motion patent application was abandoned without being granted, and the live risk is other companies' active patents on audio modulation, which need a freedom-to-operate review before launch. This is a working read, not legal advice.
 
 Our rules:
 
-1. No Monroe names, terms, recordings, scripts, or level settings, even where unprotected.
+1. No names, terms, recordings, scripts, or level settings from the earlier project's programs, even where unprotected.
 2. No use of anything learned only through the hiring challenge or private feedback. Public research and the patent record are fine.
 3. Every signal choice traces to a published study or our own listening tests, recorded in a design log.
 4. Before launch, a patent attorney runs freedom-to-operate on the Brain.fm and Endel families plus newer filings on earphone brainwave induction.
 
-One v5 element stays out of the app: its session arc was modeled on Gateway Voyage exercises, including resonant tuning and a pink-sound onboarding drawn from the Gateway guidance manual. The app's session arcs are designed from scratch, so nothing in them reads as a Gateway imitation. Generic elements like pink noise and a gentle fade-in are fine on their own.
+One v5 element stays out of the app: its session arc was modeled on the earlier project's guided exercises (details in the research file). The app's session arcs are designed from scratch, so nothing in them reads as an imitation. Generic elements like pink noise and a gentle fade-in are fine on their own.
 
 ## Signal architecture
 
@@ -136,13 +119,7 @@ Movement goes on the gamma PAC layer only, never on the binaural carriers or the
 
 Research support: Sudre et al. (2024) found that moving binaural beats, panning sounds, and alternating beeps at 6 and 40 Hz all changed EEG and improved relaxation versus a control, and attributed the effects to spatial movement rather than beating. That supports the Orbit layer and makes a rhythmic panning mode worth testing in Phase 2.
 
-To stay clearly our own, the motion uses standard object panning rather than the abandoned SAM method:
-
-|  | SAM application (not used) | Our motion layer |
-| --- | --- | --- |
-| How motion is made | One tone sent to both ears with opposite phase modulation, a Doppler-style shift | A sound object moved along a path with interaural level and time differences, or an HRTF spatializer |
-| What moves | The entrainment tone itself | The gamma PAC layer; carriers stay fixed and dichotic |
-| Name | Spatial Angle Modulation | Working name: Orbit layer |
+To stay clearly our own, the motion uses standard object panning: a sound object moved along a path with interaural level and time differences, or an HRTF spatializer. Only the gamma PAC layer moves; carriers stay fixed and dichotic. Working name: Orbit layer. The comparison with the abandoned spatial-motion patent application's method is in [IP and clean-room research](research-ip-and-clean-room.md#motion-layer-versus-the-sam-application).
 
 Parameters the engine exposes, each tuned by listening tests, not borrowed values:
 
@@ -279,9 +256,9 @@ How the two reference apps package it:
 | App | Free | Paid | Price |
 | --- | --- | --- | --- |
 | [Endel](https://apppricinglab.com/app/apple/1346247457) | A free edition with classic soundscapes | Premium: extra modes, spatial "Orbit", noise colors, focus timer, artist collaborations | Several monthly and yearly tiers on the App Store, plus $124.99 lifetime (as of June 2026) |
-| [Expand](https://apps.apple.com/app/id1552705313) (Monroe Institute) | Free download | Subscription unlocks the full library of guided experiences; the app supports offline downloads | $11.99 a month or $69.99 a year |
+| [Expand](https://apps.apple.com/app/id1552705313) (guided meditation) | Free download | Subscription unlocks the full library of guided experiences; the app supports offline downloads | $11.99 a month or $69.99 a year |
 
-Endel already uses "Spatial Orbit" as a premium feature name, so our Orbit layer needs a different public name. That is now part of the naming decision.
+Endel already uses a premium spatial feature name built on the word Orbit, so our Orbit layer needs a different public name. That is now part of the naming decision.
 
 ## Build and test workflow
 
@@ -396,14 +373,14 @@ Open decisions:
 - [ ] Binaural carrier: keep 200/206 Hz or test higher carriers. v5's 450 to 500 Hz figure could not be verified, and perception and comfort vary by listener (Schütze et al., 2026), which argues for a listener-adjustable carrier. A 450 Hz binaural carrier would collide with the 450 Hz theta reference default, so the spacing rule applies.
 - [ ] Locked ranges: the minimum carrier spacing and the safe range for every rate, set from the literature in Phase 0.
 - [ ] Loudness: decide how the v5 file-master targets map to live rendering, where the engine controls gain on the fly.
-- [ ] Names: the app, the Orbit layer, and the term "SAP" in the project description. If it means SAM-style spatial motion, this doc's Orbit layer is our clean-room version and the description should use that name.
+- [ ] Names: the app, the Orbit layer, and the term "SAP" in the project description. If it means the spatial motion of the abandoned patent application (see [IP and clean-room research](research-ip-and-clean-room.md#motion-layer-versus-the-sam-application)), this doc's Orbit layer is our clean-room version and the description should use that name.
 
 Risks:
 
 | Risk | Mitigation |
 | --- | --- |
 | Active third-party patents on modulated audio | Freedom-to-operate review before launch |
-| Health or efficacy claims draw regulators or store rejection | Use general wellness wording only (relaxation, stress, sleep, focus); never disease, therapy, or "neurostimulation" language |
+| Outcome or efficacy claims draw regulators or store rejection | Describe the sound and how it was designed; use general wellness wording only (relaxation, stress, sleep, focus); no condition names and none of the claim words that CLAUDE.md and PRD §6 rule out |
 | Binaural beats fail on speakers, mono earbuds, or the phone's mono-audio setting | Detect headphones and mono output; fall back to modes without the binaural layer |
 | Phone or headphone spatial-audio features re-mix the two ears, repeating the challenge bug outside our code | Test with those features on; tell users to turn them off; research whether the app can opt out |
 | Spatial processing leaks into the binaural path in our own graph | CI isolation test on every build |
@@ -411,4 +388,4 @@ Risks:
 | Long sleep sessions drift in phase or click | High-precision phase math; test renders up to 8 hours |
 | Hearing exposure over long or nightly sessions | Level ceiling, no sudden loud events, and guidance aligned with the WHO-ITU safe listening standard |
 
-BMAD handoff: this doc becomes the project brief. The PM agent turns it into a PRD with one epic per phase, the architect agent picks the stack and audio graph, and each phase's exit criteria become acceptance tests. When the app is solid, a short design-log summary is the natural thing to share with the Monroe Institute.
+BMAD handoff: this doc becomes the project brief. The PM agent turns it into a PRD with one epic per phase, the architect agent picks the stack and audio graph, and each phase's exit criteria become acceptance tests. When the app is solid, a short design-log summary is the natural thing to share with a research partner.

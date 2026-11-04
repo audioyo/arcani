@@ -105,6 +105,6 @@ Checked October 21: nothing Monroe has published describes PAC or theta-gamma ne
 | [WCAG 2.2, Success Criterion 2.3.1, Three Flashes or Below Threshold](https://www.w3.org/WAI/WCAG22/Understanding/three-flashes-or-below-threshold.html) | No content flashes more than 3 times in any one second; basis for the visualizer flash limit | Added (architecture step) |
 | EBU R128 | Broadcast loudness standard; reference for the -16 LUFS-I choice | Context |
 | Apple Music at -16 LUFS | A widely used mastering target; no official Apple specification found | Context: describe as convention, not a standard |
-| Monroe patents and the SAM application | See IP and clean-room rules | Verified earlier |
+| Monroe patents and the SAM application | See [IP and clean-room research](research-ip-and-clean-room.md) | Verified earlier |
 | Gateway Experience Guidance Manual (1989), Monroe Sound Science pages | Monroe practice | Context only; excluded from app design by the clean-room rules |
 | Fabian Maman, 136.1 Hz as "Om" | Sound-therapy tradition, not peer-reviewed | Context: usable as an aesthetic choice, never as a science claim |
