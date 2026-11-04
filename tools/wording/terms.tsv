@@ -1,0 +1,20 @@
+id	pattern	case	category	source
+proj-monroe	Monroe\w*	insensitive	project-term	CLAUDE.md Never
+proj-hemi-sync	Hemi(?:-|\s+)?Sync	insensitive	project-term	CLAUDE.md Never
+proj-gateway	Gateway	insensitive	project-term	CLAUDE.md Never
+proj-focus-level	Focus(?:-|\s+)levels?	insensitive	project-term	CLAUDE.md Never
+proj-sam	SAM	sensitive	project-term	CLAUDE.md Never
+comp-spatial-orbit	Spatial\s+Orbit	insensitive	comparable-name	PRD §6 Naming; research-comparables.md (Endel)
+comp-dynamic-focus	Dynamic\s+Focus	insensitive	comparable-name	PRD §6 Naming; research-comparables.md (Endel)
+comp-hibernation	Hibernation	insensitive	comparable-name	PRD §6 Naming; research-comparables.md (Endel)
+comp-neural-effect	neural\s+effects?	insensitive	comparable-name	PRD §6 Naming; research-comparables.md (Brain.fm)
+comp-neural-phase-locking	neural\s+phase(?:-|\s+)locking	insensitive	comparable-name	research-comparables.md Naming collisions (Brain.fm)
+comp-sound-science	Sound\s+Science	insensitive	comparable-name	research-comparables.md Naming collisions (Expand)
+comp-brainwave	BrainWave	sensitive	comparable-name	research-comparables.md Naming collisions (Banzai Labs)
+claim-health	health	insensitive	claim	CLAUDE.md Never; PRD §6 Claims
+claim-therapy	therap(?:y|ies|eutic|eutically)	insensitive	claim	CLAUDE.md Never; PRD §6 Claims
+claim-treatment	treatments?	insensitive	claim	CLAUDE.md Never; PRD §6 Claims
+claim-neurostimulation	neuro-?stimulation	insensitive	claim	CLAUDE.md Never; PRD §6 Claims
+claim-medical	(?<!non-)medical(?:ly)?	insensitive	claim	CLAUDE.md Never (health claims); PRD §6 Hearing safety (non-medical wording)
+claim-adhd	ADHD	insensitive	claim	research-comparables.md Takeaways (condition subtitles); PRD §6 Claims (no condition names)
+claim-insomnia	insomnia	insensitive	claim	research-comparables.md Takeaways (condition subtitles); PRD §6 Claims (no condition names)

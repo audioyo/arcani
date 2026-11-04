@@ -1,0 +1,3 @@
+id	pattern	case	category	source
+dup	Fooword	insensitive	claim	CLAUDE.md Never
+dup	Barword	insensitive	claim	CLAUDE.md Never
