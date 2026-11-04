@@ -253,6 +253,7 @@ Dependency direction: hosts depend on the C API; the C API depends on the engine
 | NumPy | 2.5.4 |
 | pytest | 9.2.0 |
 | PyYAML (tests) | 6.0.3 |
+| jsonschema (tests: recipe schema validation, Story 1.1) | 4.26.0, dev group only; the engine and `tools/recipe_hash.py` never import it (design log 2026-11-04 (ff)) |
 | miniaudio (host audio I/O only) | 0.11.26 or later 0.11.x (contains the CVE-2026-32837 fix), `MA_NO_DECODING`, `MA_NO_ENCODING`; pinned exactly in the first host story |
 | Flutter (designer and apps, via dart:ffi) | 3.47.8 or later 3.47.x (security fixes in 3.47.2 and 3.47.8); exact pin at the Phase 0 stack spike |
 | Stem codec | Opus (fixed-point libopus build, vendored, current 1.6.1) or FLAC; proven bit-exact under AD-9 in the story that adds stem decoding (Phase 1) |
