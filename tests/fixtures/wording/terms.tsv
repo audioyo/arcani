@@ -1,0 +1,6 @@
+id	pattern	case	category	source
+proj-research	Monroe	insensitive	project-term	CLAUDE.md Never
+proj-comment	Gateway	insensitive	project-term	CLAUDE.md Never
+proj-upper	SAM	sensitive	project-term	CLAUDE.md Never
+claim-recipe	therap(?:y|ies|eutic)	insensitive	claim	CLAUDE.md Never; PRD §6
+comp-name	BrainWave	insensitive	comparable-name	research-comparables.md

@@ -1,0 +1,1 @@
+tests/fixtures/wording/terms.tsv # the fixture term list holds every fixture term

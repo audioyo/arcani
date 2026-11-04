@@ -63,6 +63,10 @@ fast.yml table checks (Story 0.3), in both jobs linux-x64 and windows-x64:
 - A step whose `run` calls `tools/check_row_coverage.py` comes after the
   step named "Python tests"; the wall-time step stays last.
 
+fast.yml wording check (Story 0.4), in both jobs linux-x64 and windows-x64:
+a step whose `run` calls `tools/check_wording.py` comes after the
+`actions/checkout` step and before the step named "Configure, build, ctest".
+
 CMakePresets.json gains configure presets `macos-appleclang` (condition
 hostSystemName equals Darwin) and `android-arm64` (condition hostSystemName
 equals Linux; toolchainFile, or cache CMAKE_TOOLCHAIN_FILE, is
@@ -459,3 +463,16 @@ def test_fast_coverage_check_runs_after_pytest(job_id):
     build = step_index(steps, named("Configure, build, ctest"), "named Configure, build, ctest")
     assert build < pytest_step < at < len(steps) - 1, (build, pytest_step, at, len(steps))
     assert "tools/check_wall_time.py" in str(steps[-1].get("run", "")), steps[-1]
+
+
+# ---------------------------------------------------- fast.yml wording check
+
+
+@pytest.mark.parametrize("job_id", FAST_JOBS)
+def test_fast_wording_check_runs_before_build(job_id):
+    steps = load("fast.yml")["jobs"][job_id]["steps"]
+    at = step_index(steps, runs_tool("tools/check_wording.py"), "running check_wording.py")
+    build = step_index(steps, named("Configure, build, ctest"), "named Configure, build, ctest")
+    checkout = step_index(steps, lambda s: str(s.get("uses", "")).startswith("actions/checkout@"),
+                          "using actions/checkout")
+    assert checkout < at < build, (checkout, at, build)
