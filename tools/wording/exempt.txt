@@ -1,0 +1,11 @@
+tools/wording/terms.tsv # the term list holds every listed term
+docs/research-library.md # research file: describes and cites sources
+docs/research-ip-and-clean-room.md # research file: describes sources and the clean-room and patent rules
+CLAUDE.md # rule source: names the terms it bans
+_bmad-output/** # planning records and rule sources (PRD, comparables scan, research runs)
+_bmad/** # vendored agent tooling, not project copy
+.claude/** # vendored agent tooling, not project copy
+.agents/** # vendored agent tooling, not project copy
+tests/fixtures/wording/terms.tsv # the fixture term list holds every fixture term
+tests/fixtures/wording/mustfail/** # must-fail fixtures: each holds a listed term or an em dash on purpose
+tests/fixtures/wording/research/** # research-path fixture: passes only through this exemption
