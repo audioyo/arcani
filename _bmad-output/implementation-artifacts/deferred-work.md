@@ -42,3 +42,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-0-2-engine-sine-oscillator-spike-that-ships.md`
   summary: Add `sine-44100` and `sine-48000` entries to `ci/hash_expected.json` once the first four-platform `full` run confirms their hashes, so a toolchain change that shifts every platform alike fails CI.
   evidence: Review pass 1 finding B6 (Story 0.2); today the sine components are compared only against `windows-x64` in the same run, and `ci/hash_expected.json` was on this story's do-not-change list.
+- source_spec: `_bmad-output/implementation-artifacts/spec-0-4-ci-wording-check.md`
+  summary: Add the wording check (`uv run python tools/check_wording.py`) to the CLAUDE.md "Tests" commands so it runs locally after every change, not only in CI.
+  evidence: Review pass 1 finding B12 (Story 0.4); the fix edits an agent-context file, which Audio owns, and Audio has an uncommitted CLAUDE.md edit in progress.

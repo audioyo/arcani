@@ -30,7 +30,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 11-01-2026 21:26
-last_updated: 11-03-2026 21:23
+last_updated: 11-03-2026 22:05
 project: Arcani
 project_key: NOKEY
 tracking_system: file-system
@@ -41,7 +41,7 @@ development_status:
   0-1-build-skeleton-and-ci-matrix: done
   0-2-engine-sine-oscillator-spike-that-ships: done
   0-3-threshold-and-range-tables-as-data: done
-  0-4-ci-wording-check: in-progress
+  0-4-ci-wording-check: review
   0-5-independent-review-of-the-pending-architecture-decisions: backlog
   epic-0-retrospective: optional
 

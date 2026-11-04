@@ -2,7 +2,7 @@
 title: 'Story 0.4: CI wording check'
 type: 'feature'
 created: '2026-11-03'
-status: 'in-progress'
+status: 'done'
 baseline_commit: '37e260741143377144fb80196419f631b546b8ff'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -94,6 +94,38 @@ Decisions by Audio (2026-11-03):
 ## Spec Change Log
 
 ## Review Triage Log
+
+Review pass 1 (2026-11-03): blind hunter (B), edge case hunter (E), verification gap (V).
+
+| # | Finding | Verdict | Evidence | Route |
+|---|---------|---------|----------|-------|
+| V1 | Default scan could check 0 files and `test_repo_passes_by_default` still passes | medium | The test only asserts exit 0 and any number in the output; "0 file(s) scanned" satisfies it | patch |
+| V2 | Real `terms.tsv` rows have no positive-match test except gateway and therapy | medium | Only the 3 must-fail fixtures run against the real list; a broken pattern would pass | patch |
+| V-other | `load_exempt` skips `#` comment lines beyond the spec | false | Harmless; no reasonless glob can pass through it | reject |
+| B1 | A banned name inside a URL or camelCase (`monroeinstitute.org`) does not match | medium | `\bMonroe\b` needs a boundary after the name; the old plan had that exact URL | patch |
+| B2, E12 | Numbered level names ("Focus" plus a number) are not matched | low | A numbered pattern hits our own mode text "Focus 45 min" in `docs/design-log.md:40`; the level numbers have no source in the repo; raised with Audio | reject |
+| B3 | `claim-medical` matches inside "non-medical", the wording PRD §6 asks for | low | `-` is a word boundary; direct correction is a lookbehind | patch |
+| B4 | Claim list misses "disease" and verb forms | false | Audio's frozen decision: only the words the rules name | reject |
+| B5, E1, E2 | Multi-word terms split by a line wrap or several spaces pass | medium | `check_text` matches line by line and patterns use a literal space; docstrings and Markdown are hard-wrapped | patch |
+| B6, E4 | Em dash as an HTML entity (`&mdash;`, `&#8212;`, `&#x2014;`) passes | medium | Only U+2014 is checked; HTML docs render entities as em dashes | patch |
+| B7 | Later code (API gateway, health check, AWS SAM) has no allow path | low | No such code exists; spec already allows a reasoned file exemption | reject |
+| B8 | Comparable names banned in docs forces odd rewording | false | Frozen decision lists comparable names and scans `docs/` | reject |
+| B9 | Plan lost its specific partnership target | low | "any research partner" replaced the named institute; the research file does not say it | patch |
+| B10 | Session-arc sentence says "details in the research file" with no link | low | Other moved sections link their anchor | patch |
+| B11 | Spec `in-review` vs sprint `in-progress` | false | Sprint moves to review at step 5 by design | reject |
+| B12 | No documented local command; untracked files are not scanned | low | Docstring fix is direct; the CLAUDE.md Commands line is an agent-context edit | patch (docstring), defer (CLAUDE.md) |
+| B13 | Literal invisible U+FEFF in `read_lines` source | low | `startswith("<BOM>")` in source; direct correction to `"﻿"` | patch |
+| B14 | Real terms not tested against word-boundary negatives | low | The clean repo run already covers false positives on real text; V2 covers positives | reject |
+| B15 | "SAP" open decision duplicated in the research file | low | `docs/research-ip-and-clean-room.md:44` repeats the plan's open item | patch |
+| E3 | Terms inside snake_case identifiers (`gateway_rate`) pass | medium | `\b` treats `_` as a word character; code is scanned | patch |
+| E5 | UTF-16 text file is skipped as binary | low | NUL in first 8 KiB; direct fix is a BOM check that fails as not UTF-8 | patch |
+| E6 | A pattern matching empty text is accepted | low | Contrived; needs a new guard | reject |
+| E7 | A pattern starting or ending with a non-word char never matches | low | No current row; V2's test catches a real row that never matches | reject |
+| E8 | Non-UTF-8 path names from git traceback | low | Contrived on this repo; loud failure | reject |
+| E9 | Submodule entries silently dropped | low | No submodules | reject |
+| E10 | Positional path letter case on Windows | low | CI uses the default git path set | reject |
+| E11 | Symlink resolved before glob matching | low | No tracked symlinks | reject |
+| E13 | CR-only line endings give wrong line numbers | low | Contrived; needs new splitting logic | reject |
 
 ## Verification
 
