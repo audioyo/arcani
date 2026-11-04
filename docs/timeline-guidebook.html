@@ -389,9 +389,12 @@ var EPICS = [
   note: "Starts only after Story 0.5 is done.",
   retro: "optional",
   stories: [
-  { id:"1.1", title:"Minimal recipe schema and recipe hash", status:"backlog",
+  { id:"1.1", title:"Minimal recipe schema and recipe hash", status:"in-progress",
     plain:"A versioned recipe format with a stable hash, so a recipe means one thing to every tool and any change to its sound is detectable.",
-    steps:S7(), acs:[
+    spec:["spec-1-1-minimal-recipe-schema-and-recipe-hash.md"],
+    steps:[true,false,false,false,false,false,false],
+    stepNotes:["Spec b87200c; Audio approved proceeding 2026-11-04, kept as one story (about 2,500 tokens)","","","","","",""],
+    acs:[
       [" ","JSON Schema in recipes/: snake_case fields with units in names, each tagged loudness-relevant, hash-excluded, or neither; unknown fields (routing, coupling_target) rejected"],
       [" ","Engine-owned strict JSON parser, standard library only; schema and compiler accept and reject the same fixtures"],
       [" ","Unsupported schema major version rejected with parameter, value, rule, limit"],
@@ -691,6 +694,8 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-04","b87200c","1.1","Spec written and approved; Epic 1 context compiled; story and Epic 1 set to in-progress"],
+  ["2026-11-04","5ccdf78","1.1","Story branch created; Story 0.5 merge recorded in sprint status and guidebook"],
   ["2026-11-04","284fe2d","0.5","PR #5 squash-merged into main; sprint-status.yaml set to done; Epic 0 stories all done; Epic 1 unblocked"],
   ["2026-11-04","b07459d","0.5","CI green on PR #5: fast tier and all four full-tier platforms (11 checks)"],
   ["2026-11-04","c2bdd6f","0.5","Pushed; PR #5 opened into main"],
