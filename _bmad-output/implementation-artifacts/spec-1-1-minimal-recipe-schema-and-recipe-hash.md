@@ -2,7 +2,7 @@
 title: 'Story 1.1: minimal recipe schema and recipe hash'
 type: 'feature'
 created: '2026-11-04'
-status: 'in-review'
+status: 'done'
 baseline_commit: '5ccdf78b86f8722133d33ccb86a4a67d9ec4cb93'
 route: 'dispatch'
 review_loop_iteration: 0
