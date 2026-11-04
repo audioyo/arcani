@@ -2,7 +2,8 @@
 # Tool versions and SHA-256s come from toolchain.json only. Each job checks its
 # wall time against ci/wall_time_budget.json in its last step. Each job runs
 # the table design log check before the build and the row coverage check
-# after ctest and pytest (Story 0.3, tests/tables/README.md).
+# after ctest and pytest (Story 0.3, tests/tables/README.md), and the wording
+# check before the build (Story 0.4, tools/check_wording.py).
 # Branch rule for main (applied by hand in GitHub settings, see the design log):
 # require the status checks "windows-x64" and "linux-x64" (workflow "fast") to pass.
 
@@ -95,6 +96,9 @@ jobs:
 
       - name: Floating-point pragma check
         run: uv run --no-project python tools/check_fp_pragmas.py
+
+      - name: Wording check
+        run: uv run --no-project python tools/check_wording.py
 
       - name: Table design log check
         shell: bash
@@ -191,6 +195,9 @@ jobs:
 
       - name: Floating-point pragma check
         run: uv run --no-project python tools/check_fp_pragmas.py
+
+      - name: Wording check
+        run: uv run --no-project python tools/check_wording.py
 
       - name: Table design log check
         shell: bash
