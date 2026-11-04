@@ -15,7 +15,10 @@ add_executable(arcani_tests
   test_cli_stub.cpp
   test_phase.cpp
   test_sine.cpp
-  test_tables.cpp)
+  test_tables.cpp
+  test_json.cpp
+  test_recipe.cpp
+  test_sha256.cpp)
 # arcani::engine_internal exposes engine/src (core/phase.hpp, core/sine.hpp)
 # to the tests; the public C API header stays the only shipped include path.
 target_link_libraries(arcani_tests PRIVATE
@@ -23,7 +26,9 @@ target_link_libraries(arcani_tests PRIVATE
 target_include_directories(arcani_tests PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_compile_definitions(arcani_tests PRIVATE
   ARCANI_RENDER_PATH="$<TARGET_FILE:arcani-render>"
-  ARCANI_TABLE_FIXTURES_DIR="${CMAKE_SOURCE_DIR}/tests/fixtures/tables")
+  ARCANI_TABLE_FIXTURES_DIR="${CMAKE_SOURCE_DIR}/tests/fixtures/tables"
+  ARCANI_RECIPES_DIR="${CMAKE_SOURCE_DIR}/recipes"
+  ARCANI_TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/tests/data")
 add_dependencies(arcani_tests arcani-render)
 
 # One ctest entry runs every Catch2 test case. Per-case discovery is not used:

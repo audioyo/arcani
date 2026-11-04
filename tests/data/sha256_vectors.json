@@ -1,0 +1,35 @@
+{
+  "description": "SHA-256 examples from FIPS 180-4 and the NIST CSRC example values. The message is input_ascii repeated repeat times.",
+  "vectors": [
+    {
+      "name": "empty",
+      "input_ascii": "",
+      "repeat": 1,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "abc",
+      "input_ascii": "abc",
+      "repeat": 1,
+      "sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    },
+    {
+      "name": "two-block-448-bit",
+      "input_ascii": "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq",
+      "repeat": 1,
+      "sha256": "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"
+    },
+    {
+      "name": "two-block-896-bit",
+      "input_ascii": "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu",
+      "repeat": 1,
+      "sha256": "cf5b16a778af8380036ce59e7b0492370b249b11e8f07a51afac45037afee9d1"
+    },
+    {
+      "name": "one-million-a",
+      "input_ascii": "a",
+      "repeat": 1000000,
+      "sha256": "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"
+    }
+  ]
+}
