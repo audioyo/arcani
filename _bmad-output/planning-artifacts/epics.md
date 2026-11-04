@@ -30,7 +30,7 @@ IDs match the PRD. Wording follows the SPEC capability that refines each one.
 
 FR-1: Engine clock (CAP-2). One engine clock drives every rate and phase. Theta reference phase error under 1 ms after an 8-hour render. Every carrier and rate within 0.01 Hz of the recipe; along a rate curve, instantaneous rate within 0.01 Hz of the schedule with continuous phase.
 FR-2: Theta reference (CAP-3). A carrier AM at the theta rate with a sine, smoothed on-off, sawtooth, or reverse saw envelope; carrier, rate, and shape come from the recipe. Shape matches the reference renderer; hard-edged shapes pass the click test. Custom curves are rejected until the signal spec models them.
-FR-3: Gamma PAC layer (CAP-4). A separate sine carrier AM at the gamma rate whose depth follows theta reference phase and peaks at the coupling phase, as a smooth swell, as 50 ms bursts (full width, 10 ms raised-cosine edges inside, depth-gated), or uncoupled at constant depth. The carrier plays continuously. Every gamma envelope peak within 2 ms of its coupling phase. Changing binaural beat rate or phase leaves every gamma peak time unchanged to the sample. Coupled gamma is rejected when the theta reference is absent or at zero depth. Non-sine gamma carriers are rejected in v0.1.
+FR-3: Gamma PAC layer (CAP-4). A separate sine carrier AM at the gamma rate whose depth follows theta reference phase and peaks at the coupling phase, as a smooth swell, as 50 ms bursts (full width, 10 ms raised-cosine edges inside, depth-gated), or uncoupled at constant depth. The carrier plays continuously. Every gamma envelope peak within 2 ms of its coupling phase. Changing binaural beat rate or phase leaves every gamma peak time unchanged to the sample. Coupled gamma is rejected when the theta reference is absent, at zero level, or at zero depth (AD-5, design log 2026-11-04 (ee)). Non-sine gamma carriers are rejected in v0.1.
 FR-4: Binaural layer on an isolated path (CAP-5). Two pure sines, one per ear, whose frequencies may follow a recipe rate curve, joining the stereo bus after every other stage with only the master chain after them. Muted-ear isolation at least 90 dB at engine output and 60 dB after the master chain, at any beat rate including 0 Hz. Structural stage-list test. A non-sine binaural waveform is rejected with a named rule (`binaural.waveform`, "non-sine binaural not modeled", limit sine). The engine never sums or downmixes channels.
 FR-5: Gain ramps, loudness gain, limiter (CAP-6). Per-layer and master gain ramps from the recipe; loudness gain measured at export and stored in the recipe; stereo-linked limiter idle at that gain. No gain ramp completes in under 10 ms. Integrated loudness within 1 LU of target; true peak at or below -1 dBTP. Limiter gain reduction exactly zero on every v0.1 render. `final` compile rejects a missing gain or a mismatched loudness hash.
 FR-6: Deterministic synthesis (CAP-7). Output is a pure function of recipe, engine version, seed, and sample rate. Repeat renders byte-identical; identical bytes at 1, 64, 512, 4096 frames per call; identical hashes across the AD-9 matrix or a logged -100 dBFS fallback; native 44.1 and 48 kHz with no resampling; every report carries the determinism key.
@@ -78,11 +78,11 @@ From the architecture spine and SPEC constraints.
 - **Signal spec (CAP-1, AD-19).** `docs/signal-spec.md` is the only formula source: envelope shapes and 0 degree points, coupling depth function, bursts, ramp and rate-curve laws, phase increment quantization and accumulator width, loop seam behavior, limiter, internal block size, seconds-to-samples rule, loudness window, spectral component model per shape. Each story writes the section it needs; it merges before engine or reference implement it.
 - **C API (CAP-10, AD-12).** One `arc_`-prefixed C API with plain C types: compile (`measure`, `final`), render frames, seek, per-layer taps, warnings, engine version. Status code plus structured error (parameter, value, rule, limit). CLI and C++ tests use only the public header.
 - **Pure core (AD-1).** `engine/` depends only on the C++ standard library. Seek is a pure function of (plan, seed, sample rate, sample index). No threads, clocks, devices, files, or UI.
-- **Bit-exact math (AD-9).** No libm transcendentals (engine-owned sine), 64-bit integer phase accumulators, no `long double`, `-ffp-contract=off`, no fast-math, engine-set denormal mode on entry to each render call. CI fails if the flags are missing.
+- **Bit-exact math (AD-9).** No libm transcendentals (engine-owned sine), 64-bit integer phase accumulators, no `long double`, no explicit fused multiply-add, `-ffp-contract=off`, no fast-math, IEEE denormal handling set on entry to each render call and the host's mode restored on return, every float-to-integer conversion clamped to the target range first and never given NaN (signal spec rule), x86-64 only. CI fails if the flags are missing. Fallback to -100 dBFS only per cited (platform, component) entry whose cause lies outside these rules, with a rule-4 review (design log 2026-11-04 (ee)).
 - **Real-time contract (AD-11).** The render call never allocates, locks, blocks, or does I/O, and never throws or logs.
 - **Fixed internal block (AD-10).** Renderer processes in a fixed internal block sized by the signal spec and buffers to the host's request.
 - **Fixed topology (AD-3, AD-4).** Schema has no routing fields and no coupling-target field. Stage order: theta, gamma, stereo bus, binaural join, master chain (per-channel gain plus stereo-linked limiter). No channel-mixing operation anywhere.
-- **Coupling input (AD-5).** The gamma depth function takes theta reference phase as its only input.
+- **Coupling input (AD-5).** The coupled gamma depth function takes theta reference phase as its only signal input, plus static recipe parameters (shape, coupling phase, coupling depth); uncoupled gamma has constant AM depth. Coupled gamma is rejected wherever gamma level and depth are non-zero while the theta reference is absent, at zero level, or at zero AM depth.
 - **Loudness (AD-13).** The CLI compiles in `measure` mode, renders, measures integrated loudness (BS.1770, gated) over the spec's window (the steady part, ramps and fades excluded; design log 2026-11-01 (w), (x)), and writes gain plus a loudness hash over loudness-relevant schema fields.
 - **Seed and randomness (AD-14, AD-25).** All randomness from an engine-owned counter-based PRNG keyed by (seed, stream, index). In v0.1 the Core draws no random values and WAV output rounds to 24 bits with no dither, so v0.1 has no random consumer; tooling always uses the recipe seed and the report carries it.
 - **Hashing (AD-21).** Recipe hash SHA-256 over RFC 8785 canonical JSON excluding stored gain, loudness hash, and schema-marked non-audio fields. Determinism key = recipe hash + pinned asset hashes (none in v0.1) + engine version + sample rate.
@@ -90,7 +90,7 @@ From the architecture spine and SPEC constraints.
 - **Recipe conventions.** JSON, `snake_case`, units in field names (`_hz`, `_deg`, `_db`, `_lufs`, `_s`), times in seconds; schema tags loudness-relevant and hash-excluded fields.
 - **Golden storage (AD-15).** Git LFS under `golden/`, keyed by determinism key.
 - **Workflow.** Tests first from acceptance criteria by a fresh-context QA agent. Each assertion ships with a passing fixture and a must-fail fixture. Silence is not evidence: reference matches compare real waveforms. One story per branch. No commit with failing tests.
-- **REVIEW PENDING.** AD-4, AD-5, AD-9, AD-19, AD-20 and the Stack bind v0.1 as written; their independent review is Story 0.5, which closes before Epic 1 starts.
+- **Architecture review closed.** The independent review of AD-4, AD-5, AD-9, AD-19, AD-20 and the Stack (Story 0.5) closed on 2026-11-04: AD-4, AD-19, AD-20 locked with wording edits; AD-5, AD-9, and the Stack changed with Audio's approval and locked, and the affected stories below are updated (design log 2026-11-04 (ee), `reviews/review-independent-s0-5.md`).
 
 ### UX Design Requirements
 
@@ -191,17 +191,17 @@ So that every later story is built, tested, and hash-compared the same way every
 
 **Given** a pull request into main, the nightly schedule, or a manual run started from GitHub
 **When** CI runs
-**Then** it builds and tests on all four AD-9 platforms: Windows x64, Windows arm64, macOS arm64, and Android NDK arm64, with the NDK hash binary run on a physical Android device
+**Then** it builds and tests on all four AD-9 platforms: Windows x64, Windows arm64, macOS arm64, and Android NDK arm64, with the NDK hash binary run on a physical Android device (met by the chosen alternative: the NDK build linked statically and run on hosted arm64 Linux, design log 2026-11-02 (aa); the physical-phone run moves to the Phase 0 part 2 stack spike, design log 2026-11-04 (ee))
 **And** a failure in any job blocks merge
 
 **Given** a one-person company (CLAUDE.md, Context)
 **When** runners are set up
-**Then** Audio's Windows dev PC is a self-hosted runner for Windows x64 jobs, an Android phone connected to it by USB runs the NDK hash binary, and GitHub-hosted runners serve Linux, Windows arm64, and macOS arm64 until Audio adds an own Mac
+**Then** Audio's Windows dev PC is a self-hosted runner for Windows x64 jobs, an Android phone connected to it by USB runs the NDK hash binary, and GitHub-hosted runners serve Linux, Windows arm64, and macOS arm64 until Audio adds an own Mac (superseded: every job runs on a GitHub-hosted runner and none is self-hosted, design log 2026-11-02 (aa))
 **And** the setup, and the spending cap set in GitHub billing, are recorded in the design log
 
 **Given** the NDK arm64 hash binary
 **When** this story closes
-**Then** a passing job proves it runs on the connected Android phone, or the chosen alternative (such as a device-farm wrapper) is recorded in the design log and running
+**Then** a passing job proves it runs on the connected Android phone, or the chosen alternative (such as a device-farm wrapper) is recorded in the design log and running (met: static NDK binary on hosted `ubuntu-24.04-arm`, design log 2026-11-02 (aa))
 **And** a CI run in which the Android job is skipped, cancelled, or not scheduled fails instead of passing silently
 
 **Given** the engine compile flags
@@ -411,7 +411,7 @@ So that every host uses the same entry point and a leak between ears fails a tes
 
 **Given** a render call
 **When** it starts
-**Then** the engine sets its own denormal mode on entry, verified by a test that renders identically after the host sets a different mode
+**Then** the engine sets IEEE denormal handling (no flush to zero, no denormals-are-zero) on entry and restores the host's mode on return (AD-9), verified by a test that renders identically after the host sets flush-to-zero, and by a test that the host's mode is unchanged after the call
 
 ### Story 1.3: Validator framework, locked ranges, and carrier rule
 
@@ -447,6 +447,11 @@ So that every rule can be checked without ears and every render carries its own 
 **When** the CLI renders it
 **Then** it writes a 2-channel, 24-bit WAV at 48 kHz by default or 44.1 kHz when selected, rounding to 24 bits with no dither per the signal spec, and any other rate is refused
 **And** the CLI includes only the public engine header, enforced by its build target
+
+**Given** `docs/signal-spec.md`
+**When** §24-bit rounding merges
+**Then** it defines the clamp to the 24-bit range, NaN handling, and the tie rule applied before every float-to-integer conversion (AD-9), with worked test vectors
+**And** a fixture with a sample above full scale writes the clamped value the spec defines, and its must-fail case (the sample converted without the clamp) is caught
 
 **Given** a render
 **When** the report is written
@@ -507,6 +512,11 @@ So that any render can be reproduced exactly, today or years from now, on any ho
 **When** it is extended with every unseeded randomness source (`rand`, `std::random_device`, time-based seeding)
 **Then** CI fails on any use inside `engine/` or the WAV writer
 **And** this story's fixture joins the cross-platform hash check at both sample rates
+
+**Given** the AD-9 rules (design log 2026-11-04 (ee))
+**When** the denylist is extended with `fma`, `fmaf`, `fmal` and the compiler-rt quad-precision helpers (`__addtf3`, `__subtf3`, `__multf3`, `__divtf3`, the `__extend*tf2`, `__trunctf*2`, `__fix*tf*`, `__float*tf*` families, and the `tf2` comparisons), and a source scan of `engine/` checks for `long double`, `L`-suffixed float literals, and `<cmath>` transcendental names (constant-folded calls leave no symbol)
+**Then** CI fails on any match, naming file and line or symbol, each with a must-fail fixture
+**And** `ci/hash_expected.json` gains the `sine-44100` and `sine-48000` entries (deferred from Story 0.2)
 
 ## Epic 2: Every Core layer, exact and on time
 
@@ -592,9 +602,10 @@ So that the coupling is exact and measurable in the sound itself.
 **Then** every gamma envelope peak is within 2 ms of its coupling phase
 **And** must-fail renders doctored in the harness with the swell shifted 3 ms fail, while a 1 ms shift passes, at 25 and 100 percent depth
 
-**Given** coupled gamma with no theta reference, or with theta reference AM depth at zero
+**Given** coupled gamma with no theta reference, with the theta reference at zero level, or with theta reference AM depth at zero, wherever gamma level and depth are non-zero (AD-5, design log 2026-11-04 (ee))
 **When** it is compiled
 **Then** it is rejected with a named rule
+**And** a must-fail fixture where a theta-only fade to silence ends before a coupled gamma fade is rejected
 
 **Given** coupled gamma renders
 **When** compared with the reference
@@ -1150,6 +1161,7 @@ So that the third mode is ready to hear and sign.
 **Given** `recipes/relax.json` with the values in `starter-recipes.md` (450 Hz theta reference carrier, sine AM at 6 Hz, 75 percent depth, layer level ramping from silence to full over the first 10 min (design log 2026-10-29 (r)); 250 Hz gamma PAC carrier, AM at 40 Hz, smooth swell at coupling phase 0 degrees, depth 25 percent, layer level ramping from silence to full over the first 2 min (design log 2026-11-01 (t)); no binaural layer; 30 min, not looping; -36 LUFS-I)
 **When** it is compiled in `final` mode with its stored gain
 **Then** it passes the validator
+**And** it passes the AD-5 zero-level check from the first sample (design log 2026-11-04 (ee))
 
 **Given** the Relax recipe
 **When** it is rendered at 44.1 and 48 kHz

@@ -35,7 +35,7 @@ Arcani is a vision to realize: procedural entrainment audio whose signal design 
   - **success:** Envelope shape matches the reference renderer; hard-edged shapes pass the click test.
 - **CAP-4** Gamma PAC layer (FR-3, AD-5)
   - **intent:** The engine generates a separate carrier AM at the gamma rate whose depth follows the theta reference phase and peaks at the coupling phase, as a smooth swell or 50 ms bursts, or uncoupled at constant depth. Swells and bursts are depth-gated: the carrier plays continuously. A burst's 50 ms is its full width, with 10 ms raised-cosine edges inside it (design log 2026-10-28 (o)).
-  - **success:** Every gamma envelope peak within 2 ms of its coupling phase. Changing the binaural beat rate or phase leaves every gamma peak time unchanged to the sample. The validator rejects coupled gamma when the theta reference is absent or at zero depth.
+  - **success:** Every gamma envelope peak within 2 ms of its coupling phase. Changing the binaural beat rate or phase leaves every gamma peak time unchanged to the sample. The validator rejects coupled gamma when the theta reference is absent, at zero level, or at zero AM depth, wherever gamma level and depth are non-zero (design log 2026-11-04 (ee)). Uncoupled gamma has constant AM depth.
 - **CAP-5** Binaural layer on an isolated path (FR-4, AD-4)
   - **intent:** The engine generates two pure sines, one per ear, whose frequencies may follow a recipe rate curve, that join the stereo bus after every other stage, with only the master chain after them.
   - **success:** With one ear's oscillator muted, its carrier is at least 90 dB down in the other channel at engine output and 60 dB down after the master chain, at any beat rate including 0 Hz. A structural test confirms the stage list. A non-sine binaural waveform is rejected in v0.1 with a named rule; the compile warning applies once the signal spec models it (design log 2026-10-28 (o)).
@@ -111,7 +111,7 @@ Arcani is a vision to realize: procedural entrainment audio whose signal design 
 
 - v0.1 theta envelopes are sine, smoothed on-off, sawtooth, and reverse saw; gamma and binaural carriers are sine only. FR-3's triangle and softened square carriers and FR-4's non-sine binaural are rejected until the signal spec models them (spine Deferred, AD-20).
 - The v0.1 C API covers what the CLI and tests need: compile (`measure`, `final`), render frames, seek, per-layer taps, warnings, engine version. Provide asset, submit plan, `audition` mode, and state snapshot arrive with their first host in Phase 1.
-- v0.1 builds on the REVIEW PENDING ADs (AD-4, AD-5, AD-9, AD-19, AD-20) and the Stack as written; their independent review is due by the end of Phase 0.
+- The independent review of AD-4, AD-5, AD-9, AD-19, AD-20 and the Stack closed on 2026-11-04 (Story 0.5, design log 2026-11-04 (ee)); v0.1 builds on them as locked.
 - Hearing safety in v0.1 means loudness and true-peak targets on every render.
 - Every starter uses a sine theta reference envelope, and Focus and Learn run gamma at 100 percent depth; `listening-modes.md` names neither.
 
