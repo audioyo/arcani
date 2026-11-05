@@ -404,8 +404,8 @@ var EPICS = [
   { id:"1.2", title:"C API, fixed stage list, seek, and isolation assertion", status:"review",
     plain:"One arc_ C API over a fixed stage list, with seek and a binaural isolation test from day one.",
     spec:["spec-1-2-c-api-fixed-stage-list-seek-and-isolation-assertion.md"],
-    steps:[true,true,true,true,false,false,false],
-    stepNotes:["Spec 7d4d74d; Audio approved 2026-11-04, kept as one story (about 3,000 tokens); signal spec sections 9c32120","d8dbd58: fresh-context QA agent; new C++ cases, C header check, 18 Python cases fail; existing tests pass","0e7df6d: clean build, 4/4 ctest entries and 1,084 pytest pass; wording, pragma, row coverage, table log, symbol, and flag checks pass","3 fresh-context reviewers: 21 rows, 11 patched in 40d571c, 7 rejected, 3 deferred; triage in the spec","","",""],
+    steps:[true,true,true,true,true,false,false],
+    stepNotes:["Spec 7d4d74d; Audio approved 2026-11-04, kept as one story (about 3,000 tokens); signal spec sections 9c32120","d8dbd58: fresh-context QA agent; new C++ cases, C header check, 18 Python cases fail; existing tests pass","0e7df6d: clean build, 4/4 ctest entries and 1,084 pytest pass; wording, pragma, row coverage, table log, symbol, and flag checks pass","3 fresh-context reviewers: 21 rows, 11 patched in 40d571c, 7 rejected, 3 deferred; triage in the spec","Pushed 9f4f0a9; PR #7 green on e654612 (11 checks, fast and full tier)","",""],
     acs:[
       ["x","Public header: compile (measure, final), render, seek, per-layer taps, warnings, engine version, plan release; structured errors; render never throws or logs"],
       ["x","Stage order: theta reference, gamma PAC layer, stereo bus, binaural join, master chain; no stage mixes, sums, or swaps channels"],
@@ -697,6 +697,7 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-04","e654612","1.2","PR #7 green on fast and full tier (11 checks)"],
   ["2026-11-04","9f4f0a9","1.2","Pushed; PR #7 opened, CI pending"],
   ["2026-11-04","40d571c","1.2","Code review pass 1: 11 patches applied, 3 deferred; sprint-status.yaml set to review"],
   ["2026-11-04","0e7df6d","1.2","Implementation committed; all local tests and checks pass; design log (gg)"],
