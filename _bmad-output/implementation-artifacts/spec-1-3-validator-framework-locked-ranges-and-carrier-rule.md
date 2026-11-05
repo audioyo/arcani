@@ -2,7 +2,7 @@
 title: 'Story 1.3: Validator framework, locked ranges, and carrier rule'
 type: 'feature'
 created: '2026-11-05'
-status: 'in-progress'
+status: 'done'
 baseline_commit: '655584b87e38e8d6eccc1f84388ef9f4b1badff5'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -104,9 +104,29 @@ QA agent, tests-first pass (2026-11-05). Execution task 1 only; nothing under `e
 
 - Orchestrator check (2026-11-05): tests in `tests/cpp`, `tests/python`, `tests/data`, and fixtures unchanged since b61498e. `windows-clang-cl` workflow: 4/4 ctest entries pass; `uv run pytest` 1,095 passed, 2 NDK-only skips; wording, pragma, row coverage, and table log checks exit 0. Matrix audit: every row covered in `test_validate.cpp`; the "just inside exclusive" row's right-carrier failure is unreachable through compile (QA open point 1), so only its passing side runs. Only windows-x64 was run.
 
+- Review pass 1 patches in 5984284 (triage rows 1, 2, 8). Orchestrator check: `windows-clang-cl` workflow 4/4 ctest entries pass; `uv run pytest` 1,095 passed, 2 NDK-only skips; wording, pragma, row coverage, and table log checks exit 0. Nothing deferred.
+
 ## Spec Change Log
 
 ## Review Triage Log
+
+Pass 1 (2026-11-05): blind hunter (BH), edge case hunter (EC), verification gap (VG), all fresh context, on diff 655584b..ab69cce (hash vectors, guidebook, and `_bmad-output` left out).
+
+| # | Finding | Verdict | Evidence | Route |
+|---|---------|---------|----------|-------|
+| 1 | BH, EC, VG: `field_value` returns nothing for an unknown path, so a field that later gains a `range_row` without a `field_value` branch is skipped as if its layer were absent | medium | `validate.cpp` `field_value` final `return std::nullopt`; `check_ranges` `continue`s on it; the registration test reads only the field table | patch (unknown registered path rejects with rule `range.row`, documented in `validate.hpp`) |
+| 2 | BH, EC: `kRowUnits` is never compared with `ranges.tsv`, and the derived row's `pending` is never checked | low | `range_table_problems` compares id, min, max, bound only; a wrong unit would print in every limit text | patch (unit moves into `RangeRow`; table test compares unit and empty `pending`, with a unit must-fail) |
+| 3 | BH: scaled-unit text is guessed from the `_s` suffix | false | the registration test rejects any scale other than 1 unless the suffix and row unit fit (`_s` with min x60 or h x3600), so a scaled non-`_s` field cannot pass the suite | reject |
+| 4 | BH: the `binaural-carrier-right` check cannot fail | low | intent decision in the frozen block; QA open point 1 records it; dropping it edits the spec | reject |
+| 5 | BH: `range.row` undocumented and untested | low | defensive branch; only reachable through a doctored table, which the table test already forbids | folded into 1 (documented); test rejected (needs fault injection in `engine/`) |
+| 6 | BH, EC: `check_carrier_rule` ignores `rate_min_hz`, and accepts negative, non-finite, or inverted rates | low | no caller in v0.1; Epic 2 callers pass rates that the range check has already held to `theta-rate` 1 to 6 Hz and `gamma-rate` 30 to 60 Hz; the parser rejects NaN and infinity; signature fixed by the frozen decisions | reject |
+| 7 | BH: the check-order tests do not include the input cap | low | the cap runs before parse, so ranges cannot run on an over-cap input; Story 1.2 tests pin the cap | reject |
+| 8 | BH: the "every other valid fixture compiles" test uses a hand-typed list | low | a new `valid/` fixture would be left out silently; iterating the folder is a direct correction | patch |
+| 9 | BH: no Python range check or shared range-fault fixtures | false | the plan rule is that no host validates on its own; the engine compiler is the only validator (epic context, Plans only) | reject |
+| 10 | BH: removing `loudness-master` loses the -16 LUFS-I value | false | `docs/project-plan.md` lines 106 and 158 and design log 2026-10-27 (g) keep it; entry (hh) records the removal | reject |
+| 11 | BH: `length_s` 0 and `carrier_left_hz` 0 pass untested in render | false | length 0 gives 0 frames, so output is exact zeros past the end (1.2 test); a 0 Hz carrier has increment 0 and `sine(0) = 0`, so silence, not DC; both minimums are table values | reject |
+| 12 | BH: `-0` not tested | low | `-0.0 >= 0` passes and `format_number` writes `0`; harmless | reject |
+| 13 | EC: the right-carrier error shows the sum as the value at `/binaural/beat_rate_hz` | low | the path is unreachable (row 4) | reject |
 
 ## Design Notes
 
