@@ -83,7 +83,7 @@ Decisions (2026-11-04, build agent, under Audio's standing "settle tech forks yo
 - [x] `tests/cpp/test_api.cpp`, `test_stages.cpp`, `test_seek.cpp`, `test_isolation.cpp`, `test_fp_mode.cpp`, `test_alloc.cpp`, `tests/cpp/isolation.hpp`, `tools/isolation_calibration.py`, `tests/data/isolation_calibration.json`, `tests/python/test_isolation_calibration.py`, fixtures -- QA agent writes the failing tests -- tests first.
 - [x] `engine/include/arcani/arcani.h`, `engine/src/api/*`, `plan/*`, `render/*`, `core/fp_mode.hpp`, `engine/CMakeLists.txt` -- the API and the stub chain.
 - [x] `tools/engine_symbol_denylist.json`, `tests/hashprobe/*`, `tests/tables/thresholds.tsv` -- checks and probe.
-- [ ] `docs/design-log.md` entry (gg) (API shape, block size, stub levels, 1 MiB cap, measurement method), `docs/timeline-guidebook.html`, `sprint-status.yaml` -- records.
+- [x] `docs/design-log.md` entry (gg) (API shape, block size, stub levels, 1 MiB cap, measurement method), `docs/timeline-guidebook.html`, `sprint-status.yaml` -- records.
 
 **Acceptance Criteria:**
 - Given the public header, when a C test compiles against it alone, then every call listed in the decisions exists with `arc_` names and plain C types, and every failing call returns a non-ok status with all four error fields filled.
