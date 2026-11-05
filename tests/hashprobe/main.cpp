@@ -94,7 +94,7 @@ constexpr char kStubChainRecipe[] = R"({
   "date": "2026-11-04",
   "rationale": "Hash probe stub chain component (Story 1.2): 400 Hz unmodulated sine in the left ear, 406 Hz unmodulated sine in the right ear, 1 s.",
   "length_s": 1,
-  "loudness_target_lufs": -16,
+  "loudness_target_lufs": -36,
   "binaural": {
     "carrier_left_hz": 400,
     "beat_rate_hz": 6

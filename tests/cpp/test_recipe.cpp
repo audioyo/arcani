@@ -16,6 +16,8 @@
 //     FieldType type;
 //     FieldTag tag;            // schema x-arcani-tag: none, hash-excluded, loudness-relevant
 //     bool required;           // required within its parent object
+//     std::string_view range_row;  // Story 1.3: ranges.tsv row id, "" if not range-governed
+//     double range_scale;          // Story 1.3: row unit to field unit (1, or 3600 for h to _s)
 //   };
 //   std::span<const Field> fields() noexcept;  // every schema property, objects included
 //
@@ -61,21 +63,26 @@
 #include "json/value.hpp"
 #include "recipe/field_table.hpp"
 #include "recipe/recipe.hpp"
+#include "tables.hpp"
 
 #include <algorithm>
+#include <concepts>
 #include <filesystem>
 #include <fstream>
 #include <map>
 #include <set>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 namespace fs = std::filesystem;
 namespace json = arcani::json;
 namespace recipe = arcani::recipe;
 namespace crypto = arcani::crypto;
+namespace tables = arcani::test::tables;
 
 namespace {
 
@@ -328,9 +335,9 @@ TEST_CASE("recipe hash equals SHA-256 of the hand-written canonical text", "[rec
   // the same literal against the Python tool.
   const std::string canonical =
       R"({"binaural":{"beat_rate_hz":6,"carrier_left_hz":400},"engine_version":"0.0.1",)"
-      R"("length_s":600,"loudness_target_lufs":-16,"schema_version":"1.0","seed":42,)"
+      R"("length_s":600,"loudness_target_lufs":-36,"schema_version":"1.0","seed":42,)"
       R"("theta_reference":{"carrier_hz":200}})";
-  const std::string want = "154db16986eae01f0cefdce72bf0e1b8fd38eaf5abcf69f61064cc77d3e11127";
+  const std::string want = "097f8d91f1ca50830fc9d48b4c967a26d810890fc2dfd70a2303a03fe09ee80a";
   CHECK(crypto::sha256_hex(canonical) == want);
   const auto r = recipe::parse(fixture("valid", "both-layers.json"));
   REQUIRE(r.recipe.has_value());
@@ -345,7 +352,7 @@ TEST_CASE("engine parse stage fills the recipe fields", "[recipe]") {
   CHECK(rec.engine_version == "0.0.1");
   CHECK(rec.seed == 42);
   CHECK(rec.length_s == 600.0);
-  CHECK(rec.loudness_target_lufs == -16.0);
+  CHECK(rec.loudness_target_lufs == -36.0);
   REQUIRE(rec.loudness_gain_db.has_value());
   CHECK(*rec.loudness_gain_db == -1.5);
   REQUIRE(rec.loudness_hash.has_value());
@@ -412,6 +419,234 @@ TEST_CASE("engine recipe hash equals the shared hash vectors", "[recipe][hash]")
     REQUIRE(want != nullptr);
     CHECK(hash == want->string());
   }
+}
+
+// ------------------------------------------- range registration (Story 1.3)
+//
+// Every numeric field (Number or Integer) names its locked-range row in the
+// field table, or is on the reasoned exemption list below. Expected Field
+// members (recipe/field_table.hpp), added in Story 1.3:
+//
+//   std::string_view range_row;  // row id in tests/tables/ranges.tsv, "" when
+//                                // the field is not range-governed
+//   double range_scale;          // row unit to field unit: 1, or 3600 for h to _s
+//
+// A named row must exist in ranges.tsv (not thresholds.tsv), must not be
+// pending, and its unit must fit the field's unit suffix at that scale. The
+// rows are read with load_tables (not row()), so the doctored cases below do
+// not record usage of rows they only pretend to use.
+
+namespace {
+
+// path -> reason. Fields here carry no range row.
+const std::map<std::string, std::string> kRangeExempt = {
+    {"/seed", "schema-bounded integer (0 to 2^53 - 1 in the schema)"},
+    {"/loudness_gain_db", "written by the measure pass, not authored; Story 4.2 checks it"},
+};
+
+// The field-to-row mapping settled in the Story 1.3 spec (path -> row, scale).
+const std::map<std::string, std::pair<std::string, double>> kExpectedRegistration = {
+    {"/length_s", {"session-length", 3600.0}},
+    {"/loudness_target_lufs", {"loudness-tones", 1.0}},
+    {"/theta_reference/carrier_hz", {"theta-carrier", 1.0}},
+    {"/binaural/carrier_left_hz", {"binaural-carrier", 1.0}},
+    {"/binaural/beat_rate_hz", {"beat-rate", 1.0}},
+};
+
+template <class F>
+concept HasRangeRegistration = requires(const F& f) {
+  { f.range_row } -> std::convertible_to<std::string_view>;
+  { f.range_scale } -> std::convertible_to<double>;
+};
+
+bool ends_with(const std::string& s, const std::string& tail) {
+  return s.size() >= tail.size() && s.compare(s.size() - tail.size(), tail.size(), tail) == 0;
+}
+
+// Empty when the row unit fits the field's unit suffix at this scale.
+std::string unit_problem(const std::string& path, const std::string& unit, double scale) {
+  struct Fit {
+    const char* suffix;
+    const char* unit;
+    double scale;
+  };
+  static const Fit kFits[] = {
+      {"_hz", "Hz", 1.0},       {"_s", "s", 1.0},           {"_s", "min", 60.0},
+      {"_s", "h", 3600.0},      {"_lufs", "LUFS-I", 1.0},   {"_deg", "degrees", 1.0},
+      {"_db", "dB", 1.0},
+  };
+  bool suffix_known = false;
+  for (const auto& fit : kFits) {
+    if (!ends_with(path, fit.suffix)) {
+      continue;
+    }
+    suffix_known = true;
+    if (unit == fit.unit && scale == fit.scale) {
+      return "";
+    }
+  }
+  if (!suffix_known) {
+    return path + ": no unit suffix in the field name";
+  }
+  return path + ": row unit " + unit + " at scale " + std::to_string(scale) +
+         " does not fit the field's unit suffix";
+}
+
+template <class F>
+std::vector<std::string> registration_problems(const std::vector<F>& fields,
+                                               const std::vector<tables::Row>& rows) {
+  std::vector<std::string> out;
+  for (const auto& f : fields) {
+    const std::string path(f.path);
+    const std::string row_id(f.range_row);
+    const bool numeric =
+        f.type == recipe::FieldType::Number || f.type == recipe::FieldType::Integer;
+    const bool exempt = kRangeExempt.count(path) == 1;
+    if (!numeric) {
+      if (!row_id.empty()) {
+        out.push_back(path + ": a non-numeric field names range row " + row_id);
+      }
+      if (exempt) {
+        out.push_back(path + ": a non-numeric field is on the exemption list");
+      }
+      continue;
+    }
+    if (exempt) {
+      if (!row_id.empty()) {
+        out.push_back(path + ": an exempt field names range row " + row_id);
+      }
+      continue;
+    }
+    if (row_id.empty()) {
+      out.push_back(path + ": numeric field with no range row and no exemption");
+      continue;
+    }
+    const auto it = std::find_if(rows.begin(), rows.end(),
+                                 [&](const tables::Row& r) { return r.id == row_id; });
+    if (it == rows.end()) {
+      out.push_back(path + ": range row " + row_id + " is missing from the tables");
+      continue;
+    }
+    if (it->kind != "ranges") {
+      out.push_back(path + ": row " + row_id + " is a " + it->kind + " row, not a range row");
+      continue;
+    }
+    if (!it->pending.empty()) {
+      out.push_back(path + ": range row " + row_id + " is pending on " + it->pending);
+    }
+    if (const std::string u = unit_problem(path, it->unit, f.range_scale); !u.empty()) {
+      out.push_back(u);
+    }
+  }
+  return out;
+}
+
+bool any_names(const std::vector<std::string>& problems, const std::string& path,
+               const std::string& words) {
+  return std::any_of(problems.begin(), problems.end(), [&](const std::string& p) {
+    return p.find(path) != std::string::npos && p.find(words) != std::string::npos;
+  });
+}
+
+template <class F>
+F& field_at(std::vector<F>& fields, const char* path) {
+  auto it = std::find_if(fields.begin(), fields.end(),
+                         [&](const F& f) { return f.path == std::string_view(path); });
+  REQUIRE(it != fields.end());
+  return *it;
+}
+
+template <class F>
+void run_registration_test() {
+  if constexpr (HasRangeRegistration<F>) {
+    const auto rows = tables::load_tables(ARCANI_TABLES_DIR);
+    const std::vector<F> real(recipe::fields().begin(), recipe::fields().end());
+
+    SECTION("the real field table passes") {
+      const auto problems = registration_problems(real, rows);
+      for (const auto& p : problems) {
+        UNSCOPED_INFO(p);
+      }
+      CHECK(problems.empty());
+    }
+
+    SECTION("the real field table has the settled mapping") {
+      for (const auto& f : real) {
+        const std::string path(f.path);
+        INFO(path);
+        const auto want = kExpectedRegistration.find(path);
+        if (want == kExpectedRegistration.end()) {
+          CHECK(f.range_row.empty());
+        } else {
+          CHECK(std::string(f.range_row) == want->second.first);
+          CHECK(static_cast<double>(f.range_scale) == want->second.second);
+        }
+      }
+      for (const auto& [path, _] : kExpectedRegistration) {
+        INFO(path);
+        CHECK(std::any_of(real.begin(), real.end(),
+                          [&](const F& f) { return f.path == std::string_view(path); }));
+      }
+    }
+
+    SECTION("must fail: a numeric field with no row and no exemption") {
+      auto doctored = real;
+      field_at(doctored, "/length_s").range_row = "";
+      CHECK(any_names(registration_problems(doctored, rows), "/length_s", "no range row"));
+    }
+    SECTION("must fail: a row id missing from the tables") {
+      auto doctored = real;
+      field_at(doctored, "/theta_reference/carrier_hz").range_row = "no-such-row";
+      CHECK(any_names(registration_problems(doctored, rows), "/theta_reference/carrier_hz",
+                      "missing"));
+    }
+    SECTION("must fail: a threshold row, not a range row") {
+      auto doctored = real;
+      field_at(doctored, "/binaural/beat_rate_hz").range_row = "carrier-rule";
+      CHECK(any_names(registration_problems(doctored, rows), "/binaural/beat_rate_hz",
+                      "not a range row"));
+    }
+    SECTION("must fail: a pending row") {
+      auto doctored_rows = rows;
+      auto it = std::find_if(doctored_rows.begin(), doctored_rows.end(),
+                             [](const tables::Row& r) { return r.id == "theta-carrier"; });
+      REQUIRE(it != doctored_rows.end());
+      it->pending = "9-1-fixture-story";
+      CHECK(any_names(registration_problems(real, doctored_rows), "/theta_reference/carrier_hz",
+                      "pending"));
+    }
+    SECTION("must fail: a unit that does not fit the field suffix") {
+      auto doctored = real;
+      field_at(doctored, "/binaural/carrier_left_hz").range_row = "session-length";
+      CHECK(any_names(registration_problems(doctored, rows), "/binaural/carrier_left_hz",
+                      "does not fit"));
+    }
+    SECTION("must fail: the right unit at the wrong scale") {
+      auto doctored = real;
+      field_at(doctored, "/length_s").range_scale = 1.0;
+      CHECK(any_names(registration_problems(doctored, rows), "/length_s", "does not fit"));
+    }
+    SECTION("must fail: an exempt field that names a row") {
+      auto doctored = real;
+      field_at(doctored, "/loudness_gain_db").range_row = "loudness-tones";
+      CHECK(any_names(registration_problems(doctored, rows), "/loudness_gain_db",
+                      "exempt field names"));
+    }
+    SECTION("must fail: a non-numeric field that names a row") {
+      auto doctored = real;
+      field_at(doctored, "/author").range_row = "theta-carrier";
+      CHECK(any_names(registration_problems(doctored, rows), "/author", "non-numeric"));
+    }
+  } else {
+    FAIL("not implemented: recipe::Field has no range_row and range_scale (Story 1.3)");
+  }
+}
+
+}  // namespace
+
+TEST_CASE("every numeric field names a locked-range row or a reasoned exemption",
+          "[recipe][ranges]") {
+  run_registration_test<recipe::Field>();
 }
 
 #else

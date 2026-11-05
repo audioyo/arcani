@@ -274,9 +274,9 @@
    Update after every completed section plus commit and/or push.
    ===================================================================== */
 
-var LAST_UPDATED = "2026-11-04";
-var CURRENT = "1.2";   // story id being worked on
-var NEXT    = "1.3";   // story id that comes next
+var LAST_UPDATED = "2026-11-05";
+var CURRENT = "1.3";   // story id being worked on
+var NEXT    = "1.4";   // story id that comes next
 
 // Workflow step names, used by every story unless it lists its own "stepNames".
 var STEP_NAMES = [
@@ -401,11 +401,11 @@ var EPICS = [
       ["x","Recipe hash: SHA-256 of RFC 8785 canonical JSON, same in engine and Python; key order and whitespace do not change it"],
       ["x","Editing a hash-excluded field keeps the hash; editing an audio field changes it"]
     ] },
-  { id:"1.2", title:"C API, fixed stage list, seek, and isolation assertion", status:"review",
+  { id:"1.2", title:"C API, fixed stage list, seek, and isolation assertion", status:"done",
     plain:"One arc_ C API over a fixed stage list, with seek and a binaural isolation test from day one.",
     spec:["spec-1-2-c-api-fixed-stage-list-seek-and-isolation-assertion.md"],
-    steps:[true,true,true,true,false,false,false],
-    stepNotes:["Spec 7d4d74d; Audio approved 2026-11-04, kept as one story (about 3,000 tokens); signal spec sections 9c32120","d8dbd58: fresh-context QA agent; new C++ cases, C header check, 18 Python cases fail; existing tests pass","0e7df6d: clean build, 4/4 ctest entries and 1,084 pytest pass; wording, pragma, row coverage, table log, symbol, and flag checks pass","3 fresh-context reviewers: 21 rows, 11 patched in 40d571c, 7 rejected, 3 deferred; triage in the spec","","",""],
+    steps:[true,true,true,true,true,true,true],
+    stepNotes:["Spec 7d4d74d; Audio approved 2026-11-04, kept as one story (about 3,000 tokens); signal spec sections 9c32120","d8dbd58: fresh-context QA agent; new C++ cases, C header check, 18 Python cases fail; existing tests pass","0e7df6d: clean build, 4/4 ctest entries and 1,084 pytest pass; wording, pragma, row coverage, table log, symbol, and flag checks pass","3 fresh-context reviewers: 21 rows, 11 patched in 40d571c, 7 rejected, 3 deferred; triage in the spec","Pushed 9f4f0a9; PR #7 green on e654612 (11 checks, fast and full tier)","PR #7 merged 2026-11-04 (17cbb17)","sprint-status.yaml set to done after the merge"],
     acs:[
       ["x","Public header: compile (measure, final), render, seek, per-layer taps, warnings, engine version, plan release; structured errors; render never throws or logs"],
       ["x","Stage order: theta reference, gamma PAC layer, stereo bus, binaural join, master chain; no stage mixes, sums, or swaps channels"],
@@ -414,12 +414,15 @@ var EPICS = [
       ["x","Zero heap allocations during render calls"],
       ["x","Engine sets its own denormal mode on entry; output unchanged if the host sets a different mode"]
     ] },
-  { id:"1.3", title:"Validator framework, locked ranges, and carrier rule", status:"backlog",
+  { id:"1.3", title:"Validator framework, locked ranges, and carrier rule", status:"review",
     plain:"Every recipe value is checked against its locked range and the carrier rule, so no out-of-range recipe can render.",
-    steps:S7(), acs:[
-      [" ","Every range-governed field names its range row ID; a field without a row fails a test"],
-      [" ","Out-of-range value: no plan, no output, error names parameter, value, rule, limit; inclusive and exclusive bounds tested"],
-      [" ","Carrier rule rejects any carrier under 4 times the worst-case rate (pass at exactly 4x, fail just under, interval max case)"]
+    spec:["spec-1-3-validator-framework-locked-ranges-and-carrier-rule.md"],
+    steps:[true,true,true,true,true,false,false],
+    stepNotes:["Spec approved 2026-11-05; loudness-master removal decided by Audio","b61498e: fresh-context QA agent; 2 C++ cases fail (field registration, validator header); fixtures moved to -36 LUFS-I, hash vectors regenerated","1ffd738: 120 C++ cases, 4/4 ctest entries, and 1,095 pytest pass; wording, pragma, row coverage, and table log checks pass; design log (hh)","5984284: review pass 1 by three fresh-context reviewers, 13 findings: 3 patched, 10 rejected with reasons, none deferred","PR #8: 11 checks green on fast and full tier, all four platforms","",""],
+    acs:[
+      ["x","Every range-governed field names its range row ID; a field without a row fails a test"],
+      ["x","Out-of-range value: no plan, no output, error names parameter, value, rule, limit; inclusive and exclusive bounds tested"],
+      ["x","Carrier rule rejects any carrier under 4 times the worst-case rate (pass at exactly 4x, fail just under, interval max case)"]
     ] },
   { id:"1.4", title:"Command-line renderer, report, and render speed", status:"backlog",
     plain:"Render any recipe from the command line to a WAV plus a machine-readable report.",
@@ -697,6 +700,13 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-05","52e4fbb","1.3","PR #8 green on fast and full tier (11 checks)"],
+  ["2026-11-05","6127bb5","1.3","Pushed; PR #8 opened, CI pending"],
+  ["2026-11-05","5984284","1.3","Code review pass 1: 3 patches applied (unknown registered field rejects, units in the engine range table, valid fixtures read from the folder), 10 rejected, none deferred; sprint-status.yaml set to review"],
+  ["2026-11-05","1ffd738","1.3","Implementation committed: field table range rows, engine range table, check_ranges in compile, carrier rule; loudness-master removed; all local tests and checks pass; design log (hh)"],
+  ["2026-11-05","b61498e","1.3","Failing tests committed by a fresh-context QA agent: range registration, range table, boundary matrix, carrier rule, check order"],
+  ["2026-11-05","17cbb17","1.2","PR #7 merged into main; sprint-status.yaml set to done"],
+  ["2026-11-04","e654612","1.2","PR #7 green on fast and full tier (11 checks)"],
   ["2026-11-04","9f4f0a9","1.2","Pushed; PR #7 opened, CI pending"],
   ["2026-11-04","40d571c","1.2","Code review pass 1: 11 patches applied, 3 deferred; sprint-status.yaml set to review"],
   ["2026-11-04","0e7df6d","1.2","Implementation committed; all local tests and checks pass; design log (gg)"],

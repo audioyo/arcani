@@ -6,7 +6,7 @@ binaural-isolation-master	60	dB below the ear's own binaural carrier	Binaural is
 coupling-timing	2	ms	Coupling timing	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-3	2-3-gamma-coupled-smooth-swell
 coupling-independence	0	samples of gamma peak time change	Coupling independence	thresholds-and-ranges.md, Test thresholds; AD-5	2-5-binaural-layer
 envelope-shape	0	envelope samples failing the reference match	Envelope shape	thresholds-and-ranges.md, Test thresholds; FR-13	2-1-theta-reference-envelopes
-carrier-rule	4	times the modulation rate	Carrier rule	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-9	1-3-validator-framework-locked-ranges-and-carrier-rule
+carrier-rule	4	times the modulation rate	Carrier rule	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-9	
 spacing-rule	50	Hz	Spacing rule	thresholds-and-ranges.md, Test thresholds; design log 2026-10-27 (e), (i); AD-20	3-2-spacing-rule-per-ear-whole-session
 spectral-component-level	40	dB below the layer's strongest line	Spacing rule	thresholds-and-ranges.md, Test thresholds; design log 2026-10-27 (i); AD-20	3-1-spectral-component-table-per-shape
 frequency-accuracy	0.01	Hz	Frequency accuracy	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-1	
