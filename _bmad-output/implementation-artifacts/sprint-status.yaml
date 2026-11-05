@@ -46,7 +46,7 @@ development_status:
   epic-0-retrospective: optional
 
   epic-1: in-progress
-  1-1-minimal-recipe-schema-and-recipe-hash: review
+  1-1-minimal-recipe-schema-and-recipe-hash: done
   1-2-c-api-fixed-stage-list-seek-and-isolation-assertion: backlog
   1-3-validator-framework-locked-ranges-and-carrier-rule: backlog
   1-4-command-line-renderer-report-and-render-speed: backlog
