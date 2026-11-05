@@ -45,8 +45,8 @@ static_assert(static_cast<int>(arcani::plan::StageKind::ThetaReference) == ARC_S
               static_cast<int>(arcani::plan::StageKind::MasterChain) == ARC_STAGE_MASTER_CHAIN,
               "StageKind values equal arc_stage_kind");
 
-// Copies text into one error field, NUL-terminated. A longer text is cut to
-// ARC_ERROR_FIELD_BYTES - 1 bytes ending in "...".
+// Copies text into one error field, NUL-terminated. A longer text is cut to at most
+// ARC_ERROR_FIELD_BYTES - 1 bytes ending in "...", never inside a UTF-8 sequence.
 void write_field(char (&dest)[ARC_ERROR_FIELD_BYTES], std::string_view text) noexcept {
   constexpr std::size_t kMax = ARC_ERROR_FIELD_BYTES - 1;
   if (text.size() <= kMax) {
@@ -55,10 +55,14 @@ void write_field(char (&dest)[ARC_ERROR_FIELD_BYTES], std::string_view text) noe
     return;
   }
   constexpr std::string_view kEllipsis = "...";
-  const std::size_t keep = kMax - kEllipsis.size();
+  // Never split a UTF-8 sequence: back up off continuation bytes.
+  std::size_t keep = kMax - kEllipsis.size();
+  while (keep > 0 && (static_cast<unsigned char>(text[keep]) & 0xC0u) == 0x80u) {
+    --keep;
+  }
   std::memcpy(dest, text.data(), keep);
   std::memcpy(dest + keep, kEllipsis.data(), kEllipsis.size());
-  dest[kMax] = '\0';
+  dest[keep + kEllipsis.size()] = '\0';
 }
 
 void fill(arc_error* e, std::string_view parameter, std::string_view value, std::string_view rule,

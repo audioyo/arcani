@@ -54,7 +54,9 @@ add_test(NAME arcani_alloc_tests COMMAND arcani_alloc_tests)
 
 # Story 1.2: the public header compiles as C. The project enables only C++,
 # so ctest runs the pinned compiler in C mode, syntax only, warnings as
-# errors. The must-fail twin (a C++ reference parameter) must not compile.
+# errors. The must-fail twin (a C++ reference parameter) must not compile,
+# and must fail with the C diagnostic at that parameter (line 7), so a
+# missing compiler or a bad flag does not count as the expected failure.
 if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
   set(_arcani_c_check /nologo /TC /Zs /W4 /WX /clang:-std=c11
     "/I${CMAKE_SOURCE_DIR}/engine/include")
@@ -68,4 +70,5 @@ add_test(NAME arcani_api_c_header
 add_test(NAME arcani_api_c_header_mustfail
   COMMAND "${CMAKE_CXX_COMPILER}" ${_arcani_c_check}
     "${CMAKE_SOURCE_DIR}/tests/fixtures/c_api/cpp_reference.c")
-set_tests_properties(arcani_api_c_header_mustfail PROPERTIES WILL_FAIL TRUE)
+set_tests_properties(arcani_api_c_header_mustfail PROPERTIES
+  PASS_REGULAR_EXPRESSION [=[cpp_reference[.]c[(:]7[,:][0-9]+[):]+ error: expected ']=])

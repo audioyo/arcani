@@ -31,9 +31,11 @@ Contract with the checker:
   llvm-nm (the text after "U ") and its family name, one of:
   "libm transcendental", "file", "thread", "clock", "console", "fenv" (any case).
 - Family "fenv" (Story 1.2): the C floating-point environment calls that set
-  or save the mode (fesetenv, fegetenv, feholdexcept, feupdateenv,
-  fesetround) and the MSVC mode
-  calls (_controlfp, _controlfp_s, _control87, __control87_2), in their raw,
+  or save the mode or the exception flags (fesetenv, fegetenv, feholdexcept,
+  feupdateenv, fesetround, feenableexcept, fedisableexcept, fesetexceptflag,
+  feclearexcept, feraiseexcept, fesetexcept) and the MSVC mode calls
+  (_controlfp, _controlfp_s, _control87, __control87_2, _clearfp, _fpreset,
+  _set_controlfp), in their raw,
   Windows import, and Mach-O underscore forms. The engine sets its denormal
   mode with MXCSR / FPCR intrinsics only (AD-9), which leave no symbol.
 - Families: libm transcendentals with f and l variants (sin, cos, tan, asin,
@@ -239,6 +241,17 @@ DENIED += [
     ("__imp__controlfp", {FENV}),
     ("_control87", {FENV}),
     ("__control87_2", {FENV}),
+    ("feenableexcept", {FENV}),
+    ("fedisableexcept", {FENV}),
+    ("fesetexceptflag", {FENV}),
+    ("feclearexcept", {FENV}),
+    ("feraiseexcept", {FENV}),
+    ("fesetexcept", {FENV}),
+    ("__imp_feclearexcept", {FENV}),
+    ("_clearfp", {FENV}),
+    ("_fpreset", {FENV}),
+    ("_set_controlfp", {FENV}),
+    ("__imp__fpreset", {FENV}),
 ]
 
 ALLOWED = [

@@ -194,6 +194,27 @@ FullRender render_session(const char* fixture, std::uint32_t fs, arc_mute_ear mu
   return f;
 }
 
+// True when the output and every tap at row v's sample equal its bits:
+// output, master, and binaural join hold the row's bits, and the theta
+// reference, gamma PAC, and stereo bus taps hold +0.0.
+bool row_matches(const FullRender& f, const spec::StubChainVector& v) {
+  const auto i = static_cast<std::size_t>(2 * v.n);
+  if (f.frames != v.frames || i + 1 >= f.out.size()) {
+    return false;
+  }
+  for (const std::vector<double>* buffer : {&f.out, &f.taps.master, &f.taps.binaural_join}) {
+    if (api::bits((*buffer)[i]) != v.left_bits || api::bits((*buffer)[i + 1]) != v.right_bits) {
+      return false;
+    }
+  }
+  for (const std::vector<double>* buffer : {&f.taps.theta_reference, &f.taps.gamma_pac, &f.taps.stereo_bus}) {
+    if (api::bits((*buffer)[i]) != 0 || api::bits((*buffer)[i + 1]) != 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
 }  // namespace
 
 TEST_CASE("stub chain: output and every tap equal the spec vectors bit for bit", "[stages][spec]") {
@@ -208,15 +229,7 @@ TEST_CASE("stub chain: output and every tap equal the spec vectors bit for bit",
         }
         ++rows;
         INFO("n = " << v.n);
-        REQUIRE(f.frames == v.frames);
-        const auto i = static_cast<std::size_t>(2 * v.n);
-        REQUIRE(i + 1 < f.out.size());
-        CHECK(api::bits(f.out[i]) == v.left_bits);
-        CHECK(api::bits(f.out[i + 1]) == v.right_bits);
-        CHECK(api::bits(f.taps.master[i]) == v.left_bits);
-        CHECK(api::bits(f.taps.master[i + 1]) == v.right_bits);
-        CHECK(api::bits(f.taps.binaural_join[i]) == v.left_bits);
-        CHECK(api::bits(f.taps.binaural_join[i + 1]) == v.right_bits);
+        CHECK(row_matches(f, v));
       }
       CHECK(rows >= 10);
       // Theta reference and gamma PAC stubs, and so the stereo bus, are +0.0.
@@ -242,11 +255,27 @@ TEST_CASE("stub chain vector check catches a doctored sample", "[stages][spec]")
   REQUIRE(row != nullptr);
   const auto& v = *row;
   REQUIRE_FALSE(v.past_end);
-  REQUIRE(api::bits(f.out[static_cast<std::size_t>(2 * v.n)]) == v.left_bits);
-  std::vector<double> doctored = f.out;
-  std::uint64_t b = api::bits(doctored[static_cast<std::size_t>(2 * v.n)]) ^ 1u;
-  std::memcpy(&doctored[static_cast<std::size_t>(2 * v.n)], &b, sizeof b);
-  CHECK(api::bits(doctored[static_cast<std::size_t>(2 * v.n)]) != v.left_bits);
+  CHECK(row_matches(f, v));
+  const auto i = static_cast<std::size_t>(2 * v.n);
+  // One flipped low bit in the output, then in the join tap, then a stereo
+  // bus tap that is not +0.0: each fails the comparison.
+  {
+    FullRender doctored = f;
+    std::uint64_t b = api::bits(doctored.out[i]) ^ 1u;
+    std::memcpy(&doctored.out[i], &b, sizeof b);
+    CHECK_FALSE(row_matches(doctored, v));
+  }
+  {
+    FullRender doctored = f;
+    std::uint64_t b = api::bits(doctored.taps.binaural_join[i + 1]) ^ 1u;
+    std::memcpy(&doctored.taps.binaural_join[i + 1], &b, sizeof b);
+    CHECK_FALSE(row_matches(doctored, v));
+  }
+  {
+    FullRender doctored = f;
+    doctored.taps.stereo_bus[i] = -0.0;
+    CHECK_FALSE(row_matches(doctored, v));
+  }
 }
 
 TEST_CASE("muted ear: that channel is exact zeros at every tap, the other ear is unchanged", "[stages][mute]") {

@@ -362,6 +362,81 @@ TEST_CASE("a long error field is truncated with a trailing ...", "[api][compile]
   CHECK(value.substr(0, value.size() - 3) == long_value.substr(0, value.size() - 3));
 }
 
+namespace {
+
+// Strict UTF-8 check: well-formed sequences only (no overlong forms,
+// surrogates, or values above U+10FFFF).
+bool valid_utf8(const std::string& s) {
+  std::size_t i = 0;
+  while (i < s.size()) {
+    const auto b = static_cast<unsigned char>(s[i]);
+    std::size_t n = 0;
+    std::uint32_t cp = 0;
+    if (b < 0x80) {
+      ++i;
+      continue;
+    } else if ((b & 0xE0) == 0xC0) {
+      n = 1;
+      cp = b & 0x1F;
+    } else if ((b & 0xF0) == 0xE0) {
+      n = 2;
+      cp = b & 0x0F;
+    } else if ((b & 0xF8) == 0xF0) {
+      n = 3;
+      cp = b & 0x07;
+    } else {
+      return false;
+    }
+    if (i + n >= s.size()) {
+      return false;
+    }
+    for (std::size_t k = 1; k <= n; ++k) {
+      const auto c = static_cast<unsigned char>(s[i + k]);
+      if ((c & 0xC0) != 0x80) {
+        return false;
+      }
+      cp = (cp << 6) | (c & 0x3F);
+    }
+    const std::uint32_t min[] = {0, 0x80, 0x800, 0x10000};
+    if (cp < min[n] || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) {
+      return false;
+    }
+    i += n + 1;
+  }
+  return true;
+}
+
+}  // namespace
+
+TEST_CASE("truncation never splits a UTF-8 sequence", "[api][compile]") {
+  // "d" then 400 two-byte characters (U+00E9): the 252-byte cut point lands
+  // on the second byte of a character, so the cut backs up one byte.
+  std::string long_value = "d";
+  for (int i = 0; i < 400; ++i) {
+    long_value += "\xC3\xA9";
+  }
+  REQUIRE((static_cast<unsigned char>(long_value[ARC_ERROR_FIELD_BYTES - 4]) & 0xC0) == 0x80);
+  std::string text = api::valid(api::kBeat6);
+  const std::string date = "\"date\": \"2026-11-04\"";
+  const auto at = text.find(date);
+  REQUIRE(at != std::string::npos);
+  text.replace(at, date.size(), "\"date\": \"" + long_value + "\"");
+  const api::Compiled c = api::compile(text, api::options(ARC_MODE_MEASURE, 48000));
+  CHECK(c.status == ARC_ERR_REJECTED);
+  require_filled(c.error);
+  CHECK(std::string(c.error.parameter) == "/date");
+  const std::string value = c.error.value;
+  INFO(value.size());
+  CHECK(value.size() <= ARC_ERROR_FIELD_BYTES - 1);
+  CHECK(value.size() >= ARC_ERROR_FIELD_BYTES - 1 - 3);
+  REQUIRE(value.size() > 3);
+  CHECK(value.substr(value.size() - 3) == "...");
+  CHECK(valid_utf8(value));
+  CHECK(value.substr(0, value.size() - 3) == long_value.substr(0, value.size() - 3));
+  // Must-fail side of the check: a cut mid-character is not valid UTF-8.
+  CHECK_FALSE(valid_utf8(long_value.substr(0, ARC_ERROR_FIELD_BYTES - 4) + "..."));
+}
+
 TEST_CASE("compile rejects a bad options enum as an invalid argument", "[api][compile]") {
   const std::string text = api::valid(api::kBeat6);
   SECTION("mode") {
@@ -581,6 +656,67 @@ TEST_CASE("host flush-to-zero: every call leaves the host mode unchanged", "[api
   CHECK(fp::controls() == flushed);
   CHECK(arc_compile(nullptr, 0, &o, &none, &e) == ARC_ERR_INVALID_ARGUMENT);
   CHECK(fp::controls() == flushed);
+}
+
+TEST_CASE("host round toward zero: output equals the IEEE render, host mode unchanged", "[api][fp_mode]") {
+  if (!fp::supported()) {
+    SKIP("no floating-point mode control on this target");
+  }
+#if defined(__x86_64__) || defined(_M_X64)
+  constexpr std::uint64_t kRoundingBits = 0x6000u;     // MXCSR RC, bits 13 and 14
+  constexpr std::uint64_t kTowardZero = 0x6000u;       // RC = 11
+#else
+  constexpr std::uint64_t kRoundingBits = std::uint64_t{3} << 22;  // FPCR RMode
+  constexpr std::uint64_t kTowardZero = std::uint64_t{3} << 22;    // RMode = 11 (RZ)
+#endif
+  const std::string text = api::valid(api::kBeat6);
+  const arc_compile_options o = api::options(ARC_MODE_MEASURE, 48000);
+  constexpr std::size_t kFrames = 4096;
+
+  std::vector<double> ieee;
+  {
+    fp::HostMode host(fp::controls() & ~fp::flush_bits() & ~kRoundingBits);
+    auto plan = api::compile_ok(text, o);
+    auto r = api::renderer(plan.get());
+    ieee = api::render(r.get(), kFrames);
+  }
+
+  const std::uint64_t toward_zero = (fp::controls() & ~kRoundingBits) | kTowardZero;
+  fp::HostMode host(toward_zero);
+  REQUIRE(fp::controls() == toward_zero);
+  // Premise: in this host mode 1 + 2^-53 * 1.5 rounds down to 1.
+  {
+    volatile double one = 1.0;
+    volatile double small = 0x1.8p-53;
+    volatile double sum = one + small;
+    CHECK(sum == 1.0);
+  }
+
+  arc_error e;
+  arc_plan* raw = nullptr;
+  api::poison(e);
+  CHECK(arc_compile(text.data(), text.size(), &o, &raw, &e) == ARC_OK);
+  CHECK(fp::controls() == toward_zero);
+  REQUIRE(raw != nullptr);
+  api::PlanPtr plan(raw);
+
+  arc_renderer* rr = nullptr;
+  CHECK(arc_renderer_create(plan.get(), &rr, &e) == ARC_OK);
+  CHECK(fp::controls() == toward_zero);
+  REQUIRE(rr != nullptr);
+  api::RendererPtr r(rr);
+
+  std::vector<double> out(2 * kFrames, -7.0);
+  CHECK(arc_render(r.get(), out.data(), kFrames, nullptr, &e) == ARC_OK);
+  CHECK(fp::controls() == toward_zero);
+  CHECK(api::same_bytes(out, ieee));
+
+  CHECK(arc_seek(r.get(), 37, &e) == ARC_OK);
+  CHECK(fp::controls() == toward_zero);
+  std::vector<double> tail(2 * (kFrames - 37), -7.0);
+  CHECK(arc_render(r.get(), tail.data(), kFrames - 37, nullptr, &e) == ARC_OK);
+  CHECK(fp::controls() == toward_zero);
+  CHECK(api::same_bytes(tail.data(), ieee.data() + 2 * 37, tail.size()));
 }
 
 TEST_CASE("host mode check catches a call that changes the host mode", "[api][fp_mode]") {

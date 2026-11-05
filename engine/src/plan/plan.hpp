@@ -46,7 +46,10 @@ struct StageDescriptor {
   std::array<int, 2> input_channel;  // output channel c reads input channel input_channel[c]
 };
 
-// The fixed stage list, in stage order.
+// The fixed stage list, in stage order. This table is the declared channel
+// contract; it does not drive the renderer. The renderer's output is held to
+// it by the muted-ear tests and the stub chain vector tests
+// (tests/cpp/test_stages.cpp, tests/cpp/test_isolation.cpp).
 std::span<const StageDescriptor> stage_descriptors() noexcept;
 
 enum class Mode { Measure, Final };

@@ -6,13 +6,20 @@
 
    Errors: every call that can fail returns an arc_status and, when `error`
    is not NULL, writes all four arc_error fields (each NUL-terminated; a
-   longer text is cut to ARC_ERROR_FIELD_BYTES - 1 bytes ending in "...").
+   longer text is cut to at most ARC_ERROR_FIELD_BYTES - 1 bytes ending in
+   "...", never inside a UTF-8 sequence).
    A successful call makes no promise about `error`.
 
    Real-time contract: arc_render and arc_seek never allocate, lock, block,
    do I/O, throw, or log. Every floating-point call (compile, renderer
-   creation, render, seek) clears the denormal flush modes on entry and puts
-   the host's floating-point mode back on every return. */
+   creation, render, seek) sets one fixed IEEE mode (round to nearest, no
+   flush, exceptions masked) on entry and puts the host's floating-point mode
+   back on every return.
+
+   Threads and buffers: a plan may be shared by renderers on any threads, and
+   arc_plan_retain and arc_plan_release are thread-safe. One renderer must be
+   used by one thread at a time. In arc_render, `out` and the tap buffers
+   must not overlap each other. */
 #ifndef ARCANI_ARCANI_H
 #define ARCANI_ARCANI_H
 

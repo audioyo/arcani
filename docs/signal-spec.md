@@ -341,7 +341,7 @@ master[c][n] = join[c][n] * g_c             per-channel gain, g_L = g_R = 1.0 (s
 out[c][n]    = master[c][n]                 stereo-linked limiter stub: identity, zero gain reduction
 ```
 
-A missing `theta_reference` field leaves `theta` at zeros; with the field present the stub still outputs zeros. Because `+0.0 + y = y` and `y * 1.0 = y` exactly for every binary64 `y`, `bus` is `+0.0`, and `join`, `master`, and `out` all equal `a_c * sine(phase_c[n])` bit for bit.
+A missing `theta_reference` field leaves `theta` at zeros; with the field present the stub still outputs zeros. `bus` is `+0.0 + +0.0 = +0.0`. `y * 1.0 = y` exactly for every binary64 `y`, and `+0.0 + y = y` exactly for every binary64 `y` other than `-0.0` (where the sum is `+0.0`). The stub never produces `bin = -0.0`: the engine sine (Sine, Engine sine) returns zero only for a folded `s = 0`, where `x = +0.0`, `r = C1 = 1` and `y = 1 * +0.0 = +0.0`, and is otherwise nonzero with the sign of `s`, since `r` stays positive on `[-pi/2, pi/2]`; a muted or absent ear is `0.0 * sine(0) = +0.0`. So `join`, `master`, and `out` all equal `a_c * sine(phase_c[n])` bit for bit.
 
 **Output and taps.** The render output is `out`, interleaved stereo binary64 (left, then right, per frame). Five optional taps, each interleaved stereo binary64 over the same frames: theta reference (`theta`), gamma PAC (`gamma`), stereo bus (`bus`), binaural join (`join`, the engine output point of the isolation row `binaural-isolation-engine`), and master (`out`, the point of row `binaural-isolation-master`).
 

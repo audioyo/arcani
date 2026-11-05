@@ -171,7 +171,8 @@
       "name": "fenv",
       "c_names": [
         "_?(fesetenv|fegetenv|feholdexcept|feupdateenv|fesetround)",
-        "_?(controlfp|controlfp_s|control87|control87_2)"
+        "_?(feenableexcept|fedisableexcept|fesetexceptflag|feclearexcept|feraiseexcept|fesetexcept)",
+        "_?(controlfp|controlfp_s|control87|control87_2|clearfp|fpreset|set_controlfp)"
       ],
       "cpp_names": []
     }
