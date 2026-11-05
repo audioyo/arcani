@@ -400,6 +400,38 @@ TEST_CASE("wrong argument shapes print usage and exit 2", "[cli]") {
   }
 }
 
+TEST_CASE("an empty --report or colliding file paths print usage and exit 2", "[cli]") {
+  const fs::path dir = case_dir("usage-paths");
+  const std::string recipe = fixture_path(arcani::test::api::kBeat6);
+  const std::string wav = (dir / "x.wav").string();
+  const std::vector<std::vector<std::string>> shapes = {
+      {recipe, "--out", wav, "--report", ""},
+      {recipe, "--out", wav, "--report", wav},
+      {recipe, "--out", wav, "--report", wav + ".partial"},
+  };
+  for (const auto& args : shapes) {
+    require_usage_exit_2(args, dir);
+  }
+  // A copy of the recipe, so a collision bug cannot replace the fixture.
+  const fs::path recipe_dir = case_dir("usage-paths-recipe");
+  const fs::path copy = recipe_dir / "r.json";
+  const std::string text = arcani::test::api::valid(arcani::test::api::kBeat6);
+  write_text(copy, text);
+  const std::vector<std::vector<std::string>> recipe_shapes = {
+      {copy.string(), "--out", copy.string()},
+      {copy.string(), "--out", wav, "--report", copy.string()},
+      // The same file through another spelling of its path.
+      {copy.string(), "--out", (recipe_dir / "." / "r.json").string()},
+  };
+  for (const auto& args : recipe_shapes) {
+    require_usage_exit_2(args, dir);
+    CHECK(listing(recipe_dir) == std::vector<std::string>{"r.json"});
+    const auto bytes = h::read_bytes(copy.string());
+    REQUIRE(bytes.has_value());
+    CHECK(h::as_text(*bytes) == text);
+  }
+}
+
 // ----------------------------------------------------------------- render
 
 TEST_CASE("render at 48 kHz by default: WAV data is the 24-bit rounding of arc_render",
@@ -568,6 +600,24 @@ TEST_CASE("render speed is not applicable off the reference machine", "[cli]") {
   }
 }
 
+TEST_CASE("render speed is measured on the reference machine: pass exits 0, fail exits 4",
+          "[cli]") {
+  // Does not require a pass, so no speed result gates CI.
+  ScopedEnv env(kEnv, "1");
+  const fs::path dir = case_dir("speed-measured");
+  const fs::path wav = dir / "x.wav";
+  const RunResult r = run_cli({fixture_path(arcani::test::api::kBeat6), "--out", wav.string()});
+  INFO("stdout: " << r.out << "\nstderr: " << r.err);
+  const json::Value report = require_report(dir / "x.report.json");
+  const json::Value& a = speed(report);
+  REQUIRE(a.find("measured")->kind() == json::Kind::Number);
+  const std::string result = a.find("result")->string();
+  CHECK((result == "pass" || result == "fail"));
+  CHECK(a.find("note")->string().empty());
+  CHECK(r.exit_code == (result == "pass" ? 0 : 4));
+  CHECK(listing(dir) == std::vector<std::string>{"x.report.json", "x.wav"});
+}
+
 TEST_CASE("render speed passes on the reference machine (dev PC only)", "[cli][speed]") {
   const char* here = std::getenv(kEnv);
   if (here == nullptr || std::string(here) != "1") {
@@ -643,6 +693,16 @@ TEST_CASE("file errors exit 3 and leave no file at the WAV path", "[cli]") {
   {
     const fs::path wav = dir / "missing-dir" / "x.wav";
     const RunResult r = run_cli({fixture_path(arcani::test::api::kBeat6), "--out", wav.string()});
+    INFO("stdout: " << r.out << "\nstderr: " << r.err);
+    CHECK(r.exit_code == 3);
+    CHECK(listing(dir).empty());
+  }
+  {
+    // The report cannot be written: no WAV and no .partial remain.
+    ScopedEnv env(kEnv, nullptr);
+    const fs::path wav = dir / "x.wav";
+    const RunResult r = run_cli({fixture_path(arcani::test::api::kBeat6), "--out", wav.string(),
+                                 "--report", (dir / "missing-dir" / "r.json").string()});
     INFO("stdout: " << r.out << "\nstderr: " << r.err);
     CHECK(r.exit_code == 3);
     CHECK(listing(dir).empty());

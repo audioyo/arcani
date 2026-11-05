@@ -157,6 +157,12 @@ def relative_engine_src(build):
     "-I{backslash}",
     "-I{upper}",
     "-I{relative}",
+    "--include-directory={p}",
+    "--include-directory {p}",
+    "-cxx-isystem {p}",
+    "-iwithprefix {p}",
+    "-iwithprefixbefore{p}",
+    "-Xclang -internal-isystem -Xclang {p}",
 ])
 def test_include_into_engine_src_fails(tmp_path, form):
     main = cli_file("main.cpp")

@@ -27,6 +27,7 @@
 #include <span>
 #include <string>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -107,6 +108,9 @@ std::optional<Args> parse_args(int argc, char** argv) {
       have_out = true;
       a.out = value;
     } else if (flag == "--report" && !a.report) {
+      if (value.empty()) {
+        return std::nullopt;
+      }
       a.report = value;
     } else if (flag == "--rate" && !have_rate) {
       have_rate = true;
@@ -139,6 +143,25 @@ std::string default_report_path(const std::string& wav) {
   fs::path p(wav);
   p.replace_extension(".report.json");
   return p.string();
+}
+
+// True when a and b name the same file: the same text, or, where both
+// exist, the same file on disk.
+bool same_file(const std::string& a, const std::string& b) {
+  if (a == b) {
+    return true;
+  }
+  std::error_code ec;
+  return fs::equivalent(fs::path(a), fs::path(b), ec) && !ec;
+}
+
+// The WAV, its partial file, the report, and the recipe must be four
+// different files.
+bool paths_collide(const Args& args, const std::string& report) {
+  const std::string partial = args.out + ".partial";
+  return same_file(args.out, args.recipe) || same_file(report, args.recipe) ||
+         same_file(partial, args.recipe) || same_file(report, args.out) ||
+         same_file(report, partial);
 }
 
 std::optional<std::string> read_file(const std::string& path) {
@@ -174,6 +197,38 @@ bool write_text_file(const std::string& path, const std::string& text) {
   return wrote && closed;
 }
 
+// The open <WAV>.partial file: closed on every exit path, and removed unless
+// it was renamed onto the WAV path.
+struct PartialFile {
+  std::string path;
+  std::FILE* file = nullptr;
+  bool opened = false;
+  bool renamed = false;
+
+  explicit PartialFile(std::string p) : path(std::move(p)) {}
+  PartialFile(const PartialFile&) = delete;
+  PartialFile& operator=(const PartialFile&) = delete;
+  ~PartialFile() {
+    close();
+    if (opened && !renamed) {
+      std::remove(path.c_str());
+    }
+  }
+  bool open() {
+    file = std::fopen(path.c_str(), "wb");
+    opened = file != nullptr;
+    return opened;
+  }
+  bool close() {
+    if (file == nullptr) {
+      return true;
+    }
+    const bool ok = std::fclose(file) == 0;
+    file = nullptr;
+    return ok;
+  }
+};
+
 struct PlanHandle {
   arc_plan* plan = nullptr;
   ~PlanHandle() { arc_plan_release(plan); }
@@ -185,6 +240,10 @@ struct RendererHandle {
 };
 
 int run(const Args& args) {
+  const std::string report_path = args.report ? *args.report : default_report_path(args.out);
+  // Read before any output is opened, so a missing table writes nothing.
+  const arcani::test::tables::Row& speed_row = arcani::test::tables::row("render-speed");
+
   const std::optional<std::string> text = read_file(args.recipe);
   if (!text) {
     return file_error("cannot read recipe " + args.recipe);
@@ -215,19 +274,14 @@ int run(const Args& args) {
     return file_error(std::string("renderer creation failed: rule=") + error.rule);
   }
 
-  const std::string partial = args.out + ".partial";
-  std::FILE* wav = std::fopen(partial.c_str(), "wb");
-  if (wav == nullptr) {
+  PartialFile wav(args.out + ".partial");
+  const std::string& partial = wav.path;
+  if (!wav.open()) {
     return file_error("cannot write " + partial);
   }
-  auto abandon = [&](const std::string& what) {
-    std::fclose(wav);
-    std::remove(partial.c_str());
-    return file_error(what);
-  };
 
-  if (!write_all(wav, cli::wav_header(frames, args.rate))) {
-    return abandon("cannot write " + partial);
+  if (!write_all(wav.file, cli::wav_header(frames, args.rate))) {
+    return file_error("cannot write " + partial);
   }
   std::vector<double> samples(kBlockFrames * 2);
   std::vector<std::uint8_t> bytes;
@@ -240,21 +294,19 @@ int run(const Args& args) {
     const arc_status s = arc_render(renderer.renderer, samples.data(), n, nullptr, &error);
     render_time += std::chrono::steady_clock::now() - start;
     if (s != ARC_OK) {
-      return abandon(std::string("render failed: rule=") + error.rule);
+      return file_error(std::string("render failed: rule=") + error.rule);
     }
     bytes.clear();
     cli::append_samples(bytes, std::span<const double>(samples.data(), n * 2));
-    if (!write_all(wav, bytes)) {
-      return abandon("cannot write " + partial);
+    if (!write_all(wav.file, bytes)) {
+      return file_error("cannot write " + partial);
     }
     done += n;
   }
-  if (std::fclose(wav) != 0) {
-    std::remove(partial.c_str());
+  if (!wav.close()) {
     return file_error("cannot write " + partial);
   }
 
-  const arcani::test::tables::Row& speed_row = arcani::test::tables::row("render-speed");
   cli::Report report;
   report.engine_version = arc_engine_version();
   report.seed = arc_plan_seed(plan.plan);
@@ -268,18 +320,16 @@ int run(const Args& args) {
       speed_row, frames, args.rate, cli::elapsed_seconds(render_time),
       cli::is_reference_machine(std::getenv("ARCANI_REFERENCE_MACHINE"))));
 
-  const std::string report_path = args.report ? *args.report : default_report_path(args.out);
   if (!write_text_file(report_path, cli::report_json(report))) {
     std::remove(report_path.c_str());
-    std::remove(partial.c_str());
     return file_error("cannot write " + report_path);
   }
 
   std::error_code ec;
   fs::rename(partial, args.out, ec);
+  wav.renamed = !ec;
   if (ec) {
     std::remove(report_path.c_str());
-    std::remove(partial.c_str());
     return file_error("cannot rename " + partial + " to " + args.out + ": " + ec.message());
   }
   return cli::assertions_exit_code(report.assertions);
@@ -297,6 +347,11 @@ int main(int argc, char** argv) {
   }
   const std::optional<Args> args = parse_args(argc, argv);
   if (!args) {
+    return usage();
+  }
+  if (paths_collide(*args, args->report ? *args->report : default_report_path(args->out))) {
+    std::fputs("error: RECIPE, --out, its .partial file, and --report must be different files\n",
+               stderr);
     return usage();
   }
   try {

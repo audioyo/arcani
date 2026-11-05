@@ -10,8 +10,11 @@ CLI source's command uses an @ response file, when there is no CLI source, or
 when the build facts cannot be read. Exit 0 otherwise.
 
 Include path options: -I, /I, -isystem, -iquote, -idirafter, -imsvc, /imsvc,
--external:I, /external:I, joined to the path or followed by it as the next
-token, bare or behind /clang: or -clang:. Relative paths are taken from the
+-external:I, /external:I, --include-directory, --include-directory=,
+-cxx-isystem, -iwithprefix, -iwithprefixbefore, and the cc1 options
+-internal-isystem and -internal-externc-isystem, joined to the path or
+followed by it as the next token, bare, behind /clang: or -clang:, or passed
+through -Xclang. Relative paths are taken from the
 entry's directory.
 
 Standard library only.
@@ -27,7 +30,8 @@ from check_compile_flags import CLANG_PREFIXES, normalize_path, tokenize  # noqa
 # Longest first, so -isystem is not read as -i plus "system".
 INCLUDE_OPTIONS = sorted(
     ["-I", "/I", "-isystem", "-iquote", "-idirafter", "-imsvc", "/imsvc", "-external:I",
-     "/external:I"],
+     "/external:I", "--include-directory=", "--include-directory", "-cxx-isystem",
+     "-iwithprefix", "-iwithprefixbefore", "-internal-isystem", "-internal-externc-isystem"],
     key=len,
     reverse=True,
 )
@@ -40,8 +44,14 @@ def strip_prefix(token):
     return token
 
 
+def without_xclang(tokens):
+    """Drops each -Xclang, so the cc1 argument it passes is read like any other token."""
+    return [t for t in tokens if t != "-Xclang"]
+
+
 def include_paths(tokens):
     """Yields (path as written, whole option text) for each include path option."""
+    tokens = without_xclang(tokens)
     i = 0
     while i < len(tokens):
         bare = strip_prefix(tokens[i])
