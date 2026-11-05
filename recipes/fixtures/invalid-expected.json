@@ -1,0 +1,248 @@
+{
+  "description": "Expected error for each recipes/fixtures/invalid fixture. parameter is the JSON Pointer of the field (the empty string is the whole document). A syntax fault (rule starting json.) lists no parameter: its parameter is the byte offset, in decimal digits. rule is the engine rule (and the Python strict loader rule for json. rules); schema_keyword is a JSON Schema keyword that must appear among the Python jsonschema errors. An absent key is not checked.",
+  "fixtures": {
+    "author-as-number.json": {
+      "parameter": "/author",
+      "rule": "type",
+      "schema_keyword": "type"
+    },
+    "beat-rate-hz-as-string.json": {
+      "parameter": "/binaural/beat_rate_hz",
+      "rule": "type",
+      "schema_keyword": "type"
+    },
+    "binaural-as-array.json": {
+      "parameter": "/binaural",
+      "rule": "type",
+      "schema_keyword": "type"
+    },
+    "block-comment.json": {
+      "rule": "json.comment"
+    },
+    "byte-order-mark.json": {
+      "rule": "json.bom"
+    },
+    "date-day-00.json": {
+      "parameter": "/date",
+      "rule": "pattern",
+      "schema_keyword": "pattern"
+    },
+    "date-day-32.json": {
+      "parameter": "/date",
+      "rule": "pattern",
+      "schema_keyword": "pattern"
+    },
+    "date-month-00.json": {
+      "parameter": "/date",
+      "rule": "pattern",
+      "schema_keyword": "pattern"
+    },
+    "date-month-13.json": {
+      "parameter": "/date",
+      "rule": "pattern",
+      "schema_keyword": "pattern"
+    },
+    "date-not-iso.json": {
+      "parameter": "/date",
+      "rule": "pattern",
+      "schema_keyword": "pattern"
+    },
+    "duplicate-key-escaped.json": {
+      "rule": "json.duplicate_key"
+    },
+    "duplicate-key.json": {
+      "rule": "json.duplicate_key"
+    },
+    "engine-version-leading-zero.json": {
+      "parameter": "/engine_version",
+      "rule": "pattern",
+      "schema_keyword": "pattern"
+    },
+    "engine-version-two-parts.json": {
+      "parameter": "/engine_version",
+      "rule": "pattern",
+      "schema_keyword": "pattern"
+    },
+    "infinity-literal.json": {
+      "rule": "json.non_finite"
+    },
+    "leading-zero.json": {
+      "rule": "json.leading_zero"
+    },
+    "length-s-as-string.json": {
+      "parameter": "/length_s",
+      "rule": "type",
+      "schema_keyword": "type"
+    },
+    "line-comment.json": {
+      "rule": "json.comment"
+    },
+    "lone-surrogate-escape.json": {
+      "rule": "json.lone_surrogate"
+    },
+    "loudness-gain-db-as-boolean.json": {
+      "parameter": "/loudness_gain_db",
+      "rule": "type",
+      "schema_keyword": "type"
+    },
+    "loudness-hash-short.json": {
+      "parameter": "/loudness_hash",
+      "rule": "pattern",
+      "schema_keyword": "pattern"
+    },
+    "loudness-hash-uppercase.json": {
+      "parameter": "/loudness_hash",
+      "rule": "pattern",
+      "schema_keyword": "pattern"
+    },
+    "missing-author.json": {
+      "parameter": "/author",
+      "rule": "required",
+      "schema_keyword": "required"
+    },
+    "missing-binaural-beat-rate-hz.json": {
+      "parameter": "/binaural/beat_rate_hz",
+      "rule": "required",
+      "schema_keyword": "required"
+    },
+    "missing-binaural-carrier-left-hz.json": {
+      "parameter": "/binaural/carrier_left_hz",
+      "rule": "required",
+      "schema_keyword": "required"
+    },
+    "missing-date.json": {
+      "parameter": "/date",
+      "rule": "required",
+      "schema_keyword": "required"
+    },
+    "missing-engine-version.json": {
+      "parameter": "/engine_version",
+      "rule": "required",
+      "schema_keyword": "required"
+    },
+    "missing-length-s.json": {
+      "parameter": "/length_s",
+      "rule": "required",
+      "schema_keyword": "required"
+    },
+    "missing-loudness-target-lufs.json": {
+      "parameter": "/loudness_target_lufs",
+      "rule": "required",
+      "schema_keyword": "required"
+    },
+    "missing-rationale.json": {
+      "parameter": "/rationale",
+      "rule": "required",
+      "schema_keyword": "required"
+    },
+    "missing-schema-version.json": {
+      "parameter": "/schema_version",
+      "rule": "required",
+      "schema_keyword": "required"
+    },
+    "missing-seed.json": {
+      "parameter": "/seed",
+      "rule": "required",
+      "schema_keyword": "required"
+    },
+    "missing-theta-reference-carrier-hz.json": {
+      "parameter": "/theta_reference/carrier_hz",
+      "rule": "required",
+      "schema_keyword": "required"
+    },
+    "nan-literal.json": {
+      "rule": "json.non_finite"
+    },
+    "nesting-too-deep.json": {
+      "rule": "json.depth"
+    },
+    "number-overflow.json": {
+      "rule": "json.number_overflow"
+    },
+    "schema-version-major-2-minor-leading-zero.json": {
+      "parameter": "/schema_version",
+      "rule": "pattern",
+      "schema_keyword": "pattern"
+    },
+    "schema-version-major-2.json": {
+      "parameter": "/schema_version",
+      "value": "2.0",
+      "rule": "schema_version.major",
+      "limit": "1"
+    },
+    "schema-version-major-leading-zero.json": {
+      "parameter": "/schema_version",
+      "rule": "pattern",
+      "schema_keyword": "pattern"
+    },
+    "schema-version-minor-leading-zero.json": {
+      "parameter": "/schema_version",
+      "rule": "pattern",
+      "schema_keyword": "pattern"
+    },
+    "schema-version-no-minor.json": {
+      "parameter": "/schema_version",
+      "rule": "pattern",
+      "schema_keyword": "pattern"
+    },
+    "schema-version-trailing-newline.json": {
+      "parameter": "/schema_version",
+      "rule": "pattern",
+      "schema_keyword": "pattern"
+    },
+    "seed-above-2-pow-53-minus-1.json": {
+      "parameter": "/seed"
+    },
+    "seed-as-string.json": {
+      "parameter": "/seed",
+      "rule": "type",
+      "schema_keyword": "type"
+    },
+    "seed-fractional.json": {
+      "parameter": "/seed",
+      "rule": "type",
+      "schema_keyword": "type"
+    },
+    "seed-negative.json": {
+      "parameter": "/seed"
+    },
+    "theta-reference-null.json": {
+      "parameter": "/theta_reference",
+      "rule": "type",
+      "schema_keyword": "type"
+    },
+    "top-level-array.json": {
+      "parameter": "",
+      "rule": "type",
+      "schema_keyword": "type"
+    },
+    "trailing-comma-object.json": {
+      "rule": "json.trailing_comma"
+    },
+    "unknown-coupling-target-in-theta-reference.json": {
+      "parameter": "/theta_reference/coupling_target",
+      "rule": "unknown_property",
+      "schema_keyword": "additionalProperties"
+    },
+    "unknown-coupling-target-top-level.json": {
+      "parameter": "/coupling_target",
+      "rule": "unknown_property",
+      "schema_keyword": "additionalProperties"
+    },
+    "unknown-layers-array.json": {
+      "parameter": "/layers",
+      "rule": "unknown_property",
+      "schema_keyword": "additionalProperties"
+    },
+    "unknown-routing-in-binaural.json": {
+      "parameter": "/binaural/routing",
+      "rule": "unknown_property",
+      "schema_keyword": "additionalProperties"
+    },
+    "unknown-routing-top-level.json": {
+      "parameter": "/routing",
+      "rule": "unknown_property",
+      "schema_keyword": "additionalProperties"
+    }
+  }
+}

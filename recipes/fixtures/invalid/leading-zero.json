@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-04",
+  "rationale": "Shared fixture for the recipe schema and hash tests. Values are placeholders, not starter defaults.",
+  "length_s": 0600,
+  "loudness_target_lufs": -16,
+  "loudness_gain_db": -1.5,
+  "loudness_hash": "6a29ccd608e4c1945bfff95af078a97daea48eca54a38e065ae33dfa9c2d83a6",
+  "theta_reference": {
+    "carrier_hz": 200
+  },
+  "binaural": {
+    "carrier_left_hz": 400,
+    "beat_rate_hz": 6
+  }
+}

@@ -1,0 +1,146 @@
+{
+  "description": "RFC 8785 (JSON Canonicalization Scheme) test vectors. Inputs and outputs are also stored as UTF-8 hex so a reader needs no string unescaping to load them.",
+  "canonicalize": [
+    {
+      "name": "key-sorting",
+      "source": "RFC 8785 section 3.2.3 sorting example (UTF-16 code unit order; the non-BMP key sorts before U+FB33)",
+      "input": "{\n  \"\\u20ac\": \"Euro Sign\",\n  \"\\r\": \"Carriage Return\",\n  \"\\ufb33\": \"Hebrew Letter Dalet With Dagesh\",\n  \"1\": \"One\",\n  \"\\ud83d\\ude00\": \"Emoji: Grinning Face\",\n  \"\\u0080\": \"Control\",\n  \"\\u00f6\": \"Latin Small Letter O With Diaeresis\"\n}\n",
+      "canonical": "{\"\\r\":\"Carriage Return\",\"1\":\"One\",\"\u0080\":\"Control\",\"\u00f6\":\"Latin Small Letter O With Diaeresis\",\"\u20ac\":\"Euro Sign\",\"\ud83d\ude00\":\"Emoji: Grinning Face\",\"\ufb33\":\"Hebrew Letter Dalet With Dagesh\"}",
+      "input_utf8_hex": "7b0a2020225c7532306163223a20224575726f205369676e222c0a2020225c72223a202243617272696167652052657475726e222c0a2020225c7566623333223a2022486562726577204c65747465722044616c6574205769746820446167657368222c0a20202231223a20224f6e65222c0a2020225c75643833645c7564653030223a2022456d6f6a693a204772696e6e696e672046616365222c0a2020225c7530303830223a2022436f6e74726f6c222c0a2020225c7530306636223a20224c6174696e20536d616c6c204c6574746572204f205769746820446961657265736973220a7d0a",
+      "canonical_utf8_hex": "7b225c72223a2243617272696167652052657475726e222c2231223a224f6e65222c22c280223a22436f6e74726f6c222c22c3b6223a224c6174696e20536d616c6c204c6574746572204f205769746820446961657265736973222c22e282ac223a224575726f205369676e222c22f09f9880223a22456d6f6a693a204772696e6e696e672046616365222c22efacb3223a22486562726577204c65747465722044616c6574205769746820446167657368227d"
+    },
+    {
+      "name": "whitespace-numbers-escaping",
+      "source": "RFC 8785 section 3.2.4 example, output as printed in the RFC",
+      "input": "{\n  \"numbers\": [333333333.33333329, 1E30, 4.50,\n              2e-3, 0.000000000000000000000000001],\n  \"string\": \"\\u20ac$\\u000F\\u000aA'\\u0042\\u0022\\u005c\\\\\\\"\\/\",\n  \"literals\": [null, true, false]\n}\n",
+      "canonical": "{\"literals\":[null,true,false],\"numbers\":[333333333.3333333,1e+30,4.5,0.002,1e-27],\"string\":\"\u20ac$\\u000f\\nA'B\\\"\\\\\\\\\\\"/\"}",
+      "input_utf8_hex": "7b0a2020226e756d62657273223a205b3333333333333333332e33333333333332392c20314533302c20342e35302c0a202020202020202020202020202032652d332c20302e3030303030303030303030303030303030303030303030303030315d2c0a202022737472696e67223a20225c7532306163245c75303030465c753030306141275c75303034325c75303032325c75303035635c5c5c225c2f222c0a2020226c69746572616c73223a205b6e756c6c2c20747275652c2066616c73655d0a7d0a",
+      "canonical_utf8_hex": "7b226c69746572616c73223a5b6e756c6c2c747275652c66616c73655d2c226e756d62657273223a5b3333333333333333332e333333333333332c31652b33302c342e352c302e3030322c31652d32375d2c22737472696e67223a22e282ac245c75303030665c6e4127425c225c5c5c5c5c222f227d"
+    },
+    {
+      "name": "control-character-escaping",
+      "source": "RFC 8785 section 3.2.2.2 rules: short escapes for b t n f r, lowercase \\u00xx for other controls, U+007F and non-ASCII literal",
+      "input": "{\"s\":\"\\u0000\\u0001\\u0002\\u0003\\u0004\\u0005\\u0006\\u0007\\u0008\\u0009\\u000a\\u000b\\u000c\\u000d\\u000e\\u000f\\u0010\\u0011\\u0012\\u0013\\u0014\\u0015\\u0016\\u0017\\u0018\\u0019\\u001a\\u001b\\u001c\\u001d\\u001e\\u001f\\u007f\\u00e9\"}",
+      "canonical": "{\"s\":\"\\u0000\\u0001\\u0002\\u0003\\u0004\\u0005\\u0006\\u0007\\b\\t\\n\\u000b\\f\\r\\u000e\\u000f\\u0010\\u0011\\u0012\\u0013\\u0014\\u0015\\u0016\\u0017\\u0018\\u0019\\u001a\\u001b\\u001c\\u001d\\u001e\\u001f\u007f\u00e9\"}",
+      "input_utf8_hex": "7b2273223a225c75303030305c75303030315c75303030325c75303030335c75303030345c75303030355c75303030365c75303030375c75303030385c75303030395c75303030615c75303030625c75303030635c75303030645c75303030655c75303030665c75303031305c75303031315c75303031325c75303031335c75303031345c75303031355c75303031365c75303031375c75303031385c75303031395c75303031615c75303031625c75303031635c75303031645c75303031655c75303031665c75303037665c7530306539227d",
+      "canonical_utf8_hex": "7b2273223a225c75303030305c75303030315c75303030325c75303030335c75303030345c75303030355c75303030365c75303030375c625c745c6e5c75303030625c665c725c75303030655c75303030665c75303031305c75303031315c75303031325c75303031335c75303031345c75303031355c75303031365c75303031375c75303031385c75303031395c75303031615c75303031625c75303031635c75303031645c75303031655c75303031667fc3a9227d"
+    },
+    {
+      "name": "nested-and-integral-numbers",
+      "source": "RFC 8785 sections 3.2.2.3 and 3.2.3 applied to nested objects, empty containers, and integral number forms",
+      "input": "{ \"b\" : [ 1.0 , 1e0 , -0 , 0.1e1 , {\"z\":1,\"a\":2} ] , \"a\" : { } , \"c\" : [ ] }",
+      "canonical": "{\"a\":{},\"b\":[1,1,0,1,{\"a\":2,\"z\":1}],\"c\":[]}",
+      "input_utf8_hex": "7b20226222203a205b20312e30202c20316530202c202d30202c20302e316531202c207b227a223a312c2261223a327d205d202c20226122203a207b207d202c20226322203a205b205d207d",
+      "canonical_utf8_hex": "7b2261223a7b7d2c2262223a5b312c312c302c312c7b2261223a322c227a223a317d5d2c2263223a5b5d7d"
+    }
+  ],
+  "numbers_source": "RFC 8785 Appendix B: IEEE 754 binary64 bit patterns (big-endian hex) and their ECMAScript serialization; NaN and Infinity must be rejected",
+  "numbers": [
+    {
+      "bits": "0000000000000000",
+      "text": "0"
+    },
+    {
+      "bits": "8000000000000000",
+      "text": "0"
+    },
+    {
+      "bits": "0000000000000001",
+      "text": "5e-324"
+    },
+    {
+      "bits": "8000000000000001",
+      "text": "-5e-324"
+    },
+    {
+      "bits": "7fefffffffffffff",
+      "text": "1.7976931348623157e+308"
+    },
+    {
+      "bits": "ffefffffffffffff",
+      "text": "-1.7976931348623157e+308"
+    },
+    {
+      "bits": "4340000000000000",
+      "text": "9007199254740992"
+    },
+    {
+      "bits": "c340000000000000",
+      "text": "-9007199254740992"
+    },
+    {
+      "bits": "4430000000000000",
+      "text": "295147905179352830000"
+    },
+    {
+      "bits": "7fffffffffffffff",
+      "text": null,
+      "error": "NaN"
+    },
+    {
+      "bits": "7ff0000000000000",
+      "text": null,
+      "error": "Infinity"
+    },
+    {
+      "bits": "44b52d02c7e14af5",
+      "text": "9.999999999999997e+22"
+    },
+    {
+      "bits": "44b52d02c7e14af6",
+      "text": "1e+23"
+    },
+    {
+      "bits": "44b52d02c7e14af7",
+      "text": "1.0000000000000001e+23"
+    },
+    {
+      "bits": "444b1ae4d6e2ef4e",
+      "text": "999999999999999700000"
+    },
+    {
+      "bits": "444b1ae4d6e2ef4f",
+      "text": "999999999999999900000"
+    },
+    {
+      "bits": "444b1ae4d6e2ef50",
+      "text": "1e+21"
+    },
+    {
+      "bits": "3eb0c6f7a0b5ed8c",
+      "text": "9.999999999999997e-7"
+    },
+    {
+      "bits": "3eb0c6f7a0b5ed8d",
+      "text": "0.000001"
+    },
+    {
+      "bits": "41b3de4355555553",
+      "text": "333333333.3333332"
+    },
+    {
+      "bits": "41b3de4355555554",
+      "text": "333333333.33333325"
+    },
+    {
+      "bits": "41b3de4355555555",
+      "text": "333333333.3333333"
+    },
+    {
+      "bits": "41b3de4355555556",
+      "text": "333333333.3333334"
+    },
+    {
+      "bits": "41b3de4355555557",
+      "text": "333333333.33333343"
+    },
+    {
+      "bits": "becbf647612f3696",
+      "text": "-0.0000033333333333333333"
+    },
+    {
+      "bits": "43143ff3c1cb0959",
+      "text": "1424953923781206.2"
+    }
+  ]
+}

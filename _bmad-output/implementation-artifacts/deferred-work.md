@@ -70,3 +70,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-0-5-independent-review-of-the-pending-architecture-decisions.md`
   summary: Make CI enforce the narrowed AD-9 fallback, so a `ci/hash_tolerance.json` entry must name its rule-4 review and why the cause lies outside the AD-9 code rules, not only cite a design log entry.
   evidence: `tools/hash_compare.py` accepts any entry that cites a design log entry (design log 2026-11-02 (aa)); the narrowed condition from design log 2026-11-04 (ee) is prose only. Natural owner: Story 1.6 or Story 6.1.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-1-minimal-recipe-schema-and-recipe-hash.md`
+  summary: Find the cause of the one-off `arcani_tests` ctest failure seen on the first clean `windows-clang-cl` workflow run of Story 1.1 (11 s, output not captured), if it recurs.
+  evidence: Unverified (would be medium). Six reruns and a second clean build passed; settle it by capturing `ctest --output-on-failure` on any recurrence locally or in CI.

@@ -1,0 +1,21 @@
+{
+  "binaural-only.json": "950dd5367a3dcc759a0bf0b15032669f6b9c81abca99b7f76f19da89d02402aa",
+  "both-layers-beat-rate-changed.json": "3d947e43dbba41eae1389e6fea7a6eaa84541ff4fd589835b07623469c8df53b",
+  "both-layers-binaural-carrier-left-changed.json": "a95c6809fc52f684a5d4caf1513dd771b98d6b34cb1a171e2c95a27b0a3a314a",
+  "both-layers-engine-version-changed.json": "eed6fae6171d02743ebc361c0de44b6c8e19b54f27012f48f3bbb52162b5058e",
+  "both-layers-length-changed.json": "95622a841dcf59e76658d31d33fae3d5c8f49b7c7a1908ba083788cd598875cf",
+  "both-layers-loudness-target-changed.json": "5a3683d42254a8c041d3bfbdc095b30f3d60fa15f85a208783035fd664609f04",
+  "both-layers-metadata-edited.json": "154db16986eae01f0cefdce72bf0e1b8fd38eaf5abcf69f61064cc77d3e11127",
+  "both-layers-reformatted.json": "154db16986eae01f0cefdce72bf0e1b8fd38eaf5abcf69f61064cc77d3e11127",
+  "both-layers-schema-minor-changed.json": "d4aadaeae800f8aa8aa411ca53e11ac4451f90914150b430db0dcccc6fa02ec9",
+  "both-layers-seed-changed.json": "cf46662db82e9f1f329228be726b2cb9226c2aa4b6b284158bcfbfcd4b2bf11d",
+  "both-layers-theta-carrier-changed.json": "451448a82c7f2408e0e3fb96be5d5e36e5441b46a8d687f724fa889aa7464d7a",
+  "both-layers-without-loudness-fields.json": "154db16986eae01f0cefdce72bf0e1b8fd38eaf5abcf69f61064cc77d3e11127",
+  "both-layers.json": "154db16986eae01f0cefdce72bf0e1b8fd38eaf5abcf69f61064cc77d3e11127",
+  "minimal-no-layers.json": "4ccf85b113aaa11ea59296dd52e3d9d35fee72cbd313cbf5489e53d313b4483e",
+  "minimal-seed-7-0.json": "206828b1807d7eb51c51d9634009c30b00e8a6fff7ee414ea748fd72361a47fa",
+  "minimal-seed-7.json": "206828b1807d7eb51c51d9634009c30b00e8a6fff7ee414ea748fd72361a47fa",
+  "minimal-seed-max.json": "0d6d8c7655a1214c793e4f6a3cc0cec0057bc51b0820f8c5637208d56f5d60dd",
+  "minimal-seed-zero.json": "de2ad2fee47178d836a8073a2f32173f8a4c48bd7f5dc20396265088c943df97",
+  "theta-reference-only.json": "975add19af9910741b933342e0116338ec3b0d9abd1a67038dd76d98f2f265b0"
+}
