@@ -6,7 +6,7 @@
   "date": "2026-11-04",
   "rationale": "Stub chain fixture (Story 1.2): 1 s, for the C API, seek, and isolation tests. Values are placeholders, not starter defaults. 400 Hz unmodulated sine in each ear.",
   "length_s": 1,
-  "loudness_target_lufs": -16,
+  "loudness_target_lufs": -36,
   "loudness_gain_db": -1.5,
   "loudness_hash": "6a29ccd608e4c1945bfff95af078a97daea48eca54a38e065ae33dfa9c2d83a6",
   "binaural": {

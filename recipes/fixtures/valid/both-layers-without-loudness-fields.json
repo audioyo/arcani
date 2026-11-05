@@ -6,7 +6,7 @@
   "date": "2026-11-04",
   "rationale": "Shared fixture for the recipe schema and hash tests. Values are placeholders, not starter defaults.",
   "length_s": 600,
-  "loudness_target_lufs": -16,
+  "loudness_target_lufs": -36,
   "theta_reference": {
     "carrier_hz": 200
   },
