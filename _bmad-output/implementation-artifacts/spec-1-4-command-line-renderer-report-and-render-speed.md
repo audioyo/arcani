@@ -80,11 +80,11 @@ Decisions (2026-11-05, build agent, under Audio's standing "settle tech forks yo
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `docs/signal-spec.md`, `tools/signal_spec_vectors.py`, `tests/data/signal_spec_vectors.json` -- §24-bit rounding and vectors -- spec merges before code (AC 2).
-- [ ] `tests/cpp/test_cli.cpp`, `test_wav.cpp`, `test_report.cpp`, `tests/cpp/CMakeLists.txt`, Python checks -- QA agent writes failing tests -- tests first.
-- [ ] `engine/` getters, `cli/` sources and CMake -- implementation.
-- [ ] `tools/check_compile_flags.py`, include check, `thresholds.tsv` -- checks and table.
-- [ ] `CLAUDE.md`, design log (ii), guidebook, sprint status, deferred work -- records.
+- [x] `docs/signal-spec.md`, `tools/signal_spec_vectors.py`, `tests/data/signal_spec_vectors.json` -- §24-bit rounding and vectors -- spec merges before code (AC 2).
+- [x] `tests/cpp/test_cli.cpp`, `test_wav.cpp`, `test_report.cpp`, `tests/cpp/CMakeLists.txt`, Python checks -- QA agent writes failing tests -- tests first.
+- [x] `engine/` getters, `cli/` sources and CMake -- implementation.
+- [x] `tools/check_compile_flags.py`, include check, `thresholds.tsv` -- checks and table.
+- [x] `CLAUDE.md`, design log (ii), guidebook, sprint status, deferred work -- records.
 
 **Acceptance Criteria:**
 - Given a valid recipe, when rendered at each rate, then the WAV parses as 2-channel 24-bit PCM at that rate with the plan's frame count, and its data bytes equal §24-bit rounding of `arc_render` output for the same plan.
