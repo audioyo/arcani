@@ -17,17 +17,15 @@ namespace {
 
 // Engine copy of the ranges.tsv rows the field table names, in row units.
 // Keep in step with tests/tables/ranges.tsv; the range table test fails on
-// any difference. kRowUnits holds each row's unit, in the same order.
+// any difference, unit included.
 constexpr RangeRow kRows[] = {
-    {"session-length", 0.0, 8.0, false},
-    {"loudness-tones", -36.0, -36.0, false},
-    {"theta-carrier", 100.0, 500.0, false},
-    {"binaural-carrier", 0.0, 1000.0, true},
-    {"beat-rate", 0.0, 30.0, true},
-    {"binaural-carrier-right", 0.0, 1030.0, true},
+    {"session-length", 0.0, 8.0, false, "h"},
+    {"loudness-tones", -36.0, -36.0, false, "LUFS-I"},
+    {"theta-carrier", 100.0, 500.0, false, "Hz"},
+    {"binaural-carrier", 0.0, 1000.0, true, "Hz"},
+    {"beat-rate", 0.0, 30.0, true, "Hz"},
+    {"binaural-carrier-right", 0.0, 1030.0, true, "Hz"},
 };
-constexpr std::string_view kRowUnits[] = {"h", "LUFS-I", "Hz", "Hz", "Hz", "Hz"};
-static_assert(std::size(kRows) == std::size(kRowUnits));
 
 constexpr std::string_view kRightCarrierRow = "binaural-carrier-right";
 constexpr std::string_view kBeatRatePath = "/binaural/beat_rate_hz";
@@ -46,33 +44,40 @@ constexpr std::size_t row_index(std::string_view id) noexcept {
 static_assert(row_index("session-length") < std::size(kRows));
 static_assert(row_index(kRightCarrierRow) < std::size(kRows));
 
-// The value of a range-governed field, or nothing when its layer is absent.
-std::optional<double> field_value(const recipe::Recipe& r, std::string_view path) {
+// A range-governed field's value lookup. known is false for a path the
+// validator has no mapping for; value is empty when the field's layer is
+// absent.
+struct Lookup {
+  bool known;
+  std::optional<double> value;
+};
+
+Lookup field_value(const recipe::Recipe& r, std::string_view path) {
   if (path == "/length_s") {
-    return r.length_s;
+    return {true, r.length_s};
   }
   if (path == "/loudness_target_lufs") {
-    return r.loudness_target_lufs;
+    return {true, r.loudness_target_lufs};
   }
   if (path == "/theta_reference/carrier_hz") {
     if (r.theta_reference) {
-      return r.theta_reference->carrier_hz;
+      return {true, r.theta_reference->carrier_hz};
     }
-    return std::nullopt;
+    return {true, std::nullopt};
   }
   if (path == "/binaural/carrier_left_hz") {
     if (r.binaural) {
-      return r.binaural->carrier_left_hz;
+      return {true, r.binaural->carrier_left_hz};
     }
-    return std::nullopt;
+    return {true, std::nullopt};
   }
   if (path == kBeatRatePath) {
     if (r.binaural) {
-      return r.binaural->beat_rate_hz;
+      return {true, r.binaural->beat_rate_hz};
     }
-    return std::nullopt;
+    return {true, std::nullopt};
   }
-  return std::nullopt;
+  return {false, std::nullopt};
 }
 
 bool ends_with(std::string_view s, std::string_view tail) noexcept {
@@ -117,22 +122,25 @@ std::optional<recipe::Error> check_ranges(const recipe::Recipe& r) {
     if (f.range_row.empty()) {
       continue;
     }
-    const std::optional<double> value = field_value(r, f.path);
-    if (!value) {
-      continue;
+    const Lookup found = field_value(r, f.path);
+    if (!found.known) {
+      return recipe::Error{std::string(f.path), "", "range.row",
+                           "a value lookup for the field (row " + std::string(f.range_row) + ")"};
     }
+    if (!found.value) {
+      continue;  // layer absent
+    }
+    const double value = *found.value;
     const std::size_t i = row_index(f.range_row);
     if (i == std::size(kRows)) {
-      // A field names a row the engine table lacks: the range table test
-      // fails on this; reject rather than let the value through unchecked.
-      return recipe::Error{std::string(f.path), json::format_number(*value), "range.row",
-                           std::string(f.range_row)};
+      return recipe::Error{std::string(f.path), "", "range.row",
+                           "an engine range table entry for row " + std::string(f.range_row)};
     }
     // A seconds field over a row in h (scale 3600) reports in s; any other
     // field reports in its row unit.
     const std::string_view unit =
-        (f.range_scale != 1.0 && ends_with(f.path, "_s")) ? std::string_view("s") : kRowUnits[i];
-    if (auto e = check_row(f.path, *value, i, f.range_scale, unit)) {
+        (f.range_scale != 1.0 && ends_with(f.path, "_s")) ? std::string_view("s") : kRows[i].unit;
+    if (auto e = check_row(f.path, value, i, f.range_scale, unit)) {
       return e;
     }
     if (f.path == kBeatRatePath) {
@@ -140,7 +148,7 @@ std::optional<recipe::Error> check_ranges(const recipe::Recipe& r) {
       // check sees the exact frequency the binaural stub plays.
       const double right = r.binaural->carrier_left_hz + r.binaural->beat_rate_hz;
       const std::size_t j = row_index(kRightCarrierRow);
-      if (auto e = check_row(kBeatRatePath, right, j, 1.0, kRowUnits[j])) {
+      if (auto e = check_row(kBeatRatePath, right, j, 1.0, kRows[j].unit)) {
         return e;
       }
     }

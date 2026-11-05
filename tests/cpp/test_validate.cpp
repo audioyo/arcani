@@ -12,6 +12,7 @@
 //        double min;           // row units (h for session-length), always inclusive
 //        double max;           // row units
 //        bool max_exclusive;   // ranges.tsv max_bound == "exclusive"
+//        std::string_view unit = "Hz";  // ranges.tsv unit (defaulted, last)
 //      };
 //      std::span<const RangeRow> range_rows() noexcept;
 //      // One entry per row the field table names, plus binaural-carrier-right
@@ -55,6 +56,7 @@
 
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
 #include <initializer_list>
 #include <limits>
 #include <map>
@@ -110,6 +112,12 @@ std::vector<std::string> range_table_problems(std::span<const validate::RangeRow
     }
     if (e.max_exclusive != (r->max_bound == "exclusive")) {
       out.push_back(id + ": max bound differs from ranges.tsv " + r->max_bound);
+    }
+    if (std::string(e.unit) != r->unit) {
+      out.push_back(id + ": unit differs from ranges.tsv " + r->unit);
+    }
+    if (!r->pending.empty()) {
+      out.push_back(id + ": still pending in ranges.tsv on " + r->pending);
     }
   }
   for (const auto& id : expected_ids) {
@@ -291,6 +299,21 @@ TEST_CASE("range table comparison catches a doctored engine table", "[validate][
     auto t = real;
     find(t, "beat-rate").max_exclusive = false;
     CHECK(any_names(range_table_problems(t, expected_ids, lookup), "beat-rate", "bound"));
+  }
+  SECTION("must fail: unit differs") {
+    auto t = real;
+    find(t, "session-length").unit = "s";
+    CHECK(any_names(range_table_problems(t, expected_ids, lookup), "session-length", "unit"));
+  }
+  SECTION("must fail: a pending row") {
+    auto doctored = rows;
+    doctored.at("binaural-carrier-right").pending = "1-3-validator-framework-locked-ranges-and-carrier-rule";
+    const auto doctored_lookup = [&](const std::string& id) -> const tables::Row* {
+      const auto it = doctored.find(id);
+      return it == doctored.end() ? nullptr : &it->second;
+    };
+    CHECK(any_names(range_table_problems(real, expected_ids, doctored_lookup),
+                    "binaural-carrier-right", "pending"));
   }
   SECTION("must fail: an entry missing") {
     std::vector<validate::RangeRow> t;
@@ -513,19 +536,27 @@ TEST_CASE("valid/ means schema-valid: the out-of-range hash fixture is rejected 
     CHECK(std::string(c.error.rule) == "range.min");
     CHECK(std::string(c.error.limit) == ">= -36 LUFS-I (row loudness-tones)");
   }
-  // Every other valid fixture compiles in measure mode.
-  for (const char* name :
-       {"binaural-only.json", "both-layers.json", "both-layers-beat-rate-changed.json",
-        "both-layers-binaural-carrier-left-changed.json", "both-layers-engine-version-changed.json",
-        "both-layers-length-changed.json", "both-layers-metadata-edited.json",
-        "both-layers-reformatted.json", "both-layers-schema-minor-changed.json",
-        "both-layers-seed-changed.json", "both-layers-theta-carrier-changed.json",
-        "both-layers-without-loudness-fields.json", "minimal-no-layers.json", "minimal-seed-7.json",
-        "minimal-seed-7-0.json", "minimal-seed-max.json", "minimal-seed-zero.json",
-        "theta-reference-only.json"}) {
+  // Every other valid fixture compiles in measure mode. The folder is read,
+  // so a new valid/ fixture is covered; an expected rejection must be listed.
+  const std::set<std::string> expected_rejected = {"both-layers-loudness-target-changed.json"};
+  std::set<std::string> rejected_seen;
+  std::size_t compiled = 0;
+  for (const auto& entry :
+       std::filesystem::directory_iterator(std::string(ARCANI_RECIPES_DIR) + "/fixtures/valid")) {
+    if (!entry.is_regular_file() || entry.path().extension() != ".json") {
+      continue;
+    }
+    const std::string name = entry.path().filename().string();
     INFO(name);
+    if (expected_rejected.count(name) == 1) {
+      rejected_seen.insert(name);
+      continue;
+    }
     CHECK(api::compile_ok(api::valid(name), api::options(ARC_MODE_MEASURE, 48000)) != nullptr);
+    ++compiled;
   }
+  CHECK(rejected_seen == expected_rejected);
+  CHECK(compiled > 0);
 }
 
 // ------------------------------------------------------------ part 3
