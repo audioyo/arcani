@@ -1,4 +1,4 @@
-"""The engine library has no undefined libm transcendental, file, thread, clock, or console symbol.
+"""The engine library has no undefined libm transcendental, file, thread, clock, console, or fenv symbol.
 
 Contract with the build:
 
@@ -10,8 +10,9 @@ Contract with the build:
 - ARCANI_ENGINE_TEST_EXTRA_SOURCE: test-only cache variable, documented like
   ARCANI_PIN_OVERRIDE_* in cmake/Pins.cmake and never set in presets or CI.
   When set to a source file path (the test passes an absolute path), that file
-  is compiled into arcani_engine. The must-fail case sets it to
-  tests/fixtures/engine/calls_std_sin.cpp.
+  is compiled into arcani_engine. The must-fail cases set it to
+  tests/fixtures/engine/calls_std_sin.cpp and (Story 1.2)
+  tests/fixtures/engine/calls_fesetenv.cpp.
 
 Contract with the checker:
 
@@ -28,7 +29,13 @@ Contract with the checker:
 - Exit 0 when nothing is denied. Exit 1 otherwise, with one output line per
   denied symbol (stdout or stderr) containing the symbol exactly as listed by
   llvm-nm (the text after "U ") and its family name, one of:
-  "libm transcendental", "file", "thread", "clock", "console" (any case).
+  "libm transcendental", "file", "thread", "clock", "console", "fenv" (any case).
+- Family "fenv" (Story 1.2): the C floating-point environment calls that set
+  or save the mode (fesetenv, fegetenv, feholdexcept, feupdateenv,
+  fesetround) and the MSVC mode
+  calls (_controlfp, _controlfp_s, _control87, __control87_2), in their raw,
+  Windows import, and Mach-O underscore forms. The engine sets its denormal
+  mode with MXCSR / FPCR intrinsics only (AD-9), which leave no symbol.
 - Families: libm transcendentals with f and l variants (sin, cos, tan, asin,
   acos, atan, atan2, sinh, cosh, tanh, asinh, acosh, atanh, exp, exp2, exp10,
   expm1, log, log2, log10, log1p, pow, cbrt, hypot, erf, erfc, tgamma, lgamma,
@@ -57,6 +64,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHECKER = REPO_ROOT / "tools" / "check_engine_symbols.py"
 FIXTURE = REPO_ROOT / "tests" / "fixtures" / "engine" / "calls_std_sin.cpp"
+FENV_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "engine" / "calls_fesetenv.cpp"
 if sys.platform == "win32":
     PRESET = "windows-clang-cl"
 elif sys.platform == "darwin":
@@ -66,6 +74,7 @@ else:
 CMAKE = shutil.which("cmake")
 
 LIBM = "libm transcendental"
+FENV = "fenv"
 
 TRANSCENDENTALS = [
     "sin", "cos", "tan", "asin", "acos", "atan", "atan2",
@@ -214,6 +223,24 @@ DENIED += [
     ("_tzset", {"clock"}),
 ]
 
+# Story 1.2: the fenv family. The engine's denormal guard uses intrinsics only.
+DENIED += [
+    ("fesetenv", {FENV}),
+    ("fegetenv", {FENV}),
+    ("feholdexcept", {FENV}),
+    ("feupdateenv", {FENV}),
+    ("fesetround", {FENV}),
+    ("__imp_fesetenv", {FENV}),
+    ("__imp_feholdexcept", {FENV}),
+    ("_fesetenv", {FENV}),
+    ("_fesetround", {FENV}),
+    ("_controlfp", {FENV}),
+    ("_controlfp_s", {FENV}),
+    ("__imp__controlfp", {FENV}),
+    ("_control87", {FENV}),
+    ("__control87_2", {FENV}),
+]
+
 ALLOWED = [
     "sqrt", "sqrtf", "sqrtl", "__imp_sqrt", "_sqrt",
     "floor", "floorf", "ceil", "fabs", "fmod",
@@ -347,12 +374,28 @@ def test_fixture_calls_std_sin_with_runtime_argument():
     assert re.search(r"double\s+\w+\s*\(\s*double\s+\w+\s*\)\s*\{", text), text
 
 
+def test_fenv_fixture_calls_fesetenv_with_runtime_argument():
+    text = FENV_FIXTURE.read_text(encoding="utf-8")
+    assert "std::fesetenv(" in text
+    assert re.search(r"int\s+\w+\s*\(\s*const\s+std::fenv_t\s*\*\s*\w+\s*\)\s*\{", text), text
+
+
 def test_no_fault_injection_in_engine_or_presets_or_ci():
     for path in (REPO_ROOT / "engine").rglob("*"):
         if path.is_file():
-            assert "calls_std_sin" not in path.read_text(encoding="utf-8", errors="replace"), path
+            text = path.read_text(encoding="utf-8", errors="replace")
+            assert "calls_std_sin" not in text, path
+            assert "calls_fesetenv" not in text, path
     for path in [REPO_ROOT / "CMakePresets.json", *(REPO_ROOT / ".github").rglob("*.yml")]:
         assert "ARCANI_ENGINE_TEST_EXTRA_SOURCE" not in path.read_text(encoding="utf-8"), path
+
+
+@pytest.fixture(scope="module")
+def fenv_build(tmp_path_factory):
+    build = tmp_path_factory.mktemp("symbols_fesetenv") / "build"
+    code, out = configure_and_build_engine(
+        build, f"-DARCANI_ENGINE_TEST_EXTRA_SOURCE={FENV_FIXTURE.as_posix()}")
+    return build, code, out
 
 
 @needs_cmake
@@ -377,3 +420,14 @@ def test_symbol_check_fails_on_std_sin_build(sin_build):
              if re.search(r"(?<![A-Za-z0-9])sin(?![A-Za-z0-9])", line)]
     assert lines, out
     assert any(LIBM in line.lower() for line in lines), out
+
+
+@needs_cmake
+def test_symbol_check_fails_on_fesetenv_build(fenv_build):
+    build, code, out = fenv_build
+    assert code == 0, out
+    code, out = run_checker(build)
+    assert code == 1, out
+    lines = [line for line in out.splitlines() if "fesetenv" in line]
+    assert lines, out
+    assert any(FENV in line.lower() for line in lines), out

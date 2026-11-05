@@ -14,6 +14,12 @@ Contract with the probe binary (tests/hashprobe/, target arcani-hashprobe):
   block, and names both sine components.
 - ci/hash_expected.json is not changed by this story: it has no sine-* entry
   (the cross-platform compare is exact against windows-x64 only).
+- Story 1.2 adds OUT_DIR/stub-chain-44100.f32 and OUT_DIR/stub-chain-48000.f32:
+  an embedded recipe literal rendered through the public C API (arc_render),
+  interleaved stereo, raw little-endian float32, so an even sample count; not
+  silent and finite. Like the sine components they are compared per run
+  against windows-x64; their expected-file entries stay with Story 1.6, so
+  ci/hash_expected.json has no stub-chain-* entry yet.
 
 The real build follows tests/python/test_probe_reference.py: configure the
 platform preset with ARCANI_BUILD_TESTS=OFF into a temporary directory, build
@@ -110,6 +116,17 @@ def test_probe_source_keeps_probe_arith_and_names_sine_components():
         "stale line: update it to describe the sine components")
 
 
+def test_probe_source_names_stub_chain_components():
+    text = PROBE_SOURCE.read_text(encoding="utf-8")
+    for needle in ("stub-chain-44100", "stub-chain-48000", "arcani/arcani.h", "arc_render"):
+        assert needle in text, needle
+
+
+def test_expected_hashes_have_no_stub_chain_entry_yet():
+    data = json.loads(EXPECTED.read_text(encoding="utf-8"))
+    assert not [k for k in data["components"] if k.startswith("stub-chain-")], data["components"]
+
+
 def test_expected_hashes_have_no_sine_entry():
     data = json.loads(EXPECTED.read_text(encoding="utf-8"))
     assert "probe-arith" in data["components"]
@@ -201,3 +218,12 @@ def test_doctored_probe_output_exceeds_bound(probe_output, fs):
     samples[2 * fs + 7] += np.float32(1e-5)
     ideal = load_ideal().probe_sine_component(fs)
     assert error_dbfs(samples, ideal) > sine_bound_dbfs()
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_probe_stub_chain_component_shape(probe_output, fs):
+    check_sample_rate(fs)
+    samples = read_f32(probe_output / f"stub-chain-{fs}.f32")
+    assert samples.size > 0 and samples.size % 2 == 0, samples.shape
+    assert np.all(np.isfinite(samples))
+    assert np.any(samples != 0.0), "stub chain component is silent"
