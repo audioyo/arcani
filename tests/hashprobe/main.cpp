@@ -4,7 +4,8 @@
 // Usage: arcani-hashprobe OUT_DIR
 //
 // Writes one raw little-endian float32 file per component into OUT_DIR
-// (probe-arith.f32, sine-44100.f32, sine-48000.f32). No hashing here:
+// (probe-arith.f32, sine-44100.f32, sine-48000.f32, stub-chain-44100.f32,
+// stub-chain-48000.f32). No hashing here:
 // tools/hash_manifest.py hashes the files on the host.
 //
 // Component probe-arith: a fixed sequence of float32 multiplies and adds whose
@@ -30,6 +31,17 @@
 // reaches this file only) does not change these components. Their ideal
 // reference is reference/ideal.py (tests/python/test_probe_sine.py); across
 // platforms they are compared exactly against windows-x64.
+//
+// Components stub-chain-44100 and stub-chain-48000 (Story 1.2): the embedded
+// recipe kStubChainRecipe (1 s, a 400 Hz unmodulated sine in the left ear and
+// a 406 Hz unmodulated sine in the right ear) compiled in measure mode and
+// rendered through the public C API (arc_compile, arc_render) in one call,
+// interleaved stereo (left, right per frame), each binary64 sample converted
+// to float32 (docs/signal-spec.md, Stub chain). Like the sine components they
+// are compared per run against windows-x64; their expected-file entries stay
+// with Story 1.6.
+
+#include <arcani/arcani.h>
 
 #include "core/phase.hpp"
 #include "core/sine.hpp"
@@ -74,6 +86,53 @@ std::vector<float> probe_sine(std::uint32_t fs) {
   return out;
 }
 
+constexpr char kStubChainRecipe[] = R"({
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani hash probe",
+  "date": "2026-11-04",
+  "rationale": "Hash probe stub chain component (Story 1.2): 400 Hz unmodulated sine in the left ear, 406 Hz unmodulated sine in the right ear, 1 s.",
+  "length_s": 1,
+  "loudness_target_lufs": -16,
+  "binaural": {
+    "carrier_left_hz": 400,
+    "beat_rate_hz": 6
+  }
+})";
+
+// Empty on any API failure (main reports it).
+std::vector<float> probe_stub_chain(std::uint32_t fs) {
+  arc_compile_options options;
+  std::memset(&options, 0, sizeof options);
+  options.mode = ARC_MODE_MEASURE;
+  options.sample_rate = fs;
+  options.mute_binaural_ear = ARC_MUTE_NONE;
+  arc_error error;
+  arc_plan* plan = nullptr;
+  if (arc_compile(kStubChainRecipe, sizeof kStubChainRecipe - 1, &options, &plan, &error) != ARC_OK) {
+    std::fprintf(stderr, "arcani-hashprobe: compile failed: %s %s %s %s\n", error.parameter, error.value,
+                 error.rule, error.limit);
+    return {};
+  }
+  const auto frames = static_cast<std::size_t>(arc_plan_frame_count(plan));
+  arc_renderer* renderer = nullptr;
+  std::vector<double> stereo(2 * frames);
+  const bool ok = arc_renderer_create(plan, &renderer, &error) == ARC_OK &&
+                  arc_render(renderer, stereo.data(), frames, nullptr, &error) == ARC_OK;
+  arc_renderer_destroy(renderer);
+  arc_plan_release(plan);
+  if (!ok) {
+    std::fprintf(stderr, "arcani-hashprobe: render failed: %s\n", error.rule);
+    return {};
+  }
+  std::vector<float> out(stereo.size());
+  for (std::size_t i = 0; i < stereo.size(); ++i) {
+    out[i] = static_cast<float>(stereo[i]);
+  }
+  return out;
+}
+
 // Writes samples as little-endian float32 regardless of host byte order.
 bool write_f32(const std::string& path, const std::vector<float>& samples) {
   std::vector<unsigned char> bytes;
@@ -110,8 +169,14 @@ int main(int argc, char** argv) {
       {"probe-arith", probe_arith()},
       {"sine-44100", probe_sine(44100)},
       {"sine-48000", probe_sine(48000)},
+      {"stub-chain-44100", probe_stub_chain(44100)},
+      {"stub-chain-48000", probe_stub_chain(48000)},
   };
   for (const Component& c : components) {
+    if (c.samples.empty()) {
+      std::fprintf(stderr, "arcani-hashprobe: component %s is empty\n", c.name);
+      return 1;
+    }
     const std::string path = out_dir + "/" + c.name + ".f32";
     if (!write_f32(path, c.samples)) {
       std::fprintf(stderr, "arcani-hashprobe: cannot write %s\n", path.c_str());

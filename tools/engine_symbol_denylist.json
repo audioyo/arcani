@@ -1,5 +1,5 @@
 {
-  "description": "Undefined symbols the engine library must not reference (AD-9 pure core). Read by tools/check_engine_symbols.py. c_names are Python regexes matched against the whole raw symbol name after stripping a __imp_ prefix and then one leading underscore. cpp_names are Python regexes searched for in the symbol name as listed (demangled C++ names). sqrt stays allowed: IEEE 754 rounds it correctly on every target (design log 2026-11-02 (z)). Unseeded-randomness entries arrive with Story 1.6.",
+  "description": "Undefined symbols the engine library must not reference (AD-9 pure core). Read by tools/check_engine_symbols.py. c_names are Python regexes matched against the whole raw symbol name after stripping a __imp_ prefix and then one leading underscore. cpp_names are Python regexes searched for in the symbol name as listed (demangled C++ names). sqrt stays allowed: IEEE 754 rounds it correctly on every target (design log 2026-11-02 (z)). The fenv family (Story 1.2) covers the C and MSVC calls that set or save the floating-point mode; the engine sets its denormal mode with MXCSR / FPCR intrinsics only (AD-9). Unseeded-randomness entries arrive with Story 1.6.",
   "families": [
     {
       "name": "libm transcendental",
@@ -166,6 +166,14 @@
         "\\bstd::(\\w+::)*ios_base::Init::Init\\b",
         "\\bstd::(\\w+::)*(print|println|vprint_unicode|vprint_nonunicode)\\b"
       ]
+    },
+    {
+      "name": "fenv",
+      "c_names": [
+        "_?(fesetenv|fegetenv|feholdexcept|feupdateenv|fesetround)",
+        "_?(controlfp|controlfp_s|control87|control87_2)"
+      ],
+      "cpp_names": []
     }
   ]
 }

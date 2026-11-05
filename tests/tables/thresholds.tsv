@@ -1,8 +1,8 @@
 id	value	unit	spec_row	source	pending
 sine-error	-120	dBFS		Design log 2026-10-28 (o): engine sine at most -120 dBFS against the ideal sine; docs/signal-spec.md, Sine, Error bound	
 sample-rates	44100 48000	Hz		Design log 2026-10-27 (j): the Core renders natively at 44.1 and 48 kHz; AD-10	
-binaural-isolation-engine	90	dB below the ear's own binaural carrier	Binaural isolation, engine output	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-4	1-2-c-api-fixed-stage-list-seek-and-isolation-assertion
-binaural-isolation-master	60	dB below the ear's own binaural carrier	Binaural isolation, after master chain	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-4	1-2-c-api-fixed-stage-list-seek-and-isolation-assertion
+binaural-isolation-engine	90	dB below the ear's own binaural carrier	Binaural isolation, engine output	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-4	
+binaural-isolation-master	60	dB below the ear's own binaural carrier	Binaural isolation, after master chain	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-4	
 coupling-timing	2	ms	Coupling timing	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-3	2-3-gamma-coupled-smooth-swell
 coupling-independence	0	samples of gamma peak time change	Coupling independence	thresholds-and-ranges.md, Test thresholds; AD-5	2-5-binaural-layer
 envelope-shape	0	envelope samples failing the reference match	Envelope shape	thresholds-and-ranges.md, Test thresholds; FR-13	2-1-theta-reference-envelopes
