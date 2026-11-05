@@ -278,9 +278,21 @@ Registry& registry() {
   return *r;
 }
 
-void write_usage(const std::set<std::string>& used) {
+// Name of the variable that tells a child process (arcani-render run by the
+// C++ CLI tests, Story 1.4) that the usage file already belongs to this run,
+// so the child adds its ids instead of truncating the file first.
+constexpr const char* kUsageInherited = "ARCANI_ROW_USAGE_INHERITED";
+
+const char* usage_target() {
   const char* target = std::getenv("ARCANI_ROW_USAGE_FILE");
-  if (target == nullptr || *target == '\0') {
+  return target == nullptr || *target == '\0' ? nullptr : target;
+}
+
+// Writes the ids already in the usage file plus `used`. The file holds only
+// this run's ids, because the first process of the run truncated it.
+void write_usage(const std::set<std::string>& used) {
+  const char* target = usage_target();
+  if (target == nullptr) {
     return;
   }
   const std::filesystem::path path(target);
@@ -288,20 +300,56 @@ void write_usage(const std::set<std::string>& used) {
   if (path.has_parent_path()) {
     std::filesystem::create_directories(path.parent_path(), ec);
   }
+  std::set<std::string> all = used;
+  {
+    std::ifstream in(path, std::ios::binary);
+    std::string line;
+    while (std::getline(in, line)) {
+      if (!line.empty() && line.back() == '\r') {
+        line.pop_back();
+      }
+      if (!line.empty()) {
+        all.insert(line);
+      }
+    }
+  }
   std::ofstream out(path, std::ios::binary | std::ios::trunc);
   if (!out) {
     throw std::runtime_error(std::string("cannot write row usage file ") + target);
   }
-  for (const std::string& id : used) {
+  for (const std::string& id : all) {
     out << id << '\n';
   }
 }
 
-// Truncates the usage file when the test binary starts, before any test runs,
-// so a run that calls row() zero times leaves no stale file from an earlier
-// run. row() rewrites it as ids are added.
+void set_inherited() {
+#if defined(_WIN32)
+  _putenv_s(kUsageInherited, "1");
+#else
+  setenv(kUsageInherited, "1", 1);
+#endif
+}
+
+// Truncates the usage file when the first test binary of a run starts,
+// before any test runs, so a run that calls row() zero times leaves no stale
+// file from an earlier run, then marks the file as owned for child
+// processes. A child (kUsageInherited set) keeps the file. row() adds ids as
+// they are first used.
 [[maybe_unused]] const bool kUsageTruncated = [] {
-  write_usage({});
+  const char* target = usage_target();
+  if (target == nullptr || std::getenv(kUsageInherited) != nullptr) {
+    return true;
+  }
+  std::error_code ec;
+  const std::filesystem::path path(target);
+  if (path.has_parent_path()) {
+    std::filesystem::create_directories(path.parent_path(), ec);
+  }
+  std::ofstream out(path, std::ios::binary | std::ios::trunc);
+  if (!out) {
+    throw std::runtime_error(std::string("cannot write row usage file ") + target);
+  }
+  set_inherited();
   return true;
 }();
 

@@ -66,6 +66,8 @@ CompileResult compile(std::string_view utf8, Mode mode, std::uint32_t sample_rat
   Plan p;
   p.sample_rate = sample_rate;
   p.frame_count = core::seconds_to_samples(rec.length_s, sample_rate);
+  p.recipe_hash = rec.hash;
+  p.seed = rec.seed;
   for (std::size_t i = 0; i < p.stages.size(); ++i) {
     p.stages[i] = kStages[i].kind;
   }

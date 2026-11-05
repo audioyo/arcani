@@ -25,4 +25,4 @@ gain-ramp-min	10	ms	Gain ramps	thresholds-and-ranges.md, Test thresholds; Plan T
 limiter-idle	0	samples with gain reduction	Limiter idle	thresholds-and-ranges.md, Test thresholds; AD-4; design log 2026-10-27 (k), 2026-10-28 (p)	4-5-limiter-idle
 loudness-tolerance	1	LU	Loudness	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-5	4-1-loudness-meter
 true-peak	-1	dBTP	True peak	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-5	4-3-true-peak
-render-speed	20	times real time	Render speed	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-11	1-4-command-line-renderer-report-and-render-speed
+render-speed	20	times real time	Render speed	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-11	

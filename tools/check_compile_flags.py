@@ -1,13 +1,13 @@
-"""Checks that every engine/ source compiles with -ffp-contract=off and no fast-math flag (AD-9).
+"""Checks that every engine/ and cli/ source compiles with -ffp-contract=off and no fast-math flag (AD-9).
 
 Usage: python tools/check_compile_flags.py BUILD_DIR
 
 Reads BUILD_DIR/arcani_engine_check.json (written by engine/CMakeLists.txt),
-then the compile_commands.json it names. Exit 0 when every engine source
-passes; exit 1 with one line per violation otherwise. Each flag violation line
+then the compile_commands.json it names. Exit 0 when every engine and CLI
+source passes; exit 1 with one line per violation otherwise. Each flag violation line
 names the toolchain and version, the source file, and the flag.
 
-Rules for each engine/ source (flags are seen bare, behind /clang: or -clang:,
+Rules for each engine/ and cli/ source (Story 1.4; flags are seen bare, behind /clang: or -clang:,
 or as the argument of -Xclang):
 
 - Effective contraction must be off. clang-cl moves every /clang: and -clang:
@@ -23,7 +23,7 @@ or as the argument of -Xclang):
   -mrecip and -mrecip=*, -fveclib=* other than none, -mfpmath=387, and cc1
   -mreassociate, -menable-no-nans, -menable-no-infs, -menable-unsafe-fp-math.
 - No @ response file (bare or behind a prefix).
-- At least one engine/ source.
+- At least one engine/ source (cli/ sources do not count toward it).
 
 Standard library only.
 """
@@ -181,14 +181,20 @@ def main(argv):
         return 1
 
     clang_cl = check["toolchain_name"] == "clang-cl"
-    engine_prefix = normalize_path(source_dir).rstrip("/") + "/engine/"
+    root = normalize_path(source_dir).rstrip("/")
+    engine_prefix = root + "/engine/"
+    cli_prefix = root + "/cli/"
     violations = []
     engine_sources = 0
+    cli_sources = 0
     for entry in entries:
         file_path = normalize_path(entry.get("file", ""), entry.get("directory"))
-        if not file_path.startswith(engine_prefix):
+        if file_path.startswith(engine_prefix):
+            engine_sources += 1
+        elif file_path.startswith(cli_prefix):
+            cli_sources += 1
+        else:
             continue
-        engine_sources += 1
         shown = entry.get("file", "")
         for flag, problem in check_source(tokenize(entry), clang_cl):
             violations.append(f"{toolchain}: {shown}: {flag}: {problem}")
@@ -202,7 +208,10 @@ def main(argv):
         print(line)
     if violations:
         return 1
-    print(f"{toolchain}: {engine_sources} engine source(s) pass the AD-9 flag check")
+    print(
+        f"{toolchain}: {engine_sources} engine and {cli_sources} CLI source(s) "
+        "pass the AD-9 flag check"
+    )
     return 0
 
 

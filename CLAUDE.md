@@ -70,7 +70,7 @@ Commands (Windows dev PC; on Linux use the `linux-clang` preset and drop the `po
 - Build: `powershell -File tools/dev.ps1 cmake --workflow --preset windows-clang-cl` (configure, build, and run ctest)
 - C++ tests: `powershell -File tools/dev.ps1 ctest --preset windows-clang-cl`
 - Python reference and signal tests: `uv run pytest`
-- Render a recipe: `build/windows-clang-cl/cli/arcani-render --version` (stub: prints the engine version until recipe rendering lands)
+- Render a recipe: `build/windows-clang-cl/cli/arcani-render RECIPE --out OUT.wav [--report OUT.json] [--rate 44100|48000] [--mode measure|final]` (writes the WAV and `OUT.report.json`; `--version` prints the engine version)
 
 Run the fast tests after every change. Do not commit with failing tests. Golden files change only after a human listening sign-off.
 
