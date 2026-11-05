@@ -74,10 +74,10 @@ Decisions (2026-11-05, build agent, under Audio's standing "settle tech forks yo
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `tests/cpp/test_validate.cpp`, `tests/cpp/test_recipe.cpp`, `tests/cpp/CMakeLists.txt`, fixtures and hash vectors -- QA agent writes the failing tests -- tests first.
-- [ ] `engine/src/recipe/field_table.*`, `engine/src/validate/*`, `engine/src/plan/plan.cpp`, `engine/CMakeLists.txt` -- registry, validator, compile call.
-- [ ] `tests/tables/ranges.tsv`, `recipes/README.md`, schema description -- table and docs.
-- [ ] `docs/design-log.md` entry (hh) (field-to-row mapping, loudness target -36, error format, check order, loudness-master outcome), `docs/timeline-guidebook.html`, `sprint-status.yaml` -- records.
+- [x] `tests/cpp/test_validate.cpp`, `tests/cpp/test_recipe.cpp`, `tests/cpp/CMakeLists.txt`, fixtures and hash vectors -- QA agent writes the failing tests -- tests first.
+- [x] `engine/src/recipe/field_table.*`, `engine/src/validate/*`, `engine/src/plan/plan.cpp`, `engine/CMakeLists.txt` -- registry, validator, compile call.
+- [x] `tests/tables/ranges.tsv`, `recipes/README.md`, schema description -- table and docs.
+- [x] `docs/design-log.md` entry (hh) (field-to-row mapping, loudness target -36, error format, check order, loudness-master outcome), `docs/timeline-guidebook.html`, `sprint-status.yaml` -- records.
 
 **Acceptance Criteria:**
 - Given the field table, when the registration test runs, then it fails for any `Number` field with no range row and no exemption, and for a row ID that is missing, pending, or has a mismatched unit. A must-fail case (a doctored field list) is caught.
@@ -99,6 +99,10 @@ QA agent, tests-first pass (2026-11-05). Execution task 1 only; nothing under `e
 - **Fixtures and vectors:** `loudness_target_lufs` -16 to -36 in all 77 fixtures, valid and invalid (same byte length, so `invalid-expected.json` offsets hold); `both-layers-loudness-target-changed.json` -16.5 to -36.5; `both-layers-reformatted.json` -16.0 to -36.0. `tools/recipe_hash.py --write-vectors` rewrote `tests/data/recipe_hash_vectors.json`. Hand-written canonical text in `tests/cpp/test_recipe.cpp` and `tests/python/test_recipe_hash.py` moved to -36, hex now `097f8d91f1ca50830fc9d48b4c967a26d810890fc2dfd70a2303a03fe09ee80a` (hashlib of the literal); the parse test expects -36.0. `tests/hashprobe/main.cpp` stub-chain literal moved to -36 (its samples do not depend on the target). No test or loader lists `loudness-master`, so its removal needs no test edit.
 - **Open points for the implementer:** (1) the derived `binaural-carrier-right` check cannot fail through `arc_compile`: with left < 1000 and beat < 30 the binary64 sum stays below 1030 (left 999.9999999999999 + beat 29.999999999999996 = 1029.9999999999998), so only its passing side is tested, plus a `CHECK` that this sum is below 1030. (2) Threshold row `carrier-rule` is still pending on this story; once the test reads it through `row()`, `check_row_coverage.py` flags it as used while pending, so Task 3 must clear that `pending` too, although the Boundaries name only `loudness-tones`.
 - **Red state at hand-off:** clean `windows-clang-cl` workflow builds; `arcani_tests` 105 cases, 2 fail ("recipe::Field has no range_row and range_scale", "not implemented: validate/validate.hpp"); the other three ctest entries pass. `uv run pytest` 1,095 passed, 2 NDK-only skips. Wording, pragma, row coverage, and table log checks exit 0. A throwaway implementation in a copy outside the repo (registration, validator, compile call, `ranges.tsv` edits) passed every C++ test; five planted bugs were each caught: exclusive max treated as inclusive, carrier rule against the interval minimum, an engine table min off, `/length_s` unscaled, ranges checked after `final.required`; leaving `loudness-tones` pending failed the registration case.
+
+- Orchestrator decision (2026-11-05) on QA open point (2): Task 3 also clears the `pending` field of threshold row `carrier-rule` in `tests/tables/thresholds.tsv`. The tables README pending rule requires the story that first asserts a row to clear it, and this is a bookkeeping field, not a value. The Boundaries line naming only `loudness-tones` was written before the test read `carrier-rule`. Tests are committed at b61498e; do not edit them.
+
+- Orchestrator check (2026-11-05): tests in `tests/cpp`, `tests/python`, `tests/data`, and fixtures unchanged since b61498e. `windows-clang-cl` workflow: 4/4 ctest entries pass; `uv run pytest` 1,095 passed, 2 NDK-only skips; wording, pragma, row coverage, and table log checks exit 0. Matrix audit: every row covered in `test_validate.cpp`; the "just inside exclusive" row's right-carrier failure is unreachable through compile (QA open point 1), so only its passing side runs. Only windows-x64 was run.
 
 ## Spec Change Log
 
