@@ -2,7 +2,7 @@
 title: 'Story 1.2: C API, fixed stage list, seek, and isolation assertion'
 type: 'feature'
 created: '2026-11-04'
-status: 'in-review'
+status: 'done'
 baseline_commit: '786d1b1b4fed13a5aa8cd63adc10b8747a761f7c'
 route: 'dispatch'
 review_loop_iteration: 0
