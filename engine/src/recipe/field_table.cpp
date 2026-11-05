@@ -11,21 +11,25 @@ using enum FieldType;
 using enum FieldTag;
 
 constexpr Field kFields[] = {
-    {"/schema_version", String, None, true},
-    {"/engine_version", String, None, true},
-    {"/seed", Integer, None, true},
-    {"/author", String, HashExcluded, true},
-    {"/date", String, HashExcluded, true},
-    {"/rationale", String, HashExcluded, true},
-    {"/length_s", Number, LoudnessRelevant, true},
-    {"/loudness_target_lufs", Number, LoudnessRelevant, true},
-    {"/loudness_gain_db", Number, HashExcluded, false},
-    {"/loudness_hash", String, HashExcluded, false},
-    {"/theta_reference", Object, LoudnessRelevant, false},
-    {"/theta_reference/carrier_hz", Number, LoudnessRelevant, true},
-    {"/binaural", Object, LoudnessRelevant, false},
-    {"/binaural/carrier_left_hz", Number, LoudnessRelevant, true},
-    {"/binaural/beat_rate_hz", Number, LoudnessRelevant, true},
+    {"/schema_version", String, None, true, "", 1.0},
+    {"/engine_version", String, None, true, "", 1.0},
+    // Schema-bounded (0 to 2^53 - 1); no range row.
+    {"/seed", Integer, None, true, "", 1.0},
+    {"/author", String, HashExcluded, true, "", 1.0},
+    {"/date", String, HashExcluded, true, "", 1.0},
+    {"/rationale", String, HashExcluded, true, "", 1.0},
+    {"/length_s", Number, LoudnessRelevant, true, "session-length", 3600.0},  // 8 h = 28800 s
+    {"/loudness_target_lufs", Number, LoudnessRelevant, true, "loudness-tones", 1.0},
+    // Written by the measure pass, not authored; Story 4.2 checks it.
+    {"/loudness_gain_db", Number, HashExcluded, false, "", 1.0},
+    {"/loudness_hash", String, HashExcluded, false, "", 1.0},
+    {"/theta_reference", Object, LoudnessRelevant, false, "", 1.0},
+    {"/theta_reference/carrier_hz", Number, LoudnessRelevant, true, "theta-carrier", 1.0},
+    {"/binaural", Object, LoudnessRelevant, false, "", 1.0},
+    {"/binaural/carrier_left_hz", Number, LoudnessRelevant, true, "binaural-carrier", 1.0},
+    // The derived right carrier (carrier_left_hz + beat_rate_hz, row
+    // binaural-carrier-right) is checked after this field and reported on it.
+    {"/binaural/beat_rate_hz", Number, LoudnessRelevant, true, "beat-rate", 1.0},
 };
 
 }  // namespace

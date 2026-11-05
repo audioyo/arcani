@@ -63,9 +63,24 @@ Sources point to `docs/research-library.md`, a research run under `_bmad-output/
 | Threshold and range tables | `tests/tables/thresholds.tsv`, `tests/tables/ranges.tsv`: every row cited, read through the assertion call, used or pending on an open story; a change needs a log line naming its id | proposed | 2026-11-03 (cc) |
 | Recipe schema and recipe hash | `recipes/recipe.schema.json` (draft 2020-12, schema major 1): minimal fields plus the stub chain, every property tagged; seed 0 to 2^53 - 1; hash = SHA-256 of RFC 8785 JSON minus hash-excluded fields, `engine_version` kept; strict parser depth limit 64 | proposed | 2026-11-04 (ff) |
 | C API, block size, stub chain | one `arc_` C API (plan and renderer handles, five taps, 1 MiB input cap); internal block 64 frames; stub levels zeros plus unit-amplitude binaural sines, master gain 1.0; muted-ear isolation measurement, Hann single-bin DFT | proposed | 2026-11-04 (gg) |
+| Locked-range validator | after parse in both modes, before `final.required`; field table names each numeric field's range row; `loudness_target_lufs` must be -36 LUFS-I (`loudness-tones`); rules `range.min`, `range.max`, `carrier_rule`; `loudness-master` removed from `ranges.tsv` for v0.1 | proposed | 2026-11-05 (hh) |
 | All other test thresholds | see `tests/tables/thresholds.tsv` and project plan, Test thresholds (provisional) | provisional | project plan |
 
 ## Entries
+
+### 2026-11-05 (hh): Validator, locked ranges, and the carrier rule (S1.3)
+
+- **Field-to-row mapping:** the field table (`engine/src/recipe/field_table.cpp`) gains `range_row` and `range_scale` (row unit to field unit). `/length_s` to `session-length` at scale 3600 (8 h = 28800 s); `/loudness_target_lufs` to `loudness-tones`; `/theta_reference/carrier_hz` to `theta-carrier`; `/binaural/carrier_left_hz` to `binaural-carrier`; `/binaural/beat_rate_hz` to `beat-rate`; the derived right carrier (`carrier_left_hz + beat_rate_hz`, binary64 as compile computes it) to `binaural-carrier-right`, reported on `/binaural/beat_rate_hz`. Exempt: `/seed` (schema-bounded integer) and `/loudness_gain_db` (written by the measure pass; Story 4.2 checks it). A test fails on any numeric field with no row and no exemption, and on a missing, pending, non-range, or wrong-unit row.
+- **Engine range copy:** a hand-written constexpr table in `engine/src/validate/validate.cpp` (id, min, max, max bound), one entry per named row; the engine reads no file. A test proves every entry equals its `ranges.tsv` row exactly. No row value changed.
+- **Bounds:** `min` inclusive; `max` per `max_bound`. Compared in binary64 against `bound * range_scale`, exact for every v0.1 row.
+- **Loudness target -36 LUFS-I:** every v0.1 starter targets -36 LUFS-I (2026-10-27 (m), NFR15), so `loudness_target_lufs` maps to the fixed row `loudness-tones` and any other target is rejected. Every fixture moved from -16 to -36; `both-layers-loudness-target-changed.json` is -36.5 (schema-valid, out of range, rejected at compile). Hash vectors regenerated with `tools/recipe_hash.py --write-vectors`.
+- **Error format:** rule `range.min` or `range.max`; value the shortest round-trip text of the field value; limit `<op> <bound> <unit> (row <id>)` with op `>=`, `<=`, or `<` (exclusive max), for example `>= 100 Hz (row theta-carrier)`, `< 1000 Hz (row binaural-carrier)`, `<= 28800 s (row session-length)`.
+- **Check order in compile:** input cap, sample rate, parse, ranges (field table order, derived right carrier after beat rate), `final.required`. First failure wins.
+- **Carrier rule:** `check_carrier_rule(parameter, carrier_hz, rate_min_hz, rate_max_hz)` passes when `carrier_hz >= kCarrierRatio * rate_max_hz` (the interval maximum is the worst case); `kCarrierRatio` is 4, tested equal to threshold row `carrier-rule`. Failure: rule `carrier_rule`, limit for example `>= 24 Hz (4 x 6 Hz, row carrier-rule)`. No v0.1 recipe field pairs a carrier with a rate, so compile calls it from Epic 2 on; it is unit-tested now.
+- **Table rows:** `loudness-master` (-16 LUFS-I) removed from `ranges.tsv` for v0.1 (Audio, 2026-11-05): no v0.1 story asserts it, since every v0.1 starter is tones-only. It returns in Phase 1 with the master level and voice. `pending` cleared on `loudness-tones` and on threshold row `carrier-rule`, which the tests now read; values unchanged.
+- **Source:** Story 1.3 spec; 2026-10-27 (g), (m); FR-9; NFR15; test result: the `windows-clang-cl` workflow preset (all four ctest entries), `uv run pytest`, and the wording, pragma, row coverage, and table log checks pass on the dev PC.
+- **Decided by:** build agent under Audio's standing preference to settle technical forks; `loudness-master` removal by Audio, 2026-11-05.
+- **Status:** proposed.
 
 ### 2026-11-04 (gg): C API, internal block size, stub chain, and isolation measurement (S1.2)
 

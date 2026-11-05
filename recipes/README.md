@@ -4,7 +4,22 @@ Session recipes. One JSON recipe fully defines a session. The four v0.1 starter 
 
 ## Schema
 
-`recipe.schema.json` (JSON Schema draft 2020-12) holds structure and types only. Locked ranges live in `tests/tables/ranges.tsv` and are checked after parse (Story 1.3), never in the schema. Every object rejects unknown properties.
+`recipe.schema.json` (JSON Schema draft 2020-12) holds structure and types only. Locked ranges live in `tests/tables/ranges.tsv` and are checked by the engine at compile, after parse and in both modes (Story 1.3), never in the schema. Every object rejects unknown properties.
+
+## Locked ranges at compile
+
+Each numeric field names its range row in the engine field table (`engine/src/recipe/field_table.cpp`); the engine keeps its own copy of those rows (`engine/src/validate/validate.cpp`), and a test proves the copy equals `ranges.tsv`.
+
+| Field | Range row | Range |
+| --- | --- | --- |
+| `length_s` | `session-length` | 0 to 28800 s (8 h), inclusive |
+| `loudness_target_lufs` | `loudness-tones` | -36 LUFS-I exactly |
+| `theta_reference.carrier_hz` | `theta-carrier` | 100 to 500 Hz, inclusive |
+| `binaural.carrier_left_hz` | `binaural-carrier` | 0 Hz up to, not including, 1000 Hz |
+| `binaural.beat_rate_hz` | `beat-rate` | 0 Hz up to, not including, 30 Hz |
+| right carrier (`carrier_left_hz + beat_rate_hz`, derived) | `binaural-carrier-right` | 0 Hz up to, not including, 1030 Hz; reported on `binaural.beat_rate_hz` |
+
+`seed` is bounded by the schema. `loudness_gain_db` is written by the measure pass, not authored, and has no range row (Story 4.2 checks it). A range fault is rule `range.min` or `range.max`, with the value and a limit that names the bound and the row, for example `>= 100 Hz (row theta-carrier)`. Absent layers are not checked.
 
 | Field | Type | Required | Tag |
 | --- | --- | --- | --- |
@@ -51,4 +66,4 @@ uv run python tools/recipe_hash.py --write-vectors   # refresh tests/data/recipe
 
 ## Fixtures
 
-`fixtures/valid/` and `fixtures/invalid/` are shared by the Python and C++ tests; the folder is the expected verdict. `fixtures/invalid-expected.json` names the expected error for each invalid fixture. Fixture values are placeholders, not starter defaults.
+`fixtures/valid/` and `fixtures/invalid/` are shared by the Python and C++ tests; the folder is the expected schema verdict. `valid/` means schema-valid: a valid fixture can still be out of a locked range and rejected at compile (`both-layers-loudness-target-changed.json`, -36.5 LUFS-I, is one). `fixtures/invalid-expected.json` names the expected error for each invalid fixture. Fixture values are placeholders, not starter defaults.

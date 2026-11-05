@@ -2,10 +2,12 @@
 
 #include "plan/plan.hpp"
 
+#include <optional>
 #include <string>
 #include <utility>
 
 #include "core/phase.hpp"
+#include "validate/validate.hpp"
 
 namespace arcani::plan {
 
@@ -44,6 +46,13 @@ CompileResult compile(std::string_view utf8, Mode mode, std::uint32_t sample_rat
     return r;
   }
   const recipe::Recipe& rec = *parsed.recipe;
+
+  // Locked ranges (Story 1.3), in both modes, before final.required.
+  if (std::optional<recipe::Error> e = validate::check_ranges(rec)) {
+    CompileResult r;
+    r.error = std::move(*e);
+    return r;
+  }
 
   if (mode == Mode::Final) {
     if (!rec.loudness_gain_db) {
