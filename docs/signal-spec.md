@@ -2,7 +2,7 @@
 
 This file is the only source of signal formulas (AD-19). The engine (`engine/`) and the Python reference (`reference/`) each implement it on their own; neither defines a formula of its own, and neither is ported from the other. A shape or stage not in this file does not exist.
 
-Story 0.2 writes the core and sine sections. Later stories add envelope shapes, coupling, bursts, ramps and rate curves, loop seams, the limiter, the resampler, the internal block size, the loudness window, and the spectral component model.
+Story 0.2 writes the core and sine sections. Story 1.2 writes the internal block size and the stub chain. Later stories add envelope shapes, coupling, bursts, ramps and rate curves, loop seams, the limiter, the resampler, the loudness window, and the spectral component model.
 
 **Conventions:**
 
@@ -277,3 +277,136 @@ The engine sine algorithm above (steps 1 to 3), evaluated by `tools/signal_spec_
 | 450 Hz carrier at 44.1 kHz, n = 1000 | 3764641647695811840 | `0x3feead683265b193` |
 | 450 Hz carrier at 44.1 kHz, n = 44100 | 18446744073708889216 | `0xbd4fc0def946e2b9` |
 | 450 Hz carrier at 44.1 kHz, n = 1270080000 | 18446744054632431616 | `0xbe3be883f9174d45` |
+
+## Internal block size
+
+The engine renders in internal blocks of 64 frames. A frame is one sample per channel (left, then right). The block size is a fixed engine constant, not a recipe parameter: it never shapes the signal. Source: engineering default, design log 2026-11-04 (gg).
+
+```
+block_frames = 64
+block(k)     = k div 64        frame k lies in this block
+offset(k)    = k mod 64        at this offset inside it
+```
+
+Every sample is a pure function of the plan and its sample index `n` (AD-10). A host request of any length is served from the internal blocks, so neither the block size nor the host's request size changes a sample. Story 1.6 proves block-size invariance.
+
+**Seek.** Seek to frame `k` sets every oscillator phase to exactly `(phase[0] + k * inc) mod 2^64`, the same value sample-by-sample stepping reaches, and the next rendered sample is sample `k`. Seek reads no earlier output, so it is pure. Seeking to any `k`, including one past the session end, is allowed.
+
+### Vectors: internal blocks
+
+| Frame | Block | Offset in block |
+| --- | --- | --- |
+| 0 | 0 | 0 |
+| 37 | 0 | 37 |
+| 63 | 0 | 63 |
+| 64 | 1 | 0 |
+| 65 | 1 | 1 |
+| 127 | 1 | 63 |
+| 128 | 2 | 0 |
+| 1000 | 15 | 40 |
+| 44099 | 689 | 3 |
+| 47999 | 749 | 63 |
+
+## Stub chain
+
+The fixed stage list of Story 1.2, before any real layer exists. Real layers replace the theta reference and gamma PAC stubs (Story 1.5 routes the sine through the theta reference, Epic 2 builds the layers), and Epic 4 replaces the stored gain and the limiter stub.
+
+**Stage order.** Theta reference, gamma PAC layer, stereo bus, binaural join, master chain (per-channel gain, then a stereo-linked limiter). The order is fixed and is not a recipe field. Every stage writes channel `c` only from channel `c` of its inputs. The limiter alone reads both channels, and only to derive one linked gain that it applies to each channel separately. No stage reads one channel to write the other.
+
+**Session length.** `N = seconds_to_samples(length_s, fs)` frames (Core, seconds-to-samples rule). For `n >= N` every tap and the output are exactly `+0.0` in both channels.
+
+**Binaural oscillators.** One unmodulated sine per ear:
+
+```
+f_L   = carrier_left_hz
+f_R   = carrier_left_hz + beat_rate_hz      binary64, one rounding (range row binaural-carrier-right)
+inc_c = phase increment rule (f_c, fs)      c = L or R
+phase_c[0] = 0,  phase_c[n] = n * inc_c mod 2^64
+a_c   = 1.0                                 unit amplitude
+```
+
+For the fixture `stub-chain-1s-beat-6.json` that is a 400 Hz unmodulated sine in the left ear and a 406 Hz unmodulated sine in the right ear, a 6 Hz binaural beat; for `stub-chain-1s-beat-0.json` it is a 400 Hz unmodulated sine in each ear. A recipe without a `binaural` field has `a_L = a_R = 0.0` and `inc_L = inc_R = 0`.
+
+**Muted ear.** The compile option `mute_binaural_ear` (none, left, or right) is an offline measurement control for the isolation test (FR-4), stored in the plan; it is not a recipe field. For the muted ear `c`, the plan holds `inc_c = 0` and `a_c = 0.0`, so the render path has no test branch and that ear's binaural oscillator outputs `0.0 * sine(0) = +0.0`.
+
+**Per sample.** For `0 <= n < N` and each channel `c`, in this order, each line one binary64 operation (Conventions):
+
+```
+theta[c][n]  = 0.0                          theta reference stub
+gamma[c][n]  = 0.0                          gamma PAC stub
+bus[c][n]    = theta[c][n] + gamma[c][n]    stereo bus: adds the layers within channel c
+bin[c][n]    = a_c * sine(phase_c[n])       binaural oscillator of ear c (Sine, engine sine)
+join[c][n]   = bus[c][n] + bin[c][n]        binaural join: ear c is added to channel c only
+master[c][n] = join[c][n] * g_c             per-channel gain, g_L = g_R = 1.0 (stored gain is Epic 4)
+out[c][n]    = master[c][n]                 stereo-linked limiter stub: identity, zero gain reduction
+```
+
+A missing `theta_reference` field leaves `theta` at zeros; with the field present the stub still outputs zeros. Because `+0.0 + y = y` and `y * 1.0 = y` exactly for every binary64 `y`, `bus` is `+0.0`, and `join`, `master`, and `out` all equal `a_c * sine(phase_c[n])` bit for bit.
+
+**Output and taps.** The render output is `out`, interleaved stereo binary64 (left, then right, per frame). Five optional taps, each interleaved stereo binary64 over the same frames: theta reference (`theta`), gamma PAC (`gamma`), stereo bus (`bus`), binaural join (`join`, the engine output point of the isolation row `binaural-isolation-engine`), and master (`out`, the point of row `binaural-isolation-master`).
+
+### Vectors: stub chain increments
+
+Per fixture and sample rate: the binaural carriers as hex floats, their increments, and the session length `N` in frames.
+
+| Fixture | fs | Left carrier (hex) | Beat rate (hex) | Right carrier (hex) | Left inc | Right inc | Frames |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| stub-chain-1s-beat-0.json | 44100 | `0x1.9000000000000p+8` | `0x0.0p+0` | `0x1.9000000000000p+8` | 167317406564258976 | 167317406564258976 | 44100 |
+| stub-chain-1s-beat-6.json | 44100 | `0x1.9000000000000p+8` | `0x1.8000000000000p+2` | `0x1.9600000000000p+8` | 167317406564258976 | 169827167662722848 | 44100 |
+| stub-chain-1s-beat-0.json | 48000 | `0x1.9000000000000p+8` | `0x0.0p+0` | `0x1.9000000000000p+8` | 153722867280912928 | 153722867280912928 | 48000 |
+| stub-chain-1s-beat-6.json | 48000 | `0x1.9000000000000p+8` | `0x1.8000000000000p+2` | `0x1.9600000000000p+8` | 153722867280912928 | 156028710290126624 | 48000 |
+
+### Vectors: stub chain samples
+
+`out` (and so `join` and `master`) per channel at sample `n`, as the 64-bit pattern of the binary64 value (big-endian hex), from the engine sine bits; and the ideal sine of the same phase at 25 significant digits, for the Python reference (Story 1.5). Indices cover the start, inside the first block (37), both sides of block boundaries (63, 64, 65, 127, 128), the last sample, and two samples past the end (case `past_end`, output `+0.0`; the phase columns there show `n * inc mod 2^64` only for reference).
+
+| Case | Fixture | fs | n | Left phase | Right phase | Left (binary64 bits) | Right (binary64 bits) | Left ideal | Right ideal |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| signal | stub-chain-1s-beat-0.json | 44100 | 0 | 0 | 0 | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| signal | stub-chain-1s-beat-0.json | 44100 | 1 | 167317406564258976 | 167317406564258976 | `0x3fad29cb9b37d823` | `0x3fad29cb9b37d823` | 0.05695949811699588082821784 | 0.05695949811699588082821784 |
+| signal | stub-chain-1s-beat-0.json | 44100 | 37 | 6190744042877582112 | 6190744042877582112 | `0x3feb7b6766e57522` | `0x3feb7b6766e57522` | 0.8588139545676504221948019 | 0.8588139545676504221948019 |
+| signal | stub-chain-1s-beat-0.json | 44100 | 63 | 10540996613548315488 | 10540996613548315488 | `0xbfdbc4c04d71ab6b` | `0xbfdbc4c04d71ab6b` | -0.4338837391175582060517134 | -0.4338837391175582060517134 |
+| signal | stub-chain-1s-beat-0.json | 44100 | 64 | 10708314020112574464 | 10708314020112574464 | `0xbfdf0204259d18ed` | `0xbfdf0204259d18ed` | -0.4844980590172913433609441 | -0.4844980590172913433609441 |
+| signal | stub-chain-1s-beat-0.json | 44100 | 65 | 10875631426676833440 | 10875631426676833440 | `0xbfe112c0cf000a2a` | `0xbfe112c0cf000a2a` | -0.5335392039273008030990806 | -0.5335392039273008030990806 |
+| signal | stub-chain-1s-beat-0.json | 44100 | 127 | 2802566559951338336 | 2802566559951338336 | `0x3fea1d4b1303391b` | `0x3fea1d4b1303391b` | 0.8160758373504609394748650 | 0.8160758373504609394748650 |
+| signal | stub-chain-1s-beat-0.json | 44100 | 128 | 2969883966515597312 | 2969883966515597312 | `0x3feb201da08aaea4` | `0x3feb201da08aaea4` | 0.8476703774954675153881825 | 0.8476703774954675153881825 |
+| signal | stub-chain-1s-beat-0.json | 44100 | 1000 | 1296709900873011456 | 1296709900873011456 | `0x3fdb5b69fc937bf6` | `0x3fdb5b69fc937bf6` | 0.4274544683993928451059901 | 0.4274544683993928451059901 |
+| signal | stub-chain-1s-beat-0.json | 44100 | 44099 | 18279426667145487840 | 18279426667145487840 | `0xbfad29cb9b37b2c5` | `0xbfad29cb9b37b2c5` | -0.05695949811692950127809172 | -0.05695949811692950127809172 |
+| past_end | stub-chain-1s-beat-0.json | 44100 | 44100 | 195200 | 195200 | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| past_end | stub-chain-1s-beat-0.json | 44100 | 44163 | 10540996613548510688 | 10540996613548510688 | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| signal | stub-chain-1s-beat-6.json | 44100 | 0 | 0 | 0 | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| signal | stub-chain-1s-beat-6.json | 44100 | 1 | 167317406564258976 | 169827167662722848 | `0x3fad29cb9b37d823` | `0x3fad99a883a44bcb` | 0.05695949811699588082821784 | 0.05781294447856274452417341 |
+| signal | stub-chain-1s-beat-6.json | 44100 | 37 | 6190744042877582112 | 6283605203520745376 | `0x3feb7b6766e57522` | `0x3feaf32b13347803` | 0.8588139545676504221948019 | 0.8421836258699130379169257 |
+| signal | stub-chain-1s-beat-6.json | 44100 | 63 | 10540996613548315488 | 10699111562751539424 | `0xbfdbc4c04d71ab6b` | `0xbfded50d5cbfa7d4` | -0.4338837391175582060517134 | -0.4817536741017151217830130 |
+| signal | stub-chain-1s-beat-6.json | 44100 | 64 | 10708314020112574464 | 10868938730414262272 | `0xbfdf0204259d18ed` | `0xbfe102f282785273` | -0.4844980590172913433609441 | -0.5316097782366992032397370 |
+| signal | stub-chain-1s-beat-6.json | 44100 | 65 | 10875631426676833440 | 11038765898076985120 | `0xbfe112c0cf000a2a` | `0xbfe28cccf5d2bd84` | -0.5335392039273008030990806 | -0.5796875764119821427058634 |
+| signal | stub-chain-1s-beat-6.json | 44100 | 127 | 2802566559951338336 | 3121306219456250080 | `0x3fea1d4b1303391b` | `0x3febf6ef6819bf2b` | 0.8160758373504609394748650 | 0.8738934552123502347675707 |
+| signal | stub-chain-1s-beat-6.json | 44100 | 128 | 2969883966515597312 | 3291133387118972928 | `0x3feb201da08aaea4` | `0x3fecd1303b0c6f48` | 0.8476703774954675153881825 | 0.9005356941873221576166352 |
+| signal | stub-chain-1s-beat-6.json | 44100 | 1000 | 1296709900873011456 | 3806470999336883456 | `0x3fdb5b69fc937bf6` | `0x3feecdd15adf0ec3` | 0.4274544683993928451059901 | 0.9626242469500113226014117 |
+| signal | stub-chain-1s-beat-6.json | 44100 | 44099 | 18279426667145487840 | 18276916906046469472 | `0xbfad29cb9b37b2c5` | `0xbfad99a883a49093` | -0.05695949811692950127809172 | -0.05781294447868492042036602 |
+| past_end | stub-chain-1s-beat-6.json | 44100 | 44100 | 195200 | 18446744073709192320 | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| past_end | stub-chain-1s-beat-6.json | 44100 | 44163 | 10540996613548510688 | 10699111562751180128 | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| signal | stub-chain-1s-beat-0.json | 48000 | 0 | 0 | 0 | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| signal | stub-chain-1s-beat-0.json | 48000 | 1 | 153722867280912928 | 153722867280912928 | `0x3faacbc748efc90d` | `0x3faacbc748efc90d` | 0.05233595624294383199647519 | 0.05233595624294383199647519 |
+| signal | stub-chain-1s-beat-0.json | 48000 | 37 | 5687746089393778336 | 5687746089393778336 | `0x3feddfe40e0a16f9` | `0x3feddfe40e0a16f9` | 0.9335804264972017586249994 | 0.9335804264972017586249994 |
+| signal | stub-chain-1s-beat-0.json | 48000 | 63 | 9684540638697514464 | 9684540638697514464 | `0xbfc4060b67a85374` | `0xbfc4060b67a85374` | -0.1564344650402308237954378 | -0.1564344650402308237954378 |
+| signal | stub-chain-1s-beat-0.json | 48000 | 64 | 9838263505978427392 | 9838263505978427392 | `0xbfca9cd9ac4258f4` | `0xbfca9cd9ac4258f4` | -0.2079116908177592916130729 | -0.2079116908177592916130729 |
+| signal | stub-chain-1s-beat-0.json | 48000 | 65 | 9991986373259340320 | 9991986373259340320 | `0xbfd0907dc193068f` | `0xbfd0907dc193068f` | -0.2588190451025207167267224 | -0.2588190451025207167267224 |
+| signal | stub-chain-1s-beat-0.json | 48000 | 127 | 1076060070966390240 | 1076060070966390240 | `0x3fd6ef801fced334` | `0x3fd6ef801fced334` | 0.3583679495453001873303604 | 0.3583679495453001873303604 |
+| signal | stub-chain-1s-beat-0.json | 48000 | 128 | 1229782938247303168 | 1229782938247303168 | `0x3fda07f921061aac` | `0x3fda07f921061aac` | 0.4067366430758001227852814 | 0.4067366430758001227852814 |
+| signal | stub-chain-1s-beat-0.json | 48000 | 1000 | 6148914691236515072 | 6148914691236515072 | `0x3febb67ae8304f95` | `0x3febb67ae8304f95` | 0.8660254037844390100833584 | 0.8660254037844390100833584 |
+| signal | stub-chain-1s-beat-0.json | 48000 | 47999 | 18293021206428536288 | 18293021206428536288 | `0xbfaacbc748efdca9` | `0xbfaacbc748efdca9` | -0.05233595624297866288142971 | -0.05233595624297866288142971 |
+| past_end | stub-chain-1s-beat-0.json | 48000 | 48000 | 18446744073709449216 | 18446744073709449216 | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| past_end | stub-chain-1s-beat-0.json | 48000 | 48063 | 9684540638697412064 | 9684540638697412064 | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| signal | stub-chain-1s-beat-6.json | 48000 | 0 | 0 | 0 | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| signal | stub-chain-1s-beat-6.json | 48000 | 1 | 153722867280912928 | 156028710290126624 | `0x3faacbc748efc90d` | `0x3fab32943691ffca` | 0.05233595624294383199647519 | 0.05312026182309600005348163 |
+| signal | stub-chain-1s-beat-6.json | 48000 | 37 | 5687746089393778336 | 5773062280734685088 | `0x3feddfe40e0a16f9` | `0x3fed875c9c710b63` | 0.9335804264972017586249994 | 0.9227736539025889752379847 |
+| signal | stub-chain-1s-beat-6.json | 48000 | 63 | 9684540638697514464 | 9829808748277977312 | `0xbfc4060b67a85374` | `0xbfca4084ea41d438` | -0.1564344650402308237954378 | -0.2050939697107041366324120 |
+| signal | stub-chain-1s-beat-6.json | 48000 | 64 | 9838263505978427392 | 9985837458568103936 | `0xbfca9cd9ac4258f4` | `0xbfd06f562d622a07` | -0.2079116908177592916130729 | -0.2567954486081877568016917 |
+| signal | stub-chain-1s-beat-6.json | 48000 | 65 | 9991986373259340320 | 10141866168858230560 | `0xbfd0907dc193068f` | `0xbfd3b2887dd1395d` | -0.2588190451025207167267224 | -0.3077717999157324689723483 |
+| signal | stub-chain-1s-beat-6.json | 48000 | 127 | 1076060070966390240 | 1368902133136529632 | `0x3fd6ef801fced334` | `0x3fdcc57963b780fd` | 0.3583679495453001873303604 | 0.4495528672978471735681411 |
+| signal | stub-chain-1s-beat-6.json | 48000 | 128 | 1229782938247303168 | 1524930843426656256 | `0x3fda07f921061aac` | `0x3fdfc47e64f6993d` | 0.4067366430758001227852814 | 0.4963680253953768304001433 |
+| signal | stub-chain-1s-beat-6.json | 48000 | 1000 | 6148914691236515072 | 8454757700450211072 | `0x3febb67ae8304f95` | `0x3fd0907dc1930691` | 0.8660254037844390100833584 | 0.2588190451025207904240843 |
+| signal | stub-chain-1s-beat-6.json | 48000 | 47999 | 18293021206428536288 | 18290715363419420896 | `0xbfaacbc748efdca9` | `0xbfab329436920093` | -0.05233595624297866288142971 | -0.05312026182309739323110318 |
+| past_end | stub-chain-1s-beat-6.json | 48000 | 48000 | 18446744073709449216 | 18446744073709547520 | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| past_end | stub-chain-1s-beat-6.json | 48000 | 48063 | 9684540638697412064 | 9829808748277973216 | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |

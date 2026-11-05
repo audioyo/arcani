@@ -1,4 +1,4 @@
-"""Writes the worked test vectors of docs/signal-spec.md §core and §sine.
+"""Writes the worked test vectors of docs/signal-spec.md: core, sine, internal block size, stub chain.
 
 Usage:
   python tools/signal_spec_vectors.py            write tests/data/signal_spec_vectors.json
@@ -25,6 +25,12 @@ engine or from binary64 library calls:
   This pins the engine's exact output bits: a wrong constant or a reordered
   Horner step that stays under the error bound still changes them. It lives
   here, in tools/, never in reference/ (the reference renders the ideal sine).
+- Internal blocks: frame k lies in block k // 64 at offset k % 64, exact
+  integer arithmetic.
+- Stub chain: the spec's stub chain (Story 1.2) for the 1 s binaural
+  fixtures, in binary64 in the spec's operation order, from the engine sine
+  bits above, written as 64-bit patterns, plus the ideal sine of the same
+  phases at 25 digits for the Python reference.
 
 Standard library only.
 """
@@ -372,9 +378,72 @@ def engine_sine_rows():
     return rows
 
 
+BLOCK_FRAMES = 64
+BLOCK_FRAME_INDICES = (0, 37, 63, 64, 65, 127, 128, 1000, 44099, 47999)
+
+# (fixture, carrier_left_hz, beat_rate_hz, length_s): the 1 s binaural fixtures
+# in recipes/fixtures/valid/. tests/python/test_signal_spec_core.py checks
+# that each fixture holds these values.
+STUB_CHAIN_FIXTURES = (
+    ("stub-chain-1s-beat-0.json", 400.0, 0.0, 1.0),
+    ("stub-chain-1s-beat-6.json", 400.0, 6.0, 1.0),
+)
+STUB_CHAIN_INDICES = (0, 1, 37, 63, 64, 65, 127, 128, 1000)
+
+
+def block_rows():
+    return [{"frame": k, "block": k // BLOCK_FRAMES, "offset": k % BLOCK_FRAMES}
+            for k in BLOCK_FRAME_INDICES]
+
+
+def stub_chain_sample(phase, gain):
+    """One channel of the stub chain at the master tap, spec operation order."""
+    theta = 0.0
+    gamma = 0.0
+    bus = theta + gamma
+    binaural = gain * engine_sine(phase)
+    join = bus + binaural
+    master = join * 1.0
+    return join, master
+
+
+def stub_chain_rows():
+    rows = []
+    for fs in RATES:
+        for fixture, left_hz, beat_hz, length_s in STUB_CHAIN_FIXTURES:
+            right_hz = left_hz + beat_hz  # one binary64 addition
+            inc_l, _ = increment(left_hz, fs)
+            inc_r, _ = increment(right_hz, fs)
+            frames, _ = samples(length_s, fs)
+            for n in STUB_CHAIN_INDICES + (frames - 1, frames, frames + 63):
+                past_end = n >= frames
+                pl = (n * inc_l) % CYCLE
+                pr = (n * inc_r) % CYCLE
+                if past_end:
+                    left = right = 0.0
+                    ideal_l = ideal_r = "0"
+                else:
+                    jl, left = stub_chain_sample(pl, 1.0)
+                    jr, right = stub_chain_sample(pr, 1.0)
+                    assert bits(jl) == bits(left) and bits(jr) == bits(right)
+                    ideal_l, ideal_r = ideal_sine(pl), ideal_sine(pr)
+                rows.append({
+                    "case": "past_end" if past_end else "signal",
+                    "fixture": fixture, "fs": fs,
+                    "carrier_left_hex": hexf(left_hz), "beat_rate_hex": hexf(beat_hz),
+                    "carrier_right_hex": hexf(right_hz),
+                    "inc_left": str(inc_l), "inc_right": str(inc_r),
+                    "frames": str(frames), "n": str(n),
+                    "phase_left": str(pl), "phase_right": str(pr),
+                    "left_bits": bits(left), "right_bits": bits(right),
+                    "ideal_left": ideal_l, "ideal_right": ideal_r,
+                })
+    return rows
+
+
 def build():
     return {
-        "spec": "docs/signal-spec.md (sections core and sine)",
+        "spec": "docs/signal-spec.md (sections core, sine, internal block size, and stub chain)",
         "generator": "tools/signal_spec_vectors.py",
         "cycle": str(CYCLE),
         "sine_coefficients": sine_coefficients(),
@@ -385,6 +454,9 @@ def build():
         "phase_steps": phase_step_rows(),
         "carrier_450_44100": carrier_rows(),
         "engine_sine_bits": engine_sine_rows(),
+        "block_frames": BLOCK_FRAMES,
+        "blocks": block_rows(),
+        "stub_chain": stub_chain_rows(),
     }
 
 
@@ -432,6 +504,31 @@ def tables(data):
     out.append("| --- | --- | --- |")
     for r in data["engine_sine_bits"]:
         out.append(f"| {r['label']} | {r['phase']} | `{r['bits']}` |")
+    out.append("")
+    out.append("| Frame | Block | Offset in block |")
+    out.append("| --- | --- | --- |")
+    for r in data["blocks"]:
+        out.append(f"| {r['frame']} | {r['block']} | {r['offset']} |")
+    out.append("")
+    out.append("| Fixture | fs | Left carrier (hex) | Beat rate (hex) | Right carrier (hex) "
+               "| Left inc | Right inc | Frames |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- |")
+    seen = set()
+    for r in data["stub_chain"]:
+        key = (r["fixture"], r["fs"])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(f"| {r['fixture']} | {r['fs']} | `{r['carrier_left_hex']}` | `{r['beat_rate_hex']}` "
+                   f"| `{r['carrier_right_hex']}` | {r['inc_left']} | {r['inc_right']} | {r['frames']} |")
+    out.append("")
+    out.append("| Case | Fixture | fs | n | Left phase | Right phase | Left (binary64 bits) "
+               "| Right (binary64 bits) | Left ideal | Right ideal |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["stub_chain"]:
+        out.append(f"| {r['case']} | {r['fixture']} | {r['fs']} | {r['n']} | {r['phase_left']} "
+                   f"| {r['phase_right']} | `{r['left_bits']}` | `{r['right_bits']}` "
+                   f"| {r['ideal_left']} | {r['ideal_right']} |")
     return "\n".join(out) + "\n"
 
 
