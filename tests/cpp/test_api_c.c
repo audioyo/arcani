@@ -20,6 +20,8 @@ typedef arc_status (*create_fn)(arc_plan*, arc_renderer**, arc_error*);
 typedef arc_status (*render_fn)(arc_renderer*, double*, size_t, const arc_taps*, arc_error*);
 typedef arc_status (*seek_fn)(arc_renderer*, uint64_t, arc_error*);
 typedef void (*destroy_fn)(arc_renderer*);
+typedef const char* (*recipe_hash_fn)(const arc_plan*); /* Story 1.4 */
+typedef uint64_t (*seed_fn)(const arc_plan*);            /* Story 1.4 */
 
 int arc_test_c_header(void);
 
@@ -37,6 +39,8 @@ int arc_test_c_header(void) {
   render_fn render = arc_render;
   seek_fn seek = arc_seek;
   destroy_fn destroy = arc_renderer_destroy;
+  recipe_hash_fn recipe_hash = arc_plan_recipe_hash;
+  seed_fn seed = arc_plan_seed;
 
   arc_error error;
   arc_compile_options options;
@@ -67,6 +71,7 @@ int arc_test_c_header(void) {
   sum += (version != NULL) + (compile != NULL) + (retain != NULL) + (release != NULL) +
          (frame_count != NULL) + (stage_count != NULL) + (stage != NULL) + (warning_count != NULL) +
          (warning != NULL) + (create != NULL) + (render != NULL) + (seek != NULL) + (destroy != NULL);
+  sum += (recipe_hash != NULL) + (seed != NULL);
   sum += (int)sizeof error + error.parameter[0] + (int)options.sample_rate + (taps.master == NULL);
   return sum;
 }

@@ -10,6 +10,8 @@
 #
 # Story 1.2 adds kBlockFrames, kBlocks (internal block size) and kStubChain
 # (stub chain samples, one row per fixture, sample rate, and index).
+# Story 1.4 adds kQuantize24 (24-bit rounding: rule, case, sample, value, and
+# the 3 written bytes in file order).
 #
 # Big integers are JSON strings and become UINT64_C literals. Hex float
 # strings become C++ hex float literals; "nan", "inf", and "-inf" become
@@ -71,6 +73,7 @@ function(arcani_generate_spec_tables out_file vectors_json)
   string(APPEND h "struct Coefficient { int power; double value; };\n")
   string(APPEND h "struct EngineSineBits { const char* label; std::uint64_t phase; std::uint64_t bits; };\n")
   string(APPEND h "struct BlockVector { std::uint64_t frame; std::uint64_t block; std::uint64_t offset; };\n")
+  string(APPEND h "struct Quantize24Vector { const char* rule; const char* label; double s; std::int32_t value; std::uint8_t bytes[3]; };\n")
   string(APPEND h "struct StubChainVector { const char* fixture; bool past_end; std::uint32_t fs; double carrier_left_hz; double beat_rate_hz; double carrier_right_hz; std::uint64_t inc_left; std::uint64_t inc_right; std::uint64_t frames; std::uint64_t n; std::uint64_t phase_left; std::uint64_t phase_right; std::uint64_t left_bits; std::uint64_t right_bits; };\n\n")
 
   # ---- increments
@@ -249,6 +252,38 @@ function(arcani_generate_spec_tables out_file vectors_json)
       string(APPEND _fields ", UINT64_C(${v})")
     endforeach()
     string(APPEND h "  {${fixture}, ${past}, ${fs}u${_fields}},\n")
+  endforeach()
+  string(APPEND h "};\n\n")
+
+  # ---- 24-bit rounding (Story 1.4)
+  string(JSON n LENGTH "${vec}" quantize_24)
+  string(APPEND h "inline constexpr Quantize24Vector kQuantize24[] = {\n")
+  math(EXPR last "${n} - 1")
+  foreach(i RANGE ${last})
+    string(JSON rule GET "${vec}" quantize_24 ${i} rule)
+    string(JSON label GET "${vec}" quantize_24 ${i} label)
+    string(JSON s GET "${vec}" quantize_24 ${i} s_hex)
+    string(JSON value GET "${vec}" quantize_24 ${i} value)
+    string(JSON bytes GET "${vec}" quantize_24 ${i} bytes)
+    if(NOT rule MATCHES "^(clamp|nan|tie|round|zero)$")
+      message(FATAL_ERROR "spec tables: unknown 24-bit rounding rule: '${rule}'")
+    endif()
+    if(NOT value MATCHES "^-?[0-9]+$")
+      message(FATAL_ERROR "spec tables: not an integer: '${value}'")
+    endif()
+    if(NOT bytes MATCHES "^[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]$")
+      message(FATAL_ERROR "spec tables: not 3 hex bytes: '${bytes}'")
+    endif()
+    string(SUBSTRING "${bytes}" 0 2 b0)
+    string(SUBSTRING "${bytes}" 2 2 b1)
+    string(SUBSTRING "${bytes}" 4 2 b2)
+    _arcani_spec_cxx_string(rule "${rule}")
+    _arcani_spec_cxx_string(label "${label}")
+    _arcani_spec_hexf(s "${s}")
+    if(value STREQUAL "-8388608")
+      set(value "(-8388607 - 1)")
+    endif()
+    string(APPEND h "  {${rule}, ${label}, ${s}, ${value}, {0x${b0}u, 0x${b1}u, 0x${b2}u}},\n")
   endforeach()
   string(APPEND h "};\n\n")
 

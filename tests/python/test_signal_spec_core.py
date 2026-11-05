@@ -1,4 +1,4 @@
-"""Signal spec core, sine, internal blocks, and stub chain: vectors, spec tables, Python ideal, quantization and drift.
+"""Signal spec core, sine, internal blocks, stub chain, and 24-bit rounding: vectors, spec tables, Python ideal, quantization and drift.
 
 Contract with tools/signal_spec_vectors.py (exists, Story 0.2 spec commit):
 
@@ -29,6 +29,15 @@ recipes/fixtures/valid/ whose binaural carrier, beat rate, and length equal
 the row's; increments and frame counts follow the core rules; each signal
 row's bits are within the sine-error bound of its ideal value; past-end rows
 are +0.0.
+
+24-bit rounding (Story 1.4): `quantize_24` in the vectors file, one row per
+case with `rule`, `label`, `s_hex`, `x_hex`, `value`, and `bytes`. The
+generator's `quantize_24(s)` (exact Fraction arithmetic) and an independent
+binary64 rule here (Python `round` on a float is exact, ties to even) both
+reproduce every value; the bytes are `value` as 3 bytes, little-endian two's
+complement. Each naive conversion below (no clamp, no NaN rule, truncation,
+ties away from zero) differs from the vectors on at least one row of the rule
+it breaks. The rows cover every case of the spec's rounding matrix row.
 
 Quantization and drift are checked exactly with fractions at every range
 endpoint, plus an analytic worst-case bound. Bounds and ranges come from
@@ -257,8 +266,9 @@ def doc_table_problems(text, data):
 def test_spec_tables_equal_json(vectors):
     generated, in_doc, problems = doc_table_problems(SPEC_DOC.read_text(encoding="utf-8"),
                                                      vectors)
-    # Core and sine (7), internal blocks (1), stub chain increments and samples (2).
-    assert len(generated) == 10, generated
+    # Core and sine (7), internal blocks (1), stub chain increments and samples (2),
+    # 24-bit rounding (1).
+    assert len(generated) == 11, generated
     assert len(in_doc) == len(generated), [b[0] for b in in_doc]
     assert not problems, "\n".join(problems)
 
@@ -566,3 +576,130 @@ def test_stub_chain_ideal_matches_the_reference_ideal_sine(vectors):
         for side in ("left", "right"):
             assert close_to_decimal(mod.ideal_sine(int(r[f"phase_{side}"])), r[f"ideal_{side}"]), (
                 r["fixture"], r["fs"], r["n"], side)
+
+
+# ---------------------------------------------------------- 24-bit rounding
+
+Q24_MAX = 2**23 - 1
+Q24_MIN = -(2**23)
+
+
+def sample_of(text):
+    """The binary64 sample of an s_hex cell (hex float, nan, inf, or -inf)."""
+    return {"nan": math.nan, "inf": math.inf, "-inf": -math.inf}.get(text) or float.fromhex(text)
+
+
+def rule_q24(s):
+    """The spec rule in binary64, independent of the generator's Fraction path."""
+    if math.isnan(s):
+        return 0
+    x = s * 8388608.0  # exact: a power-of-two scale
+    if x >= Q24_MAX:
+        return Q24_MAX
+    if x <= Q24_MIN:
+        return Q24_MIN
+    return int(round(x))  # round() on a float is exact, ties to even
+
+
+def round_even(x):
+    return int(round(x))
+
+
+def naive_no_clamp(s):
+    """Rounds ties to even but wraps to 24 bits instead of clamping."""
+    if math.isnan(s):
+        return 0
+    x = s * 8388608.0
+    if math.isinf(x):
+        return 0
+    return (round_even(x) + 2**23) % 2**24 - 2**23
+
+
+def naive_no_nan_rule(s):
+    """Clamps with `not (x < max)`, so NaN lands on full scale."""
+    x = s * 8388608.0
+    if not (x < Q24_MAX):
+        return Q24_MAX
+    if x <= Q24_MIN:
+        return Q24_MIN
+    return round_even(x)
+
+
+def naive_truncate(s):
+    """Spec clamp and NaN rule, truncation toward zero instead of ties to even."""
+    if math.isnan(s):
+        return 0
+    x = s * 8388608.0
+    if x >= Q24_MAX:
+        return Q24_MAX
+    if x <= Q24_MIN:
+        return Q24_MIN
+    return math.trunc(x)
+
+
+def naive_half_away(s):
+    """Spec clamp and NaN rule, ties away from zero instead of ties to even."""
+    if math.isnan(s):
+        return 0
+    x = s * 8388608.0
+    if x >= Q24_MAX:
+        return Q24_MAX
+    if x <= Q24_MIN:
+        return Q24_MIN
+    f = math.floor(x)
+    if x - f == 0.5:
+        return f + 1 if x > 0 else f
+    return round_even(x)
+
+
+def le24(v):
+    return (v % 2**24).to_bytes(3, "little").hex()
+
+
+def test_quantize_vectors_follow_the_rule(vectors):
+    rows = vectors["quantize_24"]
+    assert rows, "no 24-bit rounding vectors"
+    for r in rows:
+        s = sample_of(r["s_hex"])
+        assert Q24_MIN <= r["value"] <= Q24_MAX, r
+        assert rule_q24(s) == r["value"], r
+        assert le24(r["value"]) == r["bytes"], r
+        if r["s_hex"] != "nan":
+            assert sample_of(r["x_hex"]) == s * 8388608.0, r
+
+
+def test_generator_quantizer_matches_vectors(vectors):
+    gen = load_module("signal_spec_vectors", GENERATOR)
+    for r in vectors["quantize_24"]:
+        s = sample_of(r["s_hex"])
+        assert gen.quantize_24(s) == r["value"], r
+        assert gen.pack_24(r["value"]) == r["bytes"], r
+
+
+def test_quantize_vectors_cover_the_matrix_row(vectors):
+    lsb = 2.0**-23
+    wanted = {
+        "+1.0": 1.0, "above +1": math.nextafter(1.0, 2.0), "-1.0": -1.0,
+        "below -1": math.nextafter(-1.0, -2.0), "+inf": math.inf, "-inf": -math.inf,
+        "+0.5 LSB": 0.5 * lsb, "-0.5 LSB": -0.5 * lsb, "+1.5 LSB": 1.5 * lsb,
+        "-1.5 LSB": -1.5 * lsb, "+2.5 LSB": 2.5 * lsb, "-2.5 LSB": -2.5 * lsb,
+    }
+    rows = vectors["quantize_24"]
+    have = [sample_of(r["s_hex"]) for r in rows]
+    for name, s in wanted.items():
+        assert any(h == s for h in have), f"no 24-bit rounding vector for {name}"
+    assert any(r["s_hex"] == "nan" for r in rows), "no NaN vector"
+    assert any(r["s_hex"] == "-0x0.0p+0" for r in rows), "no -0.0 vector"
+    assert {r["rule"] for r in rows} == {"clamp", "nan", "tie", "round", "zero"}
+
+
+@pytest.mark.parametrize("naive, rule", [
+    (naive_no_clamp, "clamp"),
+    (naive_no_nan_rule, "nan"),
+    (naive_truncate, "tie"),
+    (naive_half_away, "tie"),
+])
+def test_naive_conversion_fails_a_vector_of_its_rule(vectors, naive, rule):
+    caught = [r["label"] for r in vectors["quantize_24"]
+              if r["rule"] == rule and naive(sample_of(r["s_hex"])) != r["value"]]
+    assert caught, f"{naive.__name__} passes every {rule} vector"
