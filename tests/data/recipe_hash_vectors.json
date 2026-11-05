@@ -17,5 +17,9 @@
   "minimal-seed-7.json": "206828b1807d7eb51c51d9634009c30b00e8a6fff7ee414ea748fd72361a47fa",
   "minimal-seed-max.json": "0d6d8c7655a1214c793e4f6a3cc0cec0057bc51b0820f8c5637208d56f5d60dd",
   "minimal-seed-zero.json": "de2ad2fee47178d836a8073a2f32173f8a4c48bd7f5dc20396265088c943df97",
+  "stub-chain-1s-beat-0.json": "7b010e91ad4a0552588c6cc5a714b2760f3cdd2fe8eadf2b17ffa11c2b494449",
+  "stub-chain-1s-beat-6.json": "aedc02f11a03822663bb3a501108d463defbf33055a85b51e9baff3f9882ea90",
+  "stub-chain-1s-no-gain.json": "37b642a9c41472030c4aa973d627708117692dfdf5fb79c64352d4af4ab4ec4c",
+  "stub-chain-1s-no-layers.json": "30dbbfe2bd55023b1ee6f947e938461bf8c4c4b95df377df458e1491b16d863f",
   "theta-reference-only.json": "975add19af9910741b933342e0116338ec3b0d9abd1a67038dd76d98f2f265b0"
 }

@@ -51,6 +51,17 @@ inline const Row& dbfs_row(const char* id) {
   return r;
 }
 
+// A threshold row in dB relative to a reference (unit "dB ..." but not
+// dBFS), for example the binaural isolation rows, whose unit is "dB below
+// the ear's own binaural carrier" (Story 1.2).
+inline const Row& db_row(const char* id) {
+  const Row& r = row(id);
+  if (r.unit.rfind("dB ", 0) != 0) {
+    throw std::runtime_error(std::string(id) + " unit is not a relative dB unit: " + r.unit);
+  }
+  return r;
+}
+
 // Sine error bound as a linear amplitude (full scale 1.0).
 inline double sine_error_bound_linear() {
   return std::pow(10.0, dbfs_row("sine-error").value() / 20.0);

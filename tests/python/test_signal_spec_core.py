@@ -1,4 +1,4 @@
-"""Signal spec core and sine: vectors, spec tables, Python ideal, quantization and drift.
+"""Signal spec core, sine, internal blocks, and stub chain: vectors, spec tables, Python ideal, quantization and drift.
 
 Contract with tools/signal_spec_vectors.py (exists, Story 0.2 spec commit):
 
@@ -23,6 +23,13 @@ Contract with reference/ideal.py (numpy and stdlib; loaded by path):
   1000.0)`.
 - It renders the ideal sine, never the engine polynomial.
 
+Internal block size and stub chain (Story 1.2): `block_frames`, `blocks`,
+and `stub_chain` in the vectors file. Each stub chain row names a fixture in
+recipes/fixtures/valid/ whose binaural carrier, beat rate, and length equal
+the row's; increments and frame counts follow the core rules; each signal
+row's bits are within the sine-error bound of its ideal value; past-end rows
+are +0.0.
+
 Quantization and drift are checked exactly with fractions at every range
 endpoint, plus an analytic worst-case bound. Bounds and ranges come from
 tests/tables/*.tsv through the assertion call `assertions.row`, which records
@@ -34,6 +41,7 @@ import importlib.util
 import json
 import math
 import re
+import struct
 import subprocess
 import sys
 from decimal import Decimal
@@ -249,7 +257,8 @@ def doc_table_problems(text, data):
 def test_spec_tables_equal_json(vectors):
     generated, in_doc, problems = doc_table_problems(SPEC_DOC.read_text(encoding="utf-8"),
                                                      vectors)
-    assert len(generated) == 7, generated
+    # Core and sine (7), internal blocks (1), stub chain increments and samples (2).
+    assert len(generated) == 10, generated
     assert len(in_doc) == len(generated), [b[0] for b in in_doc]
     assert not problems, "\n".join(problems)
 
@@ -476,3 +485,84 @@ def test_right_carrier_row_is_carrier_max_plus_beat_max():
     assert Fraction(right.max_text) == Fraction(left.max_text) + Fraction(beat.max_text)
     assert Fraction(right.min_text) == Fraction(left.min_text) + Fraction(beat.min_text)
     assert right.max_bound == "exclusive"
+
+
+# ------------------------------------------- internal blocks and stub chain
+
+FIXTURES_VALID = REPO_ROOT / "recipes" / "fixtures" / "valid"
+
+
+def bits_value(text):
+    """The binary64 value of a big-endian 64-bit pattern written as 0x... hex."""
+    return struct.unpack(">d", bytes.fromhex(text[2:]))[0]
+
+
+def test_block_vectors(vectors):
+    assert vectors["block_frames"] == 64
+    assert vectors["blocks"], "no block vectors"
+    for v in vectors["blocks"]:
+        assert v["block"] == v["frame"] // vectors["block_frames"], v
+        assert v["offset"] == v["frame"] % vectors["block_frames"], v
+    frames = {v["frame"] for v in vectors["blocks"]}
+    assert {0, 63, 64, 65} <= frames, frames
+
+
+def test_stub_chain_rows_name_fixtures_with_their_values(vectors):
+    rows = vectors["stub_chain"]
+    assert {r["fixture"] for r in rows} == {"stub-chain-1s-beat-0.json", "stub-chain-1s-beat-6.json"}
+    for r in rows:
+        path = FIXTURES_VALID / r["fixture"]
+        assert path.is_file(), f"missing fixture {path}"
+        recipe = json.loads(path.read_text(encoding="utf-8"))
+        assert float(recipe["binaural"]["carrier_left_hz"]) == float.fromhex(r["carrier_left_hex"]), r
+        assert float(recipe["binaural"]["beat_rate_hz"]) == float.fromhex(r["beat_rate_hex"]), r
+        assert int(r["frames"]) == round(Fraction(float(recipe["length_s"])) * r["fs"]), r
+
+
+def test_stub_chain_rows_follow_the_core_rules(vectors):
+    record_rows("binaural-carrier-right")
+    cases = set()
+    for r in vectors["stub_chain"]:
+        fs = r["fs"]
+        left = float.fromhex(r["carrier_left_hex"])
+        right = float.fromhex(r["carrier_right_hex"])
+        assert right == left + float.fromhex(r["beat_rate_hex"]), r
+        assert int(r["inc_left"]) == spec_increment(left, fs), r
+        assert int(r["inc_right"]) == spec_increment(right, fs), r
+        n = int(r["n"])
+        assert int(r["phase_left"]) == n * int(r["inc_left"]) % CYCLE, r
+        assert int(r["phase_right"]) == n * int(r["inc_right"]) % CYCLE, r
+        assert r["case"] == ("past_end" if n >= int(r["frames"]) else "signal"), r
+        cases.add((r["fixture"], fs, r["case"]))
+    for fixture in ("stub-chain-1s-beat-0.json", "stub-chain-1s-beat-6.json"):
+        for fs in listed_sample_rates():
+            assert (fixture, fs, "signal") in cases and (fixture, fs, "past_end") in cases
+
+
+def test_stub_chain_bits_are_within_the_sine_bound_of_the_ideal(vectors):
+    bound = 10.0 ** (sine_bound_dbfs() / 20.0)
+    for r in vectors["stub_chain"]:
+        for side in ("left", "right"):
+            got = bits_value(r[f"{side}_bits"])
+            if r["case"] == "past_end":
+                assert r[f"{side}_bits"] == "0x0000000000000000", r
+                continue
+            assert abs(Decimal(repr(got)) - Decimal(r[f"ideal_{side}"])) <= Decimal(repr(bound)), (
+                r["fixture"], r["fs"], r["n"], side)
+
+
+def test_stub_chain_doctored_bits_fail_the_bound(vectors):
+    bound = 10.0 ** (sine_bound_dbfs() / 20.0)
+    r = next(v for v in vectors["stub_chain"] if v["case"] == "signal" and v["n"] == "37")
+    got = bits_value(r["left_bits"]) + 1e-5
+    assert abs(Decimal(repr(got)) - Decimal(r["ideal_left"])) > Decimal(repr(bound))
+
+
+def test_stub_chain_ideal_matches_the_reference_ideal_sine(vectors):
+    mod = ideal()
+    for r in vectors["stub_chain"]:
+        if r["case"] != "signal":
+            continue
+        for side in ("left", "right"):
+            assert close_to_decimal(mod.ideal_sine(int(r[f"phase_{side}"])), r[f"ideal_{side}"]), (
+                r["fixture"], r["fs"], r["n"], side)

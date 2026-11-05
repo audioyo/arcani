@@ -73,3 +73,12 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-1-minimal-recipe-schema-and-recipe-hash.md`
   summary: Find the cause of the one-off `arcani_tests` ctest failure seen on the first clean `windows-clang-cl` workflow run of Story 1.1 (11 s, output not captured), if it recurs.
   evidence: Unverified (would be medium). Six reruns and a second clean build passed; settle it by capturing `ctest --output-on-failure` on any recurrence locally or in CI.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-2-c-api-fixed-stage-list-seek-and-isolation-assertion.md`
+  summary: Add an isolation calibration case with a second component in the muted channel at the spacing-rule distance from the measured carrier, once a layer other than the binaural pair shares a channel (Story 2.5).
+  evidence: Unverified (would be medium). Calibration today holds only the leaked carrier in the muted channel; Hann sidelobe leakage from a 50 Hz neighbour into the single-bin DFT is unmeasured. Settle it with a Python calibration signal carrying a known interferer and a check that the C++ measurement still reads the known leakage within 0.5 dB.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-2-c-api-fixed-stage-list-seek-and-isolation-assertion.md`
+  summary: Replace the shared placeholder `loudness_hash` in the valid recipe fixtures (Story 1.1 and Story 1.2 stub-chain ones) when Story 4.2 makes `final` mode check the hash match, or those fixtures and the final-mode API tests will fail.
+  evidence: Every valid fixture carries the same placeholder hash; `tests/cpp/test_api.cpp` compiles stub-chain fixtures in `final` mode.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-2-c-api-fixed-stage-list-seek-and-isolation-assertion.md`
+  summary: Prove the denormal guard at the C API call sites with a fixture whose output contains subnormals, rendered with host FTZ and DAZ set and compared byte for byte with an IEEE-mode render, once a layer (Epic 2 envelopes or ramps) can produce one.
+  evidence: Review finding VG (Story 1.2 triage row 21): the stub chain never produces a subnormal, so deleting a call-site guard keeps the flush-mode tests green; the host-rounding test added in review observes the call sites for rounding only.

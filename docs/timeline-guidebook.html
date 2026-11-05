@@ -275,8 +275,8 @@
    ===================================================================== */
 
 var LAST_UPDATED = "2026-11-04";
-var CURRENT = "1.1";   // story id being worked on
-var NEXT    = "1.2";   // story id that comes next
+var CURRENT = "1.2";   // story id being worked on
+var NEXT    = "1.3";   // story id that comes next
 
 // Workflow step names, used by every story unless it lists its own "stepNames".
 var STEP_NAMES = [
@@ -389,11 +389,11 @@ var EPICS = [
   note: "Starts only after Story 0.5 is done.",
   retro: "optional",
   stories: [
-  { id:"1.1", title:"Minimal recipe schema and recipe hash", status:"review",
+  { id:"1.1", title:"Minimal recipe schema and recipe hash", status:"done",
     plain:"A versioned recipe format with a stable hash, so a recipe means one thing to every tool and any change to its sound is detectable.",
     spec:["spec-1-1-minimal-recipe-schema-and-recipe-hash.md"],
-    steps:[true,true,true,true,false,false,false],
-    stepNotes:["Spec b87200c; Audio approved proceeding 2026-11-04, kept as one story (about 2,500 tokens)","06ba1f0: 162 new Python and 3 C++ cases fail; existing tests pass","3a023ea: all ctest and pytest pass; wording, pragma, symbol, and flag checks pass","3 fresh-context reviewers: 21 findings, 14 patched in b05f867, 6 rejected, 1 deferred; triage in the spec (6a30008)","Pushed 4d10aa2; PR #6 opened 2026-11-04","","sprint-status.yaml set to review (9d1ce43); done after merge"],
+    steps:[true,true,true,true,true,true,true],
+    stepNotes:["Spec b87200c; Audio approved proceeding 2026-11-04, kept as one story (about 2,500 tokens)","06ba1f0: 162 new Python and 3 C++ cases fail; existing tests pass","3a023ea: all ctest and pytest pass; wording, pragma, symbol, and flag checks pass","3 fresh-context reviewers: 21 findings, 14 patched in b05f867, 6 rejected, 1 deferred; triage in the spec (6a30008)","Pushed 4d10aa2; PR #6 green on 02e75bd (11 checks; macos-arm64 passed after 3 cancelled attempts on 4d10aa2)","PR #6 merged 2026-11-04 (dcd2e1d)","sprint-status.yaml set to done after the merge"],
     acs:[
       ["x","JSON Schema in recipes/: snake_case fields with units in names, each tagged loudness-relevant, hash-excluded, or neither; unknown fields (routing, coupling_target) rejected"],
       ["x","Engine-owned strict JSON parser, standard library only; schema and compiler accept and reject the same fixtures"],
@@ -401,15 +401,18 @@ var EPICS = [
       ["x","Recipe hash: SHA-256 of RFC 8785 canonical JSON, same in engine and Python; key order and whitespace do not change it"],
       ["x","Editing a hash-excluded field keeps the hash; editing an audio field changes it"]
     ] },
-  { id:"1.2", title:"C API, fixed stage list, seek, and isolation assertion", status:"backlog",
+  { id:"1.2", title:"C API, fixed stage list, seek, and isolation assertion", status:"review",
     plain:"One arc_ C API over a fixed stage list, with seek and a binaural isolation test from day one.",
-    steps:S7(), acs:[
-      [" ","Public header: compile (measure, final), render, seek, per-layer taps, warnings, engine version, plan release; structured errors; render never throws or logs"],
-      [" ","Stage order: theta reference, gamma PAC layer, stereo bus, binaural join, master chain; no stage mixes, sums, or swaps channels"],
-      [" ","Muted-ear isolation: at least 90 dB at engine output, 60 dB after the master chain; calibrated first; 0.1 percent crosstalk must-fail fails"],
-      [" ","Seek to sample k gives byte-identical samples to a full render (k at 0, inside a block, on a block edge)"],
-      [" ","Zero heap allocations during render calls"],
-      [" ","Engine sets its own denormal mode on entry; output unchanged if the host sets a different mode"]
+    spec:["spec-1-2-c-api-fixed-stage-list-seek-and-isolation-assertion.md"],
+    steps:[true,true,true,true,false,false,false],
+    stepNotes:["Spec 7d4d74d; Audio approved 2026-11-04, kept as one story (about 3,000 tokens); signal spec sections 9c32120","d8dbd58: fresh-context QA agent; new C++ cases, C header check, 18 Python cases fail; existing tests pass","0e7df6d: clean build, 4/4 ctest entries and 1,084 pytest pass; wording, pragma, row coverage, table log, symbol, and flag checks pass","3 fresh-context reviewers: 21 rows, 11 patched in 40d571c, 7 rejected, 3 deferred; triage in the spec","","",""],
+    acs:[
+      ["x","Public header: compile (measure, final), render, seek, per-layer taps, warnings, engine version, plan release; structured errors; render never throws or logs"],
+      ["x","Stage order: theta reference, gamma PAC layer, stereo bus, binaural join, master chain; no stage mixes, sums, or swaps channels"],
+      ["x","Muted-ear isolation: at least 90 dB at engine output, 60 dB after the master chain; calibrated first; 0.1 percent crosstalk must-fail fails"],
+      ["x","Seek to sample k gives byte-identical samples to a full render (k at 0, inside a block, on a block edge)"],
+      ["x","Zero heap allocations during render calls"],
+      ["x","Engine sets its own denormal mode on entry; output unchanged if the host sets a different mode"]
     ] },
   { id:"1.3", title:"Validator framework, locked ranges, and carrier rule", status:"backlog",
     plain:"Every recipe value is checked against its locked range and the carrier rule, so no out-of-range recipe can render.",
@@ -694,6 +697,12 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-04","9f4f0a9","1.2","Pushed; PR #7 opened, CI pending"],
+  ["2026-11-04","40d571c","1.2","Code review pass 1: 11 patches applied, 3 deferred; sprint-status.yaml set to review"],
+  ["2026-11-04","0e7df6d","1.2","Implementation committed; all local tests and checks pass; design log (gg)"],
+  ["2026-11-04","d8dbd58","1.2","Spec approved (7d4d74d), signal spec block size and stub chain sections (9c32120), failing tests committed"],
+  ["2026-11-04","dcd2e1d","1.1","PR #6 merged into main; sprint-status.yaml set to done; Story 1.2 branch created"],
+  ["2026-11-04","02e75bd","1.1","CI green on PR #6: fast tier and all full-tier platforms (11 checks)"],
   ["2026-11-04","4d10aa2","1.1","Pushed; PR #6 opened into main"],
   ["2026-11-04","9d1ce43","1.1","Code review closed: 3 reviewers, 21 findings, 14 patched in b05f867, 6 rejected, 1 deferred; clean build 56 C++ cases and 1,045 pytest pass; story moved to review"],
   ["2026-11-04","3a023ea","1.1","Implementation committed: recipe schema, engine strict JSON parser, number conversion, RFC 8785, SHA-256, field table, parse stage, recipe hash, Python hash tool, jsonschema pin; all tests pass locally"],

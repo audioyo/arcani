@@ -9,6 +9,7 @@ set(ARCANI_ENGINE_TEST_EXTRA_SOURCE "" CACHE FILEPATH
 
 set(_arcani_engine_sources
   src/version.cpp
+  src/api/api.cpp
   src/core/phase.cpp
   src/core/sine.cpp
   src/crypto/sha256.cpp
@@ -16,7 +17,9 @@ set(_arcani_engine_sources
   src/json/number.cpp
   src/json/value.cpp
   src/recipe/field_table.cpp
-  src/recipe/recipe.cpp)
+  src/recipe/recipe.cpp
+  src/plan/plan.cpp
+  src/render/renderer.cpp)
 if(ARCANI_ENGINE_TEST_EXTRA_SOURCE)
   list(APPEND _arcani_engine_sources "${ARCANI_ENGINE_TEST_EXTRA_SOURCE}")
 endif()
