@@ -76,6 +76,9 @@ endif()
 
 # Facts the build checks need, written at generate time:
 # tools/check_compile_flags.py and tools/check_engine_symbols.py read it.
+# wav_writer_library is arcani_cli_core (cli/wav.cpp, cli/report.cpp), which
+# the symbol check holds to the randomness and clock families (Story 1.6). The
+# generator expression resolves at generate time, after cli/ has added it.
 function(_arcani_json_string out_var value)
   string(REPLACE "\\" "\\\\" value "${value}")
   string(REPLACE "\"" "\\\"" value "${value}")
@@ -93,6 +96,7 @@ file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/arcani_engine_check.json" CONTENT
   \"source_dir\": ${_j_source},
   \"compile_commands\": ${_j_commands},
   \"engine_library\": \"$<TARGET_FILE:arcani_engine>\",
+  \"wav_writer_library\": \"$<TARGET_FILE:arcani_cli_core>\",
   \"llvm_nm\": ${_j_nm}
 }
 ")

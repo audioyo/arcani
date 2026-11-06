@@ -1,9 +1,40 @@
 {
-  "source": "tools/probe_reference.py: NumPy float32 reference, each operation rounded separately",
+  "source": "probe-arith: tools/probe_reference.py, NumPy float32 reference, each operation rounded separately. sine-* and stub-chain-*: the arcani-hashprobe output, byte-identical on all four AD-9 platforms in full run 42236304155; stub-chain-blocks-* equal stub-chain-* (block-size invariance). Design log 2026-11-06 (kk)",
   "components": {
     "probe-arith": {
       "samples": 4096,
-      "sha256": "933f0602ecebcc0f413be5f2737d4a57fcf18cfb9f045665c8d483fc9d8bb8fc"
+      "sha256": "933f0602ecebcc0f413be5f2737d4a57fcf18cfb9f045665c8d483fc9d8bb8fc",
+      "scope": "probe"
+    },
+    "sine-44100": {
+      "samples": 132300,
+      "sha256": "82dc64616ec3e179f3d1a4d86c595b40044a5682160565ceaf53dbdb52b82922",
+      "scope": "engine"
+    },
+    "sine-48000": {
+      "samples": 144000,
+      "sha256": "3ebea0075617a73b49483b9c569637441bd2e9a55a82fbdfbedd7f504638e524",
+      "scope": "engine"
+    },
+    "stub-chain-44100": {
+      "samples": 88200,
+      "sha256": "c979d014aff92c278209d226108a156ce76e10467e8dac23cf582a0e1257b659",
+      "scope": "engine"
+    },
+    "stub-chain-48000": {
+      "samples": 96000,
+      "sha256": "4ed5a376fa1d919a3d0ace7052ca60e09b4757e5637078d07fdb9ac8cfc75a70",
+      "scope": "engine"
+    },
+    "stub-chain-blocks-44100": {
+      "samples": 88200,
+      "sha256": "c979d014aff92c278209d226108a156ce76e10467e8dac23cf582a0e1257b659",
+      "scope": "engine"
+    },
+    "stub-chain-blocks-48000": {
+      "samples": 96000,
+      "sha256": "4ed5a376fa1d919a3d0ace7052ca60e09b4757e5637078d07fdb9ac8cfc75a70",
+      "scope": "engine"
     }
   }
 }

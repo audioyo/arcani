@@ -97,6 +97,9 @@ jobs:
       - name: Floating-point pragma check
         run: uv run --no-project python tools/check_fp_pragmas.py
 
+      - name: Engine source scan (long double, L literals, transcendental and fma calls, <random>)
+        run: uv run --no-project python tools/check_engine_source.py
+
       - name: Wording check
         run: uv run --no-project python tools/check_wording.py
 
@@ -195,6 +198,9 @@ jobs:
 
       - name: Floating-point pragma check
         run: uv run --no-project python tools/check_fp_pragmas.py
+
+      - name: Engine source scan (long double, L literals, transcendental and fma calls, <random>)
+        run: uv run --no-project python tools/check_engine_source.py
 
       - name: Wording check
         run: uv run --no-project python tools/check_wording.py
