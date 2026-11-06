@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -67,6 +68,8 @@ struct BinauralEars {
 struct Plan {
   std::uint32_t sample_rate = 0;
   std::uint64_t frame_count = 0;  // seconds_to_samples(length_s, fs)
+  std::string recipe_hash;        // from parse, 64 lowercase hex digits
+  std::uint64_t seed = 0;         // the recipe seed
   BinauralEars binaural;
   std::array<StageKind, 5> stages{};
   std::vector<recipe::Error> warnings;  // non-blocking; empty in v0.1

@@ -1,4 +1,4 @@
-"""Every engine/ source compiles with -ffp-contract=off and no fast-math flag (AD-9).
+"""Every engine/ and cli/ source compiles with -ffp-contract=off and no fast-math flag (AD-9).
 
 Contract with the build:
 
@@ -27,7 +27,10 @@ Contract with the checker:
   BUILD_DIR/arcani_engine_check.json, then the compile_commands.json it names
   (entries with "directory", "file", and "command" or "arguments"). An
   engine source is an entry whose "file" lies under `<source_dir>/engine/`. Paths may mix forward and
-  back slashes; the checker normalizes them.
+  back slashes; the checker normalizes them. Story 1.4 (deferred-work item,
+  review pass 1 finding 21): every rule below applies the same way to a CLI
+  source, an entry whose "file" lies under `<source_dir>/cli/`; the zero
+  sources rule stays about engine sources.
 - Exit 0 when every engine source passes. Exit 1 when any of these hold, with
   one output line per violation (stdout or stderr):
     * an engine source's effective contraction is not off, or no
@@ -286,6 +289,72 @@ def test_zero_engine_sources_fails(tmp_path):
     build = make_build(tmp_path, [(cli, clang_cl("/clang:-ffp-contract=off", cli))])
     code, out = run_checker(build)
     assert code == 1, out
+
+
+def cli_file(name):
+    return str(REPO_ROOT / "cli" / name)
+
+
+@pytest.mark.parametrize(
+    "toolchain, flags",
+    [
+        ("clang-cl", "/clang:-ffp-contract=off"),
+        ("clang", "-ffp-contract=off"),
+    ],
+)
+def test_cli_source_with_contract_off_passes(tmp_path, toolchain, flags):
+    eng, cli = engine_file("dsp.cpp"), cli_file("wav.cpp")
+    command = clang_cl if toolchain == "clang-cl" else clang
+    build = make_build(tmp_path, [(eng, command(flags, eng)), (cli, command(flags, cli))],
+                       toolchain=(toolchain, "23.1.4"))
+    code, out = run_checker(build)
+    assert code == 0, out
+
+
+@pytest.mark.parametrize(
+    "toolchain, flags, named",
+    [
+        ("clang-cl", "", "-ffp-contract"),
+        ("clang", "", "-ffp-contract"),
+        ("clang-cl", "/clang:-ffp-contract=off /clang:-ffp-contract=fast", "-ffp-contract"),
+        ("clang-cl", "/clang:-ffast-math /clang:-ffp-contract=off", "-ffast-math"),
+        ("clang", "-ffp-contract=off -ffast-math", "-ffast-math"),
+        ("clang", "-ffp-contract=off -mdaz-ftz", "-mdaz-ftz"),
+        ("clang-cl", "/fp:fast /clang:-ffp-contract=off", "/fp:fast"),
+    ],
+)
+def test_cli_source_violation_fails(tmp_path, toolchain, flags, named):
+    """Story 1.4: cli/ sources are checked like engine/ sources."""
+    eng, cli = engine_file("dsp.cpp"), cli_file("wav.cpp")
+    command = clang_cl if toolchain == "clang-cl" else clang
+    good = "/clang:-ffp-contract=off" if toolchain == "clang-cl" else "-ffp-contract=off"
+    build = make_build(tmp_path, [(eng, command(good, eng)), (cli, command(flags, cli))],
+                       toolchain=(toolchain, "23.1.4"))
+    code, out = run_checker(build)
+    assert code == 1, out
+    assert_one_line_names(out, f"{toolchain} 23.1.4", "wav.cpp", named)
+    assert "dsp.cpp" not in out, out
+
+
+def test_cli_response_file_fails(tmp_path):
+    eng, cli = engine_file("dsp.cpp"), cli_file("main.cpp")
+    build = make_build(tmp_path, [
+        (eng, clang_cl("/clang:-ffp-contract=off", eng)),
+        (cli, clang_cl("/clang:-ffp-contract=off @CMakeFiles/main.rsp", cli)),
+    ])
+    code, out = run_checker(build)
+    assert code == 1, out
+    assert "main.cpp" in out, out
+
+
+def test_sources_outside_engine_and_cli_are_not_checked(tmp_path):
+    eng, other = engine_file("dsp.cpp"), str(REPO_ROOT / "tests" / "cpp" / "test_wav.cpp")
+    build = make_build(tmp_path, [
+        (eng, clang_cl("/clang:-ffp-contract=off", eng)),
+        (other, clang_cl("/clang:-ffast-math", other)),
+    ])
+    code, out = run_checker(build)
+    assert code == 0, out
 
 
 def test_empty_compile_commands_fails(tmp_path):
@@ -547,3 +616,5 @@ def test_flag_check_fails_on_fast_math_configure(fast_math_build):
     assert code == 1, out
     toolchain = f"{check['toolchain_name']} {check['toolchain_version']}"
     assert_one_line_names(out, toolchain, "version.cpp", "-ffast-math")
+    # Story 1.4: the CLI sources are checked too.
+    assert_one_line_names(out, toolchain, "main.cpp", "-ffast-math")

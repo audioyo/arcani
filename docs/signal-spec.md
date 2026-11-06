@@ -2,7 +2,7 @@
 
 This file is the only source of signal formulas (AD-19). The engine (`engine/`) and the Python reference (`reference/`) each implement it on their own; neither defines a formula of its own, and neither is ported from the other. A shape or stage not in this file does not exist.
 
-Story 0.2 writes the core and sine sections. Story 1.2 writes the internal block size and the stub chain. Later stories add envelope shapes, coupling, bursts, ramps and rate curves, loop seams, the limiter, the resampler, the loudness window, and the spectral component model.
+Story 0.2 writes the core and sine sections. Story 1.2 writes the internal block size and the stub chain. Story 1.4 writes 24-bit rounding. Later stories add envelope shapes, coupling, bursts, ramps and rate curves, loop seams, the limiter, the resampler, the loudness window, and the spectral component model.
 
 **Conventions:**
 
@@ -410,3 +410,62 @@ Per fixture and sample rate: the binaural carriers as hex floats, their incremen
 | signal | stub-chain-1s-beat-6.json | 48000 | 47999 | 18293021206428536288 | 18290715363419420896 | `0xbfaacbc748efdca9` | `0xbfab329436920093` | -0.05233595624297866288142971 | -0.05312026182309739323110318 |
 | past_end | stub-chain-1s-beat-6.json | 48000 | 48000 | 18446744073709449216 | 18446744073709547520 | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
 | past_end | stub-chain-1s-beat-6.json | 48000 | 48063 | 9684540638697412064 | 9829808748277973216 | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+
+## 24-bit rounding
+
+The command-line renderer (Story 1.4) writes the render output (Stub chain, Output and taps) as 24-bit PCM. Each binary64 output sample `s` becomes one signed 24-bit integer `v` by this rule. There is no dither and no other shaping.
+
+```
+if s is NaN:            v = 0                      any sign or payload
+x = s * 0x1p23          binary64, exact (see below)
+if x >= 8388607:        v = 8388607                +1.0, everything above full scale, +inf
+else if x <= -8388608:  v = -8388608               -1.0, everything below, -inf
+else:                   v = x rounded to the nearest integer, ties to even
+```
+
+`v` is written as 3 bytes, little-endian two's complement: the bytes of `v mod 2^24`, least significant first. Samples are written in render order, left then right per frame.
+
+**Exactness.** Scaling by 2^23 is exact for every finite `s`: it only changes the exponent, a subnormal `s` moves toward the normal range and loses no bits, and a product too large for binary64 becomes an infinity of the same sign, which the clamp treats the same as the exact value. The comparisons are exact. In the last branch `|x| < 2^23`, so `x` and its fractional part `x - floor(x)` are exact binary64 values, and the tie test compares that part with exactly 1/2. No step depends on the host rounding mode or denormal mode: a subnormal `s` gives `v = 0` whether or not the host flushes it.
+
+**Range.** The 24-bit range is asymmetric: +1.0 maps to 8388607 (2^23 - 1), and -1.0 to -8388608 (-2^23). Signed zeros and every `|x| < 1/2` give 0; `|x|` exactly 1/2 also gives 0 (ties to even).
+
+### Vectors: 24-bit rounding
+
+`s` and `x` are hex floats (`nan`, `inf`, and `-inf` as written). Rules: `clamp` (at or past full scale), `nan`, `tie` (`x` exactly k + 1/2), `round` (nearest, not a tie), and `zero` (signed zeros and values that round to 0 without a tie). Bytes are the 3 written bytes in file order, as hex.
+
+| Rule | Case | s (hex) | x = s * 2^23 (hex) | Value | Bytes (little-endian) |
+| --- | --- | --- | --- | --- | --- |
+| clamp | +1.0 | `0x1.0000000000000p+0` | `0x1.0000000000000p+23` | 8388607 | `ffff7f` |
+| clamp | next binary64 above +1.0 | `0x1.0000000000001p+0` | `0x1.0000000000001p+23` | 8388607 | `ffff7f` |
+| clamp | +2.0 | `0x1.0000000000000p+1` | `0x1.0000000000000p+24` | 8388607 | `ffff7f` |
+| clamp | +infinity | `inf` | `inf` | 8388607 | `ffff7f` |
+| clamp | largest binary64 below +1.0 (x above 8388607) | `0x1.fffffffffffffp-1` | `0x1.fffffffffffffp+22` | 8388607 | `ffff7f` |
+| clamp | x exactly 8388607 | `0x1.fffffc0000000p-1` | `0x1.fffffc0000000p+22` | 8388607 | `ffff7f` |
+| clamp | -1.0 (x exactly -8388608) | `-0x1.0000000000000p+0` | `-0x1.0000000000000p+23` | -8388608 | `000080` |
+| clamp | next binary64 below -1.0 | `-0x1.0000000000001p+0` | `-0x1.0000000000001p+23` | -8388608 | `000080` |
+| clamp | -2.0 | `-0x1.0000000000000p+1` | `-0x1.0000000000000p+24` | -8388608 | `000080` |
+| clamp | -infinity | `-inf` | `-inf` | -8388608 | `000080` |
+| nan | NaN | `nan` | `nan` | 0 | `000000` |
+| zero | +0.0 | `0x0.0p+0` | `0x0.0p+0` | 0 | `000000` |
+| zero | -0.0 | `-0x0.0p+0` | `-0x0.0p+0` | 0 | `000000` |
+| zero | smallest positive subnormal | `0x0.0000000000001p-1022` | `0x0.0000000800000p-1022` | 0 | `000000` |
+| zero | smallest negative subnormal | `-0x0.0000000000001p-1022` | `-0x0.0000000800000p-1022` | 0 | `000000` |
+| zero | just under +0.5 LSB | `0x1.fffffffffffffp-25` | `0x1.fffffffffffffp-2` | 0 | `000000` |
+| tie | +0.5 LSB | `0x1.0000000000000p-24` | `0x1.0000000000000p-1` | 0 | `000000` |
+| tie | -0.5 LSB | `-0x1.0000000000000p-24` | `-0x1.0000000000000p-1` | 0 | `000000` |
+| tie | +1.5 LSB | `0x1.8000000000000p-23` | `0x1.8000000000000p+0` | 2 | `020000` |
+| tie | -1.5 LSB | `-0x1.8000000000000p-23` | `-0x1.8000000000000p+0` | -2 | `feffff` |
+| tie | +2.5 LSB | `0x1.4000000000000p-22` | `0x1.4000000000000p+1` | 2 | `020000` |
+| tie | -2.5 LSB | `-0x1.4000000000000p-22` | `-0x1.4000000000000p+1` | -2 | `feffff` |
+| tie | +8388606.5 LSB (below the clamp) | `0x1.fffffa0000000p-1` | `0x1.fffffa0000000p+22` | 8388606 | `feff7f` |
+| tie | -8388607.5 LSB (above the clamp) | `-0x1.fffffe0000000p-1` | `-0x1.fffffe0000000p+22` | -8388608 | `000080` |
+| round | just over +0.5 LSB | `0x1.0000000000001p-24` | `0x1.0000000000001p-1` | 1 | `010000` |
+| round | just under +1.5 LSB | `0x1.7ffffffffffffp-23` | `0x1.7ffffffffffffp+0` | 1 | `010000` |
+| round | just over -2.5 LSB | `-0x1.3ffffffffffffp-22` | `-0x1.3ffffffffffffp+1` | -2 | `feffff` |
+| round | +8388606.75 LSB | `0x1.fffffb0000000p-1` | `0x1.fffffb0000000p+22` | 8388607 | `ffff7f` |
+| round | +0.5 | `0x1.0000000000000p-1` | `0x1.0000000000000p+22` | 4194304 | `000040` |
+| round | -0.5 | `-0x1.0000000000000p-1` | `-0x1.0000000000000p+22` | -4194304 | `0000c0` |
+| round | +0.1 (x about 838860.8) | `0x1.999999999999ap-4` | `0x1.999999999999ap+19` | 838861 | `cdcc0c` |
+| round | -0.1 | `-0x1.999999999999ap-4` | `-0x1.999999999999ap+19` | -838861 | `3333f3` |
+| round | stub chain sample (beat 6, 44.1 kHz, n = 37, left) | `0x1.b7b6766e57522p-1` | `0x1.b7b6766e57522p+22` | 7204254 | `9eed6d` |
+| round | stub chain sample (beat 6, 48 kHz, n = 63, right) | `-0x1.a4084ea41d438p-3` | `-0x1.a4084ea41d438p+20` | -1720453 | `7bbfe5` |

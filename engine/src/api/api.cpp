@@ -186,6 +186,14 @@ uint64_t arc_plan_frame_count(const arc_plan* plan) {
   return plan == nullptr ? 0 : plan->plan.frame_count;
 }
 
+const char* arc_plan_recipe_hash(const arc_plan* plan) {
+  return plan == nullptr ? "" : plan->plan.recipe_hash.c_str();
+}
+
+uint64_t arc_plan_seed(const arc_plan* plan) {
+  return plan == nullptr ? 0 : plan->plan.seed;
+}
+
 size_t arc_plan_stage_count(const arc_plan* plan) {
   return plan == nullptr ? 0 : plan->plan.stages.size();
 }

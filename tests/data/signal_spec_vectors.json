@@ -1,5 +1,5 @@
 {
-  "spec": "docs/signal-spec.md (sections core, sine, internal block size, and stub chain)",
+  "spec": "docs/signal-spec.md (sections core, sine, internal block size, stub chain, and 24-bit rounding)",
   "generator": "tools/signal_spec_vectors.py",
   "cycle": "18446744073709551616",
   "sine_coefficients": [
@@ -1900,6 +1900,280 @@
       "right_bits": "0x0000000000000000",
       "ideal_left": "0",
       "ideal_right": "0"
+    }
+  ],
+  "quantize_24": [
+    {
+      "rule": "clamp",
+      "label": "+1.0",
+      "s_hex": "0x1.0000000000000p+0",
+      "x_hex": "0x1.0000000000000p+23",
+      "value": 8388607,
+      "bytes": "ffff7f"
+    },
+    {
+      "rule": "clamp",
+      "label": "next binary64 above +1.0",
+      "s_hex": "0x1.0000000000001p+0",
+      "x_hex": "0x1.0000000000001p+23",
+      "value": 8388607,
+      "bytes": "ffff7f"
+    },
+    {
+      "rule": "clamp",
+      "label": "+2.0",
+      "s_hex": "0x1.0000000000000p+1",
+      "x_hex": "0x1.0000000000000p+24",
+      "value": 8388607,
+      "bytes": "ffff7f"
+    },
+    {
+      "rule": "clamp",
+      "label": "+infinity",
+      "s_hex": "inf",
+      "x_hex": "inf",
+      "value": 8388607,
+      "bytes": "ffff7f"
+    },
+    {
+      "rule": "clamp",
+      "label": "largest binary64 below +1.0 (x above 8388607)",
+      "s_hex": "0x1.fffffffffffffp-1",
+      "x_hex": "0x1.fffffffffffffp+22",
+      "value": 8388607,
+      "bytes": "ffff7f"
+    },
+    {
+      "rule": "clamp",
+      "label": "x exactly 8388607",
+      "s_hex": "0x1.fffffc0000000p-1",
+      "x_hex": "0x1.fffffc0000000p+22",
+      "value": 8388607,
+      "bytes": "ffff7f"
+    },
+    {
+      "rule": "clamp",
+      "label": "-1.0 (x exactly -8388608)",
+      "s_hex": "-0x1.0000000000000p+0",
+      "x_hex": "-0x1.0000000000000p+23",
+      "value": -8388608,
+      "bytes": "000080"
+    },
+    {
+      "rule": "clamp",
+      "label": "next binary64 below -1.0",
+      "s_hex": "-0x1.0000000000001p+0",
+      "x_hex": "-0x1.0000000000001p+23",
+      "value": -8388608,
+      "bytes": "000080"
+    },
+    {
+      "rule": "clamp",
+      "label": "-2.0",
+      "s_hex": "-0x1.0000000000000p+1",
+      "x_hex": "-0x1.0000000000000p+24",
+      "value": -8388608,
+      "bytes": "000080"
+    },
+    {
+      "rule": "clamp",
+      "label": "-infinity",
+      "s_hex": "-inf",
+      "x_hex": "-inf",
+      "value": -8388608,
+      "bytes": "000080"
+    },
+    {
+      "rule": "nan",
+      "label": "NaN",
+      "s_hex": "nan",
+      "x_hex": "nan",
+      "value": 0,
+      "bytes": "000000"
+    },
+    {
+      "rule": "zero",
+      "label": "+0.0",
+      "s_hex": "0x0.0p+0",
+      "x_hex": "0x0.0p+0",
+      "value": 0,
+      "bytes": "000000"
+    },
+    {
+      "rule": "zero",
+      "label": "-0.0",
+      "s_hex": "-0x0.0p+0",
+      "x_hex": "-0x0.0p+0",
+      "value": 0,
+      "bytes": "000000"
+    },
+    {
+      "rule": "zero",
+      "label": "smallest positive subnormal",
+      "s_hex": "0x0.0000000000001p-1022",
+      "x_hex": "0x0.0000000800000p-1022",
+      "value": 0,
+      "bytes": "000000"
+    },
+    {
+      "rule": "zero",
+      "label": "smallest negative subnormal",
+      "s_hex": "-0x0.0000000000001p-1022",
+      "x_hex": "-0x0.0000000800000p-1022",
+      "value": 0,
+      "bytes": "000000"
+    },
+    {
+      "rule": "zero",
+      "label": "just under +0.5 LSB",
+      "s_hex": "0x1.fffffffffffffp-25",
+      "x_hex": "0x1.fffffffffffffp-2",
+      "value": 0,
+      "bytes": "000000"
+    },
+    {
+      "rule": "tie",
+      "label": "+0.5 LSB",
+      "s_hex": "0x1.0000000000000p-24",
+      "x_hex": "0x1.0000000000000p-1",
+      "value": 0,
+      "bytes": "000000"
+    },
+    {
+      "rule": "tie",
+      "label": "-0.5 LSB",
+      "s_hex": "-0x1.0000000000000p-24",
+      "x_hex": "-0x1.0000000000000p-1",
+      "value": 0,
+      "bytes": "000000"
+    },
+    {
+      "rule": "tie",
+      "label": "+1.5 LSB",
+      "s_hex": "0x1.8000000000000p-23",
+      "x_hex": "0x1.8000000000000p+0",
+      "value": 2,
+      "bytes": "020000"
+    },
+    {
+      "rule": "tie",
+      "label": "-1.5 LSB",
+      "s_hex": "-0x1.8000000000000p-23",
+      "x_hex": "-0x1.8000000000000p+0",
+      "value": -2,
+      "bytes": "feffff"
+    },
+    {
+      "rule": "tie",
+      "label": "+2.5 LSB",
+      "s_hex": "0x1.4000000000000p-22",
+      "x_hex": "0x1.4000000000000p+1",
+      "value": 2,
+      "bytes": "020000"
+    },
+    {
+      "rule": "tie",
+      "label": "-2.5 LSB",
+      "s_hex": "-0x1.4000000000000p-22",
+      "x_hex": "-0x1.4000000000000p+1",
+      "value": -2,
+      "bytes": "feffff"
+    },
+    {
+      "rule": "tie",
+      "label": "+8388606.5 LSB (below the clamp)",
+      "s_hex": "0x1.fffffa0000000p-1",
+      "x_hex": "0x1.fffffa0000000p+22",
+      "value": 8388606,
+      "bytes": "feff7f"
+    },
+    {
+      "rule": "tie",
+      "label": "-8388607.5 LSB (above the clamp)",
+      "s_hex": "-0x1.fffffe0000000p-1",
+      "x_hex": "-0x1.fffffe0000000p+22",
+      "value": -8388608,
+      "bytes": "000080"
+    },
+    {
+      "rule": "round",
+      "label": "just over +0.5 LSB",
+      "s_hex": "0x1.0000000000001p-24",
+      "x_hex": "0x1.0000000000001p-1",
+      "value": 1,
+      "bytes": "010000"
+    },
+    {
+      "rule": "round",
+      "label": "just under +1.5 LSB",
+      "s_hex": "0x1.7ffffffffffffp-23",
+      "x_hex": "0x1.7ffffffffffffp+0",
+      "value": 1,
+      "bytes": "010000"
+    },
+    {
+      "rule": "round",
+      "label": "just over -2.5 LSB",
+      "s_hex": "-0x1.3ffffffffffffp-22",
+      "x_hex": "-0x1.3ffffffffffffp+1",
+      "value": -2,
+      "bytes": "feffff"
+    },
+    {
+      "rule": "round",
+      "label": "+8388606.75 LSB",
+      "s_hex": "0x1.fffffb0000000p-1",
+      "x_hex": "0x1.fffffb0000000p+22",
+      "value": 8388607,
+      "bytes": "ffff7f"
+    },
+    {
+      "rule": "round",
+      "label": "+0.5",
+      "s_hex": "0x1.0000000000000p-1",
+      "x_hex": "0x1.0000000000000p+22",
+      "value": 4194304,
+      "bytes": "000040"
+    },
+    {
+      "rule": "round",
+      "label": "-0.5",
+      "s_hex": "-0x1.0000000000000p-1",
+      "x_hex": "-0x1.0000000000000p+22",
+      "value": -4194304,
+      "bytes": "0000c0"
+    },
+    {
+      "rule": "round",
+      "label": "+0.1 (x about 838860.8)",
+      "s_hex": "0x1.999999999999ap-4",
+      "x_hex": "0x1.999999999999ap+19",
+      "value": 838861,
+      "bytes": "cdcc0c"
+    },
+    {
+      "rule": "round",
+      "label": "-0.1",
+      "s_hex": "-0x1.999999999999ap-4",
+      "x_hex": "-0x1.999999999999ap+19",
+      "value": -838861,
+      "bytes": "3333f3"
+    },
+    {
+      "rule": "round",
+      "label": "stub chain sample (beat 6, 44.1 kHz, n = 37, left)",
+      "s_hex": "0x1.b7b6766e57522p-1",
+      "x_hex": "0x1.b7b6766e57522p+22",
+      "value": 7204254,
+      "bytes": "9eed6d"
+    },
+    {
+      "rule": "round",
+      "label": "stub chain sample (beat 6, 48 kHz, n = 63, right)",
+      "s_hex": "-0x1.a4084ea41d438p-3",
+      "x_hex": "-0x1.a4084ea41d438p+20",
+      "value": -1720453,
+      "bytes": "7bbfe5"
     }
   ]
 }

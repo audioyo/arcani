@@ -12,7 +12,7 @@ arcani_generate_spec_tables(
 
 add_executable(arcani_tests
   test_engine_version.cpp
-  test_cli_stub.cpp
+  test_cli.cpp
   test_phase.cpp
   test_sine.cpp
   test_tables.cpp
@@ -24,17 +24,27 @@ add_executable(arcani_tests
   test_seek.cpp
   test_isolation.cpp
   test_fp_mode.cpp
-  test_validate.cpp)
+  test_validate.cpp
+  test_wav.cpp
+  test_report.cpp)
 # arcani::engine_internal exposes engine/src (core/phase.hpp, core/sine.hpp)
 # to the tests; the public C API header stays the only shipped include path.
 target_link_libraries(arcani_tests PRIVATE
   arcani::engine arcani::engine_internal arcani::test_tables Catch2::Catch2WithMain)
+# Story 1.4: test_wav.cpp and test_report.cpp test the CLI core (cli/wav.hpp,
+# cli/report.hpp) through the static library arcani_cli_core, whose PUBLIC
+# include directory is cli/. Linked, and ARCANI_HAVE_CLI_CORE defined, only
+# once that target exists, so the suite builds before it does and the
+# missing pieces show as failing test cases.
+target_link_libraries(arcani_tests PRIVATE $<$<TARGET_EXISTS:arcani_cli_core>:arcani_cli_core>)
 target_include_directories(arcani_tests PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_compile_definitions(arcani_tests PRIVATE
   ARCANI_RENDER_PATH="$<TARGET_FILE:arcani-render>"
   ARCANI_TABLE_FIXTURES_DIR="${CMAKE_SOURCE_DIR}/tests/fixtures/tables"
   ARCANI_RECIPES_DIR="${CMAKE_SOURCE_DIR}/recipes"
-  ARCANI_TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/tests/data")
+  ARCANI_TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/tests/data"
+  ARCANI_TEST_OUT_DIR="${CMAKE_CURRENT_BINARY_DIR}/cli_out"
+  $<$<TARGET_EXISTS:arcani_cli_core>:ARCANI_HAVE_CLI_CORE=1>)
 add_dependencies(arcani_tests arcani-render)
 
 # One ctest entry runs every Catch2 test case. Per-case discovery is not used:

@@ -77,6 +77,10 @@ mentions apple_clang, android_ndk, AppleClang, and ANDROID.
 tests/hashprobe/CMakeLists.txt declares the ARCANI_HASHPROBE_EXTRA_FLAGS
 cache variable.
 
+Reference machine (Story 1.4): ARCANI_REFERENCE_MACHINE appears in no
+workflow file (.github/workflows/*.yml and *.yaml) and not in
+CMakePresets.json, so no CI job is ever the render speed reference machine.
+
 YAML 1.1 parses the `on:` key as Python True; both spellings are handled.
 """
 
@@ -476,3 +480,37 @@ def test_fast_wording_check_runs_before_build(job_id):
     checkout = step_index(steps, lambda s: str(s.get("uses", "")).startswith("actions/checkout@"),
                           "using actions/checkout")
     assert checkout < at < build, (checkout, at, build)
+
+
+# ------------------------------------------- reference machine (Story 1.4)
+
+REFERENCE_ENV = "ARCANI_REFERENCE_MACHINE"
+
+
+def workflow_texts():
+    files = sorted(WORKFLOWS.glob("*.yml")) + sorted(WORKFLOWS.glob("*.yaml"))
+    return {f.name: f.read_text(encoding="utf-8") for f in files}
+
+
+def sets_reference_machine(text):
+    """True when a workflow or preset text names the reference machine variable at all."""
+    return REFERENCE_ENV in text
+
+
+def test_no_workflow_or_preset_sets_the_reference_machine():
+    """Render speed is checked on the dev PC only; no CI job may claim to be it."""
+    texts = workflow_texts()
+    assert {"fast.yml", "full.yml"} <= set(texts), sorted(texts)
+    for name, text in texts.items():
+        assert not sets_reference_machine(text), f"{name} mentions {REFERENCE_ENV}"
+    presets = (REPO_ROOT / "CMakePresets.json").read_text(encoding="utf-8")
+    assert not sets_reference_machine(presets), f"CMakePresets.json mentions {REFERENCE_ENV}"
+
+
+@pytest.mark.parametrize("addition", [
+    f"\nenv:\n  {REFERENCE_ENV}: '1'\n",
+    f"\n      - run: echo \"{REFERENCE_ENV}=1\" >> \"$GITHUB_ENV\"\n",
+    f"\n        env:\n          {REFERENCE_ENV}: 1\n",
+])
+def test_reference_machine_check_catches_a_workflow_that_sets_it(addition):
+    assert sets_reference_machine(raw("fast.yml") + addition)

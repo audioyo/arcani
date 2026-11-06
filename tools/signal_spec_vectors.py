@@ -1,4 +1,4 @@
-"""Writes the worked test vectors of docs/signal-spec.md: core, sine, internal block size, stub chain.
+"""Writes the worked test vectors of docs/signal-spec.md: core, sine, internal block size, stub chain, 24-bit rounding.
 
 Usage:
   python tools/signal_spec_vectors.py            write tests/data/signal_spec_vectors.json
@@ -31,6 +31,9 @@ engine or from binary64 library calls:
   fixtures, in binary64 in the spec's operation order, from the engine sine
   bits above, written as 64-bit patterns, plus the ideal sine of the same
   phases at 25 digits for the Python reference.
+- 24-bit rounding (Story 1.4): x = s * 2^23 in exact Fraction arithmetic,
+  clamped to [-8388608, 8388607], else rounded to the nearest integer, ties
+  to even; NaN gives 0. Written as 3 bytes, little-endian two's complement.
 
 Standard library only.
 """
@@ -441,9 +444,88 @@ def stub_chain_rows():
     return rows
 
 
+# ------------------------------------------------------- 24-bit rounding
+
+Q24_MAX = 8388607   # 2^23 - 1
+Q24_MIN = -8388608  # -2^23
+LSB = 2.0**-23      # one 24-bit step, as a binary64 sample value
+
+
+def quantize_24(s):
+    """Spec 24-bit rounding of the binary64 sample s, in exact arithmetic."""
+    if math.isnan(s):
+        return 0
+    if math.isinf(s):
+        return Q24_MAX if s > 0 else Q24_MIN
+    x = Fraction(s) * 2**23
+    if x >= Q24_MAX:
+        return Q24_MAX
+    if x <= Q24_MIN:
+        return Q24_MIN
+    return round_half_even(x)
+
+
+def pack_24(v):
+    """3 bytes, little-endian two's complement, as lowercase hex."""
+    return (v % 2**24).to_bytes(3, "little").hex()
+
+
+# (rule, label, sample). Rules: clamp (at or past full scale), nan, tie
+# (x exactly k + 1/2), round (nearest, not a tie), zero (signed zeros and
+# values that round to 0 without a tie).
+QUANTIZE_CASES = (
+    ("clamp", "+1.0", 1.0),
+    ("clamp", "next binary64 above +1.0", math.nextafter(1.0, 2.0)),
+    ("clamp", "+2.0", 2.0),
+    ("clamp", "+infinity", math.inf),
+    ("clamp", "largest binary64 below +1.0 (x above 8388607)", math.nextafter(1.0, 0.0)),
+    ("clamp", "x exactly 8388607", Q24_MAX * LSB),
+    ("clamp", "-1.0 (x exactly -8388608)", -1.0),
+    ("clamp", "next binary64 below -1.0", math.nextafter(-1.0, -2.0)),
+    ("clamp", "-2.0", -2.0),
+    ("clamp", "-infinity", -math.inf),
+    ("nan", "NaN", math.nan),
+    ("zero", "+0.0", 0.0),
+    ("zero", "-0.0", -0.0),
+    ("zero", "smallest positive subnormal", 5e-324),
+    ("zero", "smallest negative subnormal", -5e-324),
+    ("zero", "just under +0.5 LSB", math.nextafter(0.5 * LSB, 0.0)),
+    ("tie", "+0.5 LSB", 0.5 * LSB),
+    ("tie", "-0.5 LSB", -0.5 * LSB),
+    ("tie", "+1.5 LSB", 1.5 * LSB),
+    ("tie", "-1.5 LSB", -1.5 * LSB),
+    ("tie", "+2.5 LSB", 2.5 * LSB),
+    ("tie", "-2.5 LSB", -2.5 * LSB),
+    ("tie", "+8388606.5 LSB (below the clamp)", 8388606.5 * LSB),
+    ("tie", "-8388607.5 LSB (above the clamp)", -8388607.5 * LSB),
+    ("round", "just over +0.5 LSB", math.nextafter(0.5 * LSB, 1.0)),
+    ("round", "just under +1.5 LSB", math.nextafter(1.5 * LSB, 0.0)),
+    ("round", "just over -2.5 LSB", math.nextafter(-2.5 * LSB, 0.0)),
+    ("round", "+8388606.75 LSB", 8388606.75 * LSB),
+    ("round", "+0.5", 0.5),
+    ("round", "-0.5", -0.5),
+    ("round", "+0.1 (x about 838860.8)", 0.1),
+    ("round", "-0.1", -0.1),
+    ("round", "stub chain sample (beat 6, 44.1 kHz, n = 37, left)",
+     struct.unpack(">d", bytes.fromhex("3feb7b6766e57522"))[0]),
+    ("round", "stub chain sample (beat 6, 48 kHz, n = 63, right)",
+     struct.unpack(">d", bytes.fromhex("bfca4084ea41d438"))[0]),
+)
+
+
+def quantize_rows():
+    rows = []
+    for rule, label, s in QUANTIZE_CASES:
+        v = quantize_24(s)
+        rows.append({"rule": rule, "label": label, "s_hex": hexf(s),
+                     "x_hex": hexf(s * 2.0**23) if not math.isnan(s) else "nan",
+                     "value": v, "bytes": pack_24(v)})
+    return rows
+
+
 def build():
     return {
-        "spec": "docs/signal-spec.md (sections core, sine, internal block size, and stub chain)",
+        "spec": "docs/signal-spec.md (sections core, sine, internal block size, stub chain, and 24-bit rounding)",
         "generator": "tools/signal_spec_vectors.py",
         "cycle": str(CYCLE),
         "sine_coefficients": sine_coefficients(),
@@ -457,6 +539,7 @@ def build():
         "block_frames": BLOCK_FRAMES,
         "blocks": block_rows(),
         "stub_chain": stub_chain_rows(),
+        "quantize_24": quantize_rows(),
     }
 
 
@@ -529,6 +612,12 @@ def tables(data):
         out.append(f"| {r['case']} | {r['fixture']} | {r['fs']} | {r['n']} | {r['phase_left']} "
                    f"| {r['phase_right']} | `{r['left_bits']}` | `{r['right_bits']}` "
                    f"| {r['ideal_left']} | {r['ideal_right']} |")
+    out.append("")
+    out.append("| Rule | Case | s (hex) | x = s * 2^23 (hex) | Value | Bytes (little-endian) |")
+    out.append("| --- | --- | --- | --- | --- | --- |")
+    for r in data["quantize_24"]:
+        out.append(f"| {r['rule']} | {r['label']} | `{r['s_hex']}` | `{r['x_hex']}` "
+                   f"| {r['value']} | `{r['bytes']}` |")
     return "\n".join(out) + "\n"
 
 

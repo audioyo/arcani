@@ -1,9 +1,10 @@
 # Assertion library: the C++ threshold and range table loader and the
 # assertion call (tables.hpp), plus the test-only arcani-tables-dump used by
-# the C++/Python cross-check. Both are EXCLUDE_FROM_ALL: they build only when
-# arcani_tests links the library or a test asks for the dump target, so
-# platform jobs that build everything (the Android NDK one included) do not
-# change. The tables are read at run time, so editing them needs no configure.
+# the C++/Python cross-check. Both are EXCLUDE_FROM_ALL. Since Story 1.4 the
+# library is no longer test-only: arcani-render (cli/) links it to read its
+# threshold rows, so it builds in every job that builds everything, the
+# Android NDK one included. The dump still builds only when a test asks for
+# it. The tables are read at run time, so editing them needs no configure.
 add_library(arcani_test_tables STATIC EXCLUDE_FROM_ALL tables.cpp)
 add_library(arcani::test_tables ALIAS arcani_test_tables)
 target_include_directories(arcani_test_tables PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")

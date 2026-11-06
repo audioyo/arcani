@@ -105,6 +105,11 @@ void arc_plan_release(arc_plan* plan); /* NULL is a no-op; frees at zero */
 
 /* Session length in frames; 0 for NULL. */
 uint64_t arc_plan_frame_count(const arc_plan* plan);
+/* Recipe hash, 64 lowercase hex digits, valid while the plan lives; "" for
+   NULL. */
+const char* arc_plan_recipe_hash(const arc_plan* plan);
+/* Recipe seed; 0 for NULL. */
+uint64_t arc_plan_seed(const arc_plan* plan);
 /* Stage count; 0 for NULL. */
 size_t arc_plan_stage_count(const arc_plan* plan);
 arc_status arc_plan_stage(const arc_plan* plan, size_t index, arc_stage_kind* out_kind,
