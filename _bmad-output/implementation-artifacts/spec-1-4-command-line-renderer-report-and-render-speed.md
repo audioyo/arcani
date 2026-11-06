@@ -2,7 +2,7 @@
 title: 'Story 1.4: Command-line renderer, report, and render speed'
 type: 'feature'
 created: '2026-11-05'
-status: 'in-progress'
+status: 'done'
 baseline_commit: '5469dffb8879d6478140362924d8d66987736fe8'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -119,3 +119,36 @@ QA agent, tests-first pass (2026-11-05). Execution tasks 1 and 2 only; nothing u
 ## Spec Change Log
 
 ## Review Triage Log
+
+Pass 1 (2026-11-05): blind hunter (BH), edge case hunter (EC), verification gap (VG), all fresh context, on diff 5469dff..824a409 (generated vectors, guidebook, and `_bmad-output` left out).
+
+| # | Finding | Verdict | Evidence | Route |
+|---|---------|---------|----------|-------|
+| 1 | BH, EC, VG: an exception after `<out>.partial` opens (bad_alloc in the loop, `row("render-speed")` throwing after `fclose`) leaves the partial file and an open `FILE*` | medium | `cli/main.cpp` `row()` runs after `fclose`; `main`'s catch only prints and returns 3 | patch (row read before the partial opens; guard removes the partial on every exit) |
+| 2 | BH: a missing table fails only after the whole render | medium | same site as 1; an 8 h render would be thrown away | patch (folded into 1) |
+| 3 | BH, VG: the CLI reads the table from a source-tree path baked in at build time | low | v0.1 is desktop and CI only; the frozen decision names the assertion library; changing it edits the spec | reject (revisit when the CLI ships beyond the dev PC) |
+| 4 | BH: the usage-file startup step runs in every CLI launch | low | only acts when `ARCANI_ROW_USAGE_FILE` is set, which only ctest does | reject |
+| 5 | BH, EC: concurrent read-merge-write of the usage file can lose ids | low | the parent blocks in `popen` while a child runs; `arcani_tests` is one ctest entry; the other entries never call `row()` | reject |
+| 6 | BH, EC, VG: `--report` equal to `--out` or `<out>.partial`, or an output equal to RECIPE, is accepted (report lost with exit 0; recipe replaced) | medium | `parse_args` compares nothing; `fs::rename` replaces the target | patch (usage error, exit 2) |
+| 7 | BH, EC: the report is not written atomically; a failure removes a report this run had just overwritten | low | a rerun overwriting its own report is expected; the rename failure is rare | reject |
+| 8 | BH: non-ASCII paths fail on Windows (ANSI code page) | low | the repo and output paths on the dev PC are ASCII; the fix is a manifest or wide entry point | reject (note for the designer phase) |
+| 9 | BH, VG: no end-to-end test of the report-write failure cleanup | medium | file-errors case covers only an unreadable recipe and a missing WAV dir | patch (test) |
+| 10 | BH: the `rejected:` line is not escaped | low | fields come from the engine; `limit` is last and holds spaces by design; the format is a frozen decision | reject |
+| 11 | BH: speed times only `arc_render` | false | the story AC says "timed over render calls only" | reject |
+| 12 | BH: RF64 not tested end to end; PCM tag 1 instead of EXTENSIBLE; no JUNK chunk | low | header bytes are unit-tested against EBU 3306; tag and layout are frozen decisions | reject |
+| 13 | BH: no output data hash in the report | low | not in the story AC; Stories 1.6 and 6.1 own byte comparison | reject |
+| 14 | BH: rounding-mode test without `FENV_ACCESS` | low | the pragma check bans that pragma; every quantizer step is exact, so mode cannot change the result | reject |
+| 15 | BH: 4096 not checked against row `block-sizes` | low | the row is pending on Story 1.6; output does not depend on block size | reject |
+| 16 | BH: no fsync before rename; Ctrl-C leaves a partial; an existing `<out>.partial` is overwritten | low | unlikely in use; fixes add platform code | reject |
+| 17 | VG: the reference-machine branch of `main` never runs unskipped | medium | pre-verified gap; the only case skips unless the outer env is set | patch (test) |
+| 18 | VG: the usage-file inherit and merge logic is untested | low | pre-verified gap; a bug would hide stale rows on the dev PC | patch (pytest) |
+| 19 | EC: an empty `--report` value renders fully, then exits 3 | low | `parse_args` accepts it; a direct check | patch (folded into 6) |
+| 20 | EC: an option value that is a flag (`--out --report`) | low | the next pair then lacks a value and gives usage in most shapes; unlikely | reject |
+| 21 | EC: a huge recipe is read fully before the 1 MiB cap rejects it | low | a dev tool reading a local file; unlikely | reject |
+| 22 | EC: non-finite numbers in `json_number` / `render_speed` with rate 0 or elapsed 0 | false | compile rejects any rate but 44100 and 48000; elapsed is at least 1 tick | reject |
+| 23 | EC: `ARCANI_ROW_USAGE_INHERITED` set in the outer shell stops truncation | low | nothing sets it outside the library; unlikely | reject |
+| 24 | EC: the include check misses `--include-directory`, `-cxx-isystem`, `-iwithprefix`, `-internal-isystem` | low | a direct list addition | patch |
+| 25 | EC claim: an existing WAV is touched before the rename | medium | true only when `--report` equals `--out` | patch (folded into 6) |
+| 26 | EC claim: threshold written from the parsed double, not the row text | low | the table format allows only plain decimals, whose shortest round-trip equals the text for every current row | reject |
+
+- Review pass 1 patches in 06d535f (triage rows 1, 2, 6, 9, 17, 18, 19, 24, 25). Orchestrator check: `windows-clang-cl` workflow 4/4 ctest entries pass; `arcani_tests` 158 cases pass with `ARCANI_REFERENCE_MACHINE=1`; `uv run pytest` 1,155 passed, 2 NDK-only skips; wording, pragma, compile flag, CLI include, row coverage, and table log checks exit 0. Nothing deferred.
