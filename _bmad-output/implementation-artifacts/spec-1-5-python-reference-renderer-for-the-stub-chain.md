@@ -2,7 +2,7 @@
 title: 'Story 1.5: Python reference renderer for the stub chain'
 type: 'feature'
 created: '2026-11-05'
-status: 'in-review'
+status: 'done'
 baseline_commit: '03a39de8b30ea8ff2e69b44bc05c036d9f487e61'
 route: 'dispatch'
 review_loop_iteration: 0
