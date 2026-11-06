@@ -26,6 +26,7 @@ Renderer::Renderer(const plan::Plan& plan) noexcept : plan_(plan) {}
 
 void Renderer::seek(std::uint64_t frame) noexcept {
   position_ = frame;
+  theta_phase_ = frame * plan_.theta.increment;  // mod 2^64 (unsigned wraparound)
   for (std::size_t c = 0; c < 2; ++c) {
     phase_[c] = frame * plan_.binaural.increment[c];  // mod 2^64 (unsigned wraparound)
   }
@@ -36,11 +37,13 @@ void Renderer::render_block(std::size_t count) noexcept {
   const std::uint64_t live_left = position_ < end ? end - position_ : 0;
   const std::size_t live = static_cast<std::size_t>(std::min<std::uint64_t>(live_left, count));
   const auto& ears = plan_.binaural;
+  const auto& osc = plan_.theta;
   for (std::size_t i = 0; i < count; ++i) {
+    const double theta_sample = i < live ? osc.amplitude * core::sine(theta_phase_) : 0.0;
     for (std::size_t c = 0; c < 2; ++c) {
       const std::size_t k = 2 * i + c;
       if (i < live) {
-        const double theta = 0.0;                                // theta reference stub
+        const double theta = theta_sample;                       // theta reference stub, same in both channels
         const double gamma = 0.0;                                // gamma PAC stub
         const double bus = theta + gamma;                        // stereo bus, within channel c
         const double bin = ears.amplitude[c] * core::sine(phase_[c]);  // binaural oscillator of ear c
@@ -60,6 +63,7 @@ void Renderer::render_block(std::size_t count) noexcept {
       }
       phase_[c] += ears.increment[c];
     }
+    theta_phase_ += osc.increment;
   }
 }
 

@@ -26,6 +26,13 @@
 //    in order, every tap and the output against the spec vectors (generated
 //    header spec_tables.hpp, kStubChain), the muted ear, no layers, optional
 //    taps, and exact zeros past the session end.
+//
+// Story 1.5: the theta reference stub is an unmodulated sine at the theta
+// carrier, unit amplitude, the same value in both channels (signal spec, Stub
+// chain, Theta reference oscillator). The theta tap and the stereo bus hold
+// the row's theta bits; a fixture without theta_reference keeps them at +0.0.
+// Muting affects only the binaural oscillator, so a muted channel equals its
+// theta tap bit for bit.
 
 #include <arcani/arcani.h>
 
@@ -195,8 +202,9 @@ FullRender render_session(const char* fixture, std::uint32_t fs, arc_mute_ear mu
 }
 
 // True when the output and every tap at row v's sample equal its bits:
-// output, master, and binaural join hold the row's bits, and the theta
-// reference, gamma PAC, and stereo bus taps hold +0.0.
+// output, master, and binaural join hold the row's output bits, the theta
+// reference and stereo bus taps hold the row's theta bits in both channels,
+// and the gamma PAC tap holds +0.0.
 bool row_matches(const FullRender& f, const spec::StubChainVector& v) {
   const auto i = static_cast<std::size_t>(2 * v.n);
   if (f.frames != v.frames || i + 1 >= f.out.size()) {
@@ -207,12 +215,32 @@ bool row_matches(const FullRender& f, const spec::StubChainVector& v) {
       return false;
     }
   }
-  for (const std::vector<double>* buffer : {&f.taps.theta_reference, &f.taps.gamma_pac, &f.taps.stereo_bus}) {
-    if (api::bits((*buffer)[i]) != 0 || api::bits((*buffer)[i + 1]) != 0) {
+  for (const std::vector<double>* buffer : {&f.taps.theta_reference, &f.taps.stereo_bus}) {
+    if (api::bits((*buffer)[i]) != v.theta_bits || api::bits((*buffer)[i + 1]) != v.theta_bits) {
       return false;
     }
   }
+  if (api::bits(f.taps.gamma_pac[i]) != 0 || api::bits(f.taps.gamma_pac[i + 1]) != 0) {
+    return false;
+  }
   return true;
+}
+
+// True when the two channels of an interleaved stereo buffer are equal bit
+// for bit at every frame.
+bool channels_equal(const std::vector<double>& stereo) {
+  return api::same_bytes(api::channel(stereo, 0), api::channel(stereo, 1));
+}
+
+// Whether the spec vectors give fixture a theta reference.
+bool fixture_has_theta(const char* fixture) {
+  for (const auto& v : spec::kStubChain) {
+    if (std::string(v.fixture) == fixture) {
+      return v.has_theta;
+    }
+  }
+  FAIL("no stub chain vector for " << fixture);
+  return false;
 }
 
 }  // namespace
@@ -232,10 +260,17 @@ TEST_CASE("stub chain: output and every tap equal the spec vectors bit for bit",
         CHECK(row_matches(f, v));
       }
       CHECK(rows >= 10);
-      // Theta reference and gamma PAC stubs, and so the stereo bus, are +0.0.
-      CHECK(api::all_exact_zero(f.taps.theta_reference));
+      // The gamma PAC stub is +0.0; the stereo bus equals the theta tap bit
+      // for bit; the theta tap is the same in both channels, and +0.0 only
+      // without a theta_reference field.
       CHECK(api::all_exact_zero(f.taps.gamma_pac));
-      CHECK(api::all_exact_zero(f.taps.stereo_bus));
+      CHECK(api::same_bytes(f.taps.stereo_bus, f.taps.theta_reference));
+      CHECK(channels_equal(f.taps.theta_reference));
+      if (fixture_has_theta(fixture)) {
+        CHECK_FALSE(api::all_exact_zero(f.taps.theta_reference.data(), static_cast<std::size_t>(2 * f.frames)));
+      } else {
+        CHECK(api::all_exact_zero(f.taps.theta_reference));
+      }
       // Master gain 1.0 and the identity limiter: master is the join, bit for bit.
       CHECK(api::same_bytes(f.taps.binaural_join, f.taps.master));
       CHECK(api::same_bytes(f.taps.master, f.out));
@@ -276,9 +311,83 @@ TEST_CASE("stub chain vector check catches a doctored sample", "[stages][spec]")
     doctored.taps.stereo_bus[i] = -0.0;
     CHECK_FALSE(row_matches(doctored, v));
   }
+  // A flipped low bit in the right theta tap, and a gamma tap that is not
+  // +0.0, each fail too.
+  {
+    FullRender doctored = f;
+    std::uint64_t b = api::bits(doctored.taps.theta_reference[i + 1]) ^ 1u;
+    std::memcpy(&doctored.taps.theta_reference[i + 1], &b, sizeof b);
+    CHECK_FALSE(row_matches(doctored, v));
+  }
+  {
+    FullRender doctored = f;
+    doctored.taps.gamma_pac[i + 1] = 0x1p-1074;
+    CHECK_FALSE(row_matches(doctored, v));
+  }
+  // The Story 1.2 stub (theta reference at +0.0, output = binaural sine
+  // alone) fails a beat-6 row: the vectors carry the theta oscillator.
+  {
+    REQUIRE(v.has_theta);
+    FullRender doctored = f;
+    for (std::vector<double>* buffer : {&doctored.out, &doctored.taps.master, &doctored.taps.binaural_join}) {
+      (*buffer)[i] -= doctored.taps.theta_reference[i];
+      (*buffer)[i + 1] -= doctored.taps.theta_reference[i + 1];
+    }
+    doctored.taps.theta_reference[i] = doctored.taps.theta_reference[i + 1] = 0.0;
+    doctored.taps.stereo_bus[i] = doctored.taps.stereo_bus[i + 1] = 0.0;
+    CHECK_FALSE(row_matches(doctored, v));
+  }
 }
 
-TEST_CASE("muted ear: that channel is exact zeros at every tap, the other ear is unchanged", "[stages][mute]") {
+TEST_CASE("theta reference: both channels equal, the bus equals it, its rows match", "[stages][spec][theta]") {
+  // Theta tap of beat-6 at every vector row, both channels, both rates.
+  for (const std::uint32_t fs : {44100u, 48000u}) {
+    INFO(fs);
+    const FullRender f = render_session(api::kBeat6, fs, ARC_MUTE_NONE);
+    int rows = 0;
+    for (const auto& v : spec::kStubChain) {
+      if (v.fs != fs || std::string(v.fixture) != api::kBeat6) {
+        continue;
+      }
+      ++rows;
+      INFO("n = " << v.n);
+      REQUIRE(v.has_theta);
+      const auto i = static_cast<std::size_t>(2 * v.n);
+      CHECK(api::bits(f.taps.theta_reference[i]) == v.theta_bits);
+      CHECK(api::bits(f.taps.theta_reference[i + 1]) == v.theta_bits);
+    }
+    CHECK(rows >= 10);
+    CHECK(channels_equal(f.taps.theta_reference));
+    CHECK(api::same_bytes(f.taps.stereo_bus, f.taps.theta_reference));
+  }
+}
+
+TEST_CASE("theta reference only: each channel of the output equals the theta tap", "[stages][theta]") {
+  // theta-reference-only.json: a 200 Hz unmodulated sine, no binaural field.
+  // The first 3000 frames: out, join, master, and the stereo bus equal the
+  // theta tap in both channels, and the theta tap is not silent.
+  auto p = api::compile_ok(api::valid("theta-reference-only.json"), api::options(ARC_MODE_MEASURE, 48000));
+  constexpr std::size_t kFrames = 3000;
+  REQUIRE(arc_plan_frame_count(p.get()) > kFrames);
+  auto r = api::renderer(p.get());
+  api::TapBuffers taps(kFrames);
+  const arc_taps t = taps.taps();
+  const auto out = api::render(r.get(), kFrames, &t);
+  CHECK_FALSE(api::all_exact_zero(taps.theta_reference));
+  CHECK(channels_equal(taps.theta_reference));
+  CHECK(api::same_bytes(out, taps.theta_reference));
+  CHECK(api::same_bytes(taps.binaural_join, taps.theta_reference));
+  CHECK(api::same_bytes(taps.master, taps.theta_reference));
+  CHECK(api::same_bytes(taps.stereo_bus, taps.theta_reference));
+  CHECK(api::all_exact_zero(taps.gamma_pac));
+}
+
+TEST_CASE("muted ear: that channel equals its theta tap at every tap, the other ear is unchanged",
+          "[stages][mute]") {
+  // Muting affects only the binaural oscillator (signal spec, Stub chain,
+  // Muted ear): the muted channel's out, join, and master equal its theta tap
+  // bit for bit (+0.0 for beat-0, which has no theta reference; the 300 Hz
+  // unmodulated theta sine for beat-6), and the theta tap does not change.
   for (const std::uint32_t fs : {44100u, 48000u}) {
     for (const char* fixture : {api::kBeat0, api::kBeat6}) {
       INFO(fixture << " at " << fs);
@@ -287,14 +396,31 @@ TEST_CASE("muted ear: that channel is exact zeros at every tap, the other ear is
         const int muted = mute == ARC_MUTE_LEFT ? 0 : 1;
         INFO("muted channel " << muted);
         const FullRender m = render_session(fixture, fs, mute);
-        CHECK(api::all_exact_zero(api::channel(m.out, muted)));
-        CHECK(api::all_exact_zero(api::channel(m.taps.binaural_join, muted)));
-        CHECK(api::all_exact_zero(api::channel(m.taps.master, muted)));
+        const auto theta = api::channel(m.taps.theta_reference, muted);
+        CHECK(api::same_bytes(api::channel(m.out, muted), theta));
+        CHECK(api::same_bytes(api::channel(m.taps.binaural_join, muted), theta));
+        CHECK(api::same_bytes(api::channel(m.taps.master, muted), theta));
+        CHECK(api::same_bytes(m.taps.theta_reference, both.taps.theta_reference));
+        if (fixture_has_theta(fixture)) {
+          CHECK_FALSE(api::all_exact_zero(theta.data(), static_cast<std::size_t>(m.frames)));
+        } else {
+          CHECK(api::all_exact_zero(api::channel(m.out, muted)));
+        }
         CHECK(api::same_bytes(api::channel(m.out, 1 - muted), api::channel(both.out, 1 - muted)));
         CHECK(api::same_bytes(api::channel(m.taps.binaural_join, 1 - muted),
                               api::channel(both.taps.binaural_join, 1 - muted)));
       }
     }
+  }
+}
+
+TEST_CASE("muted ear check catches a binaural sine left in the muted channel", "[stages][mute]") {
+  // Must-fail for the muted-channel comparison: the unmuted render's channel
+  // (theta plus binaural) is not its theta tap.
+  const FullRender both = render_session(api::kBeat6, 48000, ARC_MUTE_NONE);
+  for (const int c : {0, 1}) {
+    INFO("channel " << c);
+    CHECK_FALSE(api::same_bytes(api::channel(both.out, c), api::channel(both.taps.theta_reference, c)));
   }
 }
 
@@ -326,7 +452,11 @@ TEST_CASE("past the session end: output and taps are exact zeros", "[stages][end
     const auto end = static_cast<std::size_t>(2 * f.frames);
     REQUIRE(f.out.size() == end + 2000);
     CHECK(api::bits(f.out[end - 2]) != 0);  // the last session sample is not silent
+    CHECK(api::bits(f.taps.theta_reference[end - 2]) != 0);  // beat-6 has a theta reference
     CHECK(api::all_exact_zero(f.out.data() + end, 2000));
+    CHECK(api::all_exact_zero(f.taps.theta_reference.data() + end, 2000));
+    CHECK(api::all_exact_zero(f.taps.gamma_pac.data() + end, 2000));
+    CHECK(api::all_exact_zero(f.taps.stereo_bus.data() + end, 2000));
     CHECK(api::all_exact_zero(f.taps.binaural_join.data() + end, 2000));
     CHECK(api::all_exact_zero(f.taps.master.data() + end, 2000));
   }

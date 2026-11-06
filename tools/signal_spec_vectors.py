@@ -27,10 +27,13 @@ engine or from binary64 library calls:
   here, in tools/, never in reference/ (the reference renders the ideal sine).
 - Internal blocks: frame k lies in block k // 64 at offset k % 64, exact
   integer arithmetic.
-- Stub chain: the spec's stub chain (Story 1.2) for the 1 s binaural
-  fixtures, in binary64 in the spec's operation order, from the engine sine
-  bits above, written as 64-bit patterns, plus the ideal sine of the same
-  phases at 25 digits for the Python reference.
+- Stub chain: the spec's stub chain (Story 1.2, theta reference oscillator
+  Story 1.5) for the 1 s binaural fixtures, in binary64 in the spec's
+  operation order, from the engine sine bits above, written as 64-bit
+  patterns, plus the ideal values of the same phases at 25 digits for the
+  Python reference: the ideal sine of the theta phase, and per channel the
+  exact sum of the ideal theta sine and the ideal binaural sine (the ideal
+  output), rounded once to 25 digits.
 - 24-bit rounding (Story 1.4): x = s * 2^23 in exact Fraction arithmetic,
   clamped to [-8388608, 8388607], else rounded to the nearest integer, ties
   to even; NaN gives 0. Written as 3 bytes, little-endian two's complement.
@@ -126,6 +129,11 @@ def decimal_pi():
 
 def ideal_sine(phase):
     """sin(2*pi*phase/2^64) as a Decimal string with DIGITS significant digits."""
+    return format_ideal(ideal_sine_decimal(phase))
+
+
+def ideal_sine_decimal(phase):
+    """sin(2*pi*phase/2^64) as a Decimal at about PREC digits."""
     phase %= CYCLE
     # Exact reduction to [-2^62, 2^62] with sin symmetry, so the series argument
     # is at most pi/2 in size.
@@ -135,7 +143,7 @@ def ideal_sine(phase):
     elif s < -(CYCLE // 4):
         s = -(CYCLE // 2) - s
     if s == 0:
-        return "0"
+        return Decimal(0)
     with localcontext() as ctx:
         ctx.prec = PREC + 10
         x = 2 * decimal_pi() * Decimal(s) / Decimal(CYCLE)
@@ -147,6 +155,13 @@ def ideal_sine(phase):
             term = -term * x * x / ((k + 1) * (k + 2))
             k += 2
         total += term
+    return total
+
+
+def format_ideal(total):
+    """A Decimal written with DIGITS significant digits ("0" for zero)."""
+    if total == 0:
+        return "0"
     with localcontext() as ctx:
         ctx.prec = DIGITS
         value = +total
@@ -384,12 +399,13 @@ def engine_sine_rows():
 BLOCK_FRAMES = 64
 BLOCK_FRAME_INDICES = (0, 37, 63, 64, 65, 127, 128, 1000, 44099, 47999)
 
-# (fixture, carrier_left_hz, beat_rate_hz, length_s): the 1 s binaural fixtures
-# in recipes/fixtures/valid/. tests/python/test_signal_spec_core.py checks
-# that each fixture holds these values.
+# (fixture, theta_carrier_hz or None, carrier_left_hz, beat_rate_hz,
+# length_s): the 1 s binaural fixtures in recipes/fixtures/valid/. None means
+# the fixture has no theta_reference field. tests/python/test_signal_spec_core.py
+# checks that each fixture holds these values.
 STUB_CHAIN_FIXTURES = (
-    ("stub-chain-1s-beat-0.json", 400.0, 0.0, 1.0),
-    ("stub-chain-1s-beat-6.json", 400.0, 6.0, 1.0),
+    ("stub-chain-1s-beat-0.json", None, 400.0, 0.0, 1.0),
+    ("stub-chain-1s-beat-6.json", 300.0, 400.0, 6.0, 1.0),
 )
 STUB_CHAIN_INDICES = (0, 1, 37, 63, 64, 65, 127, 128, 1000)
 
@@ -399,46 +415,76 @@ def block_rows():
             for k in BLOCK_FRAME_INDICES]
 
 
-def stub_chain_sample(phase, gain):
-    """One channel of the stub chain at the master tap, spec operation order."""
-    theta = 0.0
+def stub_chain_sample(theta_phase, theta_gain, phase, gain):
+    """One channel of the stub chain, spec operation order: (theta, bus, join, master)."""
+    theta = theta_gain * engine_sine(theta_phase)
     gamma = 0.0
     bus = theta + gamma
     binaural = gain * engine_sine(phase)
     join = bus + binaural
     master = join * 1.0
-    return join, master
+    return theta, bus, join, master
+
+
+def ideal_sum(*phases):
+    """Exact sum of the ideal sines of phases, written once at DIGITS digits."""
+    with localcontext() as ctx:
+        ctx.prec = PREC + 10
+        total = sum((ideal_sine_decimal(p) for p in phases), Decimal(0))
+    return format_ideal(total)
 
 
 def stub_chain_rows():
     rows = []
     for fs in RATES:
-        for fixture, left_hz, beat_hz, length_s in STUB_CHAIN_FIXTURES:
+        for fixture, theta_hz, left_hz, beat_hz, length_s in STUB_CHAIN_FIXTURES:
             right_hz = left_hz + beat_hz  # one binary64 addition
+            if theta_hz is None:
+                inc_t, a_t = 0, 0.0
+            else:
+                inc_t, _ = increment(theta_hz, fs)
+                a_t = 1.0
             inc_l, _ = increment(left_hz, fs)
             inc_r, _ = increment(right_hz, fs)
             frames, _ = samples(length_s, fs)
             for n in STUB_CHAIN_INDICES + (frames - 1, frames, frames + 63):
                 past_end = n >= frames
+                pt = (n * inc_t) % CYCLE
                 pl = (n * inc_l) % CYCLE
                 pr = (n * inc_r) % CYCLE
                 if past_end:
-                    left = right = 0.0
-                    ideal_l = ideal_r = "0"
+                    theta = left = right = 0.0
+                    ideal_t = ideal_l = ideal_r = "0"
                 else:
-                    jl, left = stub_chain_sample(pl, 1.0)
-                    jr, right = stub_chain_sample(pr, 1.0)
+                    tl, bl, jl, left = stub_chain_sample(pt, a_t, pl, 1.0)
+                    tr, br, jr, right = stub_chain_sample(pt, a_t, pr, 1.0)
+                    # The theta reference is the same in both channels, the
+                    # stereo bus equals it bit for bit, and join, master, and
+                    # out agree bit for bit (signal spec, Stub chain).
+                    assert bits(tl) == bits(tr) == bits(bl) == bits(br)
                     assert bits(jl) == bits(left) and bits(jr) == bits(right)
-                    ideal_l, ideal_r = ideal_sine(pl), ideal_sine(pr)
+                    theta = tl
+                    if theta_hz is None:
+                        assert bits(theta) == bits(0.0)
+                        ideal_t = "0"
+                        ideal_l, ideal_r = ideal_sine(pl), ideal_sine(pr)
+                    else:
+                        ideal_t = ideal_sine(pt)
+                        ideal_l, ideal_r = ideal_sum(pt, pl), ideal_sum(pt, pr)
                 rows.append({
                     "case": "past_end" if past_end else "signal",
                     "fixture": fixture, "fs": fs,
+                    "theta_carrier_hex": "none" if theta_hz is None else hexf(theta_hz),
                     "carrier_left_hex": hexf(left_hz), "beat_rate_hex": hexf(beat_hz),
                     "carrier_right_hex": hexf(right_hz),
+                    "inc_theta": str(inc_t),
                     "inc_left": str(inc_l), "inc_right": str(inc_r),
                     "frames": str(frames), "n": str(n),
+                    "phase_theta": str(pt),
                     "phase_left": str(pl), "phase_right": str(pr),
+                    "theta_bits": bits(theta),
                     "left_bits": bits(left), "right_bits": bits(right),
+                    "ideal_theta": ideal_t,
                     "ideal_left": ideal_l, "ideal_right": ideal_r,
                 })
     return rows
@@ -506,9 +552,9 @@ QUANTIZE_CASES = (
     ("round", "-0.5", -0.5),
     ("round", "+0.1 (x about 838860.8)", 0.1),
     ("round", "-0.1", -0.1),
-    ("round", "stub chain sample (beat 6, 44.1 kHz, n = 37, left)",
+    ("round", "stub chain sample (beat 0, 44.1 kHz, n = 37, left)",
      struct.unpack(">d", bytes.fromhex("3feb7b6766e57522"))[0]),
-    ("round", "stub chain sample (beat 6, 48 kHz, n = 63, right)",
+    ("round", "406 Hz binaural sine sample (48 kHz, n = 63)",
      struct.unpack(">d", bytes.fromhex("bfca4084ea41d438"))[0]),
 )
 
@@ -593,25 +639,29 @@ def tables(data):
     for r in data["blocks"]:
         out.append(f"| {r['frame']} | {r['block']} | {r['offset']} |")
     out.append("")
-    out.append("| Fixture | fs | Left carrier (hex) | Beat rate (hex) | Right carrier (hex) "
-               "| Left inc | Right inc | Frames |")
-    out.append("| --- | --- | --- | --- | --- | --- | --- | --- |")
+    out.append("| Fixture | fs | Theta carrier (hex) | Left carrier (hex) | Beat rate (hex) "
+               "| Right carrier (hex) | Theta inc | Left inc | Right inc | Frames |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
     seen = set()
     for r in data["stub_chain"]:
         key = (r["fixture"], r["fs"])
         if key in seen:
             continue
         seen.add(key)
-        out.append(f"| {r['fixture']} | {r['fs']} | `{r['carrier_left_hex']}` | `{r['beat_rate_hex']}` "
-                   f"| `{r['carrier_right_hex']}` | {r['inc_left']} | {r['inc_right']} | {r['frames']} |")
+        out.append(f"| {r['fixture']} | {r['fs']} | `{r['theta_carrier_hex']}` "
+                   f"| `{r['carrier_left_hex']}` | `{r['beat_rate_hex']}` "
+                   f"| `{r['carrier_right_hex']}` | {r['inc_theta']} | {r['inc_left']} "
+                   f"| {r['inc_right']} | {r['frames']} |")
     out.append("")
-    out.append("| Case | Fixture | fs | n | Left phase | Right phase | Left (binary64 bits) "
-               "| Right (binary64 bits) | Left ideal | Right ideal |")
-    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    out.append("| Case | Fixture | fs | n | Theta phase | Left phase | Right phase "
+               "| Theta (binary64 bits) | Left (binary64 bits) | Right (binary64 bits) "
+               "| Theta ideal | Left ideal | Right ideal |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
     for r in data["stub_chain"]:
-        out.append(f"| {r['case']} | {r['fixture']} | {r['fs']} | {r['n']} | {r['phase_left']} "
-                   f"| {r['phase_right']} | `{r['left_bits']}` | `{r['right_bits']}` "
-                   f"| {r['ideal_left']} | {r['ideal_right']} |")
+        out.append(f"| {r['case']} | {r['fixture']} | {r['fs']} | {r['n']} | {r['phase_theta']} "
+                   f"| {r['phase_left']} | {r['phase_right']} | `{r['theta_bits']}` "
+                   f"| `{r['left_bits']}` | `{r['right_bits']}` "
+                   f"| {r['ideal_theta']} | {r['ideal_left']} | {r['ideal_right']} |")
     out.append("")
     out.append("| Rule | Case | s (hex) | x = s * 2^23 (hex) | Value | Bytes (little-endian) |")
     out.append("| --- | --- | --- | --- | --- | --- |")

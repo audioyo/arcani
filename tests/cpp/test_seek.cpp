@@ -6,6 +6,8 @@
 // 64-frame block (37), a block boundary (64), and a later frame (1000), plus
 // the frame just before a boundary (63), a backward seek after rendering, and
 // seeks at and past the session end. The output and every tap are compared.
+// Story 1.5: seek also sets the theta reference phase, checked against the
+// stub chain vectors.
 
 #include <arcani/arcani.h>
 
@@ -14,13 +16,16 @@
 #ifdef ARC_ERROR_FIELD_BYTES
 
 #include "api_helpers.hpp"
+#include "spec_helpers.hpp"
 
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <string>
 #include <vector>
 
 namespace api = arcani::test::api;
+namespace spec = arcani::test::spec;
 
 namespace {
 
@@ -69,6 +74,39 @@ TEST_CASE("seek to k then render to the end equals the full render from k", "[se
         CHECK(tail_matches(s.taps.gamma_pac, k, taps.gamma_pac));
       }
     }
+  }
+}
+
+TEST_CASE("seek sets the theta phase: the theta tap after a seek to k equals the vector at k", "[seek][theta]") {
+  // Story 1.5: seek sets phase_T = k * inc_T mod 2^64 like the binaural
+  // phases (signal spec, Stub chain, Seek). For every beat-6 vector row k,
+  // a fresh renderer seeks to k and renders one frame: the theta tap holds
+  // the row's theta bits in both channels and the output its output bits.
+  // A theta phase left at 0 by seek fails every row past n = 0.
+  for (const std::uint32_t fs : {44100u, 48000u}) {
+    const Session s = full(api::kBeat6, fs);
+    int rows = 0;
+    for (const auto& v : spec::kStubChain) {
+      if (v.fs != fs || std::string(v.fixture) != api::kBeat6) {
+        continue;
+      }
+      ++rows;
+      INFO(fs << ", k = " << v.n);
+      REQUIRE(v.has_theta);
+      auto r = api::renderer(s.plan.get());
+      api::seek(r.get(), v.n);
+      api::TapBuffers taps(1);
+      const arc_taps t = taps.taps();
+      const auto one = api::render(r.get(), 1, &t);
+      CHECK(api::bits(taps.theta_reference[0]) == v.theta_bits);
+      CHECK(api::bits(taps.theta_reference[1]) == v.theta_bits);
+      CHECK(api::bits(one[0]) == v.left_bits);
+      CHECK(api::bits(one[1]) == v.right_bits);
+    }
+    CHECK(rows >= 10);
+    // The theta tap of the full render is not silent, so the tail
+    // comparisons above compare a real signal.
+    CHECK_FALSE(api::all_exact_zero(s.taps.theta_reference));
   }
 }
 

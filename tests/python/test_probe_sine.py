@@ -15,7 +15,8 @@ Contract with the probe binary (tests/hashprobe/, target arcani-hashprobe):
 - ci/hash_expected.json is not changed by this story: it has no sine-* entry
   (the cross-platform compare is exact against windows-x64 only).
 - Story 1.2 adds OUT_DIR/stub-chain-44100.f32 and OUT_DIR/stub-chain-48000.f32:
-  an embedded recipe literal rendered through the public C API (arc_render),
+  an embedded recipe literal (Story 1.5 adds a 300 Hz unmodulated theta
+  reference sine to it) rendered through the public C API (arc_render),
   interleaved stereo, raw little-endian float32, so an even sample count; not
   silent and finite. Like the sine components they are compared per run
   against windows-x64; their expected-file entries stay with Story 1.6, so
@@ -227,3 +228,6 @@ def test_probe_stub_chain_component_shape(probe_output, fs):
     assert samples.size > 0 and samples.size % 2 == 0, samples.shape
     assert np.all(np.isfinite(samples))
     assert np.any(samples != 0.0), "stub chain component is silent"
+    # The binaural sines alone peak at 1.0; with the 300 Hz theta reference
+    # sine added to both channels (Story 1.5) the peak is near 2.0.
+    assert float(np.max(np.abs(samples))) > 1.5, "stub chain component lacks the theta reference"

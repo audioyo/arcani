@@ -10,6 +10,10 @@
 #
 # Story 1.2 adds kBlockFrames, kBlocks (internal block size) and kStubChain
 # (stub chain samples, one row per fixture, sample rate, and index).
+# Story 1.5 adds the theta reference columns to kStubChain: has_theta (false
+# when the fixture has no theta_reference field, theta carrier "none"),
+# theta_carrier_hz (0.0 then), inc_theta, phase_theta, and theta_bits (the
+# theta tap, the same in both channels).
 # Story 1.4 adds kQuantize24 (24-bit rounding: rule, case, sample, value, and
 # the 3 written bytes in file order).
 #
@@ -74,7 +78,7 @@ function(arcani_generate_spec_tables out_file vectors_json)
   string(APPEND h "struct EngineSineBits { const char* label; std::uint64_t phase; std::uint64_t bits; };\n")
   string(APPEND h "struct BlockVector { std::uint64_t frame; std::uint64_t block; std::uint64_t offset; };\n")
   string(APPEND h "struct Quantize24Vector { const char* rule; const char* label; double s; std::int32_t value; std::uint8_t bytes[3]; };\n")
-  string(APPEND h "struct StubChainVector { const char* fixture; bool past_end; std::uint32_t fs; double carrier_left_hz; double beat_rate_hz; double carrier_right_hz; std::uint64_t inc_left; std::uint64_t inc_right; std::uint64_t frames; std::uint64_t n; std::uint64_t phase_left; std::uint64_t phase_right; std::uint64_t left_bits; std::uint64_t right_bits; };\n\n")
+  string(APPEND h "struct StubChainVector { const char* fixture; bool past_end; std::uint32_t fs; double carrier_left_hz; double beat_rate_hz; double carrier_right_hz; std::uint64_t inc_left; std::uint64_t inc_right; std::uint64_t frames; std::uint64_t n; std::uint64_t phase_left; std::uint64_t phase_right; std::uint64_t left_bits; std::uint64_t right_bits; bool has_theta; double theta_carrier_hz; std::uint64_t inc_theta; std::uint64_t phase_theta; std::uint64_t theta_bits; };\n\n")
 
   # ---- increments
   string(JSON n LENGTH "${vec}" increments)
@@ -251,6 +255,23 @@ function(arcani_generate_spec_tables out_file vectors_json)
       endif()
       string(APPEND _fields ", UINT64_C(${v})")
     endforeach()
+    string(JSON v GET "${vec}" stub_chain ${i} theta_carrier_hex)
+    if(v STREQUAL "none")
+      string(APPEND _fields ", false, 0.0")
+    else()
+      _arcani_spec_hexf(v "${v}")
+      string(APPEND _fields ", true, ${v}")
+    endif()
+    foreach(key inc_theta phase_theta)
+      string(JSON v GET "${vec}" stub_chain ${i} ${key})
+      _arcani_spec_u64(v "${v}")
+      string(APPEND _fields ", ${v}")
+    endforeach()
+    string(JSON v GET "${vec}" stub_chain ${i} theta_bits)
+    if(NOT v MATCHES "^0x[0-9a-f]+$")
+      message(FATAL_ERROR "spec tables: not a hex bit pattern: '${v}'")
+    endif()
+    string(APPEND _fields ", UINT64_C(${v})")
     string(APPEND h "  {${fixture}, ${past}, ${fs}u${_fields}},\n")
   endforeach()
   string(APPEND h "};\n\n")

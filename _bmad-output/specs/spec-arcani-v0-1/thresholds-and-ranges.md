@@ -15,7 +15,7 @@ The repo's threshold table and locked-range table (spine Conventions) are built 
 | Spacing rule | Per ear, at least 50 Hz between any spectral component of one layer and any of another, incl. side frequencies; own-layer components and the binaural pair exempt. Component = line within 40 dB of the layer's strongest line. Checked across the whole session incl. rate curves | Design log 2026-10-27 (e), (i); AD-20 |
 | Frequency accuracy | Every carrier and rate within 0.01 Hz of the recipe value; along rate curves, instantaneous rate within 0.01 Hz of the schedule with continuous phase | Plan Test thresholds; FR-1 |
 | Long-session drift | Theta reference phase error under 1 ms after an 8-hour render | Plan Test thresholds; FR-1 |
-| Reference match | Engine pre-quantization float output and per-layer taps vs Python reference: less than -100 dBFS, sample by sample | Plan Test thresholds; AD-16 |
+| Reference match | Engine pre-quantization float output and per-layer taps vs Python reference: less than -100 dBFS, sample by sample; fails as silent when either side peaks below -60 dBFS | Plan Test thresholds; AD-16; design log 2026-11-05 (jj) |
 | Determinism | Same recipe, engine version, seed, sample rate: byte-identical file | CLAUDE.md rule 1; FR-6 |
 | Cross-platform | Identical hashes across the AD-9 CI matrix; a component proven unable falls back to -100 dBFS, logged | AD-9; design log (j) |
 | Block-size invariance | Identical bytes at 1, 64, 512, 4096 frames per call | AD-10 |

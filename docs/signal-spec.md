@@ -2,7 +2,7 @@
 
 This file is the only source of signal formulas (AD-19). The engine (`engine/`) and the Python reference (`reference/`) each implement it on their own; neither defines a formula of its own, and neither is ported from the other. A shape or stage not in this file does not exist.
 
-Story 0.2 writes the core and sine sections. Story 1.2 writes the internal block size and the stub chain. Story 1.4 writes 24-bit rounding. Later stories add envelope shapes, coupling, bursts, ramps and rate curves, loop seams, the limiter, the resampler, the loudness window, and the spectral component model.
+Story 0.2 writes the core and sine sections. Story 1.2 writes the internal block size and the stub chain. Story 1.4 writes 24-bit rounding. Story 1.5 adds the theta reference oscillator to the stub chain. Later stories add envelope shapes, coupling, bursts, ramps and rate curves, loop seams, the limiter, the resampler, the loudness window, and the spectral component model.
 
 **Conventions:**
 
@@ -309,11 +309,22 @@ Every sample is a pure function of the plan and its sample index `n` (AD-10). A 
 
 ## Stub chain
 
-The fixed stage list of Story 1.2, before any real layer exists. Real layers replace the theta reference and gamma PAC stubs (Story 1.5 routes the sine through the theta reference, Epic 2 builds the layers), and Epic 4 replaces the stored gain and the limiter stub.
+The fixed stage list of Story 1.2, before any real layer exists. Story 1.5 routes the sine through the theta reference stub as an unmodulated carrier; Epic 2 replaces the theta reference and gamma PAC stubs with the real layers, and Epic 4 replaces the stored gain and the limiter stub.
 
 **Stage order.** Theta reference, gamma PAC layer, stereo bus, binaural join, master chain (per-channel gain, then a stereo-linked limiter). The order is fixed and is not a recipe field. Every stage writes channel `c` only from channel `c` of its inputs. The limiter alone reads both channels, and only to derive one linked gain that it applies to each channel separately. No stage reads one channel to write the other.
 
 **Session length.** `N = seconds_to_samples(length_s, fs)` frames (Core, seconds-to-samples rule). For `n >= N` every tap and the output are exactly `+0.0` in both channels.
+
+**Theta reference oscillator (Story 1.5).** With a `theta_reference` field, one unmodulated sine at the theta carrier, the same value in both channels:
+
+```
+f_T   = theta_reference.carrier_hz
+inc_T = phase increment rule (f_T, fs)
+phase_T[0] = 0,  phase_T[n] = n * inc_T mod 2^64
+a_T   = 1.0                                 unit amplitude
+```
+
+A recipe without a `theta_reference` field has `a_T = 0.0` and `inc_T = 0`. The stub has no amplitude modulation, envelope, or level of its own: the theta-rate modulation and the envelopes arrive in Epic 2, and the stored gain in Epic 4. For the fixture `stub-chain-1s-beat-6.json` it is a 300 Hz unmodulated sine in each channel; `stub-chain-1s-beat-0.json` has no `theta_reference` field.
 
 **Binaural oscillators.** One unmodulated sine per ear:
 
@@ -327,12 +338,12 @@ a_c   = 1.0                                 unit amplitude
 
 For the fixture `stub-chain-1s-beat-6.json` that is a 400 Hz unmodulated sine in the left ear and a 406 Hz unmodulated sine in the right ear, a 6 Hz binaural beat; for `stub-chain-1s-beat-0.json` it is a 400 Hz unmodulated sine in each ear. A recipe without a `binaural` field has `a_L = a_R = 0.0` and `inc_L = inc_R = 0`.
 
-**Muted ear.** The compile option `mute_binaural_ear` (none, left, or right) is an offline measurement control for the isolation test (FR-4), stored in the plan; it is not a recipe field. For the muted ear `c`, the plan holds `inc_c = 0` and `a_c = 0.0`, so the render path has no test branch and that ear's binaural oscillator outputs `0.0 * sine(0) = +0.0`.
+**Muted ear.** The compile option `mute_binaural_ear` (none, left, or right) is an offline measurement control for the isolation test (FR-4), stored in the plan; it is not a recipe field. For the muted ear `c`, the plan holds `inc_c = 0` and `a_c = 0.0`, so the render path has no test branch and that ear's binaural oscillator outputs `0.0 * sine(0) = +0.0`. Muting affects only the binaural oscillator: the theta reference is unchanged, so the muted channel's `join`, `master`, and `out` equal its `theta` bit for bit.
 
 **Per sample.** For `0 <= n < N` and each channel `c`, in this order, each line one binary64 operation (Conventions):
 
 ```
-theta[c][n]  = 0.0                          theta reference stub
+theta[c][n]  = a_T * sine(phase_T[n])       theta reference stub: the same value in both channels (Sine, engine sine)
 gamma[c][n]  = 0.0                          gamma PAC stub
 bus[c][n]    = theta[c][n] + gamma[c][n]    stereo bus: adds the layers within channel c
 bin[c][n]    = a_c * sine(phase_c[n])       binaural oscillator of ear c (Sine, engine sine)
@@ -341,75 +352,79 @@ master[c][n] = join[c][n] * g_c             per-channel gain, g_L = g_R = 1.0 (s
 out[c][n]    = master[c][n]                 stereo-linked limiter stub: identity, zero gain reduction
 ```
 
-A missing `theta_reference` field leaves `theta` at zeros; with the field present the stub still outputs zeros. `bus` is `+0.0 + +0.0 = +0.0`. `y * 1.0 = y` exactly for every binary64 `y`, and `+0.0 + y = y` exactly for every binary64 `y` other than `-0.0` (where the sum is `+0.0`). The stub never produces `bin = -0.0`: the engine sine (Sine, Engine sine) returns zero only for a folded `s = 0`, where `x = +0.0`, `r = C1 = 1` and `y = 1 * +0.0 = +0.0`, and is otherwise nonzero with the sign of `s`, since `r` stays positive on `[-pi/2, pi/2]`; a muted or absent ear is `0.0 * sine(0) = +0.0`. So `join`, `master`, and `out` all equal `a_c * sine(phase_c[n])` bit for bit.
+`y * 1.0 = y` exactly for every binary64 `y`, and `y + +0.0 = y` and `+0.0 + y = y` exactly for every binary64 `y` other than `-0.0` (where the sum is `+0.0`). Neither oscillator ever produces `-0.0`: the engine sine (Sine, Engine sine) returns zero only for a folded `s = 0`, where `x = +0.0`, `r = C1 = 1` and `y = 1 * +0.0 = +0.0`, and is otherwise nonzero with the sign of `s`, since `r` stays positive on `[-pi/2, pi/2]`; an absent theta reference, a muted ear, or an absent ear is `0.0 * sine(0) = +0.0`. So `bus = theta` bit for bit. `join = bus + bin` is one rounding; it is exact, and equals the other operand, when `theta` or `bin` is `+0.0` (no `theta_reference` field, or a muted or absent ear). `master` and `out` equal `join` bit for bit.
+
+**Level.** Both stub oscillators run at unit amplitude, so a recipe with a theta reference and a binaural layer peaks near 2.0. `stub-chain-1s-beat-6.json` (300 Hz theta, 400 and 406 Hz binaural) does, and its 24-bit WAV clips by the 24-bit rounding rule (24-bit rounding). It is a test fixture, not for listening; real levels arrive in Epic 2 and Epic 4.
 
 **Output and taps.** The render output is `out`, interleaved stereo binary64 (left, then right, per frame). Five optional taps, each interleaved stereo binary64 over the same frames: theta reference (`theta`), gamma PAC (`gamma`), stereo bus (`bus`), binaural join (`join`, the engine output point of the isolation row `binaural-isolation-engine`), and master (`out`, the point of row `binaural-isolation-master`).
 
+**Seek.** Seek to frame `k` sets `phase_T` to `k * inc_T mod 2^64`, the same rule as the binaural phases (Internal block size, Seek).
+
 ### Vectors: stub chain increments
 
-Per fixture and sample rate: the binaural carriers as hex floats, their increments, and the session length `N` in frames.
+Per fixture and sample rate: the theta carrier (`none` without a `theta_reference` field, where `inc_T = 0`) and the binaural carriers as hex floats, their increments, and the session length `N` in frames.
 
-| Fixture | fs | Left carrier (hex) | Beat rate (hex) | Right carrier (hex) | Left inc | Right inc | Frames |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| stub-chain-1s-beat-0.json | 44100 | `0x1.9000000000000p+8` | `0x0.0p+0` | `0x1.9000000000000p+8` | 167317406564258976 | 167317406564258976 | 44100 |
-| stub-chain-1s-beat-6.json | 44100 | `0x1.9000000000000p+8` | `0x1.8000000000000p+2` | `0x1.9600000000000p+8` | 167317406564258976 | 169827167662722848 | 44100 |
-| stub-chain-1s-beat-0.json | 48000 | `0x1.9000000000000p+8` | `0x0.0p+0` | `0x1.9000000000000p+8` | 153722867280912928 | 153722867280912928 | 48000 |
-| stub-chain-1s-beat-6.json | 48000 | `0x1.9000000000000p+8` | `0x1.8000000000000p+2` | `0x1.9600000000000p+8` | 153722867280912928 | 156028710290126624 | 48000 |
+| Fixture | fs | Theta carrier (hex) | Left carrier (hex) | Beat rate (hex) | Right carrier (hex) | Theta inc | Left inc | Right inc | Frames |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| stub-chain-1s-beat-0.json | 44100 | `none` | `0x1.9000000000000p+8` | `0x0.0p+0` | `0x1.9000000000000p+8` | 0 | 167317406564258976 | 167317406564258976 | 44100 |
+| stub-chain-1s-beat-6.json | 44100 | `0x1.2c00000000000p+8` | `0x1.9000000000000p+8` | `0x1.8000000000000p+2` | `0x1.9600000000000p+8` | 125488054923194224 | 167317406564258976 | 169827167662722848 | 44100 |
+| stub-chain-1s-beat-0.json | 48000 | `none` | `0x1.9000000000000p+8` | `0x0.0p+0` | `0x1.9000000000000p+8` | 0 | 153722867280912928 | 153722867280912928 | 48000 |
+| stub-chain-1s-beat-6.json | 48000 | `0x1.2c00000000000p+8` | `0x1.9000000000000p+8` | `0x1.8000000000000p+2` | `0x1.9600000000000p+8` | 115292150460684704 | 153722867280912928 | 156028710290126624 | 48000 |
 
 ### Vectors: stub chain samples
 
-`out` (and so `join` and `master`) per channel at sample `n`, as the 64-bit pattern of the binary64 value (big-endian hex), from the engine sine bits; and the ideal sine of the same phase at 25 significant digits, for the Python reference (Story 1.5). Indices cover the start, inside the first block (37), both sides of block boundaries (63, 64, 65, 127, 128), the last sample, and two samples past the end (case `past_end`, output `+0.0`; the phase columns there show `n * inc mod 2^64` only for reference).
+Per channel at sample `n`: the theta tap (the same in both channels, and equal to the stereo bus tap) and `out` (and so `join` and `master`), as the 64-bit pattern of the binary64 value (big-endian hex), from the engine sine bits. For the Python reference (Story 1.5), the ideal values of the same phases at 25 significant digits: the theta ideal is the ideal sine of the theta phase (`0` without a theta reference), and the left and right ideal is the exact sum of the theta ideal and the ideal sine of that ear's binaural phase, rounded once. Indices cover the start, inside the first block (37), both sides of block boundaries (63, 64, 65, 127, 128), the last sample, and two samples past the end (case `past_end`, output and taps `+0.0`; the phase columns there show `n * inc mod 2^64` only for reference).
 
-| Case | Fixture | fs | n | Left phase | Right phase | Left (binary64 bits) | Right (binary64 bits) | Left ideal | Right ideal |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| signal | stub-chain-1s-beat-0.json | 44100 | 0 | 0 | 0 | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
-| signal | stub-chain-1s-beat-0.json | 44100 | 1 | 167317406564258976 | 167317406564258976 | `0x3fad29cb9b37d823` | `0x3fad29cb9b37d823` | 0.05695949811699588082821784 | 0.05695949811699588082821784 |
-| signal | stub-chain-1s-beat-0.json | 44100 | 37 | 6190744042877582112 | 6190744042877582112 | `0x3feb7b6766e57522` | `0x3feb7b6766e57522` | 0.8588139545676504221948019 | 0.8588139545676504221948019 |
-| signal | stub-chain-1s-beat-0.json | 44100 | 63 | 10540996613548315488 | 10540996613548315488 | `0xbfdbc4c04d71ab6b` | `0xbfdbc4c04d71ab6b` | -0.4338837391175582060517134 | -0.4338837391175582060517134 |
-| signal | stub-chain-1s-beat-0.json | 44100 | 64 | 10708314020112574464 | 10708314020112574464 | `0xbfdf0204259d18ed` | `0xbfdf0204259d18ed` | -0.4844980590172913433609441 | -0.4844980590172913433609441 |
-| signal | stub-chain-1s-beat-0.json | 44100 | 65 | 10875631426676833440 | 10875631426676833440 | `0xbfe112c0cf000a2a` | `0xbfe112c0cf000a2a` | -0.5335392039273008030990806 | -0.5335392039273008030990806 |
-| signal | stub-chain-1s-beat-0.json | 44100 | 127 | 2802566559951338336 | 2802566559951338336 | `0x3fea1d4b1303391b` | `0x3fea1d4b1303391b` | 0.8160758373504609394748650 | 0.8160758373504609394748650 |
-| signal | stub-chain-1s-beat-0.json | 44100 | 128 | 2969883966515597312 | 2969883966515597312 | `0x3feb201da08aaea4` | `0x3feb201da08aaea4` | 0.8476703774954675153881825 | 0.8476703774954675153881825 |
-| signal | stub-chain-1s-beat-0.json | 44100 | 1000 | 1296709900873011456 | 1296709900873011456 | `0x3fdb5b69fc937bf6` | `0x3fdb5b69fc937bf6` | 0.4274544683993928451059901 | 0.4274544683993928451059901 |
-| signal | stub-chain-1s-beat-0.json | 44100 | 44099 | 18279426667145487840 | 18279426667145487840 | `0xbfad29cb9b37b2c5` | `0xbfad29cb9b37b2c5` | -0.05695949811692950127809172 | -0.05695949811692950127809172 |
-| past_end | stub-chain-1s-beat-0.json | 44100 | 44100 | 195200 | 195200 | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
-| past_end | stub-chain-1s-beat-0.json | 44100 | 44163 | 10540996613548510688 | 10540996613548510688 | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
-| signal | stub-chain-1s-beat-6.json | 44100 | 0 | 0 | 0 | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
-| signal | stub-chain-1s-beat-6.json | 44100 | 1 | 167317406564258976 | 169827167662722848 | `0x3fad29cb9b37d823` | `0x3fad99a883a44bcb` | 0.05695949811699588082821784 | 0.05781294447856274452417341 |
-| signal | stub-chain-1s-beat-6.json | 44100 | 37 | 6190744042877582112 | 6283605203520745376 | `0x3feb7b6766e57522` | `0x3feaf32b13347803` | 0.8588139545676504221948019 | 0.8421836258699130379169257 |
-| signal | stub-chain-1s-beat-6.json | 44100 | 63 | 10540996613548315488 | 10699111562751539424 | `0xbfdbc4c04d71ab6b` | `0xbfded50d5cbfa7d4` | -0.4338837391175582060517134 | -0.4817536741017151217830130 |
-| signal | stub-chain-1s-beat-6.json | 44100 | 64 | 10708314020112574464 | 10868938730414262272 | `0xbfdf0204259d18ed` | `0xbfe102f282785273` | -0.4844980590172913433609441 | -0.5316097782366992032397370 |
-| signal | stub-chain-1s-beat-6.json | 44100 | 65 | 10875631426676833440 | 11038765898076985120 | `0xbfe112c0cf000a2a` | `0xbfe28cccf5d2bd84` | -0.5335392039273008030990806 | -0.5796875764119821427058634 |
-| signal | stub-chain-1s-beat-6.json | 44100 | 127 | 2802566559951338336 | 3121306219456250080 | `0x3fea1d4b1303391b` | `0x3febf6ef6819bf2b` | 0.8160758373504609394748650 | 0.8738934552123502347675707 |
-| signal | stub-chain-1s-beat-6.json | 44100 | 128 | 2969883966515597312 | 3291133387118972928 | `0x3feb201da08aaea4` | `0x3fecd1303b0c6f48` | 0.8476703774954675153881825 | 0.9005356941873221576166352 |
-| signal | stub-chain-1s-beat-6.json | 44100 | 1000 | 1296709900873011456 | 3806470999336883456 | `0x3fdb5b69fc937bf6` | `0x3feecdd15adf0ec3` | 0.4274544683993928451059901 | 0.9626242469500113226014117 |
-| signal | stub-chain-1s-beat-6.json | 44100 | 44099 | 18279426667145487840 | 18276916906046469472 | `0xbfad29cb9b37b2c5` | `0xbfad99a883a49093` | -0.05695949811692950127809172 | -0.05781294447868492042036602 |
-| past_end | stub-chain-1s-beat-6.json | 44100 | 44100 | 195200 | 18446744073709192320 | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
-| past_end | stub-chain-1s-beat-6.json | 44100 | 44163 | 10540996613548510688 | 10699111562751180128 | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
-| signal | stub-chain-1s-beat-0.json | 48000 | 0 | 0 | 0 | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
-| signal | stub-chain-1s-beat-0.json | 48000 | 1 | 153722867280912928 | 153722867280912928 | `0x3faacbc748efc90d` | `0x3faacbc748efc90d` | 0.05233595624294383199647519 | 0.05233595624294383199647519 |
-| signal | stub-chain-1s-beat-0.json | 48000 | 37 | 5687746089393778336 | 5687746089393778336 | `0x3feddfe40e0a16f9` | `0x3feddfe40e0a16f9` | 0.9335804264972017586249994 | 0.9335804264972017586249994 |
-| signal | stub-chain-1s-beat-0.json | 48000 | 63 | 9684540638697514464 | 9684540638697514464 | `0xbfc4060b67a85374` | `0xbfc4060b67a85374` | -0.1564344650402308237954378 | -0.1564344650402308237954378 |
-| signal | stub-chain-1s-beat-0.json | 48000 | 64 | 9838263505978427392 | 9838263505978427392 | `0xbfca9cd9ac4258f4` | `0xbfca9cd9ac4258f4` | -0.2079116908177592916130729 | -0.2079116908177592916130729 |
-| signal | stub-chain-1s-beat-0.json | 48000 | 65 | 9991986373259340320 | 9991986373259340320 | `0xbfd0907dc193068f` | `0xbfd0907dc193068f` | -0.2588190451025207167267224 | -0.2588190451025207167267224 |
-| signal | stub-chain-1s-beat-0.json | 48000 | 127 | 1076060070966390240 | 1076060070966390240 | `0x3fd6ef801fced334` | `0x3fd6ef801fced334` | 0.3583679495453001873303604 | 0.3583679495453001873303604 |
-| signal | stub-chain-1s-beat-0.json | 48000 | 128 | 1229782938247303168 | 1229782938247303168 | `0x3fda07f921061aac` | `0x3fda07f921061aac` | 0.4067366430758001227852814 | 0.4067366430758001227852814 |
-| signal | stub-chain-1s-beat-0.json | 48000 | 1000 | 6148914691236515072 | 6148914691236515072 | `0x3febb67ae8304f95` | `0x3febb67ae8304f95` | 0.8660254037844390100833584 | 0.8660254037844390100833584 |
-| signal | stub-chain-1s-beat-0.json | 48000 | 47999 | 18293021206428536288 | 18293021206428536288 | `0xbfaacbc748efdca9` | `0xbfaacbc748efdca9` | -0.05233595624297866288142971 | -0.05233595624297866288142971 |
-| past_end | stub-chain-1s-beat-0.json | 48000 | 48000 | 18446744073709449216 | 18446744073709449216 | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
-| past_end | stub-chain-1s-beat-0.json | 48000 | 48063 | 9684540638697412064 | 9684540638697412064 | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
-| signal | stub-chain-1s-beat-6.json | 48000 | 0 | 0 | 0 | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
-| signal | stub-chain-1s-beat-6.json | 48000 | 1 | 153722867280912928 | 156028710290126624 | `0x3faacbc748efc90d` | `0x3fab32943691ffca` | 0.05233595624294383199647519 | 0.05312026182309600005348163 |
-| signal | stub-chain-1s-beat-6.json | 48000 | 37 | 5687746089393778336 | 5773062280734685088 | `0x3feddfe40e0a16f9` | `0x3fed875c9c710b63` | 0.9335804264972017586249994 | 0.9227736539025889752379847 |
-| signal | stub-chain-1s-beat-6.json | 48000 | 63 | 9684540638697514464 | 9829808748277977312 | `0xbfc4060b67a85374` | `0xbfca4084ea41d438` | -0.1564344650402308237954378 | -0.2050939697107041366324120 |
-| signal | stub-chain-1s-beat-6.json | 48000 | 64 | 9838263505978427392 | 9985837458568103936 | `0xbfca9cd9ac4258f4` | `0xbfd06f562d622a07` | -0.2079116908177592916130729 | -0.2567954486081877568016917 |
-| signal | stub-chain-1s-beat-6.json | 48000 | 65 | 9991986373259340320 | 10141866168858230560 | `0xbfd0907dc193068f` | `0xbfd3b2887dd1395d` | -0.2588190451025207167267224 | -0.3077717999157324689723483 |
-| signal | stub-chain-1s-beat-6.json | 48000 | 127 | 1076060070966390240 | 1368902133136529632 | `0x3fd6ef801fced334` | `0x3fdcc57963b780fd` | 0.3583679495453001873303604 | 0.4495528672978471735681411 |
-| signal | stub-chain-1s-beat-6.json | 48000 | 128 | 1229782938247303168 | 1524930843426656256 | `0x3fda07f921061aac` | `0x3fdfc47e64f6993d` | 0.4067366430758001227852814 | 0.4963680253953768304001433 |
-| signal | stub-chain-1s-beat-6.json | 48000 | 1000 | 6148914691236515072 | 8454757700450211072 | `0x3febb67ae8304f95` | `0x3fd0907dc1930691` | 0.8660254037844390100833584 | 0.2588190451025207904240843 |
-| signal | stub-chain-1s-beat-6.json | 48000 | 47999 | 18293021206428536288 | 18290715363419420896 | `0xbfaacbc748efdca9` | `0xbfab329436920093` | -0.05233595624297866288142971 | -0.05312026182309739323110318 |
-| past_end | stub-chain-1s-beat-6.json | 48000 | 48000 | 18446744073709449216 | 18446744073709547520 | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
-| past_end | stub-chain-1s-beat-6.json | 48000 | 48063 | 9684540638697412064 | 9829808748277973216 | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| Case | Fixture | fs | n | Theta phase | Left phase | Right phase | Theta (binary64 bits) | Left (binary64 bits) | Right (binary64 bits) | Theta ideal | Left ideal | Right ideal |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| signal | stub-chain-1s-beat-0.json | 44100 | 0 | 0 | 0 | 0 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 | 0 |
+| signal | stub-chain-1s-beat-0.json | 44100 | 1 | 0 | 167317406564258976 | 167317406564258976 | `0x0000000000000000` | `0x3fad29cb9b37d823` | `0x3fad29cb9b37d823` | 0 | 0.05695949811699588082821784 | 0.05695949811699588082821784 |
+| signal | stub-chain-1s-beat-0.json | 44100 | 37 | 0 | 6190744042877582112 | 6190744042877582112 | `0x0000000000000000` | `0x3feb7b6766e57522` | `0x3feb7b6766e57522` | 0 | 0.8588139545676504221948019 | 0.8588139545676504221948019 |
+| signal | stub-chain-1s-beat-0.json | 44100 | 63 | 0 | 10540996613548315488 | 10540996613548315488 | `0x0000000000000000` | `0xbfdbc4c04d71ab6b` | `0xbfdbc4c04d71ab6b` | 0 | -0.4338837391175582060517134 | -0.4338837391175582060517134 |
+| signal | stub-chain-1s-beat-0.json | 44100 | 64 | 0 | 10708314020112574464 | 10708314020112574464 | `0x0000000000000000` | `0xbfdf0204259d18ed` | `0xbfdf0204259d18ed` | 0 | -0.4844980590172913433609441 | -0.4844980590172913433609441 |
+| signal | stub-chain-1s-beat-0.json | 44100 | 65 | 0 | 10875631426676833440 | 10875631426676833440 | `0x0000000000000000` | `0xbfe112c0cf000a2a` | `0xbfe112c0cf000a2a` | 0 | -0.5335392039273008030990806 | -0.5335392039273008030990806 |
+| signal | stub-chain-1s-beat-0.json | 44100 | 127 | 0 | 2802566559951338336 | 2802566559951338336 | `0x0000000000000000` | `0x3fea1d4b1303391b` | `0x3fea1d4b1303391b` | 0 | 0.8160758373504609394748650 | 0.8160758373504609394748650 |
+| signal | stub-chain-1s-beat-0.json | 44100 | 128 | 0 | 2969883966515597312 | 2969883966515597312 | `0x0000000000000000` | `0x3feb201da08aaea4` | `0x3feb201da08aaea4` | 0 | 0.8476703774954675153881825 | 0.8476703774954675153881825 |
+| signal | stub-chain-1s-beat-0.json | 44100 | 1000 | 0 | 1296709900873011456 | 1296709900873011456 | `0x0000000000000000` | `0x3fdb5b69fc937bf6` | `0x3fdb5b69fc937bf6` | 0 | 0.4274544683993928451059901 | 0.4274544683993928451059901 |
+| signal | stub-chain-1s-beat-0.json | 44100 | 44099 | 0 | 18279426667145487840 | 18279426667145487840 | `0x0000000000000000` | `0xbfad29cb9b37b2c5` | `0xbfad29cb9b37b2c5` | 0 | -0.05695949811692950127809172 | -0.05695949811692950127809172 |
+| past_end | stub-chain-1s-beat-0.json | 44100 | 44100 | 0 | 195200 | 195200 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 | 0 |
+| past_end | stub-chain-1s-beat-0.json | 44100 | 44163 | 0 | 10540996613548510688 | 10540996613548510688 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 | 0 |
+| signal | stub-chain-1s-beat-6.json | 44100 | 0 | 0 | 0 | 0 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 | 0 |
+| signal | stub-chain-1s-beat-6.json | 44100 | 1 | 125488054923194224 | 167317406564258976 | 169827167662722848 | `0x3fa5e0ac46c8fa02` | `0x3fb9853bf1006912` | `0x3fb9bd2a6536a2e6` | 0.04272974361491677953819318 | 0.09968924173191266036641102 | 0.1005426880934795240623666 |
+| signal | stub-chain-1s-beat-6.json | 44100 | 37 | 4643058032158186288 | 6190744042877582112 | 6283605203520745376 | `0x3fefff8829a04066` | `0x3ffdbd77c842dac4` | `0x3ffd79599e6a5c34` | 0.9999429085653610340355992 | 1.858756863133011456230401 | 1.842126534435274071952525 |
+| signal | stub-chain-1s-beat-6.json | 44100 | 63 | 7905747460161236112 | 10540996613548315488 | 10699111562751539424 | `0x3fdbc4c04d71ab6b` | `0x0000000000000000` | `0xbfa882687a6fe348` | 0.4338837391175582109618086 | 4.910095206317731145672377e-18 | -0.04786993498415691082120444 |
+| signal | stub-chain-1s-beat-6.json | 44100 | 64 | 8031235515084430336 | 10708314020112574464 | 10868938730414262272 | `0x3fd9478128f3f9e9` | `0xbfb6ea0bf2a47c10` | `0xbfc17cc7b7f955fa` | 0.3949892902309387088149451 | -0.08950876878635263454599898 | -0.1366204880057604944247919 |
+| signal | stub-chain-1s-beat-6.json | 44100 | 65 | 8156723570007624560 | 10875631426676833440 | 11038765898076985120 | `0x3fd6be6fc59643db` | `0xbfc6ce23b0d3a0f2` | `0xbfccb6544c1e6e5a` | 0.3553733281669888977722432 | -0.1781658757603119053268374 | -0.2243142482449932449336203 |
+| signal | stub-chain-1s-beat-6.json | 44100 | 127 | 15936982975245666448 | 2802566559951338336 | 3121306219456250080 | `0xbfe824aa8a2796fb` | `0x3faf8a088dba2200` | `0x3fbe9226ef914180` | -0.7544758509208145590947920 | 0.06159998642964638038007307 | 0.1194176042915356756727788 |
+| signal | stub-chain-1s-beat-6.json | 44100 | 128 | 16062471030168860672 | 2969883966515597312 | 3291133387118972928 | `0xbfe73947615d7ee5` | `0x3fbf36b1f9697df8` | `0x3fc65fa366bbc18c` | -0.7257420446182821692574068 | 0.1219283328771853461307757 | 0.1747936495690399883592284 |
+| signal | stub-chain-1s-beat-6.json | 44100 | 1000 | 14807590480936914304 | 1296709900873011456 | 3806470999336883456 | `0xbfee42a33c1900ae` | `0xbfe094ee3dcf42b3` | `0x3f9165c3d8c1c2a0` | -0.9456344796221872468445355 | -0.5181800112227944017385454 | 0.01698976732782407575687624 |
+| signal | stub-chain-1s-beat-6.json | 44100 | 44099 | 18321256018786150992 | 18279426667145487840 | 18276916906046469472 | `0xbfa5e0ac46c9218b` | `0xbfb9853bf1006a28` | `0xbfb9bd2a6536d90f` | -0.04272974361498701767817979 | -0.09968924173191651895627151 | -0.1005426880936719380985458 |
+| past_end | stub-chain-1s-beat-6.json | 44100 | 44100 | 18446744073709345216 | 195200 | 18446744073709192320 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 | 0 |
+| past_end | stub-chain-1s-beat-6.json | 44100 | 44163 | 7905747460161029712 | 10540996613548510688 | 10699111562751180128 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 | 0 |
+| signal | stub-chain-1s-beat-0.json | 48000 | 0 | 0 | 0 | 0 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 | 0 |
+| signal | stub-chain-1s-beat-0.json | 48000 | 1 | 0 | 153722867280912928 | 153722867280912928 | `0x0000000000000000` | `0x3faacbc748efc90d` | `0x3faacbc748efc90d` | 0 | 0.05233595624294383199647519 | 0.05233595624294383199647519 |
+| signal | stub-chain-1s-beat-0.json | 48000 | 37 | 0 | 5687746089393778336 | 5687746089393778336 | `0x0000000000000000` | `0x3feddfe40e0a16f9` | `0x3feddfe40e0a16f9` | 0 | 0.9335804264972017586249994 | 0.9335804264972017586249994 |
+| signal | stub-chain-1s-beat-0.json | 48000 | 63 | 0 | 9684540638697514464 | 9684540638697514464 | `0x0000000000000000` | `0xbfc4060b67a85374` | `0xbfc4060b67a85374` | 0 | -0.1564344650402308237954378 | -0.1564344650402308237954378 |
+| signal | stub-chain-1s-beat-0.json | 48000 | 64 | 0 | 9838263505978427392 | 9838263505978427392 | `0x0000000000000000` | `0xbfca9cd9ac4258f4` | `0xbfca9cd9ac4258f4` | 0 | -0.2079116908177592916130729 | -0.2079116908177592916130729 |
+| signal | stub-chain-1s-beat-0.json | 48000 | 65 | 0 | 9991986373259340320 | 9991986373259340320 | `0x0000000000000000` | `0xbfd0907dc193068f` | `0xbfd0907dc193068f` | 0 | -0.2588190451025207167267224 | -0.2588190451025207167267224 |
+| signal | stub-chain-1s-beat-0.json | 48000 | 127 | 0 | 1076060070966390240 | 1076060070966390240 | `0x0000000000000000` | `0x3fd6ef801fced334` | `0x3fd6ef801fced334` | 0 | 0.3583679495453001873303604 | 0.3583679495453001873303604 |
+| signal | stub-chain-1s-beat-0.json | 48000 | 128 | 0 | 1229782938247303168 | 1229782938247303168 | `0x0000000000000000` | `0x3fda07f921061aac` | `0x3fda07f921061aac` | 0 | 0.4067366430758001227852814 | 0.4067366430758001227852814 |
+| signal | stub-chain-1s-beat-0.json | 48000 | 1000 | 0 | 6148914691236515072 | 6148914691236515072 | `0x0000000000000000` | `0x3febb67ae8304f95` | `0x3febb67ae8304f95` | 0 | 0.8660254037844390100833584 | 0.8660254037844390100833584 |
+| signal | stub-chain-1s-beat-0.json | 48000 | 47999 | 0 | 18293021206428536288 | 18293021206428536288 | `0x0000000000000000` | `0xbfaacbc748efdca9` | `0xbfaacbc748efdca9` | 0 | -0.05233595624297866288142971 | -0.05233595624297866288142971 |
+| past_end | stub-chain-1s-beat-0.json | 48000 | 48000 | 0 | 18446744073709449216 | 18446744073709449216 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 | 0 |
+| past_end | stub-chain-1s-beat-0.json | 48000 | 48063 | 0 | 9684540638697412064 | 9684540638697412064 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 | 0 |
+| signal | stub-chain-1s-beat-6.json | 48000 | 0 | 0 | 0 | 0 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 | 0 |
+| signal | stub-chain-1s-beat-6.json | 48000 | 1 | 115292150460684704 | 153722867280912928 | 156028710290126624 | `0x3fa419dcd176e0f7` | `0x3fb772d20d335502` | `0x3fb7a63884047060` | 0.03925981575906861119904054 | 0.09159577200201244319551573 | 0.09238007758216461125252217 |
+| signal | stub-chain-1s-beat-6.json | 48000 | 37 | 4265809567045334048 | 5687746089393778336 | 5773062280734685088 | `0x3fefc737752ed6b5` | `0x3ffed38dc19c76d7` | `0x3ffea74a08cff10c` | 0.9930684569549263051176463 | 1.926648883452128063742646 | 1.915842110857515280355631 |
+| signal | stub-chain-1s-beat-6.json | 48000 | 63 | 7263405479023136352 | 9684540638697514464 | 9829808748277977312 | `0x3fe3cf9e1d2de032` | `0x3fdd9c36868796aa` | `0x3fda7ef9c53ad648` | 0.6190939493098338790901999 | 0.4626594842696030552947621 | 0.4139999795991297424577879 |
+| signal | stub-chain-1s-beat-6.json | 48000 | 64 | 7378697629483821056 | 9838263505978427392 | 9985837458568103936 | `0x3fe2cf2304754cf2` | `0x3fd84fd932c96d6a` | `0x3fd52eefdb886fdd` | 0.5877852522924730162989104 | 0.3798735614747137246858375 | 0.3309898036842852594972187 |
+| signal | stub-chain-1s-beat-6.json | 48000 | 65 | 7493989779944505760 | 9991986373259340320 | 10141866168858230560 | `0x3fe1c73b39ae62fa` | `0x3fd2fdf8b1c9bf65` | `0x3fcfb7dbeb17192e` | 0.5555702330196021069280287 | 0.2967511879170813902013063 | 0.2477984331038696379556804 |
+| signal | stub-chain-1s-beat-6.json | 48000 | 127 | 14642103108506957408 | 1076060070966390240 | 1368902133136529632 | `0xbfeecc6eea114c67` | `0xbfe354aeda29e2cd` | `0xbfe069b238358be8` | -0.9624552364536472124820967 | -0.6040872869083470251517364 | -0.5129023691558000389139556 |
+| signal | stub-chain-1s-beat-6.json | 48000 | 128 | 14757395258967642112 | 1229782938247303168 | 1524930843426656256 | `0xbfee6f0e11997583` | `0xbfe16b118116682d` | `0xbfdd199dbe3c51c9` | -0.9510565162951534858915881 | -0.5443198732193533631063068 | -0.4546884908997766554914448 |
+| signal | stub-chain-1s-beat-6.json | 48000 | 1000 | 4611686018427394304 | 6148914691236515072 | 8454757700450211072 | `0x3fefffffe1cbd433` | `0x3ffddb3d64fe11e4` | `0x3ff4241f614aabbe` | 1 | 1.866025403784439010083358 | 1.258819045102520790424084 |
+| signal | stub-chain-1s-beat-6.json | 48000 | 47999 | 18331451923249174112 | 18293021206428536288 | 18290715363419420896 | `0xbfa419dcd176a61b` | `0xbfb772d20d334162` | `0xbfb7a63884045357` | -0.03925981575896405581470655 | -0.09159577200194271869613626 | -0.09238007758206144904580974 |
+| past_end | stub-chain-1s-beat-6.json | 48000 | 48000 | 307200 | 18446744073709449216 | 18446744073709547520 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 | 0 |
+| past_end | stub-chain-1s-beat-6.json | 48000 | 48063 | 7263405479023443552 | 9684540638697412064 | 9829808748277973216 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 | 0 |
 
 ## 24-bit rounding
 
@@ -467,5 +482,5 @@ else:                   v = x rounded to the nearest integer, ties to even
 | round | -0.5 | `-0x1.0000000000000p-1` | `-0x1.0000000000000p+22` | -4194304 | `0000c0` |
 | round | +0.1 (x about 838860.8) | `0x1.999999999999ap-4` | `0x1.999999999999ap+19` | 838861 | `cdcc0c` |
 | round | -0.1 | `-0x1.999999999999ap-4` | `-0x1.999999999999ap+19` | -838861 | `3333f3` |
-| round | stub chain sample (beat 6, 44.1 kHz, n = 37, left) | `0x1.b7b6766e57522p-1` | `0x1.b7b6766e57522p+22` | 7204254 | `9eed6d` |
-| round | stub chain sample (beat 6, 48 kHz, n = 63, right) | `-0x1.a4084ea41d438p-3` | `-0x1.a4084ea41d438p+20` | -1720453 | `7bbfe5` |
+| round | stub chain sample (beat 0, 44.1 kHz, n = 37, left) | `0x1.b7b6766e57522p-1` | `0x1.b7b6766e57522p+22` | 7204254 | `9eed6d` |
+| round | 406 Hz binaural sine sample (48 kHz, n = 63) | `-0x1.a4084ea41d438p-3` | `-0x1.a4084ea41d438p+20` | -1720453 | `7bbfe5` |

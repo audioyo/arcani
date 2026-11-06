@@ -3,7 +3,7 @@
 //
 // Renders in internal blocks of kBlockFrames frames, buffered to any host
 // request length. Every sample is a pure function of the plan and its sample
-// index: the binaural oscillator phase at frame n is n * inc mod 2^64, so
+// index: each oscillator phase at frame n is n * inc mod 2^64, so
 // seek sets it directly and reads no earlier output. render() and seek()
 // never allocate, throw, or do I/O; the constructor holds every buffer.
 
@@ -50,6 +50,7 @@ class Renderer {
 
   const plan::Plan& plan_;
   std::uint64_t position_ = 0;
+  std::uint64_t theta_phase_ = 0;
   std::array<std::uint64_t, 2> phase_{0, 0};
   Block theta_{};
   Block gamma_{};

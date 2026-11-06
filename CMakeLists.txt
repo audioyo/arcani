@@ -25,7 +25,7 @@ set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 # any earlier fp option. Other fast-math effects of an earlier flag are not
 # undone; tools/check_compile_flags.py catches them.
 # Warnings as errors apply to arcani_engine, arcani-render, and the test-only
-# arcani-hashprobe.
+# arcani-hashprobe and arcani-tapdump.
 if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
   set(ARCANI_TOOLCHAIN_NAME "clang-cl")
   set(ARCANI_FP_FLAGS "/clang:-ffp-contract=off")
@@ -63,4 +63,6 @@ if(ARCANI_BUILD_TESTS)
 
   enable_testing()
   add_subdirectory(tests/cpp)
+  # Engine tap dump for the Python reference match (Story 1.5, test only).
+  add_subdirectory(tests/tapdump)
 endif()

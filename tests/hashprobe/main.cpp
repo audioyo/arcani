@@ -33,8 +33,9 @@
 // platforms they are compared exactly against windows-x64.
 //
 // Components stub-chain-44100 and stub-chain-48000 (Story 1.2): the embedded
-// recipe kStubChainRecipe (1 s, a 400 Hz unmodulated sine in the left ear and
-// a 406 Hz unmodulated sine in the right ear) compiled in measure mode and
+// recipe kStubChainRecipe (1 s, a 300 Hz unmodulated theta reference sine in
+// both channels (Story 1.5), a 400 Hz unmodulated binaural sine in the left ear
+// and a 406 Hz unmodulated binaural sine in the right ear) compiled in measure mode and
 // rendered through the public C API (arc_compile, arc_render) in one call,
 // interleaved stereo (left, right per frame), each binary64 sample converted
 // to float32 (docs/signal-spec.md, Stub chain). Like the sine components they
@@ -92,9 +93,12 @@ constexpr char kStubChainRecipe[] = R"({
   "seed": 42,
   "author": "Arcani hash probe",
   "date": "2026-11-04",
-  "rationale": "Hash probe stub chain component (Story 1.2): 400 Hz unmodulated sine in the left ear, 406 Hz unmodulated sine in the right ear, 1 s.",
+  "rationale": "Hash probe stub chain component (Stories 1.2 and 1.5): 300 Hz unmodulated theta reference sine in both channels, 400 Hz unmodulated sine in the left ear, 406 Hz unmodulated sine in the right ear, 1 s.",
   "length_s": 1,
   "loudness_target_lufs": -36,
+  "theta_reference": {
+    "carrier_hz": 300
+  },
   "binaural": {
     "carrier_left_hz": 400,
     "beat_rate_hz": 6
