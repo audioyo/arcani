@@ -2,7 +2,7 @@
 title: 'Story 1.6: Determinism and block-size invariance'
 type: 'feature'
 created: '2026-11-06'
-status: 'in-review'
+status: 'done'
 baseline_commit: '9f2425b6284ff3f5bac4ceeaf205d3d7510187b2'
 route: 'dispatch'
 review_loop_iteration: 0
