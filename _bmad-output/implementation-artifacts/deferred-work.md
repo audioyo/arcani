@@ -82,3 +82,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-2-c-api-fixed-stage-list-seek-and-isolation-assertion.md`
   summary: Prove the denormal guard at the C API call sites with a fixture whose output contains subnormals, rendered with host FTZ and DAZ set and compared byte for byte with an IEEE-mode render, once a layer (Epic 2 envelopes or ramps) can produce one.
   evidence: Review finding VG (Story 1.2 triage row 21): the stub chain never produces a subnormal, so deleting a call-site guard keeps the flush-mode tests green; the host-rounding test added in review observes the call sites for rounding only.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-6-determinism-and-block-size-invariance.md`
+  summary: Make the hash probe report how many `arc_render` calls (and of which sizes) produced each `stub-chain-blocks-*` component, and assert it against row `block-sizes`, so a loop bug that renders in one call cannot pass the block-size proof on Android.
+  evidence: Review pass 1 finding 20 (Story 1.6, verification gap); today only byte equality with the one-call component and a source-text check of `kBlockSizes` are tested.

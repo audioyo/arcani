@@ -2,7 +2,7 @@
 title: 'Story 1.6: Determinism and block-size invariance'
 type: 'feature'
 created: '2026-11-06'
-status: 'in-progress'
+status: 'in-review'
 baseline_commit: '9f2425b6284ff3f5bac4ceeaf205d3d7510187b2'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -128,3 +128,34 @@ Throwaway proof (a copy of the working tree in the system temp folder, not in th
 ## Spec Change Log
 
 ## Review Triage Log
+
+Pass 1 (2026-11-06): blind hunter (BH), edge case hunter (EC), verification gap (VG), all fresh context, on diff 9f2425b..62bf4e9 (guidebook and `_bmad-output` left out).
+
+| # | Finding | Verdict | Evidence | Route |
+|---|---------|---------|----------|-------|
+| 1 | BH, EC, VG: fma real-build must-fail asserts an `fma` symbol on every host | high | `test_engine_symbols.py:705` is unconditional; windows-arm64 and macos-arm64 full jobs run the full pytest with cmake, where `std::fma` lowers to `fmadd` and leaves no symbol | patch |
+| 2 | BH: quad must-fail never runs where binary128 `long double` exists (Linux or Android arm64) | low | no test host is aarch64 Linux; the synthetic nm rows cover every pattern | reject |
+| 3 | BH: source scan misses hardware randomness and timer intrinsics (`_rdrand*_step`, `_rdseed*_step`, `__rdtsc`, `__builtin_readcyclecounter`, `__rndr`) | medium | they compile to instructions, so no symbol exists; the intent bans every unseeded randomness source | patch |
+| 4 | BH: `<random>` engines and distributions banned only by the include line | low | header-only templates leave no symbol and could arrive through a transitive include; adding the names to the scan is a direct addition | patch (with 3) |
+| 5 | BH, EC: scan misses extended precision types (`__float128`, `_Float128`, `__float80`, `__ibm128`, `_Float64x`) | medium | folded or inline arithmetic on them leaves no `tf` symbol, the same reason `long double` is scanned | patch |
+| 6 | BH, EC: scan transcendental list misses C++17 special math, Bessel `j0`..`yn`, `lgamma_r`, `sinpi`/`cospi`/`tanpi`, `sincospi` | medium | `TRANSCENDENTALS` in `check_engine_source.py` is shorter than the libm family; a folded special-math call passes both checks | patch |
+| 7 | BH, EC, VG: member calls (`obj.log(`, `p->exp(`) fail as transcendental calls | low | the lookbehind rejects only a word character; direct correction to the lookbehind | patch |
+| 8 | VG, EC: `(std::sin)(x)` or a macro alias bypasses the scan | low | unlikely in engine code; the fix adds a broader rule | reject |
+| 9 | BH: WAV writer not checked for fenv; source scan does not cover `cli/wav.cpp` | low | the frozen decision fixes the WAV writer families at randomness and clock; the flag check already covers `cli/` | reject |
+| 10 | BH, EC: WAV writer family filter passes silently if a family is renamed | low | needs a family rename in the JSON; the fix adds a guard branch | reject |
+| 11 | BH: no stated way to update the engine-scope pins when Epic 2 changes the stub chain | medium | `probe_reference.py --write` rewrites only `probe-arith`; nothing says the source or approval for the other pins | patch (design log) |
+| 12 | BH, EC: contract job requires engine equality on linux-arm64, not one of the four proven platforms | maybe-false | settled by this PR's full run; if it differs, the engine has a Core zone mismatch, which AD-9 calls a bug | CI gate before merge |
+| 13 | BH: must-differ ignores manifest components with no expected entry | low | `test_every_probe_component_has_an_expected_entry` guards it wherever cmake runs, which includes CI | reject |
+| 14 | BH: block-size invariance not tested after a seek | false | `tests/cpp/test_seek.cpp:113` seeks to 37 and renders in chunks 1, 26, 64, 65, 1, 4000 against the full render | reject |
+| 15 | BH: determinism evidence uses only 1 s fixtures | low | long-session drift is Story 5.1; the engine output is a pure function of the sample index | reject |
+| 16 | BH: two-process test varies no locale or environment | low | the env and locale family is deferred by the intent | reject |
+| 17 | BH: CLI block-size comparison uses only beat-6 | low | `test_cli.cpp:816`; direct change to loop both fixtures | patch |
+| 18 | BH: odd-size check and the "prime" rationale do not match | low | the property that matters is a member above 64 that is not a multiple of 64; direct test and text correction | patch |
+| 19 | BH: `#else` fallback in `test_determinism.cpp` is dead scaffolding | low | `ARC_ERROR_FIELD_BYTES` is defined in `arcani.h:34`; deletion | patch |
+| 20 | VG: probe block components cannot show they came from cycled calls | medium | a loop bug that renders in one call passes every equality and pin check; closing it needs a probe output change | defer |
+| 21 | EC: must-differ traceback when a manifest component is not an object | low | needs a hand-made bad manifest; the fix adds a guard | reject |
+| 22 | EC: `arc_error e;` uninitialized in `determinism_helpers.hpp:48` | low | read only on the failure path; direct correction `arc_error e{};` | patch |
+| 23 | EC: non-integer `block-sizes` value truncated | low | the table loader and row are integers; the fix adds a guard | reject |
+| 24 | EC: determinism key equality across block sizes never measured | low | `arcani-render` has no block-size input, and the key comes from the plan only | reject |
+
+- Review pass 1 patches in 6e39e7f (triage rows 1, 3 to 7, 11, 17 to 19, 22). Row 20 deferred to `deferred-work.md`. Row 12 is settled by this PR's full run before merge. Orchestrator check: `windows-clang-cl` workflow 4/4 ctest entries pass; `uv run pytest` 1,419 passed, 2 NDK-only skips; engine source, pragma, wording, vector, row coverage, and table log checks exit 0.

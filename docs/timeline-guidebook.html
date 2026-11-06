@@ -445,11 +445,11 @@ var EPICS = [
       ["x","Engine float output and taps within -100 dBFS of the reference at 44.1 and 48 kHz"],
       ["x","Below the minimum level the match fails as silent; a -90 dBFS doctored error fails"]
     ] },
-  { id:"1.6", title:"Determinism and block-size invariance", status:"in-progress",
+  { id:"1.6", title:"Determinism and block-size invariance", status:"review",
     plain:"Every render is a pure function of recipe, engine version, seed, and sample rate.",
     spec:["spec-1-6-determinism-and-block-size-invariance.md"],
-    steps:[true,true,true,false,false,false,false],
-    stepNotes:["Spec approved 2026-11-06 by Audio; build agent settled the denylist families, source scan, odd block size 997, and hash entry choices","8047a9d: fresh-context QA agent; block-size, repeat-render, denylist, source scan, hash compare, and probe tests; 1 C++ case and 189 pytest cases fail until the checkers, rows, and hash entries land","0252c07: randomness, fused multiply-add, and quad precision denylist families plus the WAV writer check; engine source scan in every fast and full job; probe stub-chain-blocks components; seven scoped hash entries (full run 42236304155); row block-sizes adds 997; 4/4 ctest entries, 1,404 pytest pass; wording, pragma, source scan, row coverage, and table log checks pass; design log (kk)","","","",""],
+    steps:[true,true,true,true,false,false,false],
+    stepNotes:["Spec approved 2026-11-06 by Audio; build agent settled the denylist families, source scan, odd block size 997, and hash entry choices","8047a9d: fresh-context QA agent; block-size, repeat-render, denylist, source scan, hash compare, and probe tests; 1 C++ case and 189 pytest cases fail until the checkers, rows, and hash entries land","0252c07: randomness, fused multiply-add, and quad precision denylist families plus the WAV writer check; engine source scan in every fast and full job; probe stub-chain-blocks components; seven scoped hash entries (full run 42236304155); row block-sizes adds 997; 4/4 ctest entries, 1,404 pytest pass; wording, pragma, source scan, row coverage, and table log checks pass; design log (kk)","6e39e7f: review pass 1 by three fresh-context reviewers, 24 findings: 10 patched (fma must-fail on arm64, source scan intrinsics, random names, extended types, special math, member calls, pin update rule, test tidy-ups), 12 rejected with reasons, 1 deferred, 1 left to the full run","","",""],
     acs:[
       ["x","Two renders (same process and separate processes) are byte-identical"],
       ["x","Byte-identical at 1, 64, 512, 4096, and 997 frames per call"],
@@ -709,6 +709,7 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-06","6e39e7f","1.6","Code review pass 1: 10 findings patched (fma must-fail now x86-64 only, source scan gains hardware intrinsics, random library names, extended precision types, special math; pin update rule in design log (kk)), 12 rejected, 1 deferred; sprint-status.yaml set to review"],
   ["2026-11-06","0252c07","1.6","Implementation committed: denylist families and WAV writer check, engine source scan, probe block components, scoped hash entries, row block-sizes adds 997; ctest and pytest pass locally, not pushed"],
   ["2026-11-06","8047a9d","1.6","Failing tests committed by a fresh-context QA agent: block-size and repeat-render checks, denylist families, source scan, hash scope, probe block component; sprint-status.yaml set to in-progress"],
   ["2026-11-06","1c74a15","1.5","PR #10 merged into main; sprint-status.yaml set to done"],
