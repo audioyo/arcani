@@ -24,11 +24,15 @@ component (raw little-endian float32). windows-x64 is the reference platform.
 - A missing platform manifest, a manifest that does not match its data file,
   differing component sets, or differing sample counts fail.
 
-Must-differ mode: DIR holds one manifest and its data. Exit 0 only when every
-component with an expected entry has its data file, the expected sample
-count, and a hash different from the expected one (the contraction must-fail
-job); exit 1 when any matches, a data file is missing, a sample count
-differs, or no component has an entry.
+Must-differ mode: DIR holds one manifest and its data (the contraction
+must-fail job). Every expected entry has a `scope`, "probe" or "engine"
+(Story 1.6). The contraction flags reach only the probe file, so every
+`probe` component must differ from its expected hash and every `engine`
+component must equal it. Exit 0 only when both hold and every entry has its
+data file and the expected sample count; exit 1 when a probe component
+matches, an engine component differs, a data file is missing, a sample count
+differs, a scope is missing or unknown, or no probe component is checked.
+Compare mode ignores `scope`.
 
 Exit 0 or 1, one line per violation. Standard library only.
 """
@@ -281,30 +285,46 @@ def compare(args):
     return 0
 
 
+SCOPES = ("probe", "engine")
+
+
 def must_differ(args):
+    """Contracted build check (Story 1.6 scopes).
+
+    The contraction flags reach only the probe file, so every `probe` entry must
+    differ from its expected hash and every `engine` entry must equal it.
+    """
     problems = []
     expected = load_expected(args.expected, problems)
     directory = Path(args.must_differ)
     try:
         manifest = load_json(directory / "manifest.json")
         components = manifest["components"]
+        if not isinstance(components, dict):
+            raise ValueError("components is not an object")
     except (OSError, ValueError, KeyError, TypeError) as exc:
         print(f"must-differ: cannot read manifest in {directory}: {exc}")
         return 1
-    checked = 0
-    for comp, info in sorted(components.items()):
-        if comp not in expected:
+    probes_checked = 0
+    for comp, want in sorted(expected.items()):
+        scope = want.get("scope") if isinstance(want, dict) else None
+        if scope not in SCOPES:
+            problems.append(
+                f"must-differ: {comp}: expected entry has scope {scope!r}; "
+                f"scope must be one of {', '.join(SCOPES)}")
             continue
-        checked += 1
-        found = str(info.get("sha256", "")).lower()
+        info = components.get(comp)
         data_path = directory / f"{comp}.f32"
-        if not data_path.is_file():
-            problems.append(f"must-differ: {comp}: data file {data_path} is missing")
+        if info is None or not data_path.is_file():
+            problems.append(f"must-differ: {comp}: data file {data_path} is missing "
+                            f"(scope {scope})")
             continue
+        found = str(info.get("sha256", "")).lower()
         data = data_path.read_bytes()
         if hashlib.sha256(data).hexdigest() != found:
             problems.append(f"must-differ: {comp}: manifest sha256 {found} does not match its data file")
-        want_samples = expected[comp].get("samples")
+            continue
+        want_samples = want.get("samples")
         if (not isinstance(want_samples, int) or info.get("samples") != want_samples
                 or len(data) != 4 * want_samples):
             problems.append(
@@ -312,15 +332,26 @@ def must_differ(args):
                 f"in the manifest and {len(data) / 4:g} in the data file"
             )
             continue
-        if found == str(expected[comp].get("sha256", "")).lower():
+        want_sha = str(want.get("sha256", "")).lower()
+        if scope == "probe":
+            probes_checked += 1
+            if found == want_sha:
+                problems.append(
+                    f"must-differ: {comp}: sha256 {found} equals ci/hash_expected.json; "
+                    "the contracted build was expected to differ"
+                )
+            else:
+                print(f"must-differ: {comp}: sha256 {found} differs from expected {want.get('sha256')}")
+        elif found != want_sha:
             problems.append(
-                f"must-differ: {comp}: sha256 {found} equals ci/hash_expected.json; "
-                "the contracted build was expected to differ"
+                f"must-differ: {comp}: scope engine: expected sha256 {want.get('sha256')}, "
+                f"found sha256 {found}; the contraction flags reach only the probe file, "
+                "so engine components must not change"
             )
         else:
-            print(f"must-differ: {comp}: sha256 {found} differs from expected {expected[comp].get('sha256')}")
-    if checked == 0:
-        problems.append(f"must-differ: no component in {directory} has an expected entry")
+            print(f"must-differ: {comp}: sha256 {found} equals expected (scope engine)")
+    if probes_checked == 0:
+        problems.append(f"must-differ: no probe component in {directory} has an expected entry")
     for line in problems:
         print(line)
     return 1 if problems else 0

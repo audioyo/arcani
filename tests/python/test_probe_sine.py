@@ -12,15 +12,16 @@ Contract with the probe binary (tests/hashprobe/, target arcani-hashprobe):
   20*log10(max|probe - ideal|) <= bound.
 - tests/hashprobe/main.cpp keeps the probe-arith component and its comment
   block, and names both sine components.
-- ci/hash_expected.json is not changed by this story: it has no sine-* entry
-  (the cross-platform compare is exact against windows-x64 only).
+- Story 0.2 left ci/hash_expected.json without a sine-* entry (the
+  cross-platform compare was exact against windows-x64 only). Story 1.6 adds
+  the sine-* and stub-chain-* entries, scope `engine`
+  (tests/python/test_hash_compare.py has the full entry contract).
 - Story 1.2 adds OUT_DIR/stub-chain-44100.f32 and OUT_DIR/stub-chain-48000.f32:
   an embedded recipe literal (Story 1.5 adds a 300 Hz unmodulated theta
   reference sine to it) rendered through the public C API (arc_render),
   interleaved stereo, raw little-endian float32, so an even sample count; not
   silent and finite. Like the sine components they are compared per run
-  against windows-x64; their expected-file entries stay with Story 1.6, so
-  ci/hash_expected.json has no stub-chain-* entry yet.
+  against windows-x64, and Story 1.6 adds their expected-file entries.
 
 The real build follows tests/python/test_probe_reference.py: configure the
 platform preset with ARCANI_BUILD_TESTS=OFF into a temporary directory, build
@@ -123,15 +124,17 @@ def test_probe_source_names_stub_chain_components():
         assert needle in text, needle
 
 
-def test_expected_hashes_have_no_stub_chain_entry_yet():
-    data = json.loads(EXPECTED.read_text(encoding="utf-8"))
-    assert not [k for k in data["components"] if k.startswith("stub-chain-")], data["components"]
-
-
-def test_expected_hashes_have_no_sine_entry():
-    data = json.loads(EXPECTED.read_text(encoding="utf-8"))
-    assert "probe-arith" in data["components"]
-    assert not [k for k in data["components"] if k.startswith("sine-")], data["components"]
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_expected_hashes_have_sine_and_stub_chain_entries(fs):
+    """Story 1.6 closes the deferred entries: sine-<fs> and stub-chain-<fs>, scope engine."""
+    check_sample_rate(fs)
+    components = json.loads(EXPECTED.read_text(encoding="utf-8"))["components"]
+    assert "probe-arith" in components
+    assert components.get(f"sine-{fs}", {}).get("samples") == 3 * fs, components.get(f"sine-{fs}")
+    assert components.get(f"stub-chain-{fs}", {}).get("samples") == 2 * fs, (
+        components.get(f"stub-chain-{fs}"))
+    for name in (f"sine-{fs}", f"stub-chain-{fs}"):
+        assert components[name].get("scope") == "engine", components[name]
 
 
 # ------------------------------------------------------------- real build

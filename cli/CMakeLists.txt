@@ -2,7 +2,19 @@
 # (wav.cpp, report.cpp), shared by arcani-render and the C++ tests. The CLI
 # reaches the engine only through its public header target, and reads the
 # threshold tables through the assertion library (tests/assertions, AD-17).
-add_library(arcani_cli_core STATIC wav.cpp report.cpp)
+#
+# ARCANI_CLI_TEST_EXTRA_SOURCE is a test-only cache variable
+# (tests/cmake/test_engine_symbols.py), mirroring
+# ARCANI_ENGINE_TEST_EXTRA_SOURCE. When set to a source file path, that file
+# is compiled into arcani_cli_core so the WAV writer symbol check's must-fail
+# case can be exercised. Never set it in presets or CI.
+set(ARCANI_CLI_TEST_EXTRA_SOURCE "" CACHE FILEPATH
+  "Test only: one extra source compiled into arcani_cli_core. Never set in presets or CI.")
+set(_arcani_cli_core_sources wav.cpp report.cpp)
+if(ARCANI_CLI_TEST_EXTRA_SOURCE)
+  list(APPEND _arcani_cli_core_sources "${ARCANI_CLI_TEST_EXTRA_SOURCE}")
+endif()
+add_library(arcani_cli_core STATIC ${_arcani_cli_core_sources})
 target_include_directories(arcani_cli_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(arcani_cli_core PUBLIC arcani::engine arcani::test_tables)
 target_compile_options(arcani_cli_core PRIVATE ${ARCANI_WARNING_FLAGS})

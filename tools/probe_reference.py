@@ -98,7 +98,9 @@ def updated_document(path, samples):
     components = doc.get("components")
     if not isinstance(components, dict):
         components = {}
-    components[COMPONENT] = entry(samples)
+    # The scope tells tools/hash_compare.py --must-differ that the contraction
+    # flags change this component (Story 1.6).
+    components[COMPONENT] = dict(entry(samples), scope="probe")
     doc["components"] = components
     return doc
 

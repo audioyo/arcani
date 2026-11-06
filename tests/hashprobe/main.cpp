@@ -5,7 +5,8 @@
 //
 // Writes one raw little-endian float32 file per component into OUT_DIR
 // (probe-arith.f32, sine-44100.f32, sine-48000.f32, stub-chain-44100.f32,
-// stub-chain-48000.f32). No hashing here:
+// stub-chain-48000.f32, stub-chain-blocks-44100.f32,
+// stub-chain-blocks-48000.f32). No hashing here:
 // tools/hash_manifest.py hashes the files on the host.
 //
 // Component probe-arith: a fixed sequence of float32 multiplies and adds whose
@@ -39,8 +40,16 @@
 // rendered through the public C API (arc_compile, arc_render) in one call,
 // interleaved stereo (left, right per frame), each binary64 sample converted
 // to float32 (docs/signal-spec.md, Stub chain). Like the sine components they
-// are compared per run against windows-x64; their expected-file entries stay
-// with Story 1.6.
+// are compared per run against windows-x64, and ci/hash_expected.json pins
+// them (Story 1.6, scope engine).
+//
+// Components stub-chain-blocks-44100 and stub-chain-blocks-48000 (Story 1.6):
+// the same recipe compiled the same way, rendered in successive arc_render
+// calls whose frame counts cycle through kBlockSizes (the members of threshold
+// row block-sizes, in order; the last call is shortened to the frames left).
+// Block-size invariance means they equal stub-chain-<fs> byte for byte. Android
+// runs no ctest, so this carries the proof to every platform.
+// tests/python/test_probe_determinism.py checks kBlockSizes against the row.
 
 #include <arcani/arcani.h>
 
@@ -105,8 +114,12 @@ constexpr char kStubChainRecipe[] = R"({
   }
 })";
 
-// Empty on any API failure (main reports it).
-std::vector<float> probe_stub_chain(std::uint32_t fs) {
+constexpr std::size_t kBlockSizes[] = {1, 64, 512, 4096, 997};
+
+// Empty on any API failure (main reports it). With cycle_block_sizes false the
+// whole recipe renders in one call; with it true, in calls cycling through
+// kBlockSizes.
+std::vector<float> probe_stub_chain(std::uint32_t fs, bool cycle_block_sizes) {
   arc_compile_options options;
   std::memset(&options, 0, sizeof options);
   options.mode = ARC_MODE_MEASURE;
@@ -122,8 +135,22 @@ std::vector<float> probe_stub_chain(std::uint32_t fs) {
   const auto frames = static_cast<std::size_t>(arc_plan_frame_count(plan));
   arc_renderer* renderer = nullptr;
   std::vector<double> stereo(2 * frames);
-  const bool ok = arc_renderer_create(plan, &renderer, &error) == ARC_OK &&
-                  arc_render(renderer, stereo.data(), frames, nullptr, &error) == ARC_OK;
+  bool ok = arc_renderer_create(plan, &renderer, &error) == ARC_OK;
+  if (ok && !cycle_block_sizes) {
+    ok = arc_render(renderer, stereo.data(), frames, nullptr, &error) == ARC_OK;
+  }
+  if (ok && cycle_block_sizes) {
+    constexpr std::size_t kCount = sizeof kBlockSizes / sizeof kBlockSizes[0];
+    std::size_t done = 0;
+    for (std::size_t call = 0; ok && done < frames; ++call) {
+      std::size_t n = kBlockSizes[call % kCount];
+      if (n > frames - done) {
+        n = frames - done;
+      }
+      ok = arc_render(renderer, stereo.data() + 2 * done, n, nullptr, &error) == ARC_OK;
+      done += n;
+    }
+  }
   arc_renderer_destroy(renderer);
   arc_plan_release(plan);
   if (!ok) {
@@ -173,8 +200,10 @@ int main(int argc, char** argv) {
       {"probe-arith", probe_arith()},
       {"sine-44100", probe_sine(44100)},
       {"sine-48000", probe_sine(48000)},
-      {"stub-chain-44100", probe_stub_chain(44100)},
-      {"stub-chain-48000", probe_stub_chain(48000)},
+      {"stub-chain-44100", probe_stub_chain(44100, false)},
+      {"stub-chain-48000", probe_stub_chain(48000, false)},
+      {"stub-chain-blocks-44100", probe_stub_chain(44100, true)},
+      {"stub-chain-blocks-48000", probe_stub_chain(48000, true)},
   };
   for (const Component& c : components) {
     if (c.samples.empty()) {

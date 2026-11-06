@@ -18,7 +18,7 @@ The repo's threshold table and locked-range table (spine Conventions) are built 
 | Reference match | Engine pre-quantization float output and per-layer taps vs Python reference: less than -100 dBFS, sample by sample; fails as silent when either side peaks below -60 dBFS | Plan Test thresholds; AD-16; design log 2026-11-05 (jj) |
 | Determinism | Same recipe, engine version, seed, sample rate: byte-identical file | CLAUDE.md rule 1; FR-6 |
 | Cross-platform | Identical hashes across the AD-9 CI matrix; a component proven unable falls back to -100 dBFS, logged | AD-9; design log (j) |
-| Block-size invariance | Identical bytes at 1, 64, 512, 4096 frames per call | AD-10 |
+| Block-size invariance | Identical bytes at 1, 64, 512, 4096, and 997 (odd) frames per call | AD-10; design log 2026-11-06 (kk) |
 | Clicks | No discontinuity above -60 dBFS in an 8 kHz high-pass at loop seams, ramp edges, burst edges | Plan Test thresholds |
 | Dropouts | No run of all-zero samples longer than 1 ms in a channel where the recipe sets a non-zero level | Design log (i) |
 | NaN or infinite values | Zero tolerance | FR-13 |
