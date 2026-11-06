@@ -159,3 +159,4 @@ Pass 1 (2026-11-06): blind hunter (BH), edge case hunter (EC), verification gap 
 | 24 | EC: determinism key equality across block sizes never measured | low | `arcani-render` has no block-size input, and the key comes from the plan only | reject |
 
 - Review pass 1 patches in 6e39e7f (triage rows 1, 3 to 7, 11, 17 to 19, 22). Row 20 deferred to `deferred-work.md`. Row 12 is settled by this PR's full run before merge. Orchestrator check: `windows-clang-cl` workflow 4/4 ctest entries pass; `uv run pytest` 1,419 passed, 2 NDK-only skips; engine source, pragma, wording, vector, row coverage, and table log checks exit 0.
+- Row 12 settled false by full run 42285754350: `contract-mustfail` on linux-arm64 matched every `engine` entry; the fma must-fail passed on windows-arm64 and macos-arm64.
