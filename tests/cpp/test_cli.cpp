@@ -812,24 +812,27 @@ TEST_CASE("the arcani-render WAV equals the in-process render at every block-siz
   const tables::Row& invariance = tables::row("block-size-invariance");
   REQUIRE(invariance.unit == "differing bytes");
   const double allowed = invariance.value();
-  for (std::uint32_t rate : table_rates()) {
-    const CliRun cli = render_cli(api::kBeat6, rate, "determinism-blocks-" + std::to_string(rate));
-    for (double size : sizes.values) {
-      const auto block = static_cast<std::size_t>(size);
-      api::PlanPtr plan = api::compile_ok(api::valid(api::kBeat6), api::options(ARC_MODE_MEASURE, rate));
-      const std::uint64_t frames = arc_plan_frame_count(plan.get());
-      api::RendererPtr r = api::renderer(plan.get());
-      std::vector<double> all;
-      const std::string failure = arcani::test::determinism::render_in_blocks(
-          r.get(), frames, block, [&all](const double* s, std::size_t n) { all.insert(all.end(), s, s + 2 * n); });
-      INFO(rate << " Hz, " << block << " frames per call");
-      REQUIRE(failure.empty());
-      std::vector<std::uint8_t> bytes = h::expected_wav_header(frames, rate);
-      const std::vector<std::uint8_t> data = h::spec_data_bytes(all);
-      bytes.insert(bytes.end(), data.begin(), data.end());
-      const std::uint64_t count = arcani::test::determinism::differing_bytes(cli.wav, bytes);
-      INFO(count << " differing bytes, row allows " << allowed);
-      CHECK(static_cast<double>(count) <= allowed);
+  for (const char* fixture : {api::kBeat0, api::kBeat6}) {
+    for (std::uint32_t rate : table_rates()) {
+      const CliRun cli = render_cli(fixture, rate, std::string("determinism-blocks-") + fixture + "-" +
+                                                       std::to_string(rate));
+      for (double size : sizes.values) {
+        const auto block = static_cast<std::size_t>(size);
+        api::PlanPtr plan = api::compile_ok(api::valid(fixture), api::options(ARC_MODE_MEASURE, rate));
+        const std::uint64_t frames = arc_plan_frame_count(plan.get());
+        api::RendererPtr r = api::renderer(plan.get());
+        std::vector<double> all;
+        const std::string failure = arcani::test::determinism::render_in_blocks(
+            r.get(), frames, block, [&all](const double* s, std::size_t n) { all.insert(all.end(), s, s + 2 * n); });
+        INFO(fixture << ", " << rate << " Hz, " << block << " frames per call");
+        REQUIRE(failure.empty());
+        std::vector<std::uint8_t> bytes = h::expected_wav_header(frames, rate);
+        const std::vector<std::uint8_t> data = h::spec_data_bytes(all);
+        bytes.insert(bytes.end(), data.begin(), data.end());
+        const std::uint64_t count = arcani::test::determinism::differing_bytes(cli.wav, bytes);
+        INFO(count << " differing bytes, row allows " << allowed);
+        CHECK(static_cast<double>(count) <= allowed);
+      }
     }
   }
 }

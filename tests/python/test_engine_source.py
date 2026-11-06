@@ -28,9 +28,22 @@ Contract with tools/check_engine_source.py (standard library only):
       [transcendental call];
     * `fma`, `fmaf`, `fmal` used as a call in the same four forms
       [fused multiply-add call];
-    * `#include <random>` (spaces after `#` allowed) [random header].
+    * `#include <random>` (spaces after `#` allowed) [random header];
+    * a hardware random or timer intrinsic (`_rdrand<N>_step`,
+      `_rdseed<N>_step`, `__builtin_ia32_rdrand*`, `__builtin_ia32_rdseed*`,
+      `__rdtsc`, `__rdtscp`, `__builtin_ia32_rdtsc*`,
+      `__builtin_readcyclecounter`, `__rndr`, `__rndrrs`,
+      `__builtin_arm_rndr*`) [hardware intrinsic];
+    * a <random> library name (`mt19937`, `mt19937_64`, `minstd_rand`,
+      `minstd_rand0`, `default_random_engine`, `ranlux*`, `knuth_b`,
+      `random_device`, `*_distribution`, `seed_seq`) [random library name];
+    * `__float128`, `_Float128`, `__float80`, `__ibm128`, `_Float64x`
+      [extended precision type].
+  The transcendental names also include j0 j1 jn y0 y1 yn, lgamma_r,
+  sinpi cospi tanpi sincospi, and the C++17 special math functions.
   A name is matched as a whole identifier: `sine(`, `my_sin(`, and
-  `sin_count` pass. `sqrt`, `std::sqrt`, and `#include <cmath>` pass.
+  `sin_count` pass, and so do member calls (`obj.log(x)`, `p->exp(x)`).
+  `sqrt`, `std::sqrt`, and `#include <cmath>` pass.
 - Exit 1 with one line per violation, exactly
   `<path>:<line>: <text>: <reason>`, where <line> is 1-based and <text> is
   the original source line with surrounding whitespace removed. Exit 1 also
@@ -62,7 +75,10 @@ LITERAL = "long double literal"
 TRANSCENDENTAL = "transcendental call"
 FMA = "fused multiply-add call"
 RANDOM = "random header"
-REASONS = (LONG_DOUBLE, LITERAL, TRANSCENDENTAL, FMA, RANDOM)
+INTRINSIC = "hardware intrinsic"
+RANDOM_NAME = "random library name"
+EXTENDED = "extended precision type"
+REASONS = (LONG_DOUBLE, LITERAL, TRANSCENDENTAL, FMA, RANDOM, INTRINSIC, RANDOM_NAME, EXTENDED)
 
 # Must-fail fixture (path relative to MUSTFAIL) -> (line, reason, text on that line).
 MUSTFAIL_CASES = {
@@ -80,6 +96,10 @@ MUSTFAIL_CASES = {
     "std_fmaf_call.inl": (3, FMA, "std::fmaf(a, b, c)"),
     "include_random.hxx": (3, RANDOM, "#include <random>"),
     "nested/log10_call.c": (3, TRANSCENDENTAL, "log10f(x)"),
+    "riemann_zeta_call.cpp": (3, TRANSCENDENTAL, "std::riemann_zeta(x)"),
+    "rdrand_intrinsic.cpp": (3, INTRINSIC, "_rdrand32_step(&value)"),
+    "mt19937_engine.hpp": (3, RANDOM_NAME, "std::mt19937 engine(seed);"),
+    "float128_type.cpp": (3, EXTENDED, "__float128 wide = x;"),
 }
 FULL_JOBS_WITH_PRAGMA_CHECK_MIN = {"windows-x64", "windows-arm64", "macos-arm64", "android-build"}
 FAST_JOBS = {"linux-x64", "windows-x64"}
@@ -207,6 +227,8 @@ def test_clean_and_mustfail_together_fail():
     "char c = 'L';",
     "int sin_count = 0;",
     "double y = my_sin(x) + obj_exp(x);",
+    "double m = obj.log(x) + p->exp(x);",
+    "double beta_value = 0.5; int y0_index = 0; double random_seed_hz = 1.0;",
     "#include <cmath>",
     "#include <cstdint>",
     "double longdouble = 1.0;",
@@ -233,7 +255,16 @@ def test_allowed_lines_pass(tmp_path, line):
     ("double c = __builtin_fma(a, b, c);", FMA),
     ("double c = ::fma(a, b, c);", FMA),
     ("#  include <random>", RANDOM),
-], ids=lambda s: s[:40] if isinstance(s, str) else s)
+    ("double c = std::cyl_bessel_j(0.0, x);", TRANSCENDENTAL),
+    ("double c = lgamma_r(x, &sign);", TRANSCENDENTAL),
+    ("double c = sincospi(x);", TRANSCENDENTAL),
+    ("auto t = __rdtsc();", INTRINSIC),
+    ("auto t = __builtin_readcyclecounter();", INTRINSIC),
+    ("auto t = __rndr(&v);", INTRINSIC),
+    ("std::uniform_real_distribution<double> d;", RANDOM_NAME),
+    ("std::seed_seq s;", RANDOM_NAME),
+    ("_Float64x wide = 0;", EXTENDED),
+],ids=lambda s: s[:40] if isinstance(s, str) else s)
 def test_denied_lines_fail(tmp_path, line, reason):
     (tmp_path / "bad.cpp").write_text("// header\n" + line + "\n", encoding="utf-8")
     code, out = run_checker(tmp_path)

@@ -45,7 +45,7 @@ std::string render_in_blocks(arc_renderer* r, std::uint64_t frames, std::size_t 
   for (std::uint64_t done = 0; done < frames;) {
     const std::uint64_t left = frames - done;
     const std::size_t n = left < block ? static_cast<std::size_t>(left) : block;
-    arc_error e;
+    arc_error e{};
     const arc_status s = arc_render(r, buffer.data(), n, nullptr, &e);
     if (s != ARC_OK) {
       return "arc_render failed at frame " + std::to_string(done) + " with " +

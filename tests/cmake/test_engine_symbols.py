@@ -90,7 +90,10 @@ Story 1.6 additions:
   runtime calls to rand, std::random_device, and std::fma; where the compiler
   defines __SIZEOF_FLOAT128__, __float128 arithmetic plus the defined marker
   function arc_test_float128_present. The quad precision line is required
-  only when llvm-nm lists that marker as defined in the built library.
+  only when llvm-nm lists that marker as defined in the built library. The
+  fused multiply-add line is required only when it lists the marker
+  arc_test_fma_libcall_expected, defined on x86-64 only (AArch64 lowers
+  std::fma to fmadd, which leaves no symbol).
 
 Real builds use the platform preset (windows-clang-cl on Windows,
 macos-appleclang on macOS, linux-clang otherwise) with
@@ -588,6 +591,8 @@ def test_random_fixture_calls_each_source_with_runtime_arguments():
                      r"return\s+std::fma\(a,\s*b,\s*c\);", text), text
     assert "#if defined(__SIZEOF_FLOAT128__)" in text
     assert "__float128" in text and "arc_test_float128_present" in text
+    assert "#if defined(__x86_64__) || defined(_M_X64)" in text
+    assert "arc_test_fma_libcall_expected" in text
 
 
 def test_cli_fixture_calls_rand():
@@ -701,8 +706,10 @@ def test_symbol_check_fails_on_rand_fma_quad_build(random_build):
     assert rand_lines and any(RANDOM in line.lower() for line in rand_lines), out
     device_lines = [line for line in out.splitlines() if "random_device" in line.lower()]
     assert device_lines and any(RANDOM in line.lower() for line in device_lines), out
-    fma_lines = word_lines(out, "fma")
-    assert fma_lines and any(FMA in line.lower() for line in fma_lines), out
+    # AArch64 lowers std::fma to fmadd (no symbol); the source scan covers it there.
+    if defines_symbol(build, "arc_test_fma_libcall_expected"):
+        fma_lines = word_lines(out, "fma")
+        assert fma_lines and any(FMA in line.lower() for line in fma_lines), out
     if defines_symbol(build, "arc_test_float128_present"):
         quad_lines = [line for line in out.splitlines() if re.search(r"__\w*tf\w*\d", line)]
         assert quad_lines and any(QUAD in line.lower() for line in quad_lines), out

@@ -29,6 +29,11 @@ inline double my_sin(double x) { return x; }
 
 inline double call_mine(double x) { return my_sin(x) + use_sine(x); }
 
+template <typename Curve>
+double members(const Curve& obj, const Curve* p, double x) {
+  return obj.log(x) + p->exp(x);  // member calls, not libm calls
+}
+
 inline const char* text() { return "std::sin(x) and long double and 1.0L"; }
 
 inline char letter() { return 'L'; }

@@ -21,7 +21,17 @@ on:
   correctly on every target (design log 2026-11-02 (z));
 - `fma`, `fmaf`, `fmal` used as a call in the same forms
   [fused multiply-add call];
-- `#include <random>` [random header].
+- `#include <random>` [random header];
+- a hardware random or timer intrinsic (`_rdrand32_step`, `__rdtsc`,
+  `__builtin_readcyclecounter`, `__rndr`, ...) [hardware intrinsic];
+- a <random> library name (`mt19937`, `random_device`, any
+  `*_distribution`, `seed_seq`, ...) [random library name];
+- an extended precision type (`__float128`, `_Float128`, `__float80`,
+  `__ibm128`, `_Float64x`) [extended precision type].
+
+A transcendental is any name of the libm family in
+tools/engine_symbol_denylist.json or a C++17 special math function. A member
+call (`obj.log(x)`, `p->exp(x)`) passes.
 
 Exit 0 when nothing is found, printing how many files were scanned; exit 1
 with one line per violation, `<path>:<line>: <text>: <reason>`, or when a
@@ -38,12 +48,32 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DIRS = [REPO_ROOT / "engine"]
 SOURCE_SUFFIXES = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".inl", ".ipp"}
 
+# The libm family of tools/engine_symbol_denylist.json, plus the C++17 special
+# math functions of <cmath>.
 TRANSCENDENTALS = (
     "sin cos tan asin acos atan atan2 sinh cosh tanh asinh acosh atanh exp exp2 exp10 expm1 "
-    "log log2 log10 log1p pow cbrt hypot erf erfc tgamma lgamma sincos"
+    "log log2 log10 log1p pow cbrt hypot erf erfc tgamma lgamma sincos "
+    "j0 j1 jn y0 y1 yn sinpi cospi tanpi sincospi "
+    "assoc_laguerre assoc_legendre beta comp_ellint_1 comp_ellint_2 comp_ellint_3 "
+    "cyl_bessel_i cyl_bessel_j cyl_bessel_k cyl_neumann ellint_1 ellint_2 ellint_3 expint "
+    "hermite laguerre legendre riemann_zeta sph_bessel sph_legendre sph_neumann"
 ).split()
 
-_CALL_PREFIX = r"(?<![\w])(?:std\s*::\s*|::\s*|__builtin_)?"
+# A member call (`obj.log(x)`, `p->exp(x)`) is not a libm call.
+_CALL_PREFIX = r"(?<![\w.])(?<!->)(?:std\s*::\s*|::\s*|__builtin_)?"
+
+# Hardware random and timer intrinsics: they leave no symbol.
+HARDWARE_INTRINSICS = (
+    r"_rdrand\d+_step|_rdseed\d+_step|__builtin_ia32_rdrand\w*|__builtin_ia32_rdseed\w*"
+    r"|__rdtscp?|__builtin_ia32_rdtsc\w*|__builtin_readcyclecounter"
+    r"|__rndr|__rndrrs|__builtin_arm_rndr\w*"
+)
+# <random> library names, used with or without the include line.
+RANDOM_LIBRARY_NAMES = (
+    r"mt19937(?:_64)?|minstd_rand0?|default_random_engine|ranlux\w*|knuth_b|random_device"
+    r"|\w+_distribution|seed_seq"
+)
+EXTENDED_TYPES = r"__float128|_Float128|__float80|__ibm128|_Float64x"
 RULES = (
     (re.compile(r"\blong\s+double\b"), "long double"),
     (re.compile(r"(?<![\w.'])(?:\d[\d']*\.[\d']*|\.\d[\d']*)(?:[eE][+-]?\d+)?[lL](?![\w.])"),
@@ -52,9 +82,12 @@ RULES = (
     (re.compile(r"(?<![\w.'])0[xX][0-9a-fA-F']*\.?[0-9a-fA-F']*[pP][+-]?\d+[lL](?![\w.])"),
      "long double literal"),
     (re.compile(_CALL_PREFIX + r"(?:" + "|".join(sorted(TRANSCENDENTALS, key=len, reverse=True))
-                + r")[fl]?\s*\("), "transcendental call"),
+                + r")[fl]?\s*\(|" + _CALL_PREFIX + r"lgamma[fl]?_r\s*\("), "transcendental call"),
     (re.compile(_CALL_PREFIX + r"fma[fl]?\s*\("), "fused multiply-add call"),
     (re.compile(r"^[ \t]*#[ \t]*include[ \t]*<[ \t]*random[ \t]*>", re.MULTILINE), "random header"),
+    (re.compile(r"(?<!\w)(?:" + HARDWARE_INTRINSICS + r")(?!\w)"), "hardware intrinsic"),
+    (re.compile(r"(?<!\w)(?:" + RANDOM_LIBRARY_NAMES + r")(?!\w)"), "random library name"),
+    (re.compile(r"(?<!\w)(?:" + EXTENDED_TYPES + r")(?!\w)"), "extended precision type"),
 )
 
 IDENTIFIER = re.compile(r"[A-Za-z_]\w*")
@@ -184,7 +217,7 @@ def main(argv):
     if problems:
         return 1
     print(f"engine source check: {scanned} file(s) scanned, no long double, L literal, "
-          "transcendental or fma call, or <random>")
+          "transcendental or fma call, <random>, hardware intrinsic, or extended precision type")
     return 0
 
 

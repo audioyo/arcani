@@ -11,7 +11,8 @@
 //   header arcani/arcani.h only.
 // - Block sizes come from row `block-sizes` (unit "frames per call"). The
 //   row holds 1, 64, 512, 4096, and the AC's odd size (Story 1.6 decision:
-//   997, a prime that never lines up with the 64-frame internal block). The
+//   997, not a multiple of 64 and above 64, so calls cross internal block
+//   boundaries at varying offsets). The
 //   4096-frame bytes are the reference.
 // - Block-size invariance: at every member, the differing-byte count
 //   (determinism_helpers.hpp, differing_bytes) against the 4096-frame bytes
@@ -38,8 +39,6 @@
 #include "determinism_helpers.hpp"
 #include "tables.hpp"
 #include "wav.hpp"
-
-#ifdef ARC_ERROR_FIELD_BYTES
 
 namespace api = arcani::test::api;
 namespace det = arcani::test::determinism;
@@ -108,10 +107,10 @@ TEST_CASE("row block-sizes holds 1, 64, 512, 4096, and an odd size", "[determini
     INFO("block size " << want);
     CHECK(std::count(sizes.begin(), sizes.end(), want) == 1);
   }
-  // The AC's odd size: odd, above 1, so never a multiple of the 64-frame
-  // internal block.
+  // The AC's odd size: odd, above 64, and not a multiple of 64, so calls
+  // cross internal block boundaries at varying offsets.
   CHECK(std::any_of(sizes.begin(), sizes.end(),
-                    [](std::size_t s) { return s > 1 && s % 2 == 1; }));
+                    [](std::size_t s) { return s > 64 && s % 2 == 1 && s % 64 != 0; }));
 }
 
 TEST_CASE("every block-sizes member gives the 4096-frame WAV bytes", "[determinism]") {
@@ -179,10 +178,3 @@ TEST_CASE("the differing-byte count catches a doctored byte and a dropped frame"
   CHECK_FALSE(static_cast<double>(dropped_count) <= repeat);
 }
 
-#else  // ARC_ERROR_FIELD_BYTES
-
-TEST_CASE("every block-sizes member gives the 4096-frame WAV bytes", "[determinism]") {
-  FAIL("arcani/arcani.h does not declare the Story 1.2 C API (no ARC_ERROR_FIELD_BYTES)");
-}
-
-#endif  // ARC_ERROR_FIELD_BYTES
