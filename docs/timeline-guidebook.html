@@ -438,8 +438,8 @@ var EPICS = [
   { id:"1.5", title:"Python reference renderer for the stub chain", status:"review",
     plain:"An independent Python renderer that agrees with the engine sample by sample, so bugs show up as numbers.",
     spec:["spec-1-5-python-reference-renderer-for-the-stub-chain.md"],
-    steps:[true,true,true,true,false,false,false],
-    stepNotes:["Spec approved 2026-11-05 by Audio; silent floor -60 dBFS decided by Audio","f5664db: fresh-context QA agent; signal spec routes the sine through the theta stub, vectors regenerated; 8 C++ cases and 32 pytest cases fail until the engine and reference land","e475760, 46007c6: engine theta stub, reference/stub_chain.py, reference match; row reference-match-min-level -60 dBFS; 4/4 ctest entries, 1,201 pytest pass; measured match -139.3 to -145.8 dBFS on every signal and channel at 44.1 and 48 kHz; wording, pragma, vector, row coverage, and table log checks pass; design log (jj)","1d101bd: review pass 1 by three fresh-context reviewers, 19 findings: 7 patched (theta carrier other than 300 Hz and no-binaural match, probe theta check, independence scan gaps, calibration and strictness tests), 12 rejected with reasons, none deferred","","",""],
+    steps:[true,true,true,true,true,false,false],
+    stepNotes:["Spec approved 2026-11-05 by Audio; silent floor -60 dBFS decided by Audio","f5664db: fresh-context QA agent; signal spec routes the sine through the theta stub, vectors regenerated; 8 C++ cases and 32 pytest cases fail until the engine and reference land","e475760, 46007c6: engine theta stub, reference/stub_chain.py, reference match; row reference-match-min-level -60 dBFS; 4/4 ctest entries, 1,201 pytest pass; measured match -139.3 to -145.8 dBFS on every signal and channel at 44.1 and 48 kHz; wording, pragma, vector, row coverage, and table log checks pass; design log (jj)","1d101bd: review pass 1 by three fresh-context reviewers, 19 findings: 7 patched (theta carrier other than 300 Hz and no-binaural match, probe theta check, independence scan gaps, calibration and strictness tests), 12 rejected with reasons, none deferred","PR #10: 11 checks green on fast and full tier, all four platforms","",""],
     acs:[
       ["x","reference/ reads recipe JSON, double precision, implements core and sine sections, uses the ideal sine, passes worked vectors; imports no engine code"],
       ["x","Engine float output and taps within -100 dBFS of the reference at 44.1 and 48 kHz"],
@@ -706,6 +706,7 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-06","6b92749","1.5","PR #10 green on fast and full tier (11 checks), all four platforms; ready for Audio to merge"],
   ["2026-11-06","c1289c1","1.5","Pushed; PR #10 opened, CI pending"],
   ["2026-11-06","1d101bd","1.5","Code review pass 1: 7 findings patched (250 Hz theta-only engine match, probe theta check, independence scan from-imports and exec, calibration and strictness tests), 12 rejected, none deferred; sprint-status.yaml set to review"],
   ["2026-11-05","46007c6","1.5","Implementation committed (e475760, 46007c6): theta stub in the engine, Python reference, reference match, row reference-match-min-level; all tests pass, match about -140 dBFS against the -100 dBFS line; all three criteria met, review next"],
