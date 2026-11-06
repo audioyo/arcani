@@ -8,6 +8,10 @@
 // channel added to the muted channel at the join tap; crosstalk 1 dB above the
 // master threshold at the master output; a render with no binaural layer
 // (silent); an unmuted render at beat 0 (both ears carry the carrier).
+//
+// Story 1.5: the theta reference stub (a 300 Hz unmodulated sine in both
+// channels of beat-6) is not binaural and is not muted; the rows still pass
+// with it in the muted channel.
 
 #include <arcani/arcani.h>
 
@@ -168,6 +172,17 @@ TEST_CASE("isolation: muted-ear renders pass both rows at beat 0 and 6 Hz", "[is
         INFO(iso::describe(master));
         CHECK(engine.pass);
         CHECK(master.pass);
+        // Story 1.5: beat-6 has a 300 Hz unmodulated theta reference, which
+        // reaches both channels. The muted channel then carries it and is
+        // not silent, so the rows pass with another layer present.
+        if (v.has_theta) {
+          const std::size_t muted = active == iso::Channel::Left ? 1 : 0;
+          bool muted_has_signal = false;
+          for (std::size_t n = muted; n < m.join.size(); n += 2) {
+            muted_has_signal = muted_has_signal || m.join[n] != 0.0;
+          }
+          CHECK(muted_has_signal);
+        }
       }
     }
   }

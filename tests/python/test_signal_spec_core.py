@@ -30,6 +30,15 @@ the row's; increments and frame counts follow the core rules; each signal
 row's bits are within the sine-error bound of its ideal value; past-end rows
 are +0.0.
 
+Theta reference oscillator (Story 1.5): each stub chain row also has
+`theta_carrier_hex` (`none` when the fixture has no theta_reference field),
+`inc_theta`, `phase_theta`, `theta_bits` (the theta tap, the same in both
+channels), and `ideal_theta`; `left_bits` and `right_bits` are the output
+(theta plus binaural, one rounding) and `ideal_left` and `ideal_right` the
+exact sum of the ideal theta and binaural sines. The theta bits are within
+the sine-error bound of the ideal theta, and the output bits within twice
+the bound plus one rounding (two sines, each within the bound).
+
 24-bit rounding (Story 1.4): `quantize_24` in the vectors file, one row per
 case with `rule`, `label`, `s_hex`, `x_hex`, `value`, and `bytes`. The
 generator's `quantize_24(s)` (exact Fraction arithmetic) and an independent
@@ -520,12 +529,19 @@ def test_block_vectors(vectors):
 def test_stub_chain_rows_name_fixtures_with_their_values(vectors):
     rows = vectors["stub_chain"]
     assert {r["fixture"] for r in rows} == {"stub-chain-1s-beat-0.json", "stub-chain-1s-beat-6.json"}
+    # One fixture with a theta reference and one without.
+    assert {r["theta_carrier_hex"] == "none" for r in rows} == {True, False}
     for r in rows:
         path = FIXTURES_VALID / r["fixture"]
         assert path.is_file(), f"missing fixture {path}"
         recipe = json.loads(path.read_text(encoding="utf-8"))
         assert float(recipe["binaural"]["carrier_left_hz"]) == float.fromhex(r["carrier_left_hex"]), r
         assert float(recipe["binaural"]["beat_rate_hz"]) == float.fromhex(r["beat_rate_hex"]), r
+        if r["theta_carrier_hex"] == "none":
+            assert "theta_reference" not in recipe, r
+        else:
+            assert float(recipe["theta_reference"]["carrier_hz"]) == float.fromhex(
+                r["theta_carrier_hex"]), r
         assert int(r["frames"]) == round(Fraction(float(recipe["length_s"])) * r["fs"]), r
 
 
@@ -539,7 +555,12 @@ def test_stub_chain_rows_follow_the_core_rules(vectors):
         assert right == left + float.fromhex(r["beat_rate_hex"]), r
         assert int(r["inc_left"]) == spec_increment(left, fs), r
         assert int(r["inc_right"]) == spec_increment(right, fs), r
+        if r["theta_carrier_hex"] == "none":
+            assert r["inc_theta"] == "0", r
+        else:
+            assert int(r["inc_theta"]) == spec_increment(float.fromhex(r["theta_carrier_hex"]), fs), r
         n = int(r["n"])
+        assert int(r["phase_theta"]) == n * int(r["inc_theta"]) % CYCLE, r
         assert int(r["phase_left"]) == n * int(r["inc_left"]) % CYCLE, r
         assert int(r["phase_right"]) == n * int(r["inc_right"]) % CYCLE, r
         assert r["case"] == ("past_end" if n >= int(r["frames"]) else "signal"), r
@@ -549,15 +570,35 @@ def test_stub_chain_rows_follow_the_core_rules(vectors):
             assert (fixture, fs, "signal") in cases and (fixture, fs, "past_end") in cases
 
 
+def engine_sine_value(phase):
+    """The spec engine sine of phase, from the generator (binary64)."""
+    return load_module("signal_spec_vectors", GENERATOR).engine_sine(phase)
+
+
+def output_bound(r, bound):
+    """Bound on |out - ideal out|: one sine without a theta reference, else two
+    sines each within the bound plus one binary64 rounding of the sum (at most
+    2^-52 for |out| below 2)."""
+    if r["theta_carrier_hex"] == "none":
+        return Decimal(repr(bound))
+    return 2 * Decimal(repr(bound)) + Decimal(repr(2.0**-52))
+
+
 def test_stub_chain_bits_are_within_the_sine_bound_of_the_ideal(vectors):
     bound = 10.0 ** (sine_bound_dbfs() / 20.0)
     for r in vectors["stub_chain"]:
+        theta = bits_value(r["theta_bits"])
+        if r["case"] == "past_end" or r["theta_carrier_hex"] == "none":
+            assert r["theta_bits"] == "0x0000000000000000", r
+        else:
+            assert abs(Decimal(repr(theta)) - Decimal(r["ideal_theta"])) <= Decimal(repr(bound)), (
+                r["fixture"], r["fs"], r["n"], "theta")
         for side in ("left", "right"):
             got = bits_value(r[f"{side}_bits"])
             if r["case"] == "past_end":
                 assert r[f"{side}_bits"] == "0x0000000000000000", r
                 continue
-            assert abs(Decimal(repr(got)) - Decimal(r[f"ideal_{side}"])) <= Decimal(repr(bound)), (
+            assert abs(Decimal(repr(got)) - Decimal(r[f"ideal_{side}"])) <= output_bound(r, bound), (
                 r["fixture"], r["fs"], r["n"], side)
 
 
@@ -566,6 +607,13 @@ def test_stub_chain_doctored_bits_fail_the_bound(vectors):
     r = next(v for v in vectors["stub_chain"] if v["case"] == "signal" and v["n"] == "37")
     got = bits_value(r["left_bits"]) + 1e-5
     assert abs(Decimal(repr(got)) - Decimal(r["ideal_left"])) > Decimal(repr(bound))
+    # A theta reference left at zeros (the Story 1.2 stub) fails the theta
+    # bound and the output bound of the beat-6 rows.
+    t = next(v for v in vectors["stub_chain"]
+             if v["case"] == "signal" and v["n"] == "37" and v["theta_carrier_hex"] != "none")
+    assert abs(Decimal(0) - Decimal(t["ideal_theta"])) > Decimal(repr(bound))
+    binaural_only = engine_sine_value(int(t["phase_left"]))
+    assert abs(Decimal(repr(binaural_only)) - Decimal(t["ideal_left"])) > output_bound(t, bound)
 
 
 def test_stub_chain_ideal_matches_the_reference_ideal_sine(vectors):
@@ -573,8 +621,15 @@ def test_stub_chain_ideal_matches_the_reference_ideal_sine(vectors):
     for r in vectors["stub_chain"]:
         if r["case"] != "signal":
             continue
+        if r["theta_carrier_hex"] == "none":
+            assert r["ideal_theta"] == "0", r
+            theta = 0.0
+        else:
+            theta = mod.ideal_sine(int(r["phase_theta"]))
+            assert close_to_decimal(theta, r["ideal_theta"]), (r["fixture"], r["fs"], r["n"], "theta")
         for side in ("left", "right"):
-            assert close_to_decimal(mod.ideal_sine(int(r[f"phase_{side}"])), r[f"ideal_{side}"]), (
+            value = theta + mod.ideal_sine(int(r[f"phase_{side}"]))  # one binary64 rounding
+            assert close_to_decimal(value, r[f"ideal_{side}"]), (
                 r["fixture"], r["fs"], r["n"], side)
 
 
