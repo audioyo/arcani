@@ -72,6 +72,14 @@ CompileResult compile(std::string_view utf8, Mode mode, std::uint32_t sample_rat
     p.stages[i] = kStages[i].kind;
   }
 
+  // Theta reference stub: an unmodulated sine at theta_reference.carrier_hz,
+  // unit amplitude, phase 0, the same value in both channels. The mute
+  // option never touches it.
+  if (rec.theta_reference) {
+    p.theta.increment = core::phase_increment(rec.theta_reference->carrier_hz, sample_rate);
+    p.theta.amplitude = 1.0;
+  }
+
   // Binaural join stub: an unmodulated sine per ear, the left ear at
   // carrier_left_hz and the right ear at carrier_left_hz + beat_rate_hz
   // (range row binaural-carrier-right), unit amplitude, phase 0.

@@ -3,8 +3,8 @@
 //
 // compile() turns recipe text into an immutable Plan, or one blocking error
 // naming parameter, value, rule, and limit. The plan holds everything the
-// renderer needs (session length, binaural oscillator increments and
-// amplitudes), so render does no lookup and has no test branch: a muted ear
+// renderer needs (session length, theta reference and binaural oscillator
+// increments and amplitudes), so render does no lookup and has no test branch: a muted ear
 // is increment 0 and amplitude 0.0 in the plan.
 //
 // The stage order is fixed and is not a recipe field. Every stage writes
@@ -59,6 +59,13 @@ enum class MuteEar { None, Left, Right };
 // Largest recipe text compile accepts, in bytes (1 MiB).
 inline constexpr std::size_t kMaxInputBytes = 1048576;
 
+// Theta reference stub oscillator: one unmodulated sine at the theta carrier,
+// the same value in both channels, phase 0 at n = 0.
+struct ThetaOscillator {
+  std::uint64_t increment = 0;  // 0 when absent
+  double amplitude = 0.0;       // 1.0, or 0.0 when absent
+};
+
 // Binaural oscillators of one ear pair: unmodulated sines, phase 0 at n = 0.
 struct BinauralEars {
   std::array<std::uint64_t, 2> increment{0, 0};  // left, right
@@ -70,6 +77,7 @@ struct Plan {
   std::uint64_t frame_count = 0;  // seconds_to_samples(length_s, fs)
   std::string recipe_hash;        // from parse, 64 lowercase hex digits
   std::uint64_t seed = 0;         // the recipe seed
+  ThetaOscillator theta;
   BinauralEars binaural;
   std::array<StageKind, 5> stages{};
   std::vector<recipe::Error> warnings;  // non-blocking; empty in v0.1
