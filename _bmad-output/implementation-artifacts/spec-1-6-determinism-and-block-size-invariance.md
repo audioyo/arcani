@@ -69,10 +69,10 @@ Decisions (2026-11-06, build agent, under Audio's standing "settle tech forks yo
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `tests/cpp/test_determinism.cpp`, `test_cli.cpp`, `tests/cmake/test_engine_symbols.py`, `tests/python/test_engine_source.py`, `tests/fixtures/engine{,_source,/cli}/`, `test_hash_compare.py`, probe cross-check test -- QA agent writes failing tests -- tests first.
-- [ ] `tools/engine_symbol_denylist.json`, `check_engine_symbols.py`, `check_engine_source.py`, CMake extra-source and check-JSON key, `tests/hashprobe/main.cpp`, `tools/hash_compare.py` -- implementation.
-- [ ] `thresholds.tsv`, md, `ci/hash_expected.json`, workflows, design log (kk), deferred-work -- records and CI.
-- [ ] `docs/timeline-guidebook.html`, `sprint-status.yaml` -- records.
+- [x] `tests/cpp/test_determinism.cpp`, `test_cli.cpp`, `tests/cmake/test_engine_symbols.py`, `tests/python/test_engine_source.py`, `tests/fixtures/engine{,_source,/cli}/`, `test_hash_compare.py`, probe cross-check test -- QA agent writes failing tests -- tests first.
+- [x] `tools/engine_symbol_denylist.json`, `check_engine_symbols.py`, `check_engine_source.py`, CMake extra-source and check-JSON key, `tests/hashprobe/main.cpp`, `tools/hash_compare.py` -- implementation.
+- [x] `thresholds.tsv`, md, `ci/hash_expected.json`, workflows, design log (kk), deferred-work -- records and CI.
+- [x] `docs/timeline-guidebook.html`, `sprint-status.yaml` -- records.
 
 **Acceptance Criteria:**
 - Given each stub chain fixture at both rates, when rendered at every `block-sizes` member and twice in one process, then the WAV bytes differ in 0 bytes.
@@ -116,6 +116,14 @@ Throwaway proof (a copy of the working tree in the system temp folder, not in th
 - I implemented minimal versions of the denylist families, the WAV-writer option and key, the CLI extra-source variable, a source scanner, must-differ scopes, the `kBlockSizes` probe components, and the 997 row.
 - Results: `test_engine_symbols.py` 357 passed, including the real clang-cl builds (rand, `std::_Random_device`, and fma all named). `test_engine_source.py` passed except the workflow cases. `test_hash_compare.py` passed except the real-file case, which needs the CI hashes. `test_probe_determinism.py` block equality passed. ctest passed 100% with the 997 row.
 - Planted bugs in the scanner (hex-literal branch removed, `__builtin_` form removed) each failed 4 or 5 tests.
+
+### Build agent, implementation pass (2026-11-06)
+
+- No change to `engine/src/` was needed: every new C++ case passed before implementation, and the real `engine/` scans clean.
+- `tools/probe_reference.py --write` now writes `"scope": "probe"` (the one-line change the QA notes named).
+- `tools/hash_compare.py --must-differ` now walks the expected entries, not the manifest: an expected entry with no data file fails, whatever its scope. The contract-mustfail job builds with `linux-clang`, so the engine components there must equal the windows-x64 hashes; this holds today (bit-exact engine) but is first exercised by this PR's full run.
+- The randomness family also lists `RtlGenRandom` (the documented name of `SystemFunction036`) and the `_r` forms of the `rand48` family; the `arc4random` pattern covers `_uniform`, `_buf`, `_stir`, and `_addrandom`.
+- `ci/hash_expected.json` hashes come from the full run 42236304155 manifests (all four platforms equal) and match the local windows-x64 probe; `source` now says so.
 
 ## Spec Change Log
 
