@@ -259,6 +259,7 @@ def test_calibration_reads_each_known_error_within_tolerance():
 def test_calibration_levels_are_the_spec_levels():
     # With the table's reference-match row the offsets give the levels the
     # spec names (-110, -100.5, -99.5, -90 dBFS); computed, never copied.
+    assert CALIBRATION_OFFSETS_DB == (-10.0, -0.5, 0.5, 10.0)
     threshold = match_row().value
     levels = [threshold + o for o in CALIBRATION_OFFSETS_DB]
     assert levels[1] < threshold < levels[2]
@@ -290,7 +291,7 @@ def test_exact_match_passes_with_null_measured():
     assert mod.difference_dbfs(reference, reference) == -math.inf
 
 
-def test_pass_is_strictly_below_the_threshold():
+def test_pass_is_strictly_below_the_threshold(monkeypatch):
     mod = rm()
     threshold = match_row().value
     reference = synth_reference()
@@ -310,6 +311,12 @@ def test_pass_is_strictly_below_the_threshold():
         engine = reference.copy()
         engine[k] = exact
         assert mod.match("at threshold", engine, reference)["result"] == "fail"
+    # Deterministic at-threshold case: a measure exactly at the row, both
+    # sides above the minimum level, fails.
+    monkeypatch.setattr(mod, "difference_dbfs", lambda e, r: threshold)
+    at = mod.match("at threshold", reference + 1e-3, reference)
+    assert at["measured"] == threshold and at["note"] == "", at
+    assert at["result"] == "fail", at
 
 
 def test_level_dbfs():
@@ -635,6 +642,30 @@ def test_engine_dump_follows_the_spec_vectors(vectors, engine_dumps):
         assert bits(e["output"][2 * n + 1]) == int(v["right_bits"], 16), (v["fixture"], v["fs"], n)
         assert bits(e["theta"][2 * n]) == int(v["theta_bits"], 16), (v["fixture"], v["fs"], n)
         assert bits(e["theta"][2 * n + 1]) == int(v["theta_bits"], 16), (v["fixture"], v["fs"], n)
+
+
+@pytest.mark.parametrize("fs", RATES)
+def test_engine_matches_the_reference_on_a_theta_only_variant(fs, tmp_path, tapdump):
+    # A 250 Hz theta carrier and no binaural field: catches a theta
+    # increment that ignores carrier_hz and compares the reference's
+    # no-binaural branch with the engine.
+    mod = rm()
+    base = json.loads((FIXTURES_VALID / BEAT_6).read_text(encoding="utf-8"))
+    variant = {k: v for k, v in base.items() if k != "binaural"}
+    variant["theta_reference"] = {"carrier_hz": 250}
+    recipe = tmp_path / "theta-250-only.json"
+    recipe.write_text(json.dumps(variant), encoding="utf-8")
+    run_dump(tapdump, recipe, fs, tmp_path / "dump", 0)
+    ref = stub_chain().render(recipe, fs)
+    results = []
+    for key in ("theta", "output"):
+        eng = np.fromfile(tmp_path / "dump" / f"{DUMP_FILES[key]}.f64", dtype="<f8").astype(np.float64)
+        assert eng.size == ref[key].size, (key, eng.size, ref[key].size)
+        results += mod.match_stereo(key, eng, ref[key])
+    failed = [r for r in results if r["result"] != "pass"]
+    assert not failed, failed
+    gamma = np.fromfile(tmp_path / "dump" / "gamma.f64", dtype="<f8").astype(np.float64)
+    assert mod.all_positive_zero(gamma) and mod.all_positive_zero(ref["gamma"])
 
 
 def test_doctored_engine_output_fails(vectors, engine_dumps, reference_renders):

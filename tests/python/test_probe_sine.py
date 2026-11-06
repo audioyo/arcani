@@ -228,3 +228,6 @@ def test_probe_stub_chain_component_shape(probe_output, fs):
     assert samples.size > 0 and samples.size % 2 == 0, samples.shape
     assert np.all(np.isfinite(samples))
     assert np.any(samples != 0.0), "stub chain component is silent"
+    # The binaural sines alone peak at 1.0; with the 300 Hz theta reference
+    # sine added to both channels (Story 1.5) the peak is near 2.0.
+    assert float(np.max(np.abs(samples))) > 1.5, "stub chain component lacks the theta reference"

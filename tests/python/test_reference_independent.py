@@ -67,6 +67,7 @@ FORBIDDEN_LOADED = FORBIDDEN_MODULES - {"importlib"}
 FORBIDDEN_NAMES = {"add_dll_directory", "system", "popen", "startfile", "ctypeslib",
                    "load_library", "CDLL", "cdll", "windll", "LoadLibrary", "__import__"}
 FORBIDDEN_PREFIXES = ("exec", "spawn")  # os.execv, os.spawnl, ...
+FORBIDDEN_BARE_NAMES = FORBIDDEN_NAMES | {"exec", "eval", "compile"}
 ALLOWED_TOP = {"numpy", "reference"}
 PATH_PARTS = ("engine/", "cli/", "build/")
 PATH_WORDS = {"engine", "cli", "build"}
@@ -125,8 +126,12 @@ def scan_problems(directory):
             elif isinstance(node, ast.ImportFrom):
                 if node.level == 0 and node.module:
                     _check_import(node.module.split(".")[0], where, problems)
+                module_parts = (node.module or "").split(".")
+                if any(part in FORBIDDEN_NAMES for part in module_parts):
+                    problems.append(f"{where}: imports from {node.module}")
                 for alias in node.names:
-                    if _forbidden_name(alias.name) and (node.module or "") in ("os", "ctypes", "numpy"):
+                    if alias.name in FORBIDDEN_NAMES or (
+                            _forbidden_name(alias.name) and (node.module or "") in ("os", "ctypes", "numpy")):
                         problems.append(f"{where}: imports {alias.name} from {node.module}")
             elif isinstance(node, ast.Attribute):
                 if node.attr in FORBIDDEN_NAMES:
@@ -135,7 +140,7 @@ def scan_problems(directory):
                         and node.value.id == "os":
                     problems.append(f"{where}: uses os.{node.attr}")
             elif isinstance(node, ast.Name):
-                if node.id in ("__import__", "CDLL", "cdll", "windll", "LoadLibrary", "add_dll_directory"):
+                if node.id in FORBIDDEN_BARE_NAMES:
                     problems.append(f"{where}: names {node.id}")
             elif isinstance(node, ast.Constant) and isinstance(node.value, str):
                 if id(node) not in docstrings and _path_like(node.value):
@@ -158,6 +163,8 @@ def test_scan_passes_on_reference():
     ("importlib_load", "imports importlib"),
     ("numpy_ctypeslib", "ctypeslib"),
     ("third_party_import", "not the standard library"),
+    ("ctypeslib_from_import", "imports load_library from numpy.ctypeslib"),
+    ("exec_call", "names exec"),
 ])
 def test_scan_fails_on_a_mustfail_module(case, expect):
     directory = MUSTFAIL / case / "reference"
@@ -207,7 +214,7 @@ print(json.dumps({"error": error, "new": new, "files": files, "flags_isolated": 
 '''
 
 
-def isolated_run(root, extra_forbidden_roots=()):
+def isolated_run(root):
     result = subprocess.run([sys.executable, "-I", "-c", CHILD, str(root), json.dumps(RENDER_CASES)],
                             capture_output=True, text=True, timeout=300, cwd=str(Path(root)))
     assert result.returncode == 0, result.stdout + result.stderr
