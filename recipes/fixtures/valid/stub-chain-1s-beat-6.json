@@ -4,7 +4,7 @@
   "seed": 42,
   "author": "Arcani test fixtures",
   "date": "2026-11-04",
-  "rationale": "Stub chain fixture (Story 1.2): 1 s, for the C API, seek, and isolation tests. Values are placeholders, not starter defaults. 400 Hz unmodulated sine in the left ear, 406 Hz unmodulated sine in the right ear; the theta reference stub outputs zeros.",
+  "rationale": "Stub chain fixture (Story 1.2): 1 s, for the C API, seek, and isolation tests. Values are placeholders, not starter defaults. 400 Hz unmodulated sine in the left ear, 406 Hz unmodulated sine in the right ear; the theta reference stub adds a 300 Hz unmodulated sine to both channels (Story 1.5), so the output peaks near 2.0 and its 24-bit WAV clips. A test fixture, not for listening.",
   "length_s": 1,
   "loudness_target_lufs": -36,
   "loudness_gain_db": -1.5,

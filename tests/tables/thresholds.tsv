@@ -11,7 +11,8 @@ spacing-rule	50	Hz	Spacing rule	thresholds-and-ranges.md, Test thresholds; desig
 spectral-component-level	40	dB below the layer's strongest line	Spacing rule	thresholds-and-ranges.md, Test thresholds; design log 2026-10-27 (i); AD-20	3-1-spectral-component-table-per-shape
 frequency-accuracy	0.01	Hz	Frequency accuracy	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-1	
 drift-8h	1	ms	Long-session drift	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-1; the 8-hour length is range row session-length	
-reference-match	-100	dBFS	Reference match	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; AD-16	1-5-python-reference-renderer-for-the-stub-chain
+reference-match	-100	dBFS	Reference match	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; AD-16	
+reference-match-min-level	-60	dBFS	Reference match	thresholds-and-ranges.md, Test thresholds; engineering default: 40 dB above row reference-match; design log 2026-11-05 (jj)	
 determinism	0	differing bytes	Determinism	thresholds-and-ranges.md, Test thresholds; CLAUDE.md rule 1; FR-6	1-6-determinism-and-block-size-invariance
 cross-platform	0	differing hashes	Cross-platform	thresholds-and-ranges.md, Test thresholds; AD-9; design log 2026-10-27 (j)	
 cross-platform-fallback	-100	dBFS	Cross-platform	thresholds-and-ranges.md, Test thresholds; AD-9; design log 2026-10-27 (j): a component proven unable to match falls back to this tolerance, strictly below	
