@@ -2,7 +2,7 @@
 title: 'Story 1.5: Python reference renderer for the stub chain'
 type: 'feature'
 created: '2026-11-05'
-status: 'in-progress'
+status: 'in-review'
 baseline_commit: '03a39de8b30ea8ff2e69b44bc05c036d9f487e61'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -68,11 +68,11 @@ Decisions (2026-11-05, build agent, under Audio's standing "settle tech forks yo
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `docs/signal-spec.md`, `tools/signal_spec_vectors.py`, vectors JSON, `SpecTables.cmake` -- theta stub and vectors -- spec first.
-- [ ] `tests/cpp/*`, `tests/python/test_reference_*.py`, `tests/assertions/reference_match.py` contract, `tests/tapdump/` -- QA agent writes failing tests -- tests first.
-- [ ] `engine/` plan and renderer, `reference/stub_chain.py`, `reference_match.py` -- implementation.
-- [ ] `thresholds.tsv`, design log (jj), fixture rationale, hash probe recipe -- table and records.
-- [ ] `docs/timeline-guidebook.html`, `sprint-status.yaml` -- records.
+- [x] `docs/signal-spec.md`, `tools/signal_spec_vectors.py`, vectors JSON, `SpecTables.cmake` -- theta stub and vectors -- spec first.
+- [x] `tests/cpp/*`, `tests/python/test_reference_*.py`, `tests/assertions/reference_match.py` contract, `tests/tapdump/` -- QA agent writes failing tests -- tests first.
+- [x] `engine/` plan and renderer, `reference/stub_chain.py`, `reference_match.py` -- implementation.
+- [x] `thresholds.tsv`, design log (jj), fixture rationale, hash probe recipe -- table and records.
+- [x] `docs/timeline-guidebook.html`, `sprint-status.yaml` -- records.
 
 **Acceptance Criteria:**
 - Given `reference/`, when it renders a recipe, then it reads recipe JSON, works in binary64, uses the increment rule and ideal sine, and its output at every stub chain vector row is within 1e-15 of the vector's ideal value (past-end rows exact `+0.0`).
@@ -105,3 +105,33 @@ QA agent, tests-first pass (2026-11-05). Execution tasks 1 and 2 only; nothing u
 - **Open points for task 4:** (1) Add row `reference-match-min-level` and clear `pending` on `reference-match`; the md mapping test (`test_tables_loader.py::test_md_mapping_holds_for_real_tables`) then also needs `-60` in the "Reference match" row of `_bmad-output/specs/spec-arcani-v0-1/thresholds-and-ranges.md` (it failed in the throwaway copy until then). (2) Update the beat-6 fixture rationale ("the theta reference stub outputs zeros" is now false) and the hash probe recipe. (3) The new files are untracked, so `check_wording.py` without paths does not see them until committed; run with explicit paths they pass.
 
 **Red state at hand-off:** `signal_spec_vectors.py --check` and `check_wording.py` (also on all new and changed files) pass; `test_signal_spec_core.py` passes (99). ctest: `arcani_tests` fails in `test_stages.cpp` (vector rows, theta tap, theta-only fixture, muted ear equals theta, past end, doctored-sample case), `test_seek.cpp` (theta after seek), `test_isolation.cpp` (muted channel of beat-6 not silent), all because the engine theta stub still outputs zeros. pytest: 18 failed and 14 errors, all in `test_reference_match.py` and `test_reference_independent.py` (missing `reference/stub_chain.py`, `tests/assertions/reference_match.py`, row `reference-match-min-level`, and the dump's theta bits). Environment note: on the dev PC, Device Guard currently blocks the freshly relinked `build/windows-clang-cl/cli/arcani-render.exe`, so the 16 `[cli]` cases also fail there (exit 4551); the same tests pass in the out-of-repo copy, so this is not caused by the test change.
+
+## Spec Change Log
+
+## Review Triage Log
+
+Pass 1 (2026-11-06): blind hunter (BH), edge case hunter (EC), verification gap (VG), all fresh context, on diff 03a39de..4970c30 (generated vectors, guidebook, and `_bmad-output` left out).
+
+| # | Finding | Verdict | Evidence | Route |
+|---|---------|---------|----------|-------|
+| 1 | BH: isolation not re-proven with theta present; crosstalk must-fails not run on beat-6 | false | `tests/cpp/test_isolation.cpp` pass case (160) and both crosstalk must-fails (193, 215) loop over kBeat0 and kBeat6 | reject |
+| 2 | BH: muted-ear render never compared with the reference | low | mute is an offline measurement control, not a recipe field; the C++ tests prove a muted channel equals its theta tap bit for bit; a fix adds a reference parameter | reject |
+| 3 | BH, VG: theta carrier only checked at 300 Hz; no-binaural branch never matched against the engine | medium | every engine theta value check uses beat-6 (300 Hz); the 200 Hz C++ test is carrier-independent; a hard-coded 300 Hz increment would pass | patch |
+| 4 | BH, EC, VG: engine-vs-reference tests skip when `shutil.which("cmake")` fails on Windows | low | repo-wide pattern (`test_probe_sine.py`, `test_tables_crosscheck.py`); CI puts cmake on PATH; on the dev PC the cases ran (only NDK skips reported) | reject |
+| 5 | BH: pytest builds C++ and asserts on an unconfigured checkout | low | the workflow and CI build before pytest; the build is incremental | reject |
+| 6 | BH: isolated run checks modules, not behavior (audit hook) | low | the import scan covers the AC; an audit hook adds a mechanism | reject |
+| 7 | BH, EC: scan misses exec, eval, compile | low | direct addition to the name set | patch |
+| 8 | EC: `from numpy.ctypeslib import load_library` then bare `load_library` passes the scan | medium | ImportFrom flags names only when the module is exactly os, ctypes, or numpy; the Name list is shorter than FORBIDDEN_NAMES | patch (with 7) |
+| 9 | EC: os aliased (`import os as o; o.execv`) bypasses the prefix check | low | unlikely in the project's own reference; fix tracks aliases | reject |
+| 10 | BH: `isolated_run` parameter `extra_forbidden_roots` unused | low | the body never reads it | patch (delete) |
+| 11 | BH: calibration levels test checks only ordering | low | offsets 1, 2, 3, 4 dB would pass; direct correction | patch |
+| 12 | BH, EC: at-threshold branch of the strictness test may never run | low | runs only if a candidate's log10 lands exactly on the threshold | patch |
+| 13 | BH: beat-6 fixture clips in every CLI render, no test pins the clamp | low | the CLI tests compare whole files with the harness rounding, clamp included; later assertions are later stories | reject |
+| 14 | BH, EC: reference accepts any `fs` | low | only test code calls it, always at 44.1 or 48 kHz; a fix adds a guard | reject |
+| 15 | BH: dump cross-check skips bus, join, master bits | false | a miswired bus or join differs from the reference by a whole sine and fails the match; master, join, and output are identical by the spec | reject |
+| 16 | BH, EC: `arcani-tapdump` aborts on bad_alloc for huge inputs; never creates OUT_DIR | low | test tool fed 1 s fixtures by its own test, which creates the directory | reject |
+| 17 | EC: reference treats `theta_reference: null` as absent | low | the engine rejects that recipe (`invalid/theta-reference-null.json`); the reference is fed valid fixtures only | reject |
+| 18 | EC: non-integer `frames` truncated | low | only test code passes integers | reject |
+| 19 | VG: nothing checks the hash probe stub chain carries the theta reference | medium | the shape test asserts only finite, even, non-silent; dropping theta still passes | patch |
+
+- Review pass 1 patches in 1d101bd (triage rows 3, 7, 8, 10, 11, 12, 19). Orchestrator check: `windows-clang-cl` workflow 4/4 ctest entries pass; `uv run pytest` 1,205 passed, 2 NDK-only skips; wording, pragma, vector, row coverage, and table log checks exit 0. Nothing deferred.
