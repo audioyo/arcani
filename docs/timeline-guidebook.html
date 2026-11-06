@@ -275,8 +275,8 @@
    ===================================================================== */
 
 var LAST_UPDATED = "2026-11-05";
-var CURRENT = "1.4";   // story id being worked on
-var NEXT    = "1.5";   // story id that comes next
+var CURRENT = "1.5";   // story id being worked on
+var NEXT    = "1.6";   // story id that comes next
 
 // Workflow step names, used by every story unless it lists its own "stepNames".
 var STEP_NAMES = [
@@ -424,11 +424,11 @@ var EPICS = [
       ["x","Out-of-range value: no plan, no output, error names parameter, value, rule, limit; inclusive and exclusive bounds tested"],
       ["x","Carrier rule rejects any carrier under 4 times the worst-case rate (pass at exactly 4x, fail just under, interval max case)"]
     ] },
-  { id:"1.4", title:"Command-line renderer, report, and render speed", status:"review",
+  { id:"1.4", title:"Command-line renderer, report, and render speed", status:"done",
     plain:"Render any recipe from the command line to a WAV plus a machine-readable report.",
     spec:["spec-1-4-command-line-renderer-report-and-render-speed.md"],
-    steps:[true,true,true,true,true,false,false],
-    stepNotes:["Spec approved 2026-11-05 by Audio; build agent settled the CLI, WAV, report, and reference-machine choices","8881f82: fresh-context QA agent; signal spec 24-bit rounding section with 35 vectors; 15 C++ cases, the C header test, and 39 pytest cases fail until the CLI lands","9836f29: 156 C++ cases (155 pass, reference speed case skips; passes with ARCANI_REFERENCE_MACHINE=1 at about 2100 times real time), 4/4 ctest entries, 1,147 pytest pass; wording, pragma, flag, include, row coverage, and table log checks pass; design log (ii)","06d535f: review pass 1 by three fresh-context reviewers, 26 findings: 9 patched (partial file guard, path collisions, three new tests, include check spellings), 17 rejected with reasons, none deferred","PR #9: 11 checks green on fast and full tier, all four platforms, after 56675cf (cross-drive temp path in the include test)","",""],
+    steps:[true,true,true,true,true,true,true],
+    stepNotes:["Spec approved 2026-11-05 by Audio; build agent settled the CLI, WAV, report, and reference-machine choices","8881f82: fresh-context QA agent; signal spec 24-bit rounding section with 35 vectors; 15 C++ cases, the C header test, and 39 pytest cases fail until the CLI lands","9836f29: 156 C++ cases (155 pass, reference speed case skips; passes with ARCANI_REFERENCE_MACHINE=1 at about 2100 times real time), 4/4 ctest entries, 1,147 pytest pass; wording, pragma, flag, include, row coverage, and table log checks pass; design log (ii)","06d535f: review pass 1 by three fresh-context reviewers, 26 findings: 9 patched (partial file guard, path collisions, three new tests, include check spellings), 17 rejected with reasons, none deferred","PR #9: 11 checks green on fast and full tier, all four platforms, after 56675cf (cross-drive temp path in the include test)","dfeead8: PR #9 merged into main, 2026-11-05","sprint-status.yaml set to done"],
     acs:[
       ["x","2-channel 24-bit WAV, 48 kHz default or 44.1 kHz, no dither; other rates refused; CLI uses only the public header"],
       ["x","JSON report: per assertion name, row ID, threshold, measured, pass or fail; plus determinism key, seed, engine version"],
@@ -703,6 +703,7 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-05","dfeead8","1.4","PR #9 merged into main; sprint-status.yaml set to done"],
   ["2026-11-05","56675cf","1.4","PR #9 green on fast and full tier (11 checks); first run failed only on a cross-drive temp path in the Windows include test, fixed"],
   ["2026-11-05","8fd46f5","1.4","Pushed; PR #9 opened, CI pending"],
   ["2026-11-05","06d535f","1.4","Code review pass 1: 9 patches applied (partial file guard, path collision usage errors, reference-machine, report-failure, and usage-file tests, include check spellings), 17 rejected, none deferred; sprint-status.yaml set to review"],
