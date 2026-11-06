@@ -170,8 +170,15 @@ def test_include_into_engine_src_fails(tmp_path, form):
     upper = ENGINE_SRC.upper() if sys.platform == "win32" else ENGINE_SRC
     if form == "-I{upper}" and sys.platform != "win32":
         pytest.skip("paths are case-sensitive here")
+    relative = ""
+    if "{relative}" in form:
+        try:
+            relative = relative_engine_src(build)
+        except ValueError:
+            # Windows has no relative path between drives (CI: repo on D:, temp on C:).
+            pytest.skip("the temp directory is on another drive than the repo")
     flag = form.format(p=ENGINE_SRC, backslash=ENGINE_SRC.replace("/", "\\"), upper=upper,
-                       relative=relative_engine_src(build))
+                       relative=relative)
     if "\\" in flag and sys.platform != "win32":
         pytest.skip("backslash paths are a Windows form")
     build = make_build(tmp_path, [(main, clang_cl(f"{GOOD_INCLUDES} {flag}", main))])
