@@ -137,9 +137,12 @@ def test_write_then_check(tmp_path, ref):
     data = json.loads(target.read_text(encoding="utf-8"))
     assert data["note"] == "kept"
     assert data["components"]["other"] == {"samples": 2, "sha256": "1" * 64}
+    # Story 1.6: the entry carries scope "probe" (tools/hash_compare.py
+    # --must-differ requires it), so --write must keep it.
     assert data["components"]["probe-arith"] == {
         "samples": SAMPLES,
         "sha256": hashlib.sha256(le_bytes(ref.probe_arith())).hexdigest(),
+        "scope": "probe",
     }
     code, out = run_reference("--check", "--expected", target)
     assert code == 0, out

@@ -68,14 +68,26 @@ Contract with tools/hash_compare.py (stdlib only):
 - Must-differ mode: `python tools/hash_compare.py --must-differ DIR
   [--expected FILE]`. DIR holds one manifest.json and its data files. Each
   component's hash is the SHA-256 of its data file (a manifest sha256 that
-  disagrees with its data file fails). Exit 0 only when every component that
-  has an expected entry has a different sha256 from expected; the output
-  prints the found hash. Exit 1 when any matches (the line names the
-  component and the hash) or when no component has an expected entry.
+  disagrees with its data file fails).
+- Story 1.6: every expected entry has a `scope`, `"probe"` or `"engine"`.
+  The contraction flags (ARCANI_HASHPROBE_EXTRA_FLAGS) reach only the probe
+  file, so in must-differ mode every `probe` component must differ from its
+  entry and every `engine` component must equal its entry (sha256 and
+  samples). Exit 0 only when both hold for every entry; the output prints
+  each found hash. Exit 1, with one line naming the component, when a
+  `probe` component matches (the line names the hash), when an `engine`
+  component differs (the line names `engine` and both hashes), when a
+  component with an entry has no data file in DIR, when an entry has no
+  scope or another value (the line names the component and `scope`), or
+  when no `probe` component is checked. Compare mode ignores `scope`.
 
 Real data files: `ci/hash_tolerance.json` has bound -100, a source naming
 AD-9 and `2026-10-27 (j)`, and no entries; `ci/hash_expected.json` has a
-`probe-arith` entry with 4096 samples and a 64-hex sha256.
+`probe-arith` entry with 4096 samples and a 64-hex sha256, scope `probe`.
+Story 1.6 adds, each scope `engine`: `sine-44100` and `sine-48000`
+(3 * fs samples), `stub-chain-44100` and `stub-chain-48000` (2 * fs), and
+`stub-chain-blocks-44100` and `stub-chain-blocks-48000`, whose sha256 and
+samples equal the `stub-chain-*` entry at the same rate. No other entry.
 
 Bound has one source (Story 0.3): `bound_dbfs` in `ci/hash_tolerance.json`
 equals the value of threshold row `cross-platform-fallback`, read through the
@@ -187,8 +199,11 @@ def write_expected(tmp_path, components):
     return path
 
 
-def expected_for(samples, name=COMPONENT):
-    return {name: {"samples": len(samples), "sha256": sha(encode(samples))}}
+def expected_for(samples, name=COMPONENT, scope=None):
+    entry = {"samples": len(samples), "sha256": sha(encode(samples))}
+    if scope is not None:
+        entry["scope"] = scope
+    return {name: entry}
 
 
 def write_tolerance(tmp_path, entries=(), bound=-100, source="AD-9; design log 2026-10-27 (j)",
@@ -515,20 +530,126 @@ def must_differ(tmp_path, samples, expected_components):
     return run(COMPARE, "--must-differ", d, "--expected", expected)
 
 
+def flipped(samples, index=0):
+    other = list(samples)
+    other[index] = from_bits(to_bits(other[index]) ^ 1)
+    return other
+
+
 def test_must_differ_passes_when_hash_differs(tmp_path):
     samples = base_samples()
-    other = list(samples)
-    other[0] = from_bits(to_bits(other[0]) ^ 1)
-    code, out = must_differ(tmp_path, other, expected_for(samples))
+    other = flipped(samples)
+    code, out = must_differ(tmp_path, other, expected_for(samples, scope="probe"))
     assert code == 0, out
     assert sha(encode(other)) in out, out
 
 
 def test_must_differ_fails_when_hash_matches(tmp_path):
     samples = base_samples()
-    code, out = must_differ(tmp_path, samples, expected_for(samples))
+    code, out = must_differ(tmp_path, samples, expected_for(samples, scope="probe"))
     assert code == 1, out
     assert_one_line_names(out, COMPONENT, sha(encode(samples)))
+
+
+# Story 1.6: probe and engine scopes.
+
+ENGINE_A = "stub-chain-44100"
+ENGINE_B = "stub-chain-blocks-44100"
+
+
+def scoped_dir(tmp_path, data):
+    return write_platform(tmp_path / "mustfail", "android-arm64", data)
+
+
+def test_must_differ_passes_when_probe_differs_and_engine_components_equal(tmp_path):
+    probe, engine_a, engine_b = base_samples(), base_samples(32), base_samples(48)
+    d = scoped_dir(tmp_path, {COMPONENT: flipped(probe), ENGINE_A: engine_a, ENGINE_B: engine_b})
+    expected = write_expected(tmp_path, {
+        **expected_for(probe, scope="probe"),
+        **expected_for(engine_a, ENGINE_A, scope="engine"),
+        **expected_for(engine_b, ENGINE_B, scope="engine"),
+    })
+    code, out = run(COMPARE, "--must-differ", d, "--expected", expected)
+    assert code == 0, out
+    assert sha(encode(flipped(probe))) in out, out
+
+
+def test_must_differ_fails_when_an_engine_component_differs(tmp_path):
+    probe, engine_a, engine_b = base_samples(), base_samples(32), base_samples(48)
+    changed = flipped(engine_b, 7)
+    d = scoped_dir(tmp_path, {COMPONENT: flipped(probe), ENGINE_A: engine_a, ENGINE_B: changed})
+    expected = write_expected(tmp_path, {
+        **expected_for(probe, scope="probe"),
+        **expected_for(engine_a, ENGINE_A, scope="engine"),
+        **expected_for(engine_b, ENGINE_B, scope="engine"),
+    })
+    code, out = run(COMPARE, "--must-differ", d, "--expected", expected)
+    assert code == 1, out
+    assert_one_line_names(out, ENGINE_B, "engine", sha(encode(engine_b)), sha(encode(changed)))
+
+
+def test_must_differ_fails_when_probe_matches_even_if_engine_equal(tmp_path):
+    probe, engine_a = base_samples(), base_samples(32)
+    d = scoped_dir(tmp_path, {COMPONENT: probe, ENGINE_A: engine_a})
+    expected = write_expected(tmp_path, {
+        **expected_for(probe, scope="probe"),
+        **expected_for(engine_a, ENGINE_A, scope="engine"),
+    })
+    code, out = run(COMPARE, "--must-differ", d, "--expected", expected)
+    assert code == 1, out
+    assert_one_line_names(out, COMPONENT, sha(encode(probe)))
+
+
+def test_must_differ_fails_when_an_engine_component_is_missing(tmp_path):
+    probe, engine_a = base_samples(), base_samples(32)
+    d = scoped_dir(tmp_path, {COMPONENT: flipped(probe)})
+    expected = write_expected(tmp_path, {
+        **expected_for(probe, scope="probe"),
+        **expected_for(engine_a, ENGINE_A, scope="engine"),
+    })
+    code, out = run(COMPARE, "--must-differ", d, "--expected", expected)
+    assert code == 1, out
+    assert any(ENGINE_A in line for line in out.splitlines()), out
+
+
+def test_must_differ_fails_when_engine_sample_count_differs(tmp_path):
+    probe, engine_a = base_samples(), base_samples(32)
+    d = scoped_dir(tmp_path, {COMPONENT: flipped(probe), ENGINE_A: engine_a[:-2]})
+    expected = write_expected(tmp_path, {
+        **expected_for(probe, scope="probe"),
+        **expected_for(engine_a, ENGINE_A, scope="engine"),
+    })
+    code, out = run(COMPARE, "--must-differ", d, "--expected", expected)
+    assert code == 1, out
+    assert any(ENGINE_A in line for line in out.splitlines()), out
+
+
+@pytest.mark.parametrize("scope", [None, "", "Probe", "both"], ids=["absent", "empty", "case", "unknown"])
+def test_must_differ_fails_on_a_missing_or_unknown_scope(tmp_path, scope):
+    probe = base_samples()
+    entries = expected_for(probe, scope="probe")
+    if scope is None:
+        del entries[COMPONENT]["scope"]
+    else:
+        entries[COMPONENT]["scope"] = scope
+    code, out = must_differ(tmp_path, flipped(probe), entries)
+    assert code == 1, out
+    assert_one_line_names(out, COMPONENT, "scope")
+
+
+def test_must_differ_fails_with_only_engine_entries(tmp_path):
+    engine_a = base_samples(32)
+    d = scoped_dir(tmp_path, {ENGINE_A: engine_a})
+    expected = write_expected(tmp_path, expected_for(engine_a, ENGINE_A, scope="engine"))
+    code, out = run(COMPARE, "--must-differ", d, "--expected", expected)
+    assert code == 1, out
+
+
+def test_compare_mode_ignores_scope(tmp_path, root):
+    samples = base_samples()
+    write_all(root, {p: {COMPONENT: samples} for p in PLATFORMS})
+    code, out = compare(tmp_path, root, write_expected(tmp_path, expected_for(samples, scope="probe")))
+    assert code == 0, out
 
 
 def test_must_differ_fails_without_expected_entry(tmp_path):
@@ -540,7 +661,7 @@ def test_must_differ_fails_when_manifest_disagrees_with_data(tmp_path):
     samples = base_samples()
     d = write_platform(tmp_path / "mustfail", "android-arm64", {COMPONENT: samples},
                        sha_override={COMPONENT: "b" * 64})
-    expected = write_expected(tmp_path, expected_for(samples))
+    expected = write_expected(tmp_path, expected_for(samples, scope="probe"))
     code, out = run(COMPARE, "--must-differ", d, "--expected", expected)
     assert code == 1, out
 
@@ -551,7 +672,7 @@ def test_must_differ_fails_when_data_file_is_missing(tmp_path):
     other[0] = from_bits(to_bits(other[0]) ^ 1)
     d = write_platform(tmp_path / "mustfail", "android-arm64", {COMPONENT: other})
     (Path(d) / f"{COMPONENT}.f32").unlink()
-    expected = write_expected(tmp_path, expected_for(samples))
+    expected = write_expected(tmp_path, expected_for(samples, scope="probe"))
     code, out = run(COMPARE, "--must-differ", d, "--expected", expected)
     assert code == 1, out
     assert_one_line_names(out, COMPONENT, "missing")
@@ -560,7 +681,7 @@ def test_must_differ_fails_when_data_file_is_missing(tmp_path):
 def test_must_differ_fails_when_sample_count_differs_from_expected(tmp_path):
     samples = base_samples()
     truncated = list(samples)[:-1]
-    code, out = must_differ(tmp_path, truncated, expected_for(samples))
+    code, out = must_differ(tmp_path, truncated, expected_for(samples, scope="probe"))
     assert code == 1, out
     assert_one_line_names(out, COMPONENT, str(len(samples)), str(len(truncated)))
 
@@ -682,6 +803,34 @@ def test_real_expected_file_has_probe_arith():
     probe = data["components"]["probe-arith"]
     assert probe["samples"] == 4096
     assert re.fullmatch(r"[0-9a-f]{64}", probe["sha256"]), probe
+
+
+def real_rates():
+    from assertions import row
+    rates = row("sample-rates")
+    assert rates.unit == "Hz", rates
+    return [int(v) for v in rates.values]
+
+
+def test_real_expected_file_has_every_component_with_its_scope():
+    """Story 1.6: the sine and stub chain entries, scoped; probe-arith is the only probe entry."""
+    components = load_ci("hash_expected.json")["components"]
+    rates = real_rates()
+    want = {"probe-arith": ("probe", 4096)}
+    for fs in rates:
+        want[f"sine-{fs}"] = ("engine", 3 * fs)
+        want[f"stub-chain-{fs}"] = ("engine", 2 * fs)
+        want[f"stub-chain-blocks-{fs}"] = ("engine", 2 * fs)
+    assert set(components) == set(want), sorted(components)
+    for name, (scope, samples) in want.items():
+        entry = components[name]
+        assert entry.get("scope") == scope, (name, entry)
+        assert entry.get("samples") == samples, (name, entry)
+        assert re.fullmatch(r"[0-9a-f]{64}", str(entry.get("sha256"))), (name, entry)
+    for fs in rates:
+        assert components[f"stub-chain-blocks-{fs}"]["sha256"] == components[f"stub-chain-{fs}"]["sha256"]
+    assert components["sine-44100"]["sha256"] != components["sine-48000"]["sha256"]
+    assert components["stub-chain-44100"]["sha256"] != components["stub-chain-48000"]["sha256"]
 
 
 def test_defaults_use_repo_files(tmp_path, root):

@@ -1,0 +1,1 @@
+Not a source file, so it is not scanned: std::sin(x), long double, 1.0L.

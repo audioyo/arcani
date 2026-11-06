@@ -75,6 +75,7 @@
 
 #include "api_helpers.hpp"
 #include "cli_helpers.hpp"
+#include "determinism_helpers.hpp"
 #include "json/value.hpp"
 #include "tables.hpp"
 
@@ -706,5 +707,129 @@ TEST_CASE("file errors exit 3 and leave no file at the WAV path", "[cli]") {
     INFO("stdout: " << r.out << "\nstderr: " << r.err);
     CHECK(r.exit_code == 3);
     CHECK(listing(dir).empty());
+  }
+}
+
+// ------------------------------------------------------------ determinism
+//
+// Story 1.6 contract: arcani-render run twice, as two separate processes, on
+// the same recipe and rate writes WAVs whose differing-byte count
+// (determinism_helpers.hpp, differing_bytes) is at most row `determinism`
+// (unit "differing bytes"). The report's determinism_key has exactly the
+// members recipe_hash, asset_hashes (empty), engine_version, sample_rate, in
+// that order. It is equal across separate runs, and changes when the rate
+// changes (only sample_rate differs then). arcani-render always renders in
+// 4096-frame calls, and the key is a property of the plan, not of the host
+// block size; so "equal across block sizes" is shown by the CLI WAV equaling
+// the in-process render at every row `block-sizes` member (spec rounding
+// rule from cli_helpers.hpp, independent of cli/), with the same key.
+
+namespace {
+
+std::string key_text(const json::Value& report) {
+  const json::Value& key = *report.find("determinism_key");
+  REQUIRE(h::members_are(key, {"recipe_hash", "asset_hashes", "engine_version", "sample_rate"}));
+  CHECK(key.find("asset_hashes")->array().empty());
+  return key.find("recipe_hash")->string() + "|" +
+         std::to_string(key.find("asset_hashes")->array().size()) + "|" +
+         key.find("engine_version")->string() + "|" +
+         std::to_string(static_cast<std::uint64_t>(key.find("sample_rate")->number()));
+}
+
+struct CliRun {
+  std::vector<std::uint8_t> wav;
+  std::string key;
+};
+
+CliRun render_cli(const std::string& fixture, std::uint32_t rate, const std::string& name) {
+  const fs::path dir = case_dir(name);
+  const fs::path wav = dir / "x.wav";
+  const RunResult r = run_cli({fixture_path(fixture), "--out", wav.string(), "--rate", std::to_string(rate)});
+  INFO("stdout: " << r.out << "\nstderr: " << r.err);
+  REQUIRE(r.exit_code == 0);
+  CliRun out;
+  const auto bytes = h::read_bytes(wav.string());
+  REQUIRE(bytes.has_value());
+  out.wav = *bytes;
+  out.key = key_text(require_report(dir / "x.report.json"));
+  return out;
+}
+
+double determinism_row() {
+  const tables::Row& row = tables::row("determinism");
+  REQUIRE(row.unit == "differing bytes");
+  return row.value();
+}
+
+std::vector<std::uint32_t> table_rates() {
+  const tables::Row& row = tables::row("sample-rates");
+  REQUIRE(row.unit == "Hz");
+  std::vector<std::uint32_t> out;
+  for (double v : row.values) {
+    out.push_back(static_cast<std::uint32_t>(v));
+  }
+  return out;
+}
+
+}  // namespace
+
+TEST_CASE("two separate arcani-render processes write byte-identical WAVs with one key",
+          "[cli][determinism]") {
+  ScopedEnv env(kEnv, nullptr);
+  const double allowed = determinism_row();
+  std::vector<std::string> keys;
+  for (const char* fixture : {arcani::test::api::kBeat0, arcani::test::api::kBeat6}) {
+    for (std::uint32_t rate : table_rates()) {
+      const std::string tag = std::string(fixture == arcani::test::api::kBeat0 ? "b0-" : "b6-") +
+                              std::to_string(rate);
+      const CliRun first = render_cli(fixture, rate, "determinism-" + tag + "-a");
+      const CliRun second = render_cli(fixture, rate, "determinism-" + tag + "-b");
+      const std::uint64_t count = arcani::test::determinism::differing_bytes(first.wav, second.wav);
+      INFO(fixture << " at " << rate << " Hz: " << count << " differing bytes, row allows " << allowed);
+      CHECK(static_cast<double>(count) <= allowed);
+      CHECK(first.key == second.key);
+      CHECK(first.key.rfind(recipe_hash_vector(fixture) + "|0|" + arc_engine_version() + "|" +
+                                std::to_string(rate),
+                            0) == 0);
+      if (fixture == arcani::test::api::kBeat6) {
+        keys.push_back(first.key);
+      }
+    }
+  }
+  // The key changes with the rate.
+  REQUIRE(keys.size() >= 2);
+  for (std::size_t i = 1; i < keys.size(); ++i) {
+    CHECK(keys[i] != keys[0]);
+  }
+}
+
+TEST_CASE("the arcani-render WAV equals the in-process render at every block-sizes member",
+          "[cli][determinism]") {
+  ScopedEnv env(kEnv, nullptr);
+  namespace api = arcani::test::api;
+  const tables::Row& sizes = tables::row("block-sizes");
+  REQUIRE(sizes.unit == "frames per call");
+  const tables::Row& invariance = tables::row("block-size-invariance");
+  REQUIRE(invariance.unit == "differing bytes");
+  const double allowed = invariance.value();
+  for (std::uint32_t rate : table_rates()) {
+    const CliRun cli = render_cli(api::kBeat6, rate, "determinism-blocks-" + std::to_string(rate));
+    for (double size : sizes.values) {
+      const auto block = static_cast<std::size_t>(size);
+      api::PlanPtr plan = api::compile_ok(api::valid(api::kBeat6), api::options(ARC_MODE_MEASURE, rate));
+      const std::uint64_t frames = arc_plan_frame_count(plan.get());
+      api::RendererPtr r = api::renderer(plan.get());
+      std::vector<double> all;
+      const std::string failure = arcani::test::determinism::render_in_blocks(
+          r.get(), frames, block, [&all](const double* s, std::size_t n) { all.insert(all.end(), s, s + 2 * n); });
+      INFO(rate << " Hz, " << block << " frames per call");
+      REQUIRE(failure.empty());
+      std::vector<std::uint8_t> bytes = h::expected_wav_header(frames, rate);
+      const std::vector<std::uint8_t> data = h::spec_data_bytes(all);
+      bytes.insert(bytes.end(), data.begin(), data.end());
+      const std::uint64_t count = arcani::test::determinism::differing_bytes(cli.wav, bytes);
+      INFO(count << " differing bytes, row allows " << allowed);
+      CHECK(static_cast<double>(count) <= allowed);
+    }
   }
 }
