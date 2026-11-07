@@ -30,7 +30,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 11-01-2026 21:26
-last_updated: 11-06-2026 18:30
+last_updated: 11-06-2026 20:00
 project: Arcani
 project_key: NOKEY
 tracking_system: file-system
@@ -54,8 +54,8 @@ development_status:
   1-6-determinism-and-block-size-invariance: done
   epic-1-retrospective: optional
 
-  epic-2: backlog
-  2-1-theta-reference-envelopes: backlog
+  epic-2: in-progress
+  2-1-theta-reference-envelopes: in-progress
   2-2-gamma-pac-layer-uncoupled: backlog
   2-3-gamma-coupled-smooth-swell: backlog
   2-5-binaural-layer: backlog

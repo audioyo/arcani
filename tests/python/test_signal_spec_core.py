@@ -276,8 +276,9 @@ def test_spec_tables_equal_json(vectors):
     generated, in_doc, problems = doc_table_problems(SPEC_DOC.read_text(encoding="utf-8"),
                                                      vectors)
     # Core and sine (7), internal blocks (1), stub chain increments and samples (2),
-    # 24-bit rounding (1).
-    assert len(generated) == 11, generated
+    # theta reference (5: ratio to phase, edge length, envelopes, fixtures,
+    # samples), 24-bit rounding (1).
+    assert len(generated) == 16, generated
     assert len(in_doc) == len(generated), [b[0] for b in in_doc]
     assert not problems, "\n".join(problems)
 
@@ -539,9 +540,16 @@ def test_stub_chain_rows_name_fixtures_with_their_values(vectors):
         assert float(recipe["binaural"]["beat_rate_hz"]) == float.fromhex(r["beat_rate_hex"]), r
         if r["theta_carrier_hex"] == "none":
             assert "theta_reference" not in recipe, r
+            assert r["theta_rate_hex"] == r["theta_depth_hex"] == r["theta_shape"] == "none", r
         else:
-            assert float(recipe["theta_reference"]["carrier_hz"]) == float.fromhex(
-                r["theta_carrier_hex"]), r
+            theta = recipe["theta_reference"]
+            assert float(theta["carrier_hz"]) == float.fromhex(r["theta_carrier_hex"]), r
+            # Story 2.1: a stub chain theta reference is the real layer at
+            # depth 0, which keeps the Story 1.5 bytes.
+            assert float(theta["rate_hz"]) == float.fromhex(r["theta_rate_hex"]), r
+            assert float(theta["am_depth_percent"]) == float.fromhex(r["theta_depth_hex"]), r
+            assert theta["shape"] == r["theta_shape"], r
+            assert float.fromhex(r["theta_depth_hex"]) == 0.0, r
         assert int(r["frames"]) == round(Fraction(float(recipe["length_s"])) * r["fs"]), r
 
 
@@ -758,3 +766,358 @@ def test_naive_conversion_fails_a_vector_of_its_rule(vectors, naive, rule):
     caught = [r["label"] for r in vectors["quantize_24"]
               if r["rule"] == rule and naive(sample_of(r["s_hex"])) != r["value"]]
     assert caught, f"{naive.__name__} passes every {rule} vector"
+
+
+# ------------------------------------------------- theta reference (Story 2.1)
+#
+# Vectors file keys: `theta_constants` (shapes, on_share_percent, edge_ms,
+# on_share_hex, edge_s_hex, h_units), `ratio_to_phase` (label, r_hex, x_hex,
+# phase), `theta_edges` (rate_hex, edge_s_hex, w_hex, w_units),
+# `theta_envelopes` (shape, rate_hex, w_units, h_units, phase, region,
+# e_bits, ideal_e), and `theta_samples` (case, fixture, fs, shape,
+# carrier_hex, rate_hex, depth_hex, length_hex, inc_carrier, inc_rate,
+# w_units, h_units, frames, n, phase_carrier, phase_rate, region, e_bits,
+# a_bits, theta_bits, ideal_e, ideal_theta). The checks below re-derive every
+# integer and segment from the spec rules here, with Fraction arithmetic and
+# the standard library, independent of the generator's code paths. The fixed
+# constants come from range rows theta-on-share (percent) and theta-edge (ms),
+# each min equal to max.
+
+THETA_SHAPES = ("sine", "smoothed_on_off", "sawtooth", "reverse_saw")
+SEGMENTS = {
+    "sine": {"zero degree", "cosine"},
+    "smoothed_on_off": {"zero degree", "plateau", "falling edge", "off", "rising edge"},
+    "sawtooth": {"zero degree", "drop edge", "linear rise"},
+    "reverse_saw": {"zero degree", "linear fall", "rise edge"},
+}
+HALF = 2**63
+THETA_FIXTURE_NAMES = tuple(f"theta-{s.replace('_', '-')}-{rate}hz.json"
+                            for s in THETA_SHAPES for rate in (1, 6))
+
+
+def range_in(row_id, unit):
+    r = table_row(row_id)
+    assert r.kind == "ranges" and r.unit == unit, r
+    return r
+
+
+def fixed_range(row_id, unit):
+    r = range_in(row_id, unit)
+    assert r.min == r.max, f"{row_id} is a fixed value: min equals max"
+    return r
+
+
+def on_share_fraction():
+    return Fraction(fixed_range("theta-on-share", "percent").min_text) / 100
+
+
+def edge_seconds():
+    return seconds(fixed_range("theta-edge", "ms").min_text, "ms")
+
+
+def spec_h_units():
+    d = float(on_share_fraction())  # D: exact in binary64 for 50 percent
+    assert Fraction(d) == on_share_fraction()
+    return round(Fraction(d) * 2**63)
+
+
+def spec_w_units(rate_hz):
+    e = float(edge_seconds())  # the binary64 of 10 / 1000, as one division gives
+    w = float(Fraction(e) * Fraction(rate_hz))  # one binary64 rounding
+    return round(Fraction(w) * CYCLE), w
+
+
+def spec_segment(shape, p, w, h):
+    if shape == "sine":
+        return "zero degree" if p == 0 else "cosine"
+    if shape == "smoothed_on_off":
+        m = p if p < HALF else CYCLE - p
+        if m <= h - w:
+            return "zero degree" if p == 0 else "plateau"
+        if m >= h:
+            return "off"
+        return "falling edge" if p < HALF else "rising edge"
+    if shape == "sawtooth":
+        return ("zero degree" if p == 0 else "drop edge") if p < w else "linear rise"
+    q = (CYCLE - p) % CYCLE
+    return ("zero degree" if p == 0 else "rise edge") if q < w else "linear fall"
+
+
+def float_ideal_envelope(shape, p, w, h):
+    """The ideal envelope in binary64 (math.cos, exact ratios rounded once)."""
+    if shape == "sine":
+        return (1.0 + ideal().ideal_sine((p + 2**62) % CYCLE)) / 2.0
+    if shape == "smoothed_on_off":
+        m = p if p < HALF else CYCLE - p
+        if m <= h - w:
+            return 1.0
+        if m >= h:
+            return 0.0
+        return (1.0 + math.cos(math.pi * float(Fraction(m - (h - w), w)))) / 2.0
+    q = p if shape == "sawtooth" else (CYCLE - p) % CYCLE
+    if q < w:
+        return (1.0 + math.cos(math.pi * float(Fraction(q, w)))) / 2.0
+    return float(Fraction(q - w, CYCLE - w))
+
+
+def sine_bound_decimal():
+    return Decimal(repr(10.0 ** (sine_bound_dbfs() / 20.0)))
+
+
+def envelope_bound():
+    """|e - e_ideal| <= b / 2 + 2^-48 (signal spec, Theta reference, Error bound)."""
+    return sine_bound_decimal() / 2 + Decimal(repr(2.0**-48))
+
+
+def theta_bound():
+    """|theta - theta_ideal| <= 1.5 * b + 2^-47."""
+    return Decimal("1.5") * sine_bound_decimal() + Decimal(repr(2.0**-47))
+
+
+def bits_text(x):
+    return "0x" + struct.pack(">d", x).hex()
+
+
+def generator():
+    return load_module("signal_spec_vectors", GENERATOR)
+
+
+def test_theta_constants_equal_the_fixed_range_rows(vectors):
+    c = vectors["theta_constants"]
+    assert tuple(c["shapes"]) == THETA_SHAPES
+    on_share = fixed_range("theta-on-share", "percent")
+    edge = fixed_range("theta-edge", "ms")
+    assert Fraction(c["on_share_percent"]) == Fraction(on_share.min_text)
+    assert Fraction(c["edge_ms"]) == Fraction(edge.min_text)
+    assert float.fromhex(c["on_share_hex"]) == float(on_share_fraction())
+    assert float.fromhex(c["edge_s_hex"]) == float(edge_seconds())
+    assert int(c["h_units"]) == spec_h_units()
+    gen = generator()
+    assert gen.THETA_ON_SHARE_PERCENT == on_share.min
+    assert gen.THETA_EDGE_MS == edge.min
+
+
+def test_theta_fixture_values_lie_in_the_locked_ranges(vectors):
+    record_rows("theta-rate", "theta-carrier")
+    rate = range_in("theta-rate", "Hz")
+    carrier = range_in("theta-carrier", "Hz")
+    depth = range_in("theta-depth", "percent")
+    for r in vectors["theta_samples"]:
+        assert rate.min <= float.fromhex(r["rate_hex"]) <= rate.max, r["fixture"]
+        assert carrier.min <= float.fromhex(r["carrier_hex"]) <= carrier.max, r["fixture"]
+        assert depth.min <= float.fromhex(r["depth_hex"]) <= depth.max, r["fixture"]
+
+
+def test_edges_fit_inside_every_segment_across_the_rate_range():
+    rate = range_in("theta-rate", "Hz")
+    h = spec_h_units()
+    w_low, _ = spec_w_units(rate.min)
+    w_top, _ = spec_w_units(rate.max)
+    assert 0 < w_low < w_top
+    assert w_top < h - w_top, "the smoothed on-off edges overlap at the top theta rate"
+    assert w_top < CYCLE - w_top
+
+
+def test_ratio_to_phase_vectors_follow_the_rule(vectors):
+    rows = vectors["ratio_to_phase"]
+    assert rows
+    for r in rows:
+        x = sample_of(r["r_hex"])
+        if not (x > 0.0):
+            want = 0
+            assert r["x_hex"] == "none", r
+        elif x >= 1.0:
+            want = HALF
+            assert r["x_hex"] == "none", r
+        else:
+            want = round(Fraction(x) * 2**63)  # exact scale; Fraction rounds half to even
+            assert sample_of(r["x_hex"]) == x * 2.0**63, r
+        assert int(r["phase"]) == want, r
+    labels = " ".join(r["label"] for r in rows)
+    for word in ("NaN", "tie", "one", "negative zero", "infinity"):
+        assert word in labels, word
+
+
+def test_ratio_to_phase_ties_go_to_even(vectors):
+    ties = [r for r in vectors["ratio_to_phase"] if r["label"].startswith("tie")]
+    assert len(ties) >= 2
+    for r in ties:
+        x = Fraction(sample_of(r["x_hex"]))
+        assert x - math.floor(x) == Fraction(1, 2), r
+        assert int(r["phase"]) % 2 == 0, r
+
+
+def test_theta_edge_vectors_follow_the_rule(vectors):
+    rows = vectors["theta_edges"]
+    rate = range_in("theta-rate", "Hz")
+    rates = {float.fromhex(r["rate_hex"]) for r in rows}
+    assert {rate.min, rate.max} <= rates, rates
+    for r in rows:
+        w_units, w = spec_w_units(float.fromhex(r["rate_hex"]))
+        assert float.fromhex(r["edge_s_hex"]) == float(edge_seconds()), r
+        assert float.fromhex(r["w_hex"]) == w, r
+        assert int(r["w_units"]) == w_units, r
+
+
+def test_theta_envelope_vectors(vectors):
+    rows = vectors["theta_envelopes"]
+    rate = range_in("theta-rate", "Hz")
+    seen = {shape: set() for shape in THETA_SHAPES}
+    bound = envelope_bound()
+    rates = set()
+    h = spec_h_units()
+    for r in rows:
+        shape, p = r["shape"], int(r["phase"])
+        f = float.fromhex(r["rate_hex"])
+        rates.add(f)
+        w, _ = spec_w_units(f)
+        assert int(r["w_units"]) == w and int(r["h_units"]) == h, r
+        assert r["region"] == spec_segment(shape, p, w, h), r
+        seen[shape].add(r["region"])
+        e = bits_value(r["e_bits"])
+        assert 0.0 <= e <= 1.0, r
+        assert abs(Decimal(repr(e)) - Decimal(r["ideal_e"])) <= bound, (shape, f, p)
+        assert close_to_decimal(float_ideal_envelope(shape, p, w, h), r["ideal_e"]), (shape, f, p)
+        if r["region"] == "plateau":
+            assert e == 1.0, r
+        if r["region"] == "off":
+            assert r["e_bits"] == "0x0000000000000000", r
+        if p == 0:
+            assert Decimal(r["ideal_e"]) == 1, r  # the 0 degree point is the peak
+    assert {rate.min, rate.max} <= rates
+    for shape in THETA_SHAPES:
+        assert seen[shape] == SEGMENTS[shape], (shape, seen[shape])
+
+
+def test_theta_envelope_bound_catches_a_mirrored_shape(vectors):
+    # Must-fail: the sawtooth vectors read through the reverse saw miss the
+    # bound on some row.
+    gen = generator()
+    bound = envelope_bound()
+    rows = [r for r in vectors["theta_envelopes"] if r["shape"] == "sawtooth"]
+    misses = [r for r in rows if abs(Decimal(repr(gen.engine_envelope(
+        "reverse_saw", int(r["phase"]), int(r["w_units"]), int(r["h_units"]))))
+        - Decimal(r["ideal_e"])) > bound]
+    assert misses
+
+
+def test_generator_engine_envelope_stays_in_range_and_bound():
+    gen = generator()
+    bound = float(envelope_bound())
+    h = spec_h_units()
+    rate = range_in("theta-rate", "Hz")
+    for f in (rate.min, rate.max):
+        w, _ = spec_w_units(f)
+        phases = [k * 2**52 + 12345 for k in range(4096)] + [w - 1, w, h - w, h, CYCLE - w]
+        for shape in THETA_SHAPES:
+            for p in phases:
+                p %= CYCLE
+                e = gen.engine_envelope(shape, p, w, h)
+                assert 0.0 <= e <= 1.0, (shape, f, p, e)
+                assert abs(e - float_ideal_envelope(shape, p, w, h)) <= bound, (shape, f, p)
+
+
+def test_theta_sample_rows_name_fixtures_with_their_values(vectors):
+    rows = vectors["theta_samples"]
+    names = []
+    for r in rows:
+        if r["fixture"] not in names:
+            names.append(r["fixture"])
+    assert tuple(names) == THETA_FIXTURE_NAMES
+    checked = set()
+    for r in rows:
+        if r["fixture"] in checked:
+            continue
+        checked.add(r["fixture"])
+        path = FIXTURES_VALID / r["fixture"]
+        assert path.is_file(), f"missing fixture {path}"
+        recipe = json.loads(path.read_text(encoding="utf-8"))
+        assert "binaural" not in recipe, r["fixture"]
+        theta = recipe["theta_reference"]
+        assert set(theta) == {"carrier_hz", "rate_hz", "am_depth_percent", "shape"}, r["fixture"]
+        assert float(theta["carrier_hz"]) == float.fromhex(r["carrier_hex"]) == 450.0, r["fixture"]
+        assert float(theta["rate_hz"]) == float.fromhex(r["rate_hex"]), r["fixture"]
+        assert float(theta["am_depth_percent"]) == float.fromhex(r["depth_hex"]) == 75.0, r["fixture"]
+        assert theta["shape"] == r["shape"], r["fixture"]
+        assert float(recipe["length_s"]) == float.fromhex(r["length_hex"]) == 10.0, r["fixture"]
+    for r in rows:
+        assert int(r["frames"]) == round(Fraction(float.fromhex(r["length_hex"])) * r["fs"]), r
+
+
+def test_theta_sample_rows_follow_the_rules(vectors):
+    cases = set()
+    h = spec_h_units()
+    for r in vectors["theta_samples"]:
+        fs = r["fs"]
+        assert int(r["inc_carrier"]) == spec_increment(float.fromhex(r["carrier_hex"]), fs), r
+        assert int(r["inc_rate"]) == spec_increment(float.fromhex(r["rate_hex"]), fs), r
+        w, _ = spec_w_units(float.fromhex(r["rate_hex"]))
+        assert int(r["w_units"]) == w and int(r["h_units"]) == h, r
+        n = int(r["n"])
+        assert int(r["phase_carrier"]) == n * int(r["inc_carrier"]) % CYCLE, r
+        assert int(r["phase_rate"]) == n * int(r["inc_rate"]) % CYCLE, r
+        past = n >= int(r["frames"])
+        assert r["case"] == ("past_end" if past else "signal"), r
+        cases.add((r["fixture"], fs, r["case"]))
+        if past:
+            assert r["theta_bits"] == r["e_bits"] == r["a_bits"] == "0x0000000000000000", r
+            assert r["ideal_theta"] == "0", r
+            continue
+        assert r["region"] == spec_segment(r["shape"], int(r["phase_rate"]), w, h), r
+    for name in THETA_FIXTURE_NAMES:
+        for fs in listed_sample_rates():
+            assert (name, fs, "signal") in cases and (name, fs, "past_end") in cases, (name, fs)
+    for shape in THETA_SHAPES:
+        found = {r["region"] for r in vectors["theta_samples"]
+                 if r["shape"] == shape and r["case"] == "signal"}
+        assert SEGMENTS[shape] <= found, (shape, found)
+
+
+def test_theta_sample_bits_follow_the_depth_law_and_bound(vectors):
+    gen = generator()
+    for r in vectors["theta_samples"]:
+        if r["case"] != "signal":
+            continue
+        e = bits_value(r["e_bits"])
+        assert e == gen.engine_envelope(r["shape"], int(r["phase_rate"]), int(r["w_units"]),
+                                        int(r["h_units"])), r
+        d = float.fromhex(r["depth_hex"]) / 100.0
+        a = 1.0 - d * (1.0 - e)
+        assert a == bits_value(r["a_bits"]), r
+        theta = bits_value(r["theta_bits"])
+        assert theta == a * engine_sine_value(int(r["phase_carrier"])), r
+        assert abs(Decimal(repr(e)) - Decimal(r["ideal_e"])) <= envelope_bound(), r
+        assert abs(Decimal(repr(theta)) - Decimal(r["ideal_theta"])) <= theta_bound(), (
+            r["fixture"], r["fs"], r["n"])
+
+
+def test_theta_sample_ideal_matches_the_reference_ideal_sine(vectors):
+    mod = ideal()
+    for r in vectors["theta_samples"]:
+        if r["case"] != "signal":
+            continue
+        d = float.fromhex(r["depth_hex"]) / 100.0
+        a = 1.0 - d * (1.0 - float(Decimal(r["ideal_e"])))
+        value = a * mod.ideal_sine(int(r["phase_carrier"]))
+        assert close_to_decimal(value, r["ideal_theta"]), (r["fixture"], r["fs"], r["n"])
+
+
+def test_theta_bound_catches_the_unmodulated_stub(vectors):
+    # Must-fail: the Story 1.5 stub (a = 1, no envelope) misses the theta
+    # bound on every 75 percent depth fixture.
+    bound = theta_bound()
+    misses = {r["fixture"] for r in vectors["theta_samples"] if r["case"] == "signal"
+              and abs(Decimal(repr(engine_sine_value(int(r["phase_carrier"]))))
+                      - Decimal(r["ideal_theta"])) > bound}
+    assert misses == set(THETA_FIXTURE_NAMES)
+
+
+def test_stub_chain_theta_is_the_depth_0_layer(vectors):
+    # At depth 0 the theta layer is the unmodulated carrier bit for bit.
+    gen = generator()
+    rows = [r for r in vectors["stub_chain"] if r["case"] == "signal" and r["theta_carrier_hex"] != "none"]
+    assert rows
+    for r in rows:
+        layer = gen.ThetaLayer(float.fromhex(r["theta_carrier_hex"]), float.fromhex(r["theta_rate_hex"]),
+                               float.fromhex(r["theta_depth_hex"]), r["theta_shape"], r["fs"])
+        assert bits_text(layer.engine_sample(int(r["n"]))) == r["theta_bits"], r

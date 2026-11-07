@@ -519,7 +519,10 @@ def test_reference_reads_the_recipe_json(tmp_path, vectors):
     sc = stub_chain()
     idl = ideal()
     base = json.loads((FIXTURES_VALID / BEAT_6).read_text(encoding="utf-8"))
-    changed = dict(base, theta_reference={"carrier_hz": 250})
+    # Story 2.1: every theta_reference field is required; at depth 0 the
+    # layer is the unmodulated carrier.
+    changed = dict(base, theta_reference={"carrier_hz": 250, "rate_hz": 6, "am_depth_percent": 0,
+                                          "shape": "sine"})
     path = tmp_path / "theta-250.json"
     path.write_text(json.dumps(changed), encoding="utf-8")
     r = sc.render(path, 48000)
@@ -652,7 +655,7 @@ def test_engine_matches_the_reference_on_a_theta_only_variant(fs, tmp_path, tapd
     mod = rm()
     base = json.loads((FIXTURES_VALID / BEAT_6).read_text(encoding="utf-8"))
     variant = {k: v for k, v in base.items() if k != "binaural"}
-    variant["theta_reference"] = {"carrier_hz": 250}
+    variant["theta_reference"] = {"carrier_hz": 250, "rate_hz": 6, "am_depth_percent": 0, "shape": "sine"}
     recipe = tmp_path / "theta-250-only.json"
     recipe.write_text(json.dumps(variant), encoding="utf-8")
     run_dump(tapdump, recipe, fs, tmp_path / "dump", 0)

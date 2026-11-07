@@ -30,7 +30,9 @@
 //                             // schema_version.major, or the json.* parser rule
 //     std::string limit;      // schema_version.major: the supported majors, "1"
 //   };
-//   struct ThetaReference { double carrier_hz; };
+//   enum class ThetaShape { Sine, SmoothedOnOff, Sawtooth, ReverseSaw, Custom };  // Story 2.1
+//   struct ThetaReference { double carrier_hz; double rate_hz; double am_depth_percent;
+//                           ThetaShape shape; };
 //   struct Binaural { double carrier_left_hz; double beat_rate_hz; };
 //   struct Recipe {
 //     std::string schema_version, engine_version;
@@ -75,6 +77,7 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -329,19 +332,35 @@ TEST_CASE("engine pattern checks reject a final newline in every patterned field
 }
 
 TEST_CASE("recipe hash equals SHA-256 of the hand-written canonical text", "[recipe][hash]") {
-  // Written out by hand from both-layers.json, not by any tool: hash-excluded
+  // Written out by hand from both-layers.json (Story 2.1: its theta reference
+  // gains rate_hz 6, am_depth_percent 0, shape sine), not by any tool: hash-excluded
   // fields removed, keys sorted, integral numbers without a fraction. The hex
   // is hashlib.sha256 of this literal; tests/python/test_recipe_hash.py checks
   // the same literal against the Python tool.
   const std::string canonical =
       R"({"binaural":{"beat_rate_hz":6,"carrier_left_hz":400},"engine_version":"0.0.1",)"
       R"("length_s":600,"loudness_target_lufs":-36,"schema_version":"1.0","seed":42,)"
-      R"("theta_reference":{"carrier_hz":200}})";
-  const std::string want = "097f8d91f1ca50830fc9d48b4c967a26d810890fc2dfd70a2303a03fe09ee80a";
+      R"("theta_reference":{"am_depth_percent":0,"carrier_hz":200,"rate_hz":6,"shape":"sine"}})";
+  const std::string want = "fd3e0508393b78386fa9a6f62e6b6282ca0e268648661eececa4fac3430a8a4c";
   CHECK(crypto::sha256_hex(canonical) == want);
   const auto r = recipe::parse(fixture("valid", "both-layers.json"));
   REQUIRE(r.recipe.has_value());
   CHECK(r.recipe->hash == want);
+}
+
+// Story 2.1: rate_hz, am_depth_percent, and shape (enum recipe::ThetaShape)
+// in ThetaReference. A template, so the suite still builds before the fields
+// exist and the missing fields show as a failing check.
+template <class T>
+void check_story_2_1_theta_fields(const T& theta) {
+  if constexpr (requires { theta.rate_hz; theta.am_depth_percent; theta.shape; }) {
+    using Shape = std::remove_cvref_t<decltype(theta.shape)>;
+    CHECK(theta.rate_hz == 6.0);
+    CHECK(theta.am_depth_percent == 0.0);
+    CHECK(theta.shape == Shape::Sine);
+  } else {
+    FAIL("not implemented: ThetaReference rate_hz, am_depth_percent, shape (Story 2.1)");
+  }
 }
 
 TEST_CASE("engine parse stage fills the recipe fields", "[recipe]") {
@@ -359,6 +378,7 @@ TEST_CASE("engine parse stage fills the recipe fields", "[recipe]") {
   CHECK(rec.loudness_hash->size() == 64);
   REQUIRE(rec.theta_reference.has_value());
   CHECK(rec.theta_reference->carrier_hz == 200.0);
+  check_story_2_1_theta_fields(*rec.theta_reference);
   REQUIRE(rec.binaural.has_value());
   CHECK(rec.binaural->carrier_left_hz == 400.0);
   CHECK(rec.binaural->beat_rate_hz == 6.0);
@@ -449,6 +469,8 @@ const std::map<std::string, std::pair<std::string, double>> kExpectedRegistratio
     {"/length_s", {"session-length", 3600.0}},
     {"/loudness_target_lufs", {"loudness-tones", 1.0}},
     {"/theta_reference/carrier_hz", {"theta-carrier", 1.0}},
+    {"/theta_reference/rate_hz", {"theta-rate", 1.0}},             // Story 2.1
+    {"/theta_reference/am_depth_percent", {"theta-depth", 1.0}},   // Story 2.1
     {"/binaural/carrier_left_hz", {"binaural-carrier", 1.0}},
     {"/binaural/beat_rate_hz", {"beat-rate", 1.0}},
 };
@@ -473,7 +495,7 @@ std::string unit_problem(const std::string& path, const std::string& unit, doubl
   static const Fit kFits[] = {
       {"_hz", "Hz", 1.0},       {"_s", "s", 1.0},           {"_s", "min", 60.0},
       {"_s", "h", 3600.0},      {"_lufs", "LUFS-I", 1.0},   {"_deg", "degrees", 1.0},
-      {"_db", "dB", 1.0},
+      {"_db", "dB", 1.0},       {"_percent", "percent", 1.0},
   };
   bool suffix_known = false;
   for (const auto& fit : kFits) {
