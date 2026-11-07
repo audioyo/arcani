@@ -10,6 +10,7 @@ set(ARCANI_ENGINE_TEST_EXTRA_SOURCE "" CACHE FILEPATH
 set(_arcani_engine_sources
   src/version.cpp
   src/api/api.cpp
+  src/core/envelope.cpp
   src/core/phase.cpp
   src/core/sine.cpp
   src/crypto/sha256.cpp

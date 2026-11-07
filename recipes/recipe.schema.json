@@ -72,16 +72,32 @@
       "pattern": "^[0-9a-f]{64}$(?!\\n)"
     },
     "theta_reference": {
-      "description": "Theta reference layer (stub chain): a carrier amplitude-modulated at the theta rate.",
+      "description": "Theta reference layer: a carrier amplitude-modulated at the theta rate by one envelope shape (docs/signal-spec.md, Theta reference).",
       "x-arcani-tag": "loudness-relevant",
       "type": "object",
       "additionalProperties": false,
-      "required": ["carrier_hz"],
+      "required": ["carrier_hz", "rate_hz", "am_depth_percent", "shape"],
       "properties": {
         "carrier_hz": {
           "description": "Theta reference carrier frequency in Hz.",
           "x-arcani-tag": "loudness-relevant",
           "type": "number"
+        },
+        "rate_hz": {
+          "description": "Theta rate in Hz: the envelope repeats at this rate.",
+          "x-arcani-tag": "loudness-relevant",
+          "type": "number"
+        },
+        "am_depth_percent": {
+          "description": "AM depth in percent: the carrier dips to (100 - depth) percent of its peak where the envelope is 0.",
+          "x-arcani-tag": "loudness-relevant",
+          "type": "number"
+        },
+        "shape": {
+          "description": "Envelope shape. custom is accepted here so that compile rejects it by name: the signal spec does not model it.",
+          "x-arcani-tag": "loudness-relevant",
+          "type": "string",
+          "enum": ["sine", "smoothed_on_off", "sawtooth", "reverse_saw", "custom"]
         }
       }
     },

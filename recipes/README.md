@@ -15,11 +15,13 @@ Each numeric field names its range row in the engine field table (`engine/src/re
 | `length_s` | `session-length` | 0 to 28800 s (8 h), inclusive |
 | `loudness_target_lufs` | `loudness-tones` | -36 LUFS-I exactly |
 | `theta_reference.carrier_hz` | `theta-carrier` | 100 to 500 Hz, inclusive |
+| `theta_reference.rate_hz` | `theta-rate` | 1 to 6 Hz, inclusive |
+| `theta_reference.am_depth_percent` | `theta-depth` | 0 to 100 percent, inclusive |
 | `binaural.carrier_left_hz` | `binaural-carrier` | 0 Hz up to, not including, 1000 Hz |
 | `binaural.beat_rate_hz` | `beat-rate` | 0 Hz up to, not including, 30 Hz |
 | right carrier (`carrier_left_hz + beat_rate_hz`, derived) | `binaural-carrier-right` | 0 Hz up to, not including, 1030 Hz; reported on `binaural.beat_rate_hz` |
 
-`seed` is bounded by the schema. `loudness_gain_db` is written by the measure pass, not authored, and has no range row (Story 4.2 checks it). A range fault is rule `range.min` or `range.max`, with the value and a limit that names the bound and the row, for example `>= 100 Hz (row theta-carrier)`. Absent layers are not checked.
+`seed` is bounded by the schema. `loudness_gain_db` is written by the measure pass, not authored, and has no range row (Story 4.2 checks it). A range fault is rule `range.min` or `range.max`, with the value and a limit that names the bound and the row, for example `>= 100 Hz (row theta-carrier)`. Absent layers are not checked. After the ranges, the carrier rule (threshold row `carrier-rule`) checks `theta_reference.carrier_hz` against 4 times `theta_reference.rate_hz` (rule `carrier_rule`; every in-range pair passes), and `theta_reference.shape` `custom` is rejected with rule `shape not modeled in the signal spec`, limit `sine, smoothed_on_off, sawtooth, reverse_saw`. Any other shape text is a schema fault (rule `enum`).
 
 | Field | Type | Required | Tag |
 | --- | --- | --- | --- |
@@ -35,13 +37,16 @@ Each numeric field names its range row in the engine field table (`engine/src/re
 | `loudness_hash` | string, 64 lowercase hex digits | no | hash-excluded |
 | `theta_reference` | object | no | loudness-relevant |
 | `theta_reference.carrier_hz` | number, Hz | yes, in its layer | loudness-relevant |
+| `theta_reference.rate_hz` | number, Hz | yes, in its layer | loudness-relevant |
+| `theta_reference.am_depth_percent` | number, percent | yes, in its layer | loudness-relevant |
+| `theta_reference.shape` | string, one of `sine`, `smoothed_on_off`, `sawtooth`, `reverse_saw`, `custom` | yes, in its layer | loudness-relevant |
 | `binaural` | object | no | loudness-relevant |
 | `binaural.carrier_left_hz` | number, Hz | yes, in its layer | loudness-relevant |
 | `binaural.beat_rate_hz` | number, Hz | yes, in its layer | loudness-relevant |
 
 `date` is checked for shape only (`YYYY-MM-DD`, month 01 to 12, day 01 to 31), not for whether the date exists: `2026-02-31` passes.
 
-Names are `snake_case`, with a unit suffix (`_hz`, `_deg`, `_db`, `_lufs`, `_s`) on every quantity. Layers are fixed top-level keys, never an array.
+Names are `snake_case`, with a unit suffix (`_hz`, `_deg`, `_db`, `_lufs`, `_s`, `_percent`) on every quantity. Layers are fixed top-level keys, never an array.
 
 ## Tags
 

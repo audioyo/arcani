@@ -6,7 +6,8 @@
 // Writes one raw little-endian float32 file per component into OUT_DIR
 // (probe-arith.f32, sine-44100.f32, sine-48000.f32, stub-chain-44100.f32,
 // stub-chain-48000.f32, stub-chain-blocks-44100.f32,
-// stub-chain-blocks-48000.f32). No hashing here:
+// stub-chain-blocks-48000.f32, theta-envelopes-44100.f32,
+// theta-envelopes-48000.f32). No hashing here:
 // tools/hash_manifest.py hashes the files on the host.
 //
 // Component probe-arith: a fixed sequence of float32 multiplies and adds whose
@@ -35,7 +36,8 @@
 //
 // Components stub-chain-44100 and stub-chain-48000 (Story 1.2): the embedded
 // recipe kStubChainRecipe (1 s, a 300 Hz unmodulated theta reference sine in
-// both channels (Story 1.5), a 400 Hz unmodulated binaural sine in the left ear
+// both channels (Story 1.5; since Story 2.1 the theta reference at 0 percent
+// AM depth, the same bits), a 400 Hz unmodulated binaural sine in the left ear
 // and a 406 Hz unmodulated binaural sine in the right ear) compiled in measure mode and
 // rendered through the public C API (arc_compile, arc_render) in one call,
 // interleaved stereo (left, right per frame), each binary64 sample converted
@@ -50,6 +52,19 @@
 // Block-size invariance means they equal stub-chain-<fs> byte for byte. Android
 // runs no ctest, so this carries the proof to every platform.
 // tests/python/test_probe_determinism.py checks kBlockSizes against the row.
+//
+// Components theta-envelopes-44100 and theta-envelopes-48000 (Story 2.1):
+// the eight theta fixtures (recipes/fixtures/valid/theta-<shape>-<rate>hz.json,
+// docs/signal-spec.md, Vectors: theta fixtures, in that order: sine,
+// smoothed_on_off, sawtooth, reverse_saw, each at 1 Hz then 6 Hz), each a
+// 450 Hz carrier amplitude-modulated at the theta rate by that shape at
+// 75 percent AM depth, 10 s, theta reference only. The recipes are embedded
+// (kThetaFixtures; the probe reads no file), with the fixtures' values. Each
+// is compiled in measure mode at that rate and rendered in one call,
+// interleaved stereo, each binary64 sample converted to float32, one fixture
+// after another. Android runs no ctest, so this carries the theta reference
+// to every platform. tests/python/test_probe_theta.py checks each segment
+// against reference/theta.py.
 
 #include <arcani/arcani.h>
 
@@ -102,11 +117,14 @@ constexpr char kStubChainRecipe[] = R"({
   "seed": 42,
   "author": "Arcani hash probe",
   "date": "2026-11-04",
-  "rationale": "Hash probe stub chain component (Stories 1.2 and 1.5): 300 Hz unmodulated theta reference sine in both channels, 400 Hz unmodulated sine in the left ear, 406 Hz unmodulated sine in the right ear, 1 s.",
+  "rationale": "Hash probe stub chain component (Stories 1.2 and 1.5): 300 Hz unmodulated theta reference sine in both channels (0 percent AM depth), 400 Hz unmodulated sine in the left ear, 406 Hz unmodulated sine in the right ear, 1 s.",
   "length_s": 1,
   "loudness_target_lufs": -36,
   "theta_reference": {
-    "carrier_hz": 300
+    "carrier_hz": 300,
+    "rate_hz": 6,
+    "am_depth_percent": 0,
+    "shape": "sine"
   },
   "binaural": {
     "carrier_left_hz": 400,
@@ -116,10 +134,41 @@ constexpr char kStubChainRecipe[] = R"({
 
 constexpr std::size_t kBlockSizes[] = {1, 64, 512, 4096, 997};
 
+// Theta fixtures in probe order: shape, theta rate in Hz (as JSON text).
+struct ThetaFixture {
+  const char* shape;
+  const char* rate_hz;
+};
+constexpr ThetaFixture kThetaFixtures[] = {
+    {"sine", "1"},     {"sine", "6"},     {"smoothed_on_off", "1"}, {"smoothed_on_off", "6"},
+    {"sawtooth", "1"}, {"sawtooth", "6"}, {"reverse_saw", "1"},     {"reverse_saw", "6"},
+};
+
+// The recipe of one theta fixture, with the fixture file's values.
+std::string theta_recipe(const ThetaFixture& f) {
+  return std::string(R"({
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani hash probe",
+  "date": "2026-11-06",
+  "rationale": "Hash probe theta envelope component (Story 2.1): 450 Hz carrier amplitude-modulated at the theta rate, 75 percent AM depth, 10 s.",
+  "length_s": 10,
+  "loudness_target_lufs": -36,
+  "theta_reference": {
+    "carrier_hz": 450,
+    "rate_hz": )") +
+         f.rate_hz + R"(,
+    "am_depth_percent": 75,
+    "shape": ")" + f.shape + R"("
+  }
+})";
+}
+
 // Empty on any API failure (main reports it). With cycle_block_sizes false the
 // whole recipe renders in one call; with it true, in calls cycling through
 // kBlockSizes.
-std::vector<float> probe_stub_chain(std::uint32_t fs, bool cycle_block_sizes) {
+std::vector<float> render_recipe(const std::string& recipe, std::uint32_t fs, bool cycle_block_sizes) {
   arc_compile_options options;
   std::memset(&options, 0, sizeof options);
   options.mode = ARC_MODE_MEASURE;
@@ -127,7 +176,7 @@ std::vector<float> probe_stub_chain(std::uint32_t fs, bool cycle_block_sizes) {
   options.mute_binaural_ear = ARC_MUTE_NONE;
   arc_error error;
   arc_plan* plan = nullptr;
-  if (arc_compile(kStubChainRecipe, sizeof kStubChainRecipe - 1, &options, &plan, &error) != ARC_OK) {
+  if (arc_compile(recipe.data(), recipe.size(), &options, &plan, &error) != ARC_OK) {
     std::fprintf(stderr, "arcani-hashprobe: compile failed: %s %s %s %s\n", error.parameter, error.value,
                  error.rule, error.limit);
     return {};
@@ -160,6 +209,23 @@ std::vector<float> probe_stub_chain(std::uint32_t fs, bool cycle_block_sizes) {
   std::vector<float> out(stereo.size());
   for (std::size_t i = 0; i < stereo.size(); ++i) {
     out[i] = static_cast<float>(stereo[i]);
+  }
+  return out;
+}
+
+std::vector<float> probe_stub_chain(std::uint32_t fs, bool cycle_block_sizes) {
+  return render_recipe(std::string(kStubChainRecipe, sizeof kStubChainRecipe - 1), fs, cycle_block_sizes);
+}
+
+// The theta fixtures in turn; empty if any one fails.
+std::vector<float> probe_theta(std::uint32_t fs) {
+  std::vector<float> out;
+  for (const ThetaFixture& f : kThetaFixtures) {
+    const std::vector<float> part = render_recipe(theta_recipe(f), fs, false);
+    if (part.empty()) {
+      return {};
+    }
+    out.insert(out.end(), part.begin(), part.end());
   }
   return out;
 }
@@ -204,6 +270,8 @@ int main(int argc, char** argv) {
       {"stub-chain-48000", probe_stub_chain(48000, false)},
       {"stub-chain-blocks-44100", probe_stub_chain(44100, true)},
       {"stub-chain-blocks-48000", probe_stub_chain(48000, true)},
+      {"theta-envelopes-44100", probe_theta(44100)},
+      {"theta-envelopes-48000", probe_theta(48000)},
   };
   for (const Component& c : components) {
     if (c.samples.empty()) {

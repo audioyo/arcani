@@ -1,4 +1,4 @@
-"""Reference render of the stub chain (docs/signal-spec.md, Stub chain; Story 1.5).
+"""Reference render of the stub chain (docs/signal-spec.md, Stub chain; Story 1.5; Story 2.1).
 
 Implemented from the signal spec only, never from engine code, engine
 binaries, or engine output (AD-16, AD-19). Every value is binary64 and every
@@ -14,7 +14,7 @@ sample at frame n >= N is +0.0.
 
 For 0 <= n < N and each channel c, in the spec's order:
 
-    theta[c][n]  = a_T * sine(phase_T[n])     the same value in both channels
+    theta[c][n]  = theta.render(...)[n]       the same value in both channels
     gamma[c][n]  = +0.0
     bus[c][n]    = theta[c][n] + gamma[c][n]
     bin[c][n]    = a_c * sine(phase_c[n])
@@ -22,8 +22,10 @@ For 0 <= n < N and each channel c, in the spec's order:
     master[c][n] = join[c][n] * 1.0
     out[c][n]    = master[c][n]
 
-with inc_T = phase_increment(theta_reference.carrier_hz, fs) and a_T = 1.0
-when the recipe has `theta_reference` (else inc_T = 0, a_T = 0.0); f_L =
+with the theta tap from reference/theta.py (docs/signal-spec.md, Theta
+reference: the carrier amplitude-modulated at the theta rate by the recipe's
+envelope shape and depth) when the recipe has `theta_reference`, else +0.0;
+f_L =
 carrier_left_hz, f_R = carrier_left_hz + beat_rate_hz (one binary64
 addition), inc_c = phase_increment(f_c, fs) and a_c = 1.0 when the recipe has
 `binaural` (else 0 and 0.0); phase[n] = n * inc mod 2^64.
@@ -35,7 +37,7 @@ import json
 
 import numpy as np
 
-from . import ideal
+from . import ideal, theta as theta_layer
 
 KEYS = ("output", "theta", "gamma", "bus", "join", "master")
 
@@ -66,12 +68,9 @@ def render(recipe_path, fs, frames=None):
 
     theta_ref = recipe.get("theta_reference")
     if theta_ref is not None:
-        inc_t = ideal.phase_increment(float(theta_ref["carrier_hz"]), fs)
-        a_t = 1.0
+        theta = theta_layer.render(theta_ref, fs, n)
     else:
-        inc_t = 0
-        a_t = 0.0
-    theta = _oscillator(inc_t, a_t, n)
+        theta = np.zeros(n, dtype=np.float64)
     gamma = np.zeros(n, dtype=np.float64)
     bus = theta + gamma
 

@@ -1,5 +1,6 @@
-// Renderer: the stub chain, per sample in the spec's operation order
-// (docs/signal-spec.md, Stub chain, Per sample).
+// Renderer: the stub chain with the real theta reference, per sample in the
+// spec's operation order (docs/signal-spec.md, Stub chain and Theta
+// reference, Per sample).
 
 #include "render/renderer.hpp"
 
@@ -8,6 +9,7 @@
 #include <initializer_list>
 #include <limits>
 
+#include "core/envelope.hpp"
 #include "core/sine.hpp"
 
 namespace arcani::render {
@@ -26,7 +28,8 @@ Renderer::Renderer(const plan::Plan& plan) noexcept : plan_(plan) {}
 
 void Renderer::seek(std::uint64_t frame) noexcept {
   position_ = frame;
-  theta_phase_ = frame * plan_.theta.increment;  // mod 2^64 (unsigned wraparound)
+  theta_phase_ = frame * plan_.theta.increment;              // mod 2^64 (unsigned wraparound)
+  envelope_phase_ = frame * plan_.theta.envelope_increment;  // mod 2^64 (unsigned wraparound)
   for (std::size_t c = 0; c < 2; ++c) {
     phase_[c] = frame * plan_.binaural.increment[c];  // mod 2^64 (unsigned wraparound)
   }
@@ -39,11 +42,17 @@ void Renderer::render_block(std::size_t count) noexcept {
   const auto& ears = plan_.binaural;
   const auto& osc = plan_.theta;
   for (std::size_t i = 0; i < count; ++i) {
-    const double theta_sample = i < live ? osc.amplitude * core::sine(theta_phase_) : 0.0;
+    double theta_sample = 0.0;
+    if (i < live && osc.present) {
+      // Theta reference, Per sample: depth law, then the carrier.
+      const double e = core::envelope(osc.shape, envelope_phase_, osc.edge_units, osc.half_on_units);
+      const double a = 1.0 - osc.depth * (1.0 - e);
+      theta_sample = a * core::sine(theta_phase_);
+    }
     for (std::size_t c = 0; c < 2; ++c) {
       const std::size_t k = 2 * i + c;
       if (i < live) {
-        const double theta = theta_sample;                       // theta reference stub, same in both channels
+        const double theta = theta_sample;                       // theta reference, same in both channels
         const double gamma = 0.0;                                // gamma PAC stub
         const double bus = theta + gamma;                        // stereo bus, within channel c
         const double bin = ears.amplitude[c] * core::sine(phase_[c]);  // binaural oscillator of ear c
@@ -64,6 +73,7 @@ void Renderer::render_block(std::size_t count) noexcept {
       phase_[c] += ears.increment[c];
     }
     theta_phase_ += osc.increment;
+    envelope_phase_ += osc.envelope_increment;
   }
 }
 

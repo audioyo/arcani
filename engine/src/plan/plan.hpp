@@ -3,8 +3,9 @@
 //
 // compile() turns recipe text into an immutable Plan, or one blocking error
 // naming parameter, value, rule, and limit. The plan holds everything the
-// renderer needs (session length, theta reference and binaural oscillator
-// increments and amplitudes), so render does no lookup and has no test branch: a muted ear
+// renderer needs (session length, theta reference carrier and envelope
+// increments, depth, and edge lengths, binaural oscillator increments and
+// amplitudes), so render does no lookup and has no test branch: a muted ear
 // is increment 0 and amplitude 0.0 in the plan.
 //
 // The stage order is fixed and is not a recipe field. Every stage writes
@@ -23,6 +24,7 @@
 #include <string_view>
 #include <vector>
 
+#include "core/envelope.hpp"
 #include "recipe/recipe.hpp"
 
 namespace arcani::plan {
@@ -59,11 +61,20 @@ enum class MuteEar { None, Left, Right };
 // Largest recipe text compile accepts, in bytes (1 MiB).
 inline constexpr std::size_t kMaxInputBytes = 1048576;
 
-// Theta reference stub oscillator: one unmodulated sine at the theta carrier,
-// the same value in both channels, phase 0 at n = 0.
+// Theta reference (docs/signal-spec.md, Theta reference): a carrier
+// amplitude-modulated at the theta rate by one envelope shape, the same value
+// in both channels. Carrier and envelope phases are each 0 at n = 0. Per
+// sample: e = envelope(shape, phase_E, edge_units, half_on_units),
+// a = 1.0 - depth * (1.0 - e), theta = a * sine(phase_T). Without a
+// theta_reference field, present is false and theta is +0.0.
 struct ThetaOscillator {
-  std::uint64_t increment = 0;  // 0 when absent
-  double amplitude = 0.0;       // 1.0, or 0.0 when absent
+  bool present = false;
+  std::uint64_t increment = 0;           // carrier: phase increment rule (carrier_hz, fs)
+  std::uint64_t envelope_increment = 0;  // envelope: phase increment rule (rate_hz, fs)
+  double depth = 0.0;                    // d = am_depth_percent / 100.0
+  core::EnvelopeShape shape = core::EnvelopeShape::Sine;
+  std::uint64_t edge_units = 0;     // W at rate_hz
+  std::uint64_t half_on_units = 0;  // H
 };
 
 // Binaural oscillators of one ear pair: unmodulated sines, phase 0 at n = 0.

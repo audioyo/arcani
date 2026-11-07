@@ -68,9 +68,9 @@ Decisions (2026-11-06, build agent, under Audio's standing "settle tech forks yo
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `docs/signal-spec.md`, `tools/signal_spec_vectors.py`, vectors JSON -- §theta with worked vectors -- the spec merges first.
-- [ ] tests: `tests/cpp/test_theta.cpp`, `test_validate.cpp`, `tests/python/test_theta_reference.py`, `test_frequency_tool.py`, `test_click_tool.py`, probe and hash tests -- QA agent writes failing tests -- tests first.
-- [ ] schema, field table, recipe, validator, plan, envelope, renderer, reference, `tests/assertions/frequency.py`, `clicks.py`, hash probe -- implementation.
+- [x] `docs/signal-spec.md`, `tools/signal_spec_vectors.py`, vectors JSON -- §theta with worked vectors -- the spec merges first.
+- [x] tests: `tests/cpp/test_theta.cpp`, `test_validate.cpp`, `tests/python/test_theta_reference.py`, `test_frequency_tool.py`, `test_click_tool.py`, probe and hash tests -- QA agent writes failing tests -- tests first.
+- [x] schema, field table, recipe, validator, plan, envelope, renderer, reference, `tests/assertions/frequency.py`, `clicks.py`, hash probe -- implementation.
 - [ ] fixtures, hash vectors, tables, md, design log (ll), `ci/hash_expected.json` (after the full run) -- records.
 - [ ] `docs/timeline-guidebook.html`, `sprint-status.yaml` -- records.
 
@@ -125,6 +125,25 @@ Red state at hand-off (ctest: 20 failed of 177 cases in `arcani_tests`; pytest: 
 - pytest: `test_frequency_tool.py`, `test_click_tool.py` (no tools, no calibration row), `test_theta_reference.py` (no `reference/theta.py`, no fixtures), `test_probe_theta.py`, `test_signal_spec_core.py` (rows and fixtures missing; every vector check that needs no row passes), `test_recipe_schema.py`, `test_recipe_hash.py`, `test_hash_compare.py` (real file), and the two inline-theta cases of `test_reference_match.py`.
 
 Throwaway proof (a copy of the working tree in the system temp folder, not in the repo): I implemented minimal versions of the schema fields, field table, `ThetaShape` parse with the enum check, validator rows, carrier and shape rules, plan, `core/envelope.{hpp,cpp}`, renderer, `reference/theta.py`, the stub chain change, `assertions/frequency.py` and `clicks.py`, the three rows, the 8 fixtures, the fields on every existing theta fixture, regenerated recipe hash vectors, and the probe components. Results: ctest 100 percent (186 cases). pytest 1568 passed, 5 failed: the four hash entry tests that need the four-platform full run hashes, and `test_check_wording.py::test_repo_passes_by_default`, which scans 0 files in a copy without git. Measured margins on harness signals: carrier and rate errors under 1e-5 Hz (row 0.001 Hz); 100 percent depth smoothed on-off, sawtooth, and reverse saw peak near -112 to -127 dBFS after the high-pass (row -60 dBFS); the unsmoothed sawtooth about -36 dBFS; a 0.01 step about -50 dBFS. Engine theta against the generator ideal: at most 7.7e-8 on the vectors, inside `1.5 * b`.
+
+### Build agent, implementation pass (2026-11-06)
+
+Done (tasks 3 and 4 except the `ci/hash_expected.json` entries; task 5 left to the guidebook pass):
+
+- **Recipe:** schema gains `rate_hz`, `am_depth_percent`, `shape` (enum with `custom`), all four required. Field table rows for the three (range rows `theta-rate`, `theta-depth`; `shape` a loudness-relevant string). `recipe::ThetaShape`, `recipe::kThetaShapeEnum`, and the three `ThetaReference` members; parse checks the enum (rule `enum`, limit the members in schema order).
+- **Validator:** `kRows` gains `theta-rate` (1 to 6 Hz) and `theta-depth` (0 to 100 percent); `field_value` maps both paths. New `validate::check_rules()` (carrier rule on the theta reference, then the custom shape rule, with `kShapeNotModeledRule` and `kModeledThetaShapes`), called by compile after `check_ranges()` and before `final.required`.
+- **Engine:** `core/envelope.{hpp,cpp}` per the test contract. `core::round_half_even` moved out of the anonymous namespace in `phase.cpp` (declared in `phase.hpp`) so the edge and ratio rules reuse it; behavior unchanged. `plan::ThetaOscillator` now holds `present`, carrier and envelope increments, `depth`, `shape`, `edge_units`, `half_on_units` (the old `amplitude` is gone: a missing theta reference is `present = false` and renders `+0.0`). Renderer keeps an envelope phase, sets it on seek, and evaluates `e`, `a = 1.0 - d * (1.0 - e)`, `a * sine(phase_T)` in the spec order.
+- **Reference:** `reference/theta.py` per the test contract (integer segments on uint64 arrays, NumPy cosine, signed phase for the sine shape, one binary64 division per ratio); `stub_chain.py` takes its theta tap from it. README updated.
+- **Tools:** `tests/assertions/frequency.py` (8x zero padding, main lobe of 4 bins skipped at DC, golden-section search over one padded bin each side, 40 steps) and `tests/assertions/clicks.py` (power-of-two FFT size with at least 0.1 s of zero padding).
+- **Hash probe:** `render_recipe()` shared by the stub chain and the new `probe_theta()`; the eight theta recipes are built from an embedded (shape, rate) table with the fixtures' values. `kStubChainRecipe` gains the depth 0 fields.
+- **Records:** 8 theta fixtures; three fields on every existing theta fixture (valid and invalid, `both-layers-reformatted.json` by hand, `missing-theta-reference-carrier-hz.json` keeps only carrier missing); new invalid fixture `theta-shape-not-in-enum.json` (rule `enum`) in `invalid-expected.json`; recipe hash vectors regenerated (`both-layers.json` hashes to the hand-written `fd3e0508...a8a4c`); `recipes/README.md`; rows and design log (ll).
+- **Rows deviation:** `theta-on-share`, `theta-edge`, and `frequency-accuracy-calibration` have an empty `spec_row` and a source starting `Design log 2026-11-06 (ll)`, the README rule for rows the md does not list. Adding md rows instead would break `test_tables_loader.py::test_md_parse_sees_both_tables`, which pins the md at 13 locked-range rows; I did not change that pin. The md is unchanged.
+
+Verification on the dev PC: the `windows-clang-cl` workflow preset passes (`arcani_tests` 186 cases, 185 passed, 1 skipped: render speed off the reference machine). `uv run pytest`: 1570 passed, 2 skipped (NDK), 4 failed, all four the expected-entry tests that need the full-run hashes (`test_hash_compare.py::test_real_expected_file_has_every_component_with_its_scope`, `test_probe_determinism.py::test_every_probe_component_has_an_expected_entry` and `::test_windows_x64_probe_matches_every_expected_entry`, `test_probe_theta.py::test_expected_entries_name_the_theta_components`). `check_engine_source.py`, `check_wording.py`, `check_fp_pragmas.py`, `check_row_coverage.py`, `check_table_log.py --base main`: exit 0. Measured: engine theta against the reference at worst -142.2 dBFS; frequency tool on the engine tap within 9.4e-9 Hz (carrier) and 3.1e-6 Hz (rate); 100 percent depth hard-edged shapes -111.8 to -127.0 dBFS after the high-pass.
+
+Local windows-x64 probe hashes, for comparison with the full run (not to be pinned from the dev PC): `theta-envelopes-44100` `a47cf8aabde5c1fd3b4151a2bf0a3a040208327a24529fdff6d95856cca75e04`, `theta-envelopes-48000` `1ee54609a07751a9247cae75389fccf1a9d90cdc242ac9b9ddf89e8cb1fb0a48`. The stub chain probe components still match their pinned entries.
+
+Left: the two `ci/hash_expected.json` entries (four-platform full run, needs Audio's go-ahead to push; about 28 and 31 MB of float32 per platform per run), then the guidebook and `sprint-status.yaml` (task 5).
 
 ## Spec Change Log
 

@@ -10,9 +10,10 @@ constexpr double kTwoPow52 = 0x1p52;
 constexpr double kTwoPow64 = 0x1p64;
 constexpr double kMaxFinite = 0x1.fffffffffffffp+1023;
 
-// Nearest integer to x, ties to even, for 0 <= x < 2^64. Every step is
-// exact: at or above 2^52 a binary64 value is already an integer, and below
-// it the truncation and the subtraction lose nothing.
+}  // namespace
+
+// At or above 2^52 a binary64 value is already an integer, and below it the
+// truncation and the subtraction lose nothing.
 std::uint64_t round_half_even(double x) noexcept {
   if (x >= kTwoPow52) {
     return static_cast<std::uint64_t>(x);
@@ -27,8 +28,6 @@ std::uint64_t round_half_even(double x) noexcept {
   }
   return whole + (whole & 1u);
 }
-
-}  // namespace
 
 std::uint64_t phase_increment(double f_hz, std::uint32_t fs) noexcept {
   const double rate = static_cast<double>(fs);

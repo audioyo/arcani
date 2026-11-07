@@ -25,6 +25,13 @@ constexpr Field kFields[] = {
     {"/loudness_hash", String, HashExcluded, false, "", 1.0},
     {"/theta_reference", Object, LoudnessRelevant, false, "", 1.0},
     {"/theta_reference/carrier_hz", Number, LoudnessRelevant, true, "theta-carrier", 1.0},
+    // Story 2.1. The carrier rule (carrier_hz >= 4 x rate_hz) runs after
+    // every range check; see validate/validate.hpp.
+    {"/theta_reference/rate_hz", Number, LoudnessRelevant, true, "theta-rate", 1.0},
+    {"/theta_reference/am_depth_percent", Number, LoudnessRelevant, true, "theta-depth", 1.0},
+    // One of the schema enum members (recipe::kThetaShapeEnum); custom is
+    // schema-valid and rejected at compile.
+    {"/theta_reference/shape", String, LoudnessRelevant, true, "", 1.0},
     {"/binaural", Object, LoudnessRelevant, false, "", 1.0},
     {"/binaural/carrier_left_hz", Number, LoudnessRelevant, true, "binaural-carrier", 1.0},
     // The derived right carrier (carrier_left_hz + beat_rate_hz, row
