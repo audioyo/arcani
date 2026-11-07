@@ -328,6 +328,60 @@ TEST_CASE("theta at depth 0 is the unmodulated carrier for every shape", "[theta
   }
 }
 
+TEST_CASE("theta edge fits inside its segment at the top theta rate", "[theta]") {
+  // W < H - W (signal spec, Theta reference, Fixed constants): at the
+  // theta-rate max the smoothed on-off plateau and every edge stay apart.
+  const auto& rate = spec::hz_range("theta-rate");
+  const std::uint64_t w = core::theta_edge_units(rate.max);
+  const std::uint64_t h = core::theta_half_on_units();
+  CHECK(w < h - w);
+}
+
+TEST_CASE("theta at 100 percent depth: -0.0 theta tap, +0.0 bus and out", "[theta][depth]") {
+  // Signal spec, Theta reference, Per sample: where a = 0 (the off segment)
+  // and the carrier sine is negative, theta = 0.0 * negative = -0.0; the
+  // stereo bus (theta + gamma) and the output are +0.0 there.
+  const std::string text =
+      "{\"schema_version\": \"1.0\", \"engine_version\": \"0.0.1\", \"seed\": 42, "
+      "\"author\": \"Arcani test\", \"date\": \"2026-11-06\", "
+      "\"rationale\": \"Full depth theta test, made in the test.\", "
+      "\"length_s\": 1, \"loudness_target_lufs\": -36, "
+      "\"theta_reference\": {\"carrier_hz\": 450, \"rate_hz\": 6, \"am_depth_percent\": 100, "
+      "\"shape\": \"smoothed_on_off\"}}";
+  constexpr std::uint64_t kNegativeZero = UINT64_C(0x8000000000000000);
+  for (const std::uint32_t fs : spec::sample_rates()) {
+    INFO("fs " << fs);
+    auto plan = api::compile_ok(text, api::options(ARC_MODE_MEASURE, fs));
+    const auto frames = static_cast<std::size_t>(arc_plan_frame_count(plan.get()));
+    auto renderer = api::renderer(plan.get());
+    api::TapBuffers taps(frames);
+    arc_taps t = taps.taps();
+    const auto out = api::render(renderer.get(), frames, &t);
+    const std::uint64_t inc_t = core::phase_increment(450.0, fs);
+    const std::uint64_t inc_e = core::phase_increment(6.0, fs);
+    const std::uint64_t w = core::theta_edge_units(6.0);
+    const std::uint64_t h = core::theta_half_on_units();
+    std::size_t found = 0;
+    bool ok = true;
+    for (std::size_t n = 0; n < frames; ++n) {
+      const auto k = static_cast<std::uint64_t>(n);
+      const bool off = core::envelope(core::EnvelopeShape::SmoothedOnOff, k * inc_e, w, h) == 0.0;
+      if (!off || !(core::sine(k * inc_t) < 0.0)) {
+        continue;
+      }
+      ++found;
+      for (std::size_t c = 0; c < 2; ++c) {
+        const std::size_t i = 2 * n + c;
+        ok = ok && api::bits(taps.theta_reference[i]) == kNegativeZero &&
+             api::bits(taps.stereo_bus[i]) == 0 && api::bits(out[i]) == 0 &&
+             api::bits(taps.master[i]) == 0;
+      }
+    }
+    CHECK(found > 0);
+    CHECK(ok);
+  }
+}
+
 #else
 
 TEST_CASE("theta reference envelopes are implemented", "[theta]") {

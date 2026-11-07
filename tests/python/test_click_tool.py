@@ -190,3 +190,13 @@ def test_unsmoothed_sawtooth_fails_and_smoothed_passes(fs, rate_hz):
     assert hard["result"] == "fail", hard
     soft = mod.check("smoothed sawtooth", sawtooth_am(fs, rate_hz, smoothed=True), fs)
     assert soft["result"] == "pass", soft
+
+
+def test_signal_shorter_than_the_exclusions_raises():
+    mod = clicks()
+    for fs in SAMPLE_RATES:
+        x = smooth_am(fs, seconds=0.09)  # under 2 x 50 ms: nothing left to inspect
+        with pytest.raises(ValueError, match="too short"):
+            mod.peak_dbfs(x, fs)
+        with pytest.raises(ValueError, match="too short"):
+            mod.check("short", x, fs)

@@ -25,8 +25,7 @@ For 0 <= n < N and each channel c, in the spec's order:
 with the theta tap from reference/theta.py (docs/signal-spec.md, Theta
 reference: the carrier amplitude-modulated at the theta rate by the recipe's
 envelope shape and depth) when the recipe has `theta_reference`, else +0.0;
-f_L =
-carrier_left_hz, f_R = carrier_left_hz + beat_rate_hz (one binary64
+f_L = carrier_left_hz, f_R = carrier_left_hz + beat_rate_hz (one binary64
 addition), inc_c = phase_increment(f_c, fs) and a_c = 1.0 when the recipe has
 `binaural` (else 0 and 0.0); phase[n] = n * inc mod 2^64.
 

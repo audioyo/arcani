@@ -461,7 +461,7 @@ w = E * rate_hz      binary64, one rounding
 W = w * 0x1p64       binary64, exact; then the nearest integer, ties to even
 ```
 
-`H` is half the on share in phase units (2^62). `W` is `E` seconds of envelope phase at `rate_hz`, in phase units. Over the locked rate range `W` is at most about `0.06 * 2^64`, so `W < H - W` and every edge fits inside its segment: at 6 Hz, the top theta rate, the smoothed on-off plateau is still 0.19 of a cycle and the sawtooth's linear segment 0.94.
+`H` is half the on share in phase units (2^62). `W` is `E` seconds of envelope phase at `rate_hz`, in phase units. Over the locked rate range `W` is at most about `0.06 * 2^64`, so `W < H - W` and every edge fits inside its segment: at 6 Hz, the top theta rate, the smoothed on-off plateau is still 0.19 of a cycle on each side of the 0 degree point (0.38 in all) and the sawtooth's linear segment 0.94.
 
 **Ratio-to-phase rule.** The edges convert a ratio `r` to a half-cycle phase by one clamped conversion:
 

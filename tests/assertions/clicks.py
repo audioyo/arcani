@@ -13,7 +13,7 @@ Python-synthesized signals first (tests/python/test_click_tool.py).
   even in frequency, so zero phase.
 - peak_dbfs(x, fs, exclude_s=EXCLUDE_S): 20 log10 of the largest
   |highpass(x, fs)| outside the excluded ends; -inf when that part is all
-  zero.
+  zero; ValueError when the signal is too short to leave any part.
 - check(name, x, fs): the report assertion shape (Story 1.4), pass when the
   peak is strictly below the row; a NaN or infinite sample fails with note
   "not finite" and measured None.
@@ -64,7 +64,10 @@ def peak_dbfs(x, fs, exclude_s=EXCLUDE_S) -> float:
     y = highpass(x, fs)
     k = int(round(exclude_s * fs))
     part = y[k:y.size - k]
-    peak = float(np.max(np.abs(part))) if part.size else 0.0
+    if part.size == 0:
+        raise ValueError(f"signal of {y.size} samples is too short: no samples outside the "
+                         f"first and last {exclude_s} s at {fs} Hz")
+    peak = float(np.max(np.abs(part)))
     return -math.inf if peak == 0.0 else 20.0 * math.log10(peak)
 
 
