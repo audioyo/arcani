@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-06",
+  "rationale": "Theta reference fixture (Story 2.1): 10 s, theta reference only, for the engine, reference, frequency, click, and hash probe tests. 450 Hz carrier, amplitude-modulated at 1 Hz by the sawtooth envelope, 75 percent AM depth, the same in both channels. Values are placeholders, not starter defaults. A test fixture, not for listening.",
+  "length_s": 10,
+  "loudness_target_lufs": -36,
+  "theta_reference": {
+    "carrier_hz": 450,
+    "rate_hz": 1,
+    "am_depth_percent": 75,
+    "shape": "sawtooth"
+  }
+}

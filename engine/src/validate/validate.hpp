@@ -1,4 +1,5 @@
-// Recipe validator (Story 1.3): locked ranges and the carrier rule.
+// Recipe validator (Story 1.3): locked ranges, the carrier rule, and (Story
+// 2.1) the theta shape rule.
 //
 // check_ranges() runs after parse in both compile modes. It walks the field
 // table in order and checks every present field that names a range row
@@ -48,6 +49,17 @@ std::span<const RangeRow> range_rows() noexcept;
 // The first locked-range fault of a parsed recipe, or nothing.
 std::optional<recipe::Error> check_ranges(const recipe::Recipe& r);
 
+// Rules after the ranges (Story 2.1), run by compile after check_ranges()
+// and before final.required, first failure wins:
+// 1. carrier rule on the theta reference: carrier_hz against rate_hz;
+// 2. a custom theta shape: parameter /theta_reference/shape, value custom,
+//    rule kShapeNotModeledRule, limit kModeledThetaShapes. The signal spec
+//    models no custom envelope curve, so it does not exist.
+std::optional<recipe::Error> check_rules(const recipe::Recipe& r);
+
+inline constexpr std::string_view kShapeNotModeledRule = "shape not modeled in the signal spec";
+inline constexpr std::string_view kModeledThetaShapes = "sine, smoothed_on_off, sawtooth, reverse_saw";
+
 // Carrier rule: every modulated carrier is at least this many times its
 // modulation rate (threshold row carrier-rule).
 inline constexpr double kCarrierRatio = 4.0;
@@ -55,8 +67,8 @@ inline constexpr double kCarrierRatio = 4.0;
 // Passes when carrier_hz >= kCarrierRatio * rate_max_hz: a rate interval is
 // judged by its maximum, the worst case. Failure: parameter as given, value
 // the carrier, rule carrier_rule, limit for example
-// ">= 24 Hz (4 x 6 Hz, row carrier-rule)". No v0.1 recipe field pairs a
-// carrier with a rate, so compile has no caller until Epic 2.
+// ">= 24 Hz (4 x 6 Hz, row carrier-rule)". Compile calls it through
+// check_rules() for the theta reference (Story 2.1).
 std::optional<recipe::Error> check_carrier_rule(std::string_view parameter, double carrier_hz,
                                                 double rate_min_hz, double rate_max_hz);
 

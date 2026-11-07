@@ -10,7 +10,10 @@
   "loudness_gain_db": 2.25,
   "loudness_hash": "1fb9f4097256db2d7b1e13aff79cee44339891a31c556b9cf6093885773b3618",
   "theta_reference": {
-    "carrier_hz": 200
+    "carrier_hz": 200,
+    "rate_hz": 6,
+    "am_depth_percent": 0,
+    "shape": "sine"
   },
   "binaural": {
     "carrier_left_hz": 400,

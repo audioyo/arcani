@@ -5,11 +5,12 @@ binaural-isolation-engine	90	dB below the ear's own binaural carrier	Binaural is
 binaural-isolation-master	60	dB below the ear's own binaural carrier	Binaural isolation, after master chain	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-4	
 coupling-timing	2	ms	Coupling timing	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-3	2-3-gamma-coupled-smooth-swell
 coupling-independence	0	samples of gamma peak time change	Coupling independence	thresholds-and-ranges.md, Test thresholds; AD-5	2-5-binaural-layer
-envelope-shape	0	envelope samples failing the reference match	Envelope shape	thresholds-and-ranges.md, Test thresholds; FR-13	2-1-theta-reference-envelopes
+envelope-shape	0	envelope samples failing the reference match	Envelope shape	thresholds-and-ranges.md, Test thresholds; FR-13	
 carrier-rule	4	times the modulation rate	Carrier rule	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-9	
 spacing-rule	50	Hz	Spacing rule	thresholds-and-ranges.md, Test thresholds; design log 2026-10-27 (e), (i); AD-20	3-2-spacing-rule-per-ear-whole-session
 spectral-component-level	40	dB below the layer's strongest line	Spacing rule	thresholds-and-ranges.md, Test thresholds; design log 2026-10-27 (i); AD-20	3-1-spectral-component-table-per-shape
 frequency-accuracy	0.01	Hz	Frequency accuracy	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-1	
+frequency-accuracy-calibration	0.001	Hz		Design log 2026-11-06 (ll): engineering default: the frequency tool reads Python-synthesized tones of known carrier and rate within a tenth of row frequency-accuracy before it judges the engine	
 drift-8h	1	ms	Long-session drift	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-1; the 8-hour length is range row session-length	
 reference-match	-100	dBFS	Reference match	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; AD-16	
 reference-match-min-level	-60	dBFS	Reference match	thresholds-and-ranges.md, Test thresholds; engineering default: 40 dB above row reference-match; design log 2026-11-05 (jj)	
@@ -18,8 +19,8 @@ cross-platform	0	differing hashes	Cross-platform	thresholds-and-ranges.md, Test 
 cross-platform-fallback	-100	dBFS	Cross-platform	thresholds-and-ranges.md, Test thresholds; AD-9; design log 2026-10-27 (j): a component proven unable to match falls back to this tolerance, strictly below	
 block-sizes	1 64 512 4096 997	frames per call	Block-size invariance	thresholds-and-ranges.md, Test thresholds; AD-10; design log 2026-11-06 (kk): 997 is the odd size: not a multiple of 64 and above 64, so calls cross internal block boundaries at varying offsets	
 block-size-invariance	0	differing bytes	Block-size invariance	thresholds-and-ranges.md, Test thresholds; AD-10	
-click-level	-60	dBFS	Clicks	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds	2-1-theta-reference-envelopes
-click-highpass	8	kHz	Clicks	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds	2-1-theta-reference-envelopes
+click-level	-60	dBFS	Clicks	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds	
+click-highpass	8	kHz	Clicks	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds	
 dropout-length	1	ms	Dropouts	thresholds-and-ranges.md, Test thresholds; design log 2026-10-27 (i)	5-2-clicks-dropouts-nan-and-infinite-values
 invalid-samples	0	NaN or infinite samples	NaN or infinite values	thresholds-and-ranges.md, Test thresholds; FR-13	5-2-clicks-dropouts-nan-and-infinite-values
 gain-ramp-min	10	ms	Gain ramps	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-5	4-4-gain-ramps

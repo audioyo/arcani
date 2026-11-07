@@ -42,6 +42,20 @@
 // 3. Check order: input cap, sample rate, parse, ranges (field table order,
 //    derived right carrier after beat rate), final.required. First failure
 //    wins.
+//
+// Story 2.1 (theta reference): theta_reference requires carrier_hz, rate_hz
+// (row theta-rate), am_depth_percent (row theta-depth, unit percent), and
+// shape. The field table order inside theta_reference is carrier_hz,
+// rate_hz, am_depth_percent, shape. Schema faults on shape: a non-string is
+// rule "type" (limit "string"); text outside the schema enum is rule "enum",
+// value the text, limit the enum members in schema order joined by ", "
+// ("sine, smoothed_on_off, sawtooth, reverse_saw, custom"). The schema
+// accepts "custom", and compile rejects it after the ranges and before
+// final.required: parameter /theta_reference/shape, value custom, rule
+// "shape not modeled in the signal spec", limit "sine, smoothed_on_off,
+// sawtooth, reverse_saw". The carrier rule checks carrier_hz against
+// rate_hz; inside the locked ranges it always passes (100 Hz >= 4 x 6 Hz),
+// so its failure is reached only through check_carrier_rule directly.
 
 #include <arcani/arcani.h>
 
@@ -165,6 +179,11 @@ struct Values {
   std::string length_s = "1";
   std::string loudness_target_lufs = "-36";
   std::string theta_carrier_hz = "300";
+  // Story 2.1. Empty text omits that theta field; theta_shape is written as
+  // given, so quote a string or pass any other JSON value.
+  std::string theta_rate_hz = "6";
+  std::string theta_am_depth_percent = "75";
+  std::string theta_shape = "\"sine\"";
   std::string carrier_left_hz = "400";
   std::string beat_rate_hz = "6";
   bool theta = true;
@@ -188,7 +207,19 @@ std::string make_recipe(const Values& v) {
          "  \"loudness_hash\": \"6a29ccd608e4c1945bfff95af078a97daea48eca54a38e065ae33dfa9c2d83a6\"";
   }
   if (v.theta) {
-    s += ",\n  \"theta_reference\": {\n    \"carrier_hz\": " + v.theta_carrier_hz + "\n  }";
+    std::string body;
+    const auto add = [&body](const char* key, const std::string& text) {
+      if (text.empty()) {
+        return;
+      }
+      body += body.empty() ? "\n" : ",\n";
+      body += std::string("    \"") + key + "\": " + text;
+    };
+    add("carrier_hz", v.theta_carrier_hz);
+    add("rate_hz", v.theta_rate_hz);
+    add("am_depth_percent", v.theta_am_depth_percent);
+    add("shape", v.theta_shape);
+    s += ",\n  \"theta_reference\": {" + body + "\n  }";
   }
   if (v.binaural) {
     s += ",\n  \"binaural\": {\n    \"carrier_left_hz\": " + v.carrier_left_hz +
@@ -247,7 +278,9 @@ double above(double x) { return std::nextafter(x, std::numeric_limits<double>::i
 
 TEST_CASE("engine range table equals ranges.tsv row for row", "[validate][ranges]") {
   const auto expected_ids = ids_named_by_fields();
-  REQUIRE(expected_ids.size() == 6);
+  REQUIRE(expected_ids.size() == 8);  // Story 2.1 adds theta-rate and theta-depth
+  CHECK(expected_ids.count("theta-rate") == 1);
+  CHECK(expected_ids.count("theta-depth") == 1);
   // row() is the assertion call: it records each id for the row coverage check.
   const auto via_row = [](const std::string& id) -> const tables::Row* {
     try {
@@ -557,6 +590,199 @@ TEST_CASE("valid/ means schema-valid: the out-of-range hash fixture is rejected 
   }
   CHECK(rejected_seen == expected_rejected);
   CHECK(compiled > 0);
+}
+
+// ------------------------------------------------------------ theta reference (Story 2.1)
+
+TEST_CASE("theta: every shape compiles in both modes at both rates", "[validate][theta]") {
+  for (const char* shape : {"\"sine\"", "\"smoothed_on_off\"", "\"sawtooth\"", "\"reverse_saw\""}) {
+    Values v;
+    v.theta_shape = shape;
+    const std::string text = make_recipe(v);
+    for (const arc_mode mode : kModes) {
+      for (const std::uint32_t fs : {44100u, 48000u}) {
+        INFO(shape << ", mode " << mode << ", fs " << fs);
+        CHECK(api::compile_ok(text, api::options(mode, fs)) != nullptr);
+      }
+    }
+  }
+}
+
+TEST_CASE("theta: range edges pass at the bound", "[validate][theta]") {
+  for (const char* carrier : {"100", "500"}) {
+    Values v;
+    v.theta_carrier_hz = carrier;
+    expect_plan(v);
+  }
+  for (const char* rate : {"1", "6"}) {
+    Values v;
+    v.theta_rate_hz = rate;
+    expect_plan(v);
+  }
+  for (const char* depth : {"0", "100"}) {
+    Values v;
+    v.theta_am_depth_percent = depth;
+    expect_plan(v);
+  }
+  {
+    // The tightest in-range pair for the carrier rule: 100 Hz needs only 24 Hz.
+    Values v;
+    v.theta_carrier_hz = "100";
+    v.theta_rate_hz = "6";
+    expect_plan(v);
+  }
+}
+
+TEST_CASE("theta: just outside a range edge is rejected with its row", "[validate][theta]") {
+  struct Case {
+    std::string text;
+    void (*set)(Values&, const std::string&);
+    Want want;
+  };
+  const auto carrier = [](Values& v, const std::string& t) { v.theta_carrier_hz = t; };
+  const auto rate = [](Values& v, const std::string& t) { v.theta_rate_hz = t; };
+  const auto depth = [](Values& v, const std::string& t) { v.theta_am_depth_percent = t; };
+  const Case cases[] = {
+      {"99.99", carrier,
+       {"/theta_reference/carrier_hz", "99.99", "range.min", ">= 100 Hz (row theta-carrier)"}},
+      {"500.01", carrier,
+       {"/theta_reference/carrier_hz", "500.01", "range.max", "<= 500 Hz (row theta-carrier)"}},
+      {"0.99", rate, {"/theta_reference/rate_hz", "0.99", "range.min", ">= 1 Hz (row theta-rate)"}},
+      {"6.01", rate, {"/theta_reference/rate_hz", "6.01", "range.max", "<= 6 Hz (row theta-rate)"}},
+      {"0.9999999999999999", rate,
+       {"/theta_reference/rate_hz", "0.9999999999999999", "range.min", ">= 1 Hz (row theta-rate)"}},
+      {"6.000000000000001", rate,
+       {"/theta_reference/rate_hz", "6.000000000000001", "range.max", "<= 6 Hz (row theta-rate)"}},
+      {"-0.01", depth,
+       {"/theta_reference/am_depth_percent", "-0.01", "range.min",
+        ">= 0 percent (row theta-depth)"}},
+      {"100.01", depth,
+       {"/theta_reference/am_depth_percent", "100.01", "range.max",
+        "<= 100 percent (row theta-depth)"}},
+      {"100.00000000000001", depth,
+       {"/theta_reference/am_depth_percent", "100.00000000000001", "range.max",
+        "<= 100 percent (row theta-depth)"}},
+  };
+  require_text_is("0.9999999999999999", below(1.0));
+  require_text_is("6.000000000000001", above(6.0));
+  require_text_is("100.00000000000001", above(100.0));
+  for (const auto& c : cases) {
+    Values v;
+    c.set(v, c.text);
+    expect_rejected(v, c.want);
+  }
+}
+
+TEST_CASE("theta: the carrier rule names a carrier below 4 x the theta rate", "[validate][theta]") {
+  // Inside the locked ranges every pair passes, so the rule is checked
+  // directly, with the theta parameter name compile uses.
+  CHECK_FALSE(validate::check_carrier_rule("/theta_reference/carrier_hz", 24.0, 6.0, 6.0).has_value());
+  const auto bad = validate::check_carrier_rule("/theta_reference/carrier_hz", below(24.0), 6.0, 6.0);
+  REQUIRE(bad.has_value());
+  CHECK(bad->parameter == "/theta_reference/carrier_hz");
+  CHECK(bad->rule == "carrier_rule");
+  CHECK(bad->limit == ">= 24 Hz (4 x 6 Hz, row carrier-rule)");
+  // The lowest carrier against the highest rate passes.
+  const auto& carrier = tables::row("theta-carrier");
+  const auto& rate = tables::row("theta-rate");
+  CHECK(carrier.min >= validate::kCarrierRatio * rate.max);
+  CHECK_FALSE(validate::check_carrier_rule("/theta_reference/carrier_hz", carrier.min, rate.min,
+                                           rate.max)
+                  .has_value());
+}
+
+TEST_CASE("theta: a custom shape is rejected by name, with no plan", "[validate][theta]") {
+  Values v;
+  v.theta_shape = "\"custom\"";
+  expect_rejected(v, {"/theta_reference/shape", "custom", "shape not modeled in the signal spec",
+                      "sine, smoothed_on_off, sawtooth, reverse_saw"});
+  for (const std::uint32_t fs : {44100u, 48000u}) {
+    const api::Compiled c = api::compile(make_recipe(v), api::options(ARC_MODE_MEASURE, fs));
+    CHECK(c.status == ARC_ERR_REJECTED);
+    CHECK(c.plan == nullptr);
+  }
+}
+
+TEST_CASE("theta: shape text outside the schema enum is a schema fault", "[validate][theta]") {
+  const std::string enum_limit = "sine, smoothed_on_off, sawtooth, reverse_saw, custom";
+  for (const char* text : {"square", "Sine", "smoothed-on-off", ""}) {
+    Values v;
+    v.theta_shape = std::string("\"") + text + "\"";
+    expect_rejected(v, {"/theta_reference/shape", text, "enum", enum_limit});
+  }
+  {
+    Values v;
+    v.theta_shape = "3";
+    const api::Compiled c = api::compile(make_recipe(v), api::options(ARC_MODE_MEASURE, 48000));
+    REQUIRE(api::all_written(c.error));
+    CHECK(c.status == ARC_ERR_REJECTED);
+    CHECK(std::string(c.error.parameter) == "/theta_reference/shape");
+    CHECK(std::string(c.error.rule) == "type");
+    CHECK(std::string(c.error.limit) == "string");
+  }
+}
+
+TEST_CASE("theta: every theta field is required", "[validate][theta]") {
+  struct Case {
+    void (*drop)(Values&);
+    const char* parameter;
+  };
+  const Case cases[] = {
+      {[](Values& v) { v.theta_carrier_hz.clear(); }, "/theta_reference/carrier_hz"},
+      {[](Values& v) { v.theta_rate_hz.clear(); }, "/theta_reference/rate_hz"},
+      {[](Values& v) { v.theta_am_depth_percent.clear(); }, "/theta_reference/am_depth_percent"},
+      {[](Values& v) { v.theta_shape.clear(); }, "/theta_reference/shape"},
+  };
+  for (const auto& c : cases) {
+    Values v;
+    c.drop(v);
+    const api::Compiled r = api::compile(make_recipe(v), api::options(ARC_MODE_MEASURE, 48000));
+    INFO(c.parameter << ": " << api::describe(r.error));
+    REQUIRE(api::all_written(r.error));
+    CHECK(r.status == ARC_ERR_REJECTED);
+    CHECK(std::string(r.error.parameter) == c.parameter);
+    CHECK(std::string(r.error.rule) == "required");
+  }
+}
+
+TEST_CASE("theta: check order inside theta_reference, ranges before the shape rule",
+          "[validate][theta][order]") {
+  {
+    Values v;  // carrier before rate before depth
+    v.theta_carrier_hz = "50";
+    v.theta_rate_hz = "7";
+    v.theta_am_depth_percent = "101";
+    expect_rejected(v, {"/theta_reference/carrier_hz", "50", "range.min",
+                        ">= 100 Hz (row theta-carrier)"});
+  }
+  {
+    Values v;
+    v.theta_rate_hz = "7";
+    v.theta_am_depth_percent = "101";
+    expect_rejected(v, {"/theta_reference/rate_hz", "7", "range.max", "<= 6 Hz (row theta-rate)"});
+  }
+  {
+    Values v;  // a range fault wins over the custom shape
+    v.theta_am_depth_percent = "101";
+    v.theta_shape = "\"custom\"";
+    expect_rejected(v, {"/theta_reference/am_depth_percent", "101", "range.max",
+                        "<= 100 percent (row theta-depth)"});
+  }
+  {
+    Values v;  // a binaural range fault also comes before the shape rule
+    v.theta_shape = "\"custom\"";
+    v.carrier_left_hz = "1000";
+    expect_rejected(v, {"/binaural/carrier_left_hz", "1000", "range.max",
+                        "< 1000 Hz (row binaural-carrier)"});
+  }
+  {
+    Values v;  // the shape rule comes before final.required
+    v.gain = false;
+    v.theta_shape = "\"custom\"";
+    expect_rejected(v, {"/theta_reference/shape", "custom", "shape not modeled in the signal spec",
+                        "sine, smoothed_on_off, sawtooth, reverse_saw"},
+                    {ARC_MODE_FINAL});
+  }
 }
 
 // ------------------------------------------------------------ part 3

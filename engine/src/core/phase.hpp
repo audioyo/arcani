@@ -17,6 +17,10 @@ namespace arcani::core {
 // infinities included, returns 0.
 std::uint64_t phase_increment(double f_hz, std::uint32_t fs) noexcept;
 
+// Nearest integer to x, ties to even, for 0 <= x < 2^64 (the caller checks
+// the domain). Every step is exact.
+std::uint64_t round_half_even(double x) noexcept;
+
 // Seconds-to-samples rule: x = t_s * fs in binary64 (one rounding), then x
 // rounded to the nearest integer, ties to even. Domain t_s >= 0, finite, and
 // x < 2^64; anything else returns 0.

@@ -211,6 +211,11 @@
       "rule": "type",
       "schema_keyword": "type"
     },
+    "theta-shape-not-in-enum.json": {
+      "parameter": "/theta_reference/shape",
+      "rule": "enum",
+      "schema_keyword": "enum"
+    },
     "top-level-array.json": {
       "parameter": "",
       "rule": "type",

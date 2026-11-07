@@ -1,7 +1,9 @@
 id	min	max	max_bound	unit	spec_row	source	pending
 theta-rate	1	6	inclusive	Hz	Theta reference rate (incl. delta and along rate curves)	thresholds-and-ranges.md, Locked ranges; Lee et al. 2024, Lega et al. 2016, Roberts et al. 2018, Jirakittayakorn and Wongsawat 2017; design log 2026-10-27 (h)	
 theta-carrier	100	500	inclusive	Hz	Theta reference carrier	thresholds-and-ranges.md, Locked ranges; Chaieb et al. 2017, Orozco Perez et al. 2020; 450 Hz engineering default; design log 2026-10-27 (h), (g)	
-theta-depth	0	100	inclusive	percent	Theta reference AM depth	thresholds-and-ranges.md, Locked ranges; engineering default; design log 2026-10-29 (s)	2-1-theta-reference-envelopes
+theta-depth	0	100	inclusive	percent	Theta reference AM depth	thresholds-and-ranges.md, Locked ranges; engineering default; design log 2026-10-29 (s)	
+theta-on-share	50	50	inclusive	percent		Design log 2026-11-06 (ll): engineering default decided by Audio 2026-11-06, no study sets it: smoothed on-off share of the cycle that is on; docs/signal-spec.md, Theta reference	
+theta-edge	10	10	inclusive	ms		Design log 2026-11-06 (ll): engineering default decided by Audio 2026-11-06, no study sets it: raised-cosine edge length of the hard-edged theta shapes, the gamma burst edge length, top of the 5 to 10 ms rise-time convention; design log 2026-10-28 (o)	
 gamma-rate	30	60	inclusive	Hz	Gamma rate	thresholds-and-ranges.md, Locked ranges; design log 2026-10-27 (a)	
 gamma-carrier	200	500	inclusive	Hz	Gamma PAC carrier	thresholds-and-ranges.md, Locked ranges; engineering default; design log 2026-10-27 (g); the carrier rule (threshold row carrier-rule) raises the floor	
 coupling-phase	0	360	inclusive	degrees	Coupling phase	thresholds-and-ranges.md, Locked ranges; design log 2026-10-27 (b)	2-3-gamma-coupled-smooth-swell

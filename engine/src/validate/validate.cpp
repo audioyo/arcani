@@ -21,7 +21,9 @@ namespace {
 constexpr RangeRow kRows[] = {
     {"session-length", 0.0, 8.0, false, "h"},
     {"loudness-tones", -36.0, -36.0, false, "LUFS-I"},
+    {"theta-rate", 1.0, 6.0, false, "Hz"},
     {"theta-carrier", 100.0, 500.0, false, "Hz"},
+    {"theta-depth", 0.0, 100.0, false, "percent"},
     {"binaural-carrier", 0.0, 1000.0, true, "Hz"},
     {"beat-rate", 0.0, 30.0, true, "Hz"},
     {"binaural-carrier-right", 0.0, 1030.0, true, "Hz"},
@@ -62,6 +64,18 @@ Lookup field_value(const recipe::Recipe& r, std::string_view path) {
   if (path == "/theta_reference/carrier_hz") {
     if (r.theta_reference) {
       return {true, r.theta_reference->carrier_hz};
+    }
+    return {true, std::nullopt};
+  }
+  if (path == "/theta_reference/rate_hz") {
+    if (r.theta_reference) {
+      return {true, r.theta_reference->rate_hz};
+    }
+    return {true, std::nullopt};
+  }
+  if (path == "/theta_reference/am_depth_percent") {
+    if (r.theta_reference) {
+      return {true, r.theta_reference->am_depth_percent};
     }
     return {true, std::nullopt};
   }
@@ -151,6 +165,22 @@ std::optional<recipe::Error> check_ranges(const recipe::Recipe& r) {
       if (auto e = check_row(kBeatRatePath, right, j, 1.0, kRows[j].unit)) {
         return e;
       }
+    }
+  }
+  return std::nullopt;
+}
+
+std::optional<recipe::Error> check_rules(const recipe::Recipe& r) {
+  if (r.theta_reference) {
+    const recipe::ThetaReference& theta = *r.theta_reference;
+    // A fixed rate: the interval is the one value.
+    if (auto e = check_carrier_rule("/theta_reference/carrier_hz", theta.carrier_hz, theta.rate_hz,
+                                    theta.rate_hz)) {
+      return e;
+    }
+    if (theta.shape == recipe::ThetaShape::Custom) {
+      return recipe::Error{"/theta_reference/shape", "custom", std::string(kShapeNotModeledRule),
+                           std::string(kModeledThetaShapes)};
     }
   }
   return std::nullopt;
