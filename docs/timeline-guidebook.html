@@ -465,10 +465,13 @@ var EPICS = [
   note: "Order is fixed and not numeric: 2.1, 2.2, 2.3, 2.5, 2.4, 2.6, 2.7. Story 2.5 runs before 2.4 so the coupling independence test exists before bursts.",
   retro: "optional",
   stories: [
-  { id:"2.1", title:"Theta reference envelopes", status:"backlog",
+  { id:"2.1", title:"Theta reference envelopes", status:"in-progress",
     plain:"A carrier with AM at the theta rate using a sine, smoothed on-off, sawtooth, or reverse saw envelope.",
-    steps:S7(), acs:[
-      [" ","signal-spec theta section: each shape, its 0 degree point, edge smoothing, depth law, worked vectors"],
+    spec:["spec-2-1-theta-reference-envelopes.md"],
+    steps:[true,true,false,false,false,false,false],
+    stepNotes:["Spec approved 2026-11-06 by Audio; on-off shape on for half of each cycle and 10 ms raised-cosine edges decided by Audio","afb31b1: fresh-context QA agent; signal spec theta section with 16 vector tables; validator, envelope, reference, frequency tool, click tool, and probe tests; 20 C++ cases and 146 pytest cases fail until the engine, reference, tools, rows, and fixtures land","","","","",""],
+    acs:[
+      ["x","signal-spec theta section: each shape, its 0 degree point, edge smoothing, depth law, worked vectors"],
       [" ","Carrier 100 to 500 Hz, rate 1 to 6 Hz, depth 0 to 100 percent range-checked; carrier rule checked; custom curves rejected"],
       [" ","All four shapes at low and high rates match the reference within -100 dBFS"],
       [" ","Carrier and rate within 0.01 Hz (frequency tool calibrated first)"],
@@ -709,6 +712,7 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-06","afb31b1","2.1","Spec approved; failing tests committed by the QA agent with the signal spec theta section; sprint-status.yaml set to in-progress, epic-2 in-progress; not pushed"],
   ["2026-11-06","601f356","1.6","PR #11 merged into main; sprint-status.yaml set to done; every Epic 1 story done, epic-1 set to done"],
   ["2026-11-06","7cab4d6","1.6","PR #11 green on fast and full tier (11 checks), all four platforms; engine hashes match in contract-mustfail on linux-arm64; ready for Audio to merge"],
   ["2026-11-06","6b8da9e","1.6","Pushed; PR #11 opened, CI pending"],
