@@ -3,7 +3,7 @@ title: 'Story 2.1: Theta reference envelopes'
 type: 'feature'
 created: '2026-11-06'
 baseline_commit: 'f5c5f2f778ea5fbbd9248e2bc44088d2aed67ffb'
-status: 'in-progress'
+status: 'in-review'
 route: 'dispatch'
 review_loop_iteration: 0
 context:
@@ -148,3 +148,28 @@ Left: the two `ci/hash_expected.json` entries (four-platform full run, needs Aud
 ## Spec Change Log
 
 ## Review Triage Log
+
+Pass 1 (2026-11-06): blind hunter (BH), edge case hunter (EC), verification gap (VG), all fresh context, on diff f5c5f2f..25b306d (guidebook and `_bmad-output` left out).
+
+| # | Finding | Verdict | Evidence | Route |
+|---|---------|---------|----------|-------|
+| 1 | BH, EC, VG: `ci/hash_expected.json` has no `theta-envelopes-*` entries; 4 pytest cases fail and the theta components are pinned only against windows-x64 | medium | true; the spec defers the entries to a green four-platform full run, which needs Audio's go-ahead to push | CI gate before merge |
+| 2 | BH: the 100 percent depth `-0.0` theta tap claim has no test | medium | every render test uses 75 percent depth | patch |
+| 3 | BH, EC: `W < H - W` is not enforced; out of range the engine wraps and the reference raises | low | compile rejects any rate outside `theta-rate` before the plan is built, so it is unreachable today; a table-driven test guards a future range change | patch (test) |
+| 4 | EC: click tool passes a signal shorter than the two exclusion zones (peak -inf) | low | `clicks.py:66` slices an empty interior; a silent pass breaks "silence is not evidence"; direct one-line guard | patch |
+| 5 | BH: spec and design log call the half plateau "0.19 of a cycle" | low | `signal-spec.md:464`; the full plateau is 0.38 | patch |
+| 6 | BH: `reference/stub_chain.py` docstring breaks mid-sentence | low | lines 27 to 30 | patch |
+| 7 | BH: no CI cost estimate for the theta probe components | low | CLAUDE.md asks for one before raising CI usage | patch (design log line) |
+| 8 | BH: "on share 50 percent" is ambiguous | false | `signal-spec.md:488` states the edges lie inside the on share, as for bursts | reject |
+| 9 | BH: spacing and carrier rules ignore the non-sine shapes' envelope harmonics | low | the per-shape spectral component table is Story 3.1 and the spacing rule Story 3.2 | reject (owned by 3.1, 3.2) |
+| 10 | BH: no 8-hour vector for the envelope phase | low | whole-session drift is Story 5.1; the phase is exact `n * inc mod 2^64`, already vectored by the Core section | reject |
+| 11 | BH: custom maps to sine in `plan.cpp`, and `parse()` dereferences `shape_named` without a null check | false | parse checks the enum before it fills the recipe, and `check_rules` rejects custom before the plan is built; neither path is reachable | reject |
+| 12 | BH: `recipes/README.md` lists `custom` without saying it is rejected | false | `recipes/README.md:24` states the rejection and its rule | reject |
+| 13 | EC: `theta_edge_units` given NaN, negative, or 0 rates | false | only compile calls it, after the `theta-rate` check | reject |
+| 14 | EC: click result `-inf` reaches report JSON | false | the click tool feeds no CLI report; row 4 removes the -inf path | reject |
+| 15 | EC: frequency tool divides by zero on an all-zero signal | low | it raises loudly, which is correct for an input the tests never give it | reject |
+| 16 | EC: rate search on an unmodulated envelope returns a spurious rate | low | the tool runs only on modulated fixtures; the fix adds a branch | reject |
+| 17 | EC: rate search on a signal under 8 samples raises an unexplained ValueError | low | loud failure on an input never given | reject |
+| 18 | VG: the carrier rule call inside `check_rules` is unreachable through compile and untested there | low | every in-range pair passes; the QA notes record this; the fix adds a test seam | reject |
+
+- Review pass 1 patches in 91f75d0 (triage rows 2 to 7). Row 1 waits on the four-platform full run before merge. Orchestrator check: `windows-clang-cl` workflow 4/4 ctest entries pass; `uv run pytest` 1,571 passed, 2 NDK-only skips, 4 failed (exactly the row 1 hash-entry tests); engine source, wording, pragma, row coverage, and table log checks exit 0.
