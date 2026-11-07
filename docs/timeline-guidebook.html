@@ -468,14 +468,14 @@ var EPICS = [
   { id:"2.1", title:"Theta reference envelopes", status:"in-progress",
     plain:"A carrier with AM at the theta rate using a sine, smoothed on-off, sawtooth, or reverse saw envelope.",
     spec:["spec-2-1-theta-reference-envelopes.md"],
-    steps:[true,true,false,false,false,false,false],
-    stepNotes:["Spec approved 2026-11-06 by Audio; on-off shape on for half of each cycle and 10 ms raised-cosine edges decided by Audio","afb31b1: fresh-context QA agent; signal spec theta section with 16 vector tables; validator, envelope, reference, frequency tool, click tool, and probe tests; 20 C++ cases and 146 pytest cases fail until the engine, reference, tools, rows, and fixtures land","","","","",""],
+    steps:[true,true,true,false,false,false,false],
+    stepNotes:["Spec approved 2026-11-06 by Audio; on-off shape on for half of each cycle and 10 ms raised-cosine edges decided by Audio","afb31b1: fresh-context QA agent; signal spec theta section with 16 vector tables; validator, envelope, reference, frequency tool, click tool, and probe tests; 20 C++ cases and 146 pytest cases fail until the engine, reference, tools, rows, and fixtures land","cfe5d27: engine envelopes and theta layer, schema fields, validator ranges, carrier rule and custom shape rule, reference/theta.py, frequency and click tools, eight fixtures; rows theta-on-share, theta-edge, frequency-accuracy-calibration; 4/4 ctest entries, 1,570 pytest pass, 4 hash-entry tests wait for the full run; reference match -142.2 dBFS worst, clicks -111.8 dBFS worst; design log (ll)","","","",""],
     acs:[
       ["x","signal-spec theta section: each shape, its 0 degree point, edge smoothing, depth law, worked vectors"],
-      [" ","Carrier 100 to 500 Hz, rate 1 to 6 Hz, depth 0 to 100 percent range-checked; carrier rule checked; custom curves rejected"],
-      [" ","All four shapes at low and high rates match the reference within -100 dBFS"],
-      [" ","Carrier and rate within 0.01 Hz (frequency tool calibrated first)"],
-      [" ","Click tool (8 kHz high-pass, -60 dBFS) calibrated; hard-edged shapes pass; unsmoothed sawtooth must-fail fails"]
+      ["x","Carrier 100 to 500 Hz, rate 1 to 6 Hz, depth 0 to 100 percent range-checked; carrier rule checked; custom curves rejected"],
+      ["x","All four shapes at low and high rates match the reference within -100 dBFS"],
+      ["x","Carrier and rate within 0.01 Hz (frequency tool calibrated first)"],
+      ["x","Click tool (8 kHz high-pass, -60 dBFS) calibrated; hard-edged shapes pass; unsmoothed sawtooth must-fail fails"]
     ] },
   { id:"2.2", title:"Gamma PAC layer, uncoupled", status:"backlog",
     plain:"A separate gamma carrier with AM at the gamma rate at constant depth: the uncoupled control.",
@@ -712,6 +712,7 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-06","cfe5d27","2.1","Implementation committed: theta envelopes, validator rules, reference, frequency and click tools; ctest and pytest pass locally except the 4 hash-entry tests that need the full run; not pushed"],
   ["2026-11-06","afb31b1","2.1","Spec approved; failing tests committed by the QA agent with the signal spec theta section; sprint-status.yaml set to in-progress, epic-2 in-progress; not pushed"],
   ["2026-11-06","601f356","1.6","PR #11 merged into main; sprint-status.yaml set to done; every Epic 1 story done, epic-1 set to done"],
   ["2026-11-06","7cab4d6","1.6","PR #11 green on fast and full tier (11 checks), all four platforms; engine hashes match in contract-mustfail on linux-arm64; ready for Audio to merge"],
