@@ -3,7 +3,7 @@ title: 'Story 2.1: Theta reference envelopes'
 type: 'feature'
 created: '2026-11-06'
 baseline_commit: 'f5c5f2f778ea5fbbd9248e2bc44088d2aed67ffb'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 context:
