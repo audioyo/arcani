@@ -274,7 +274,7 @@
    Update after every completed section plus commit and/or push.
    ===================================================================== */
 
-var LAST_UPDATED = "2026-11-06";
+var LAST_UPDATED = "2026-11-07";
 var CURRENT = "2.1";   // story id being worked on
 var NEXT    = "2.2";   // story id that comes next
 
@@ -468,8 +468,8 @@ var EPICS = [
   { id:"2.1", title:"Theta reference envelopes", status:"review",
     plain:"A carrier with AM at the theta rate using a sine, smoothed on-off, sawtooth, or reverse saw envelope.",
     spec:["spec-2-1-theta-reference-envelopes.md"],
-    steps:[true,true,true,true,false,false,false],
-    stepNotes:["Spec approved 2026-11-06 by Audio; on-off shape on for half of each cycle and 10 ms raised-cosine edges decided by Audio","afb31b1: fresh-context QA agent; signal spec theta section with 16 vector tables; validator, envelope, reference, frequency tool, click tool, and probe tests; 20 C++ cases and 146 pytest cases fail until the engine, reference, tools, rows, and fixtures land","cfe5d27: engine envelopes and theta layer, schema fields, validator ranges, carrier rule and custom shape rule, reference/theta.py, frequency and click tools, eight fixtures; rows theta-on-share, theta-edge, frequency-accuracy-calibration; 4/4 ctest entries, 1,570 pytest pass, 4 hash-entry tests wait for the full run; reference match -142.2 dBFS worst, clicks -111.8 dBFS worst; design log (ll)","91f75d0: review pass 1 by three fresh-context reviewers, 18 findings: 6 patched (100 percent depth sign test, edge-fit test, click tool short-signal guard, plateau wording, docstring, CI cost line), 11 rejected with reasons, 1 left to the full run (theta hash entries)","","",""],
+    steps:[true,true,true,true,true,false,false],
+    stepNotes:["Spec approved 2026-11-06 by Audio; on-off shape on for half of each cycle and 10 ms raised-cosine edges decided by Audio","afb31b1: fresh-context QA agent; signal spec theta section with 16 vector tables; validator, envelope, reference, frequency tool, click tool, and probe tests; 20 C++ cases and 146 pytest cases fail until the engine, reference, tools, rows, and fixtures land","cfe5d27: engine envelopes and theta layer, schema fields, validator ranges, carrier rule and custom shape rule, reference/theta.py, frequency and click tools, eight fixtures; rows theta-on-share, theta-edge, frequency-accuracy-calibration; 4/4 ctest entries, 1,570 pytest pass, 4 hash-entry tests wait for the full run; reference match -142.2 dBFS worst, clicks -111.8 dBFS worst; design log (ll)","91f75d0: review pass 1 by three fresh-context reviewers, 18 findings: 6 patched (100 percent depth sign test, edge-fit test, click tool short-signal guard, plateau wording, docstring, CI cost line), 11 rejected with reasons, 1 left to the full run (theta hash entries)","4cff551: full run 42340639876 green on all four platforms (11 checks) with the theta hashes pinned (equal to the android-arm64 probe of run 42339879874 and the dev PC); fast tier green","",""],
     acs:[
       ["x","signal-spec theta section: each shape, its 0 degree point, edge smoothing, depth law, worked vectors"],
       ["x","Carrier 100 to 500 Hz, rate 1 to 6 Hz, depth 0 to 100 percent range-checked; carrier rule checked; custom curves rejected"],
@@ -712,6 +712,8 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-07","4cff551","2.1","Theta hashes pinned; full run 42340639876 green on all four platforms and fast tier green; no PR yet"],
+  ["2026-11-07","f0738e0","2.1","Pushed; full run 42339879874 red as expected on the missing theta hash entries, android-arm64 probe equal to the dev PC"],
   ["2026-11-06","91f75d0","2.1","Code review pass 1: 6 findings patched, 11 rejected, theta hash entries left to the four-platform full run; sprint-status.yaml set to review; not pushed"],
   ["2026-11-06","cfe5d27","2.1","Implementation committed: theta envelopes, validator rules, reference, frequency and click tools; ctest and pytest pass locally except the 4 hash-entry tests that need the full run; not pushed"],
   ["2026-11-06","afb31b1","2.1","Spec approved; failing tests committed by the QA agent with the signal spec theta section; sprint-status.yaml set to in-progress, epic-2 in-progress; not pushed"],

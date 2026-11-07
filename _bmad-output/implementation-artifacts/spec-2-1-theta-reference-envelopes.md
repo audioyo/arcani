@@ -173,3 +173,4 @@ Pass 1 (2026-11-06): blind hunter (BH), edge case hunter (EC), verification gap 
 | 18 | VG: the carrier rule call inside `check_rules` is unreachable through compile and untested there | low | every in-range pair passes; the QA notes record this; the fix adds a test seam | reject |
 
 - Review pass 1 patches in 91f75d0 (triage rows 2 to 7). Row 1 waits on the four-platform full run before merge. Orchestrator check: `windows-clang-cl` workflow 4/4 ctest entries pass; `uv run pytest` 1,571 passed, 2 NDK-only skips, 4 failed (exactly the row 1 hash-entry tests); engine source, wording, pragma, row coverage, and table log checks exit 0.
+- Row 1 settled by full run 42340639876 (4cff551): all four platforms equal the pinned `theta-envelopes-*` entries; verdict and hash-compare green.
