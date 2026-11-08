@@ -1,4 +1,4 @@
-"""Writes the worked test vectors of docs/signal-spec.md: core, sine, internal block size, stub chain, theta reference, 24-bit rounding.
+"""Writes the worked test vectors of docs/signal-spec.md: core, sine, internal block size, stub chain, theta reference, gamma PAC layer, 24-bit rounding.
 
 Usage:
   python tools/signal_spec_vectors.py            write tests/data/signal_spec_vectors.json
@@ -39,6 +39,13 @@ engine or from binary64 library calls:
   bits, from the engine sine bits above), and the ideal values of the same
   phases at 25 digits: ideal cosines in decimal arithmetic, exact ratios,
   and the exact depth law on the binary64 depth, for the Python reference.
+- Gamma PAC layer, uncoupled (Story 2.2): the spec's AM law (the sine
+  envelope at the gamma rate, a constant depth) evaluated in binary64 in the
+  spec's operation order (engine bits), and the ideal values at 25 digits:
+  the ideal cosine and sine in decimal arithmetic and the exact depth law on
+  the binary64 depth. The bus of the theta and gamma fixture is one binary64
+  addition of the two engine taps; its ideal is the exact sum of the two
+  ideal taps, rounded once to 25 digits.
 - 24-bit rounding (Story 1.4): x = s * 2^23 in exact Fraction arithmetic,
   clamped to [-8388608, 8388607], else rounded to the nearest integer, ties
   to even; NaN gives 0. Written as 3 bytes, little-endian two's complement.
@@ -839,6 +846,215 @@ def theta_sample_rows():
     return rows
 
 
+
+# ------------------------------------------------------- gamma PAC layer
+#
+# Story 2.2 (signal spec, Gamma PAC layer): uncoupled only. The AM law is the
+# theta sine shape at the gamma rate; the depth is constant for the render.
+
+GAMMA_CARRIER_WAVES = ("sine", "triangle", "softened_square")
+GAMMA_MODELED_WAVES = ("sine",)
+GAMMA_COUPLINGS = ("uncoupled",)
+GAMMA_ENVELOPE_DEPTHS = (0.0, 25.0, 100.0)
+
+
+def gamma_envelope(p):
+    """Engine gamma envelope e = (1 + cos(2 pi p / 2^64)) / 2, spec operation order."""
+    c = engine_sine((p + QUARTER) % CYCLE)
+    return (1.0 + c) * 0.5
+
+
+def gamma_envelope_ideal(p):
+    """Ideal gamma envelope as a Decimal at about PREC digits."""
+    with localcontext() as ctx:
+        ctx.prec = PREC + 10
+        return (1 + ideal_sine_decimal((p + QUARTER) % CYCLE)) * (Decimal(1) / Decimal(2))
+
+
+def exact_decimal(x):
+    """The exact value of the binary64 x as a Decimal."""
+    f = Fraction(x)
+    with localcontext() as ctx:
+        ctx.prec = PREC + 10
+        return Decimal(f.numerator) / Decimal(f.denominator)
+
+
+class GammaLayer:
+    """One uncoupled gamma PAC layer at one sample rate (signal spec, Gamma PAC layer)."""
+
+    def __init__(self, carrier_hz, rate_hz, depth_percent, fs):
+        self.carrier_hz, self.rate_hz = carrier_hz, rate_hz
+        self.depth_percent, self.fs = depth_percent, fs
+        self.inc_carrier, _ = increment(carrier_hz, fs)
+        self.inc_rate, _ = increment(rate_hz, fs)
+        self.depth = depth_percent / 100.0  # d: one binary64 division
+
+    def phases(self, n):
+        return (n * self.inc_carrier) % CYCLE, (n * self.inc_rate) % CYCLE
+
+    def engine_parts(self, n):
+        """(e, a, gamma) in binary64, the spec's per-sample operation order."""
+        pc, pe = self.phases(n)
+        e = gamma_envelope(pe)
+        a = 1.0 - self.depth * (1.0 - e)
+        return e, a, a * engine_sine(pc)
+
+    def ideal_parts(self, n):
+        """(e, gamma) ideal: exact depth law on the binary64 d, ideal sines."""
+        pc, pe = self.phases(n)
+        with localcontext() as ctx:
+            ctx.prec = PREC + 10
+            e = gamma_envelope_ideal(pe)
+            a = 1 - exact_decimal(self.depth) * (1 - e)
+            return e, a * ideal_sine_decimal(pc)
+
+
+GAMMA_FIXTURE_CARRIER_HZ = 250.0
+GAMMA_FIXTURE_LENGTH_S = 10.0
+
+# (fixture, (carrier_hz, rate_hz, am_depth_percent), theta or None,
+# length_s): the Story 2.2 fixtures in recipes/fixtures/valid/. theta is
+# (carrier_hz, rate_hz, am_depth_percent, shape). Every gamma layer has a
+# sine carrier and coupling uncoupled. In this order they are the hash
+# probe's gamma-uncoupled-<fs> components.
+GAMMA_FIXTURES = tuple(
+    (f"gamma-uncoupled-{int(rate)}hz-{int(depth)}pct.json",
+     (GAMMA_FIXTURE_CARRIER_HZ, rate, depth), None, GAMMA_FIXTURE_LENGTH_S)
+    for rate in (40.0, 60.0) for depth in (25.0, 100.0)) + (
+    ("theta-gamma-uncoupled.json", (GAMMA_FIXTURE_CARRIER_HZ, 40.0, 100.0),
+     (450.0, 6.0, 75.0, "sine"), GAMMA_FIXTURE_LENGTH_S),
+)
+
+
+def format_trimmed(total):
+    """format_ideal, with trailing fractional zeros removed (the same value)."""
+    text = format_ideal(total)
+    if "." in text and "e" not in text:
+        text = text.rstrip("0").rstrip(".")
+    return text
+
+
+def gamma_envelope_phases():
+    return (0, 1, 2**61, QUARTER, HALF, 3 * QUARTER, CYCLE - 1)
+
+
+def gamma_envelope_rows():
+    rows = []
+    for depth_percent in GAMMA_ENVELOPE_DEPTHS:
+        d = depth_percent / 100.0
+        for p in gamma_envelope_phases():
+            e = gamma_envelope(p)
+            a = 1.0 - d * (1.0 - e)
+            assert 0.0 < e < 1.0 and 0.0 < a <= 1.0, (depth_percent, p, e, a)
+            with localcontext() as ctx:
+                ctx.prec = PREC + 10
+                ie = gamma_envelope_ideal(p)
+                ia = 1 - exact_decimal(d) * (1 - ie)
+            rows.append({
+                "depth_hex": hexf(depth_percent), "phase": str(p),
+                "e_bits": bits(e), "a_bits": bits(a),
+                "ideal_e": format_trimmed(ie), "ideal_a": format_trimmed(ia),
+            })
+    return rows
+
+
+def gamma_sample_indices(layer, frames):
+    """Start, block boundaries, quarter-cycle crossings of the first gamma cycle, end."""
+    indices = {0, 1, 63, 64, 65, 127, 128, 1000, frames - 1, frames, frames + 63}
+    for b in (QUARTER, HALF, 3 * QUARTER):
+        n = first_at_or_above(b, layer.inc_rate)
+        indices.update((n - 1, n))
+    return sorted(indices)
+
+
+def _theta_columns(theta_spec):
+    if theta_spec is None:
+        return {"theta_carrier_hex": "none", "theta_rate_hex": "none",
+                "theta_depth_hex": "none", "theta_shape": "none"}
+    carrier, rate, depth, shape = theta_spec
+    return {"theta_carrier_hex": hexf(carrier), "theta_rate_hex": hexf(rate),
+            "theta_depth_hex": hexf(depth), "theta_shape": shape}
+
+
+def gamma_sample_rows():
+    rows = []
+    for fs in RATES:
+        for fixture, (carrier, rate, depth), theta_spec, length_s in GAMMA_FIXTURES:
+            layer = GammaLayer(carrier, rate, depth, fs)
+            frames, _ = samples(length_s, fs)
+            for n in gamma_sample_indices(layer, frames):
+                pc, pe = layer.phases(n)
+                past_end = n >= frames
+                if past_end:
+                    e_bits = a_bits = gamma_bits = bits(0.0)
+                    ideal_e = ideal_gamma = "0"
+                else:
+                    e, a, g = layer.engine_parts(n)
+                    # The engine envelope never reaches 0 (the engine sine
+                    # stays inside (-1, 1)), so a > 0 and the tap is never -0.0.
+                    assert e > 0.0 and a > 0.0 and bits(g) != bits(-0.0), (fixture, fs, n)
+                    e_bits, a_bits, gamma_bits = bits(e), bits(a), bits(g)
+                    ie, ig = layer.ideal_parts(n)
+                    ideal_e, ideal_gamma = format_ideal(ie), format_ideal(ig)
+                row = {
+                    "case": "past_end" if past_end else "signal",
+                    "fixture": fixture, "fs": fs,
+                    "carrier_hex": hexf(carrier), "rate_hex": hexf(rate),
+                    "depth_hex": hexf(depth), "length_hex": hexf(length_s),
+                    "carrier_wave": "sine", "coupling": "uncoupled",
+                }
+                row.update(_theta_columns(theta_spec))
+                row.update({
+                    "inc_carrier": str(layer.inc_carrier), "inc_rate": str(layer.inc_rate),
+                    "frames": str(frames), "n": str(n),
+                    "phase_carrier": str(pc), "phase_rate": str(pe),
+                    "e_bits": e_bits, "a_bits": a_bits, "gamma_bits": gamma_bits,
+                    "ideal_e": ideal_e, "ideal_gamma": ideal_gamma,
+                })
+                rows.append(row)
+    return rows
+
+
+def gamma_bus_rows():
+    """The theta and gamma fixture: theta tap, gamma tap, and their bus sum."""
+    rows = []
+    for fs in RATES:
+        for fixture, (carrier, rate, depth), theta_spec, length_s in GAMMA_FIXTURES:
+            if theta_spec is None:
+                continue
+            gamma = GammaLayer(carrier, rate, depth, fs)
+            theta = ThetaLayer(*theta_spec, fs)
+            frames, _ = samples(length_s, fs)
+            indices = sorted(set(gamma_sample_indices(gamma, frames))
+                             | set(theta_sample_indices(theta, frames)))
+            for n in indices:
+                past_end = n >= frames
+                if past_end:
+                    t = g = bus = 0.0
+                    ideal_t = ideal_g = ideal_bus = "0"
+                else:
+                    t = theta.engine_sample(n)
+                    g = gamma.engine_parts(n)[2]
+                    bus = t + g  # stereo bus: one binary64 addition
+                    with localcontext() as ctx:
+                        ctx.prec = PREC + 10
+                        it = theta.ideal_parts(n)[1]
+                        ig = gamma.ideal_parts(n)[1]
+                        ideal_t, ideal_g = format_ideal(it), format_ideal(ig)
+                        ideal_bus = format_ideal(it + ig)
+                rows.append({
+                    "case": "past_end" if past_end else "signal",
+                    "fixture": fixture, "fs": fs, "n": str(n),
+                    "phase_theta": str(theta.phases(n)[0]),
+                    "phase_theta_envelope": str(theta.phases(n)[1]),
+                    "phase_gamma": str(gamma.phases(n)[0]),
+                    "phase_gamma_envelope": str(gamma.phases(n)[1]),
+                    "theta_bits": bits(t), "gamma_bits": bits(g), "bus_bits": bits(bus),
+                    "ideal_theta": ideal_t, "ideal_gamma": ideal_g, "ideal_bus": ideal_bus,
+                })
+    return rows
+
+
 # ------------------------------------------------------- 24-bit rounding
 
 Q24_MAX = 8388607   # 2^23 - 1
@@ -920,7 +1136,7 @@ def quantize_rows():
 
 def build():
     return {
-        "spec": "docs/signal-spec.md (sections core, sine, internal block size, stub chain, theta reference, and 24-bit rounding)",
+        "spec": "docs/signal-spec.md (sections core, sine, internal block size, stub chain, theta reference, gamma PAC layer, and 24-bit rounding)",
         "generator": "tools/signal_spec_vectors.py",
         "cycle": str(CYCLE),
         "sine_coefficients": sine_coefficients(),
@@ -946,6 +1162,14 @@ def build():
         "theta_edges": theta_edge_rows(),
         "theta_envelopes": theta_envelope_rows(),
         "theta_samples": theta_sample_rows(),
+        "gamma_constants": {
+            "carrier_waves": list(GAMMA_CARRIER_WAVES),
+            "modeled_carrier_waves": list(GAMMA_MODELED_WAVES),
+            "couplings": list(GAMMA_COUPLINGS),
+        },
+        "gamma_envelopes": gamma_envelope_rows(),
+        "gamma_samples": gamma_sample_rows(),
+        "gamma_bus": gamma_bus_rows(),
         "quantize_24": quantize_rows(),
     }
 
@@ -1060,6 +1284,43 @@ def tables(data):
         out.append(f"| {r['case']} | {r['fixture']} | {r['fs']} | {r['n']} | {r['phase_carrier']} "
                    f"| {r['phase_rate']} | {r['region']} | `{r['e_bits']}` | `{r['a_bits']}` "
                    f"| `{r['theta_bits']}` | {r['ideal_e']} | {r['ideal_theta']} |")
+    out.append("")
+    out.append("| Depth (hex) | Envelope phase | e (binary64 bits) | a (binary64 bits) | e ideal | a ideal |")
+    out.append("| --- | --- | --- | --- | --- | --- |")
+    for r in data["gamma_envelopes"]:
+        out.append(f"| `{r['depth_hex']}` | {r['phase']} | `{r['e_bits']}` | `{r['a_bits']}` "
+                   f"| {r['ideal_e']} | {r['ideal_a']} |")
+    out.append("")
+    out.append("| Fixture | fs | Carrier (hex) | Rate (hex) | Depth (hex) | Carrier wave | Coupling "
+               "| Theta carrier (hex) | Theta rate (hex) | Theta depth (hex) | Theta shape "
+               "| Carrier inc | Rate inc | Frames |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    seen = set()
+    for r in data["gamma_samples"]:
+        key = (r["fixture"], r["fs"])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(f"| {r['fixture']} | {r['fs']} | `{r['carrier_hex']}` | `{r['rate_hex']}` "
+                   f"| `{r['depth_hex']}` | {r['carrier_wave']} | {r['coupling']} "
+                   f"| `{r['theta_carrier_hex']}` | `{r['theta_rate_hex']}` | `{r['theta_depth_hex']}` "
+                   f"| {r['theta_shape']} | {r['inc_carrier']} | {r['inc_rate']} | {r['frames']} |")
+    out.append("")
+    out.append("| Case | Fixture | fs | n | Carrier phase | Envelope phase "
+               "| e (binary64 bits) | a (binary64 bits) | Gamma (binary64 bits) | e ideal | Gamma ideal |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["gamma_samples"]:
+        out.append(f"| {r['case']} | {r['fixture']} | {r['fs']} | {r['n']} | {r['phase_carrier']} "
+                   f"| {r['phase_rate']} | `{r['e_bits']}` | `{r['a_bits']}` "
+                   f"| `{r['gamma_bits']}` | {r['ideal_e']} | {r['ideal_gamma']} |")
+    out.append("")
+    out.append("| Case | Fixture | fs | n | Theta (binary64 bits) | Gamma (binary64 bits) "
+               "| Bus (binary64 bits) | Theta ideal | Gamma ideal | Bus ideal |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["gamma_bus"]:
+        out.append(f"| {r['case']} | {r['fixture']} | {r['fs']} | {r['n']} | `{r['theta_bits']}` "
+                   f"| `{r['gamma_bits']}` | `{r['bus_bits']}` | {r['ideal_theta']} "
+                   f"| {r['ideal_gamma']} | {r['ideal_bus']} |")
     out.append("")
     out.append("| Rule | Case | s (hex) | x = s * 2^23 (hex) | Value | Bytes (little-endian) |")
     out.append("| --- | --- | --- | --- | --- | --- |")

@@ -277,8 +277,9 @@ def test_spec_tables_equal_json(vectors):
                                                      vectors)
     # Core and sine (7), internal blocks (1), stub chain increments and samples (2),
     # theta reference (5: ratio to phase, edge length, envelopes, fixtures,
-    # samples), 24-bit rounding (1).
-    assert len(generated) == 16, generated
+    # samples), gamma PAC layer (4: envelope, fixtures, samples, theta and
+    # gamma bus), 24-bit rounding (1).
+    assert len(generated) == 20, generated
     assert len(in_doc) == len(generated), [b[0] for b in in_doc]
     assert not problems, "\n".join(problems)
 
