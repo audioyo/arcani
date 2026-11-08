@@ -3,7 +3,7 @@ title: 'Story 2.2: Gamma PAC layer, uncoupled'
 type: 'feature'
 created: '2026-11-07'
 baseline_commit: '63536b4f89605c9cf950bc742d8f443a88e25a95'
-status: 'in-progress'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 context:
@@ -63,11 +63,11 @@ Decisions (2026-11-07, build agent, under Audio's standing "settle tech forks yo
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `docs/signal-spec.md`, `tools/signal_spec_vectors.py`, vectors JSON -- §gamma with worked vectors -- the spec merges first.
-- [ ] tests (files above) -- QA agent writes failing tests -- tests first.
-- [ ] schema, field table, recipe, validator, plan, renderer, `reference/gamma.py`, `stub_chain.py`, `tests/assertions/am_depth.py`, hash probe -- implementation.
+- [x] `docs/signal-spec.md`, `tools/signal_spec_vectors.py`, vectors JSON -- §gamma with worked vectors -- the spec merges first.
+- [x] tests (files above) -- QA agent writes failing tests -- tests first.
+- [x] schema, field table, recipe, validator, plan, renderer, `reference/gamma.py`, `stub_chain.py`, `tests/assertions/am_depth.py`, hash probe -- implementation.
 - [ ] fixtures, hash vectors, rows, design log (mm), README, `ci/hash_expected.json` (after the full run) -- records.
-- [ ] `docs/timeline-guidebook.html`, `sprint-status.yaml` -- records.
+- [x] `docs/timeline-guidebook.html`, `sprint-status.yaml` -- records.
 
 **Acceptance Criteria:**
 - Given §gamma, then it defines the AM law and the uncoupled setting with vectors the engine and the reference each pass, and states the margin per tap by sine evaluations.
@@ -93,3 +93,33 @@ Decisions (2026-11-07, build agent, under Audio's standing "settle tech forks yo
 ## Spec Change Log
 
 ## Review Triage Log
+
+Pass 1 (2026-11-08): blind hunter (BH), edge case hunter (EC), verification gap (VG), all fresh context, on diff 63536b4..2c387ef (`_bmad-output` and the generated `tests/data/signal_spec_vectors.json` left out).
+
+| # | Finding | Verdict | Evidence | Route |
+|---|---------|---------|----------|-------|
+| 1 | BH, EC, VG: four pytest cases fail until `ci/hash_expected.json` has the `gamma-uncoupled-*` entries | medium | true; the spec defers the entries to a green four-platform full run (design log (kk)), as Story 2.1 did; every existing pin still matches | CI gate before merge |
+| 2 | VG, BH: no render with a binaural ear muted while a gamma layer is present | medium | true; `test_stages.cpp:385` muted-ear test uses only the beat 0 and beat 6 fixtures, and every gamma test uses no mute | patch (test) |
+| 3 | BH: no fixture or test renders gamma with a binaural layer, so the 5-sine output bound is unchecked | low | true; every gamma fixture lacks `binaural` | patch (same harness recipe as row 2, reference match on the output) |
+| 4 | VG: signal spec "Muted ear" still says the muted channel equals its `theta` tap | low | `docs/signal-spec.md:341`; with `gamma_pac` it equals the bus | patch |
+| 5 | BH: "Vectors: gamma envelope" and "gamma samples" prose omit rows the tables hold (phase 1, 2^61, 3 * 2^62; n = 1) | low | prose at `docs/signal-spec.md:959` lists four points only | patch |
+| 6 | BH: the gamma AM law cites no research | low | sinusoidal AM at gamma rates is the stimulus of the ASSR studies in research run `academic-lit-gamma-rate-and-coupling-phase-2026-10-27` (`digests/verify-r1-1.md`, C1) and FR-3; design log (mm) does not cite it | patch (design log source line) |
+| 7 | BH: the schema guard's `/gamma_pac/coupling` exemption is not logged | low | the guard is narrowed for one path and gains a `target` check; (mm) is silent | patch (design log line) |
+| 8 | BH: `plan.hpp` header comment line overruns the wrap; three blank lines in `signal_spec_vectors.py` | low | direct formatting | patch |
+| 9 | BH: guidebook and `sprint-status.yaml` not updated for the three section commits | low | true; the orchestrator's records step | patch (orchestrator, records commit) |
+| 10 | BH: spacing rule between theta and gamma not enforced | low | the spacing rule is Story 3.2 and the component model Story 3.1 | reject (owned by 3.1, 3.2) |
+| 11 | BH: compile ignores `coupling`; a future enum value would render as uncoupled | low | the enum has one member today; Story 2.3 adds members and their plan branch | reject |
+| 12 | BH: frequency tool has no guard for an envelope reaching exact zero | low | logged in (mm); the engine never reaches zero; the fix adds a branch | reject |
+| 13 | BH: AM depth tool assumes unit peak | low | level fields are Epic 4; unreachable today | reject |
+| 14 | BH: AM depth tool checks only extremes; shares row `reference-match` | low | shape is held by the sample-by-sample reference match, rate by the frequency tool; the row reuse is logged in (mm) | reject |
+| 15 | BH: red-phase `__has_include` and template scaffolding left in tests | low | the same pattern as `test_theta.cpp` (Story 2.1); harmless | reject |
+| 16 | BH: `check_rules` hard-codes carrier wave names | low | two literals beside the enum; no caller diverges | reject |
+| 17 | BH: `none` backticks inconsistent in the gamma fixtures table | low | cosmetic | reject |
+| 18 | EC: theta plus gamma at unit amplitude clips the 24-bit WAV | low | pre-existing (stub chain peaks near 2.0); levels are Epic 4 | reject |
+| 19 | EC: AM depth `measured` can be `-inf` | false | the tool feeds no CLI report JSON (same as Story 2.1 row 14) | reject |
+| 20 | EC: AM depth tool given invalid `fs` or a rate above Nyquist | low | inputs never given; loud numpy failure | reject |
+| 21 | EC: reference renders recipes compile rejects | false | the reference is called only on compile-valid fixtures; out-of-scope inputs are the caller's contract | reject |
+| 22 | EC: empty gamma arrays break `SpecTables.cmake` | low | the generator always writes them; `--check` gate | reject |
+| 23 | EC: spec cost figure 16 and 18 MB versus 17.6 and 19.2 MB | low | the fix edits this spec's frozen block; the design log has the right figures | reject |
+
+- Review pass 1 patches in f62387c (triage rows 2 to 8). Row 1 waits on the four-platform full run before merge; row 9 is the records commit. Orchestrator check: `windows-clang-cl` workflow 4/4 ctest entries pass; `uv run pytest` 1,725 passed, 2 NDK-only skips, 4 failed (exactly the row 1 hash-entry tests); engine source, wording, row coverage, and table log checks exit 0.
