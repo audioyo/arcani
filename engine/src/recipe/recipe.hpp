@@ -24,13 +24,25 @@ struct Error {
   std::string parameter;  // JSON Pointer of the field ("" = whole document), or for a
                           // syntax fault the byte offset in decimal digits
   std::string value;      // the offending value as text, may be empty
-  std::string rule;       // unknown_property, required, type, pattern, minimum, maximum,
-                          // schema_version.major, or the json.* parser rule
+  std::string rule;       // unknown_property, required, type, pattern, enum, minimum,
+                          // maximum, schema_version.major, or the json.* parser rule
   std::string limit;      // what the rule allows, for example the supported majors "1"
 };
 
+// Theta reference envelope shape (docs/signal-spec.md, Theta reference).
+// Custom is schema-valid only so that compile can reject it by name.
+enum class ThetaShape { Sine, SmoothedOnOff, Sawtooth, ReverseSaw, Custom };
+
+// The schema enum of theta_reference.shape, in schema order (the limit of an
+// enum error).
+inline constexpr std::string_view kThetaShapeEnum =
+    "sine, smoothed_on_off, sawtooth, reverse_saw, custom";
+
 struct ThetaReference {
   double carrier_hz = 0.0;
+  double rate_hz = 0.0;
+  double am_depth_percent = 0.0;
+  ThetaShape shape = ThetaShape::Sine;
 };
 
 struct Binaural {

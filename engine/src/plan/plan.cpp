@@ -27,6 +27,21 @@ CompileResult fail(std::string parameter, std::string value, std::string rule, s
   return r;
 }
 
+core::EnvelopeShape envelope_shape(recipe::ThetaShape s) noexcept {
+  switch (s) {
+    case recipe::ThetaShape::SmoothedOnOff:
+      return core::EnvelopeShape::SmoothedOnOff;
+    case recipe::ThetaShape::Sawtooth:
+      return core::EnvelopeShape::Sawtooth;
+    case recipe::ThetaShape::ReverseSaw:
+      return core::EnvelopeShape::ReverseSaw;
+    case recipe::ThetaShape::Sine:
+    case recipe::ThetaShape::Custom:  // rejected before the plan is built
+      break;
+  }
+  return core::EnvelopeShape::Sine;
+}
+
 }  // namespace
 
 std::span<const StageDescriptor> stage_descriptors() noexcept { return kStages; }
@@ -54,6 +69,13 @@ CompileResult compile(std::string_view utf8, Mode mode, std::uint32_t sample_rat
     return r;
   }
 
+  // Carrier rule and theta shape rule (Story 2.1), after every range check.
+  if (std::optional<recipe::Error> e = validate::check_rules(rec)) {
+    CompileResult r;
+    r.error = std::move(*e);
+    return r;
+  }
+
   if (mode == Mode::Final) {
     if (!rec.loudness_gain_db) {
       return fail("/loudness_gain_db", "absent", "final.required", "present in final mode");
@@ -72,12 +94,19 @@ CompileResult compile(std::string_view utf8, Mode mode, std::uint32_t sample_rat
     p.stages[i] = kStages[i].kind;
   }
 
-  // Theta reference stub: an unmodulated sine at theta_reference.carrier_hz,
-  // unit amplitude, phase 0, the same value in both channels. The mute
-  // option never touches it.
+  // Theta reference: the carrier at theta_reference.carrier_hz,
+  // amplitude-modulated at rate_hz by the shape's envelope, both phases 0 at
+  // n = 0, the same value in both channels. check_rules() has rejected a
+  // custom shape. The mute option never touches it.
   if (rec.theta_reference) {
-    p.theta.increment = core::phase_increment(rec.theta_reference->carrier_hz, sample_rate);
-    p.theta.amplitude = 1.0;
+    const recipe::ThetaReference& t = *rec.theta_reference;
+    p.theta.present = true;
+    p.theta.increment = core::phase_increment(t.carrier_hz, sample_rate);
+    p.theta.envelope_increment = core::phase_increment(t.rate_hz, sample_rate);
+    p.theta.depth = t.am_depth_percent / 100.0;
+    p.theta.shape = envelope_shape(t.shape);
+    p.theta.edge_units = core::theta_edge_units(t.rate_hz);
+    p.theta.half_on_units = core::theta_half_on_units();
   }
 
   // Binaural join stub: an unmodulated sine per ear, the left ear at

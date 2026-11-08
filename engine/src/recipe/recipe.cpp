@@ -26,6 +26,28 @@ constexpr std::string_view kDatePattern =
     "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$(?!\\n)";
 constexpr std::string_view kLoudnessHashPattern = "^[0-9a-f]{64}$(?!\\n)";
 
+// theta_reference.shape: the schema enum members, in schema order.
+struct ShapeName {
+  std::string_view name;
+  ThetaShape shape;
+};
+constexpr ShapeName kShapeNames[] = {
+    {"sine", ThetaShape::Sine},
+    {"smoothed_on_off", ThetaShape::SmoothedOnOff},
+    {"sawtooth", ThetaShape::Sawtooth},
+    {"reverse_saw", ThetaShape::ReverseSaw},
+    {"custom", ThetaShape::Custom},
+};
+
+const ShapeName* shape_named(std::string_view s) noexcept {
+  for (const auto& entry : kShapeNames) {
+    if (entry.name == s) {
+      return &entry;
+    }
+  }
+  return nullptr;
+}
+
 // Seed bounds: 0 to 2^53 - 1, the largest integer a JSON number holds exactly.
 constexpr double kSeedMax = 9007199254740991.0;
 constexpr std::string_view kSeedMaxText = "9007199254740991";
@@ -178,6 +200,9 @@ std::optional<Error> check_value(const Field& f, const Value& v) {
   if (f.path == "/date" && !date_ok(v.string())) {
     return make_error(pointer, v.string(), "pattern", kDatePattern);
   }
+  if (f.path == "/theta_reference/shape" && shape_named(v.string()) == nullptr) {
+    return make_error(pointer, v.string(), "enum", kThetaShapeEnum);
+  }
   if (f.path == "/loudness_hash" && !hash_ok(v.string())) {
     return make_error(pointer, v.string(), "pattern", kLoudnessHashPattern);
   }
@@ -298,7 +323,12 @@ ParseResult parse(std::string_view utf8) {
     r.loudness_hash = string_at(root, "loudness_hash");
   }
   if (const Value* theta = root.find("theta_reference")) {
-    r.theta_reference = ThetaReference{number_at(*theta, "carrier_hz")};
+    ThetaReference t;
+    t.carrier_hz = number_at(*theta, "carrier_hz");
+    t.rate_hz = number_at(*theta, "rate_hz");
+    t.am_depth_percent = number_at(*theta, "am_depth_percent");
+    t.shape = shape_named(string_at(*theta, "shape"))->shape;  // checked: an enum member
+    r.theta_reference = t;
   }
   if (const Value* bin = root.find("binaural")) {
     r.binaural = Binaural{number_at(*bin, "carrier_left_hz"), number_at(*bin, "beat_rate_hz")};

@@ -8,7 +8,10 @@
   "length_s": 600,
   "loudness_target_lufs": -36,
   "theta_reference": {
-    "carrier_hz": 200
+    "carrier_hz": 200,
+    "rate_hz": 6,
+    "am_depth_percent": 0,
+    "shape": "sine"
   },
   "binaural": {
     "carrier_left_hz": 400,

@@ -2,7 +2,7 @@
 
 This file is the only source of signal formulas (AD-19). The engine (`engine/`) and the Python reference (`reference/`) each implement it on their own; neither defines a formula of its own, and neither is ported from the other. A shape or stage not in this file does not exist.
 
-Story 0.2 writes the core and sine sections. Story 1.2 writes the internal block size and the stub chain. Story 1.4 writes 24-bit rounding. Story 1.5 adds the theta reference oscillator to the stub chain. Later stories add envelope shapes, coupling, bursts, ramps and rate curves, loop seams, the limiter, the resampler, the loudness window, and the spectral component model.
+Story 0.2 writes the core and sine sections. Story 1.2 writes the internal block size and the stub chain. Story 1.4 writes 24-bit rounding. Story 1.5 adds the theta reference oscillator to the stub chain. Story 2.1 writes the theta reference (envelope shapes, depth law). Later stories add coupling, bursts, ramps and rate curves, loop seams, the limiter, the resampler, the loudness window, and the spectral component model.
 
 **Conventions:**
 
@@ -309,13 +309,13 @@ Every sample is a pure function of the plan and its sample index `n` (AD-10). A 
 
 ## Stub chain
 
-The fixed stage list of Story 1.2, before any real layer exists. Story 1.5 routes the sine through the theta reference stub as an unmodulated carrier; Epic 2 replaces the theta reference and gamma PAC stubs with the real layers, and Epic 4 replaces the stored gain and the limiter stub.
+The fixed stage list of Story 1.2, before any real layer exists. Story 1.5 routes the sine through the theta reference stub as an unmodulated carrier; Epic 2 replaces the theta reference (Story 2.1, Theta reference) and gamma PAC stubs with the real layers, and Epic 4 replaces the stored gain and the limiter stub.
 
 **Stage order.** Theta reference, gamma PAC layer, stereo bus, binaural join, master chain (per-channel gain, then a stereo-linked limiter). The order is fixed and is not a recipe field. Every stage writes channel `c` only from channel `c` of its inputs. The limiter alone reads both channels, and only to derive one linked gain that it applies to each channel separately. No stage reads one channel to write the other.
 
 **Session length.** `N = seconds_to_samples(length_s, fs)` frames (Core, seconds-to-samples rule). For `n >= N` every tap and the output are exactly `+0.0` in both channels.
 
-**Theta reference oscillator (Story 1.5).** With a `theta_reference` field, one unmodulated sine at the theta carrier, the same value in both channels:
+**Theta reference oscillator (Story 1.5).** Story 2.1 replaces this stub with the real layer (Theta reference). At `am_depth_percent` 0 the real layer is this stub bit for bit, so the stub chain vectors below hold unchanged; the fixture `stub-chain-1s-beat-6.json` sets `rate_hz` 6, `am_depth_percent` 0, and `shape` `sine`. The Story 1.5 stub, with a `theta_reference` field, is one unmodulated sine at the theta carrier, the same value in both channels:
 
 ```
 f_T   = theta_reference.carrier_hz
@@ -343,7 +343,7 @@ For the fixture `stub-chain-1s-beat-6.json` that is a 400 Hz unmodulated sine in
 **Per sample.** For `0 <= n < N` and each channel `c`, in this order, each line one binary64 operation (Conventions):
 
 ```
-theta[c][n]  = a_T * sine(phase_T[n])       theta reference stub: the same value in both channels (Sine, engine sine)
+theta[c][n]  = a[n] * sine(phase_T[n])      theta reference (Theta reference, Per sample): the same value in both channels
 gamma[c][n]  = 0.0                          gamma PAC stub
 bus[c][n]    = theta[c][n] + gamma[c][n]    stereo bus: adds the layers within channel c
 bin[c][n]    = a_c * sine(phase_c[n])       binaural oscillator of ear c (Sine, engine sine)
@@ -352,7 +352,7 @@ master[c][n] = join[c][n] * g_c             per-channel gain, g_L = g_R = 1.0 (s
 out[c][n]    = master[c][n]                 stereo-linked limiter stub: identity, zero gain reduction
 ```
 
-`y * 1.0 = y` exactly for every binary64 `y`, and `y + +0.0 = y` and `+0.0 + y = y` exactly for every binary64 `y` other than `-0.0` (where the sum is `+0.0`). Neither oscillator ever produces `-0.0`: the engine sine (Sine, Engine sine) returns zero only for a folded `s = 0`, where `x = +0.0`, `r = C1 = 1` and `y = 1 * +0.0 = +0.0`, and is otherwise nonzero with the sign of `s`, since `r` stays positive on `[-pi/2, pi/2]`; an absent theta reference, a muted ear, or an absent ear is `0.0 * sine(0) = +0.0`. So `bus = theta` bit for bit. `join = bus + bin` is one rounding; it is exact, and equals the other operand, when `theta` or `bin` is `+0.0` (no `theta_reference` field, or a muted or absent ear). `master` and `out` equal `join` bit for bit.
+`y * 1.0 = y` exactly for every binary64 `y`, and `y + +0.0 = y` and `+0.0 + y = y` exactly for every binary64 `y` other than `-0.0` (where the sum is `+0.0`). No stub chain fixture produces `-0.0` (the theta reference can only at 100 percent depth; Theta reference, Per sample): the engine sine (Sine, Engine sine) returns zero only for a folded `s = 0`, where `x = +0.0`, `r = C1 = 1` and `y = 1 * +0.0 = +0.0`, and is otherwise nonzero with the sign of `s`, since `r` stays positive on `[-pi/2, pi/2]`; an absent theta reference, a muted ear, or an absent ear is `0.0 * sine(0) = +0.0`. So `bus = theta` bit for bit. `join = bus + bin` is one rounding; it is exact, and equals the other operand, when `theta` or `bin` is `+0.0` (no `theta_reference` field, or a muted or absent ear). `master` and `out` equal `join` bit for bit.
 
 **Level.** Both stub oscillators run at unit amplitude, so a recipe with a theta reference and a binaural layer peaks near 2.0. `stub-chain-1s-beat-6.json` (300 Hz theta, 400 and 406 Hz binaural) does, and its 24-bit WAV clips by the 24-bit rounding rule (24-bit rounding). It is a test fixture, not for listening; real levels arrive in Epic 2 and Epic 4.
 
@@ -425,6 +425,467 @@ Per channel at sample `n`: the theta tap (the same in both channels, and equal t
 | signal | stub-chain-1s-beat-6.json | 48000 | 47999 | 18331451923249174112 | 18293021206428536288 | 18290715363419420896 | `0xbfa419dcd176a61b` | `0xbfb772d20d334162` | `0xbfb7a63884045357` | -0.03925981575896405581470655 | -0.09159577200194271869613626 | -0.09238007758206144904580974 |
 | past_end | stub-chain-1s-beat-6.json | 48000 | 48000 | 307200 | 18446744073709449216 | 18446744073709547520 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 | 0 |
 | past_end | stub-chain-1s-beat-6.json | 48000 | 48063 | 7263405479023443552 | 9684540638697412064 | 9829808748277973216 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 | 0 |
+
+## Theta reference
+
+Story 2.1 replaces the theta reference stub (Stub chain) with the real layer: a carrier amplitude-modulated at the theta rate by one of four envelope shapes, the same value in both channels. It is the only signal the gamma PAC layer may couple to, so its phase exists in the file and is measurable.
+
+**Recipe fields.** All four are required in `theta_reference`:
+
+- `carrier_hz`, the carrier in Hz (range row `theta-carrier`)
+- `rate_hz`, the theta rate in Hz (range row `theta-rate`)
+- `am_depth_percent`, the AM depth in percent (range row `theta-depth`)
+- `shape`, one of `sine`, `smoothed_on_off`, `sawtooth`, `reverse_saw`
+
+The schema also accepts `shape: "custom"` so that compile can reject it by name: parameter `/theta_reference/shape`, value `custom`, rule `shape not modeled in the signal spec`, limit `sine, smoothed_on_off, sawtooth, reverse_saw`. A custom envelope curve does not exist until this section models it. Any other shape text is a schema fault (rule `enum`). The carrier rule (row `carrier-rule`) checks `carrier_hz` against `rate_hz`; every pair inside the locked ranges passes it, since 100 Hz is at least 4 times 6 Hz.
+
+**Oscillators.** Two phase accumulators (Core), each at phase 0 at n = 0:
+
+```
+inc_T = phase increment rule (carrier_hz, fs)    carrier phase:  phase_T[n] = n * inc_T mod 2^64
+inc_E = phase increment rule (rate_hz, fs)       envelope phase: phase_E[n] = n * inc_E mod 2^64
+```
+
+`phi = phase_E / 2^64` is the fraction of the envelope cycle. `phi = 0` is the shape's 0 degree point, its peak, so the 0 degree point of the first cycle is sample 0. Coupling phases (later stories) are measured from this point.
+
+**Fixed constants.** Two engineering defaults, decided by Audio on 2026-11-06. No study sets them. Each is a fixed range row (min equal to max), like `burst-width` and `burst-edge`, and neither is a recipe field:
+
+- on share `D`, row `theta-on-share`, 50 percent: `D = 50.0 / 100.0` (binary64, exact)
+- edge length `E`, row `theta-edge`, 10 ms: `E = 10.0 / 1000.0` seconds (binary64, one rounding, `0x1.47ae147ae147bp-7`). 10 ms matches the gamma burst edges, the top of the 5 to 10 ms rise-time convention (design log 2026-10-28 (o)).
+
+They become integer phase lengths once per plan:
+
+```
+H = D * 0x1p63       binary64, exact (a power-of-two scale); then the nearest integer, ties to even
+w = E * rate_hz      binary64, one rounding
+W = w * 0x1p64       binary64, exact; then the nearest integer, ties to even
+```
+
+`H` is half the on share in phase units (2^62). `W` is `E` seconds of envelope phase at `rate_hz`, in phase units. Over the locked rate range `W` is at most about `0.06 * 2^64`, so `W < H - W` and every edge fits inside its segment: at 6 Hz, the top theta rate, the smoothed on-off plateau is still 0.19 of a cycle on each side of the 0 degree point (0.38 in all) and the sawtooth's linear segment 0.94.
+
+**Ratio-to-phase rule.** The edges convert a ratio `r` to a half-cycle phase by one clamped conversion:
+
+```
+if not (r > 0):  P = 0          NaN, both zeros, negatives
+else if r >= 1:  P = 2^63       1, everything above, +inf
+else:            x = r * 0x1p63          binary64, exact (a power-of-two scale)
+                 P = x rounded to the nearest integer, ties to even, as an unsigned 64-bit integer
+```
+
+**Half raised cosine.** For an integer offset `u` with `0 <= u <= W`, the fall from 1 to 0 across one edge:
+
+```
+ideal:   rc(u) = (1 + cos(pi * u / W)) / 2
+engine:  r  = double(u) / double(W)          two int-to-binary64 conversions, one division
+         P  = ratio-to-phase rule (r)
+         c  = sine(P + 2^62 mod 2^64)        engine sine (Sine): sine(p + 2^62) is the cosine of p
+         rc = (1.0 + c) * 0.5                one rounding, then an exact halving
+```
+
+**Envelope shapes.** The envelope `e` of the envelope phase `p = phase_E[n]` lies in [0, 1]. Each shape is a set of segments chosen by exact integer comparisons on `p`:
+
+- **sine:** `e = (1 + cos(2 * pi * p / 2^64)) / 2`. Engine: `c = sine(p + 2^62 mod 2^64)`, then `e = (1.0 + c) * 0.5`. Peak at `p = 0`, trough at `p = 2^63`.
+- **smoothed_on_off:** on for the share `D` of the cycle centered on `p = 0`, off for the rest, with raised-cosine edges of length `E` inside the on share. With `m = p` when `p < 2^63` and `m = 2^64 - p` otherwise (exact unsigned arithmetic; `m` is the distance from the 0 degree point, 2^63 at the half cycle):
+  - `m <= H - W`: `e = 1.0` (plateau)
+  - `H - W < m < H`: `e = rc(m - (H - W))` (the falling edge after the plateau, and its mirror, the rising edge before it)
+  - `m >= H`: `e = 0.0` (off)
+- **sawtooth:** a raised-cosine drop of length `E` starting at `p = 0`, then a linear rise to 1 at `p = 2^64`:
+  - `p < W`: `e = rc(p)` (drop edge)
+  - `p >= W`: `e = double(p - W) / double(2^64 - W)` (linear rise; both differences exact in unsigned 64-bit arithmetic, then two conversions and one division). The ideal is the exact ratio.
+- **reverse_saw:** the mirror image of the sawtooth about `p = 0`: a linear fall from 1 at `p = 0`, then a raised-cosine rise of length `E` ending at `p = 2^64`. `e_reverse_saw(p) = e_sawtooth(2^64 - p mod 2^64)`, the argument exact in unsigned arithmetic.
+
+Every engine envelope value lies in [0, 1]: the engine sine stays strictly inside (-1, 1) (its largest magnitude is `0x1.fffffe1cbd435p-1`, at 2^62 and 3 * 2^62), and each linear ratio's numerator is at most its denominator, both converted by the same monotone rounding. The engine envelope is exactly 1.0 only on the smoothed on-off plateau and where a linear ratio rounds to 1. At the 0 degree point of the sine, sawtooth, and reverse saw it is `(1.0 + sine(2^62)) * 0.5`, about 1.4e-8 below 1, inside the error bound below.
+
+**Depth law.** `d = am_depth_percent / 100.0` (binary64, one rounding), once per plan. Per sample:
+
+```
+a[n] = 1.0 - d * (1.0 - e[n])      three binary64 operations, in this order
+```
+
+So `a = 1` at the envelope peak and `a = 1 - d` where `e = 0`: 75 percent dips the carrier to a quarter of its peak (design log 2026-10-29 (s)). At `d = 0`, `d * (1.0 - e)` is `+0.0` for every `e` in [0, 1], so `a = 1.0` exactly and a depth 0 theta reference is the Story 1.5 unmodulated carrier, bit for bit.
+
+**Per sample.** For `0 <= n < N` and each channel `c`, this line replaces the theta reference stub line of Stub chain, Per sample; every other line there is unchanged:
+
+```
+theta[c][n] = a[n] * sine(phase_T[n])      the same value in both channels (Sine, engine sine)
+```
+
+Without a `theta_reference` field, `theta[c][n] = +0.0`. The theta tap is `-0.0` only where `a[n] = 0.0` (depth 100 percent where `e = 0`) and the carrier sine is negative; there the stereo bus, `theta + gamma`, is `+0.0`, equal in value. Everywhere else the bus equals the theta tap bit for bit.
+
+**Seek.** Seek to frame `k` sets `phase_T` to `k * inc_T mod 2^64` and `phase_E` to `k * inc_E mod 2^64`.
+
+**Reference.** The Python reference renders the same segments, chosen by the same integer comparisons on the same integer phases, with `H`, `W`, and both increments from the rules above. It evaluates the ideal functions in binary64: `cos(pi * u / W)` and `cos(2 * pi * p / 2^64)` with NumPy, each linear ratio as one binary64 division, the depth law in the order above, and the ideal sine (Sine) for the carrier.
+
+**Error bound.** With `b` the sine error bound (row `sine-error`), the theta tap uses two engine sines per sample: one for the envelope (sine shape and edges; none on a plateau, off, or linear segment) and one for the carrier. Halving the cosine halves its error, and the ratio conversions move the edge phase by a few units in the last place, so `|e - e_ideal| <= b / 2 + 2^-48`. Then `|a - a_ideal| <= d * (b / 2 + 2^-48)` and `|theta - theta_ideal| <= 1.5 * b + 2^-47`, about -116 dBFS, 16 dB under row `reference-match`. An output that also adds the binaural sines uses three sines per sample and stays within `2.5 * b + 2^-46`, about -112 dBFS.
+
+### Vectors: theta ratio to phase
+
+`r` and `x` are hex floats; `x` is `none` where the clamp returns first.
+
+| Ratio case | r (hex) | x = r * 2^63 (hex) | P |
+| --- | --- | --- | --- |
+| zero | `0x0.0p+0` | `none` | 0 |
+| negative zero | `-0x0.0p+0` | `none` | 0 |
+| NaN | `nan` | `none` | 0 |
+| negative | `-0x1.0000000000000p-1` | `none` | 0 |
+| tie x = 1/2, down to even | `0x1.0000000000000p-64` | `0x1.0000000000000p-1` | 0 |
+| tie x = 3/2, up to even | `0x1.8000000000000p-63` | `0x1.8000000000000p+0` | 2 |
+| tie x = 5/2, down to even | `0x1.4000000000000p-62` | `0x1.4000000000000p+1` | 2 |
+| quarter | `0x1.0000000000000p-2` | `0x1.0000000000000p+61` | 2305843009213693952 |
+| half | `0x1.0000000000000p-1` | `0x1.0000000000000p+62` | 4611686018427387904 |
+| one third (inexact in binary64) | `0x1.5555555555555p-2` | `0x1.5555555555555p+61` | 3074457345618258432 |
+| largest binary64 below 1 | `0x1.fffffffffffffp-1` | `0x1.fffffffffffffp+62` | 9223372036854774784 |
+| one | `0x1.0000000000000p+0` | `none` | 9223372036854775808 |
+| above one | `0x1.8000000000000p+0` | `none` | 9223372036854775808 |
+| infinity | `inf` | `none` | 9223372036854775808 |
+
+### Vectors: theta edge length
+
+`E` is the binary64 edge length in seconds; `w = E * rate_hz` is one binary64 rounding; `W = w * 2^64`, rounded.
+
+| Rate (hex) | E (hex) | w = E * rate (hex) | W |
+| --- | --- | --- | --- |
+| `0x1.0000000000000p+0` | `0x1.47ae147ae147bp-7` | `0x1.47ae147ae147bp-7` | 184467440737095520 |
+| `0x1.0000000000000p+1` | `0x1.47ae147ae147bp-7` | `0x1.47ae147ae147bp-6` | 368934881474191040 |
+| `0x1.6000000000000p+2` | `0x1.47ae147ae147bp-7` | `0x1.c28f5c28f5c29p-5` | 1014570924054025344 |
+| `0x1.8000000000000p+2` | `0x1.47ae147ae147bp-7` | `0x1.eb851eb851eb8p-5` | 1106804644422573056 |
+
+### Vectors: theta envelopes
+
+The engine envelope (binary64 bits, from the engine sine bits) and the ideal envelope (25 significant digits: ideal cosines in decimal arithmetic and exact ratios) at the 0 degree point, on each side of every segment boundary, mid-edge, and at the half cycle, for each shape at both ends of the theta rate range. `H` is the same for every rate.
+
+| Shape | Rate (hex) | W | H | Envelope phase | Segment | e (binary64 bits) | e ideal |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| sine | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 0 | zero degree | `0x3feffffff0e5ea1a` | 1 |
+| sine | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 1 | cosine | `0x3feffffff0e5ea1a` | 1 |
+| sine | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 2305843009213693952 | cosine | `0x3feb504f333f2405` | 0.8535533905932737622004222 |
+| sine | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 4611686018427387904 | cosine | `0x3fe0000000000000` | 0.5 |
+| sine | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 9223372036854775808 | cosine | `0x3e5e342bcb000000` | 0 |
+| sine | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 13835058055282163712 | cosine | `0x3fe0000000000000` | 0.5 |
+| sine | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 18446744073709551615 | cosine | `0x3feffffff0e5ea1a` | 1 |
+| sine | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 0 | zero degree | `0x3feffffff0e5ea1a` | 1 |
+| sine | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 1 | cosine | `0x3feffffff0e5ea1a` | 1 |
+| sine | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 2305843009213693952 | cosine | `0x3feb504f333f2405` | 0.8535533905932737622004222 |
+| sine | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 4611686018427387904 | cosine | `0x3fe0000000000000` | 0.5 |
+| sine | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 9223372036854775808 | cosine | `0x3e5e342bcb000000` | 0 |
+| sine | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 13835058055282163712 | cosine | `0x3fe0000000000000` | 0.5 |
+| sine | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 18446744073709551615 | cosine | `0x3feffffff0e5ea1a` | 1 |
+| smoothed_on_off | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 0 | zero degree | `0x3ff0000000000000` | 1 |
+| smoothed_on_off | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 4427218577690292383 | plateau | `0x3ff0000000000000` | 1 |
+| smoothed_on_off | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 4427218577690292384 | plateau | `0x3ff0000000000000` | 1 |
+| smoothed_on_off | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 4427218577690292385 | falling edge | `0x3feffffff0e5ea1a` | 1 |
+| smoothed_on_off | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 4519452298058840144 | falling edge | `0x3fe0000000000000` | 0.5 |
+| smoothed_on_off | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 4611686018427387903 | falling edge | `0x3e5e342bcb000000` | 7.251040136457079266347805e-35 |
+| smoothed_on_off | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 4611686018427387904 | off | `0x0000000000000000` | 0 |
+| smoothed_on_off | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 4611686018427387905 | off | `0x0000000000000000` | 0 |
+| smoothed_on_off | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 9223372036854775808 | off | `0x0000000000000000` | 0 |
+| smoothed_on_off | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 13835058055282163712 | off | `0x0000000000000000` | 0 |
+| smoothed_on_off | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 13835058055282163713 | rising edge | `0x3e5e342bcb000000` | 7.251040136457079266347805e-35 |
+| smoothed_on_off | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 13927291775650711472 | rising edge | `0x3fe0000000000000` | 0.5 |
+| smoothed_on_off | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 14019525496019259232 | plateau | `0x3ff0000000000000` | 1 |
+| smoothed_on_off | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 14019525496019259233 | plateau | `0x3ff0000000000000` | 1 |
+| smoothed_on_off | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 18446744073709551615 | plateau | `0x3ff0000000000000` | 1 |
+| smoothed_on_off | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 0 | zero degree | `0x3ff0000000000000` | 1 |
+| smoothed_on_off | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 3504881374004814847 | plateau | `0x3ff0000000000000` | 1 |
+| smoothed_on_off | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 3504881374004814848 | plateau | `0x3ff0000000000000` | 1 |
+| smoothed_on_off | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 3504881374004814849 | falling edge | `0x3feffffff0e5ea1a` | 1 |
+| smoothed_on_off | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 4058283696216101376 | falling edge | `0x3fe0000000000000` | 0.5 |
+| smoothed_on_off | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 4611686018427387903 | falling edge | `0x3e5e342bcb000000` | 2.014177815682522251366049e-36 |
+| smoothed_on_off | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 4611686018427387904 | off | `0x0000000000000000` | 0 |
+| smoothed_on_off | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 4611686018427387905 | off | `0x0000000000000000` | 0 |
+| smoothed_on_off | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 9223372036854775808 | off | `0x0000000000000000` | 0 |
+| smoothed_on_off | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 13835058055282163712 | off | `0x0000000000000000` | 0 |
+| smoothed_on_off | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 13835058055282163713 | rising edge | `0x3e5e342bcb000000` | 2.014177815682522251366049e-36 |
+| smoothed_on_off | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 14388460377493450240 | rising edge | `0x3fe0000000000000` | 0.5 |
+| smoothed_on_off | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 14941862699704736768 | plateau | `0x3ff0000000000000` | 1 |
+| smoothed_on_off | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 14941862699704736769 | plateau | `0x3ff0000000000000` | 1 |
+| smoothed_on_off | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 18446744073709551615 | plateau | `0x3ff0000000000000` | 1 |
+| sawtooth | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 0 | zero degree | `0x3feffffff0e5ea1a` | 1 |
+| sawtooth | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 1 | drop edge | `0x3feffffff0e5ea1a` | 1 |
+| sawtooth | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 92233720368547760 | drop edge | `0x3fe0000000000000` | 0.5 |
+| sawtooth | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 184467440737095519 | drop edge | `0x3e5e342bcb000000` | 7.251040136457079266347805e-35 |
+| sawtooth | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 184467440737095520 | linear rise | `0x0000000000000000` | 0 |
+| sawtooth | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 184467440737095521 | linear rise | `0x3bf0295fad40a57f` | 5.475768547906588051694078e-20 |
+| sawtooth | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 9223372036854775808 | linear rise | `0x3fdfad40a57eb503` | 0.4949494949494949493887528 |
+| sawtooth | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 18446744073709551615 | linear rise | `0x3ff0000000000000` | 0.9999999999999999999452423 |
+| sawtooth | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 0 | zero degree | `0x3feffffff0e5ea1a` | 1 |
+| sawtooth | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 1 | drop edge | `0x3feffffff0e5ea1a` | 1 |
+| sawtooth | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 553402322211286528 | drop edge | `0x3fe0000000000000` | 0.5 |
+| sawtooth | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 1106804644422573055 | drop edge | `0x3e5e342bcb000000` | 2.014177815682522251366049e-36 |
+| sawtooth | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 1106804644422573056 | linear rise | `0x0000000000000000` | 0 |
+| sawtooth | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 1106804644422573057 | linear rise | `0x3bf10572620ae4c4` | 5.767032832369704422587105e-20 |
+| sawtooth | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 9223372036854775808 | linear rise | `0x3fddf51b3bea3678` | 0.4680851063829787246607323 |
+| sawtooth | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 18446744073709551615 | linear rise | `0x3ff0000000000000` | 0.9999999999999999999423297 |
+| reverse_saw | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 0 | zero degree | `0x3feffffff0e5ea1a` | 1 |
+| reverse_saw | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 1 | linear fall | `0x3ff0000000000000` | 0.9999999999999999999452423 |
+| reverse_saw | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 9223372036854775808 | linear fall | `0x3fdfad40a57eb503` | 0.4949494949494949493887528 |
+| reverse_saw | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 18262276632972456095 | linear fall | `0x3bf0295fad40a57f` | 5.475768547906588051694078e-20 |
+| reverse_saw | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 18262276632972456096 | linear fall | `0x0000000000000000` | 0 |
+| reverse_saw | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 18262276632972456097 | rise edge | `0x3e5e342bcb000000` | 7.251040136457079266347805e-35 |
+| reverse_saw | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 18354510353341003856 | rise edge | `0x3fe0000000000000` | 0.5 |
+| reverse_saw | `0x1.0000000000000p+0` | 184467440737095520 | 4611686018427387904 | 18446744073709551615 | rise edge | `0x3feffffff0e5ea1a` | 1 |
+| reverse_saw | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 0 | zero degree | `0x3feffffff0e5ea1a` | 1 |
+| reverse_saw | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 1 | linear fall | `0x3ff0000000000000` | 0.9999999999999999999423297 |
+| reverse_saw | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 9223372036854775808 | linear fall | `0x3fddf51b3bea3678` | 0.4680851063829787246607323 |
+| reverse_saw | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 17339939429286978559 | linear fall | `0x3bf10572620ae4c4` | 5.767032832369704422587105e-20 |
+| reverse_saw | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 17339939429286978560 | linear fall | `0x0000000000000000` | 0 |
+| reverse_saw | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 17339939429286978561 | rise edge | `0x3e5e342bcb000000` | 2.014177815682522251366049e-36 |
+| reverse_saw | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 17893341751498265088 | rise edge | `0x3fe0000000000000` | 0.5 |
+| reverse_saw | `0x1.8000000000000p+2` | 1106804644422573056 | 4611686018427387904 | 18446744073709551615 | rise edge | `0x3feffffff0e5ea1a` | 1 |
+
+### Vectors: theta fixtures
+
+Per theta fixture (`recipes/fixtures/valid/theta-<shape>-<rate>hz.json`, the shape in kebab case: a 450 Hz carrier amplitude-modulated at 1 or 6 Hz with 75 percent depth, 10 s, no binaural layer) and sample rate: the carrier, rate, and depth as hex floats, the increments, `W`, and the session length `N` in frames. `H` is 4611686018427387904 (2^62) throughout. In this order the fixtures are the hash probe's `theta-envelopes-<fs>` components.
+
+| Fixture | fs | Carrier (hex) | Rate (hex) | Depth (hex) | Shape | Carrier inc | Rate inc | W | Frames |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| theta-sine-1hz.json | 44100 | `0x1.c200000000000p+8` | `0x1.0000000000000p+0` | `0x1.2c00000000000p+6` | sine | 188232082384791328 | 418293516410647 | 184467440737095520 | 441000 |
+| theta-sine-6hz.json | 44100 | `0x1.c200000000000p+8` | `0x1.8000000000000p+2` | `0x1.2c00000000000p+6` | sine | 188232082384791328 | 2509761098463884 | 1106804644422573056 | 441000 |
+| theta-smoothed-on-off-1hz.json | 44100 | `0x1.c200000000000p+8` | `0x1.0000000000000p+0` | `0x1.2c00000000000p+6` | smoothed_on_off | 188232082384791328 | 418293516410647 | 184467440737095520 | 441000 |
+| theta-smoothed-on-off-6hz.json | 44100 | `0x1.c200000000000p+8` | `0x1.8000000000000p+2` | `0x1.2c00000000000p+6` | smoothed_on_off | 188232082384791328 | 2509761098463884 | 1106804644422573056 | 441000 |
+| theta-sawtooth-1hz.json | 44100 | `0x1.c200000000000p+8` | `0x1.0000000000000p+0` | `0x1.2c00000000000p+6` | sawtooth | 188232082384791328 | 418293516410647 | 184467440737095520 | 441000 |
+| theta-sawtooth-6hz.json | 44100 | `0x1.c200000000000p+8` | `0x1.8000000000000p+2` | `0x1.2c00000000000p+6` | sawtooth | 188232082384791328 | 2509761098463884 | 1106804644422573056 | 441000 |
+| theta-reverse-saw-1hz.json | 44100 | `0x1.c200000000000p+8` | `0x1.0000000000000p+0` | `0x1.2c00000000000p+6` | reverse_saw | 188232082384791328 | 418293516410647 | 184467440737095520 | 441000 |
+| theta-reverse-saw-6hz.json | 44100 | `0x1.c200000000000p+8` | `0x1.8000000000000p+2` | `0x1.2c00000000000p+6` | reverse_saw | 188232082384791328 | 2509761098463884 | 1106804644422573056 | 441000 |
+| theta-sine-1hz.json | 48000 | `0x1.c200000000000p+8` | `0x1.0000000000000p+0` | `0x1.2c00000000000p+6` | sine | 172938225691027040 | 384307168202282 | 184467440737095520 | 480000 |
+| theta-sine-6hz.json | 48000 | `0x1.c200000000000p+8` | `0x1.8000000000000p+2` | `0x1.2c00000000000p+6` | sine | 172938225691027040 | 2305843009213694 | 1106804644422573056 | 480000 |
+| theta-smoothed-on-off-1hz.json | 48000 | `0x1.c200000000000p+8` | `0x1.0000000000000p+0` | `0x1.2c00000000000p+6` | smoothed_on_off | 172938225691027040 | 384307168202282 | 184467440737095520 | 480000 |
+| theta-smoothed-on-off-6hz.json | 48000 | `0x1.c200000000000p+8` | `0x1.8000000000000p+2` | `0x1.2c00000000000p+6` | smoothed_on_off | 172938225691027040 | 2305843009213694 | 1106804644422573056 | 480000 |
+| theta-sawtooth-1hz.json | 48000 | `0x1.c200000000000p+8` | `0x1.0000000000000p+0` | `0x1.2c00000000000p+6` | sawtooth | 172938225691027040 | 384307168202282 | 184467440737095520 | 480000 |
+| theta-sawtooth-6hz.json | 48000 | `0x1.c200000000000p+8` | `0x1.8000000000000p+2` | `0x1.2c00000000000p+6` | sawtooth | 172938225691027040 | 2305843009213694 | 1106804644422573056 | 480000 |
+| theta-reverse-saw-1hz.json | 48000 | `0x1.c200000000000p+8` | `0x1.0000000000000p+0` | `0x1.2c00000000000p+6` | reverse_saw | 172938225691027040 | 384307168202282 | 184467440737095520 | 480000 |
+| theta-reverse-saw-6hz.json | 48000 | `0x1.c200000000000p+8` | `0x1.8000000000000p+2` | `0x1.2c00000000000p+6` | reverse_saw | 172938225691027040 | 2305843009213694 | 1106804644422573056 | 480000 |
+
+### Vectors: theta samples
+
+Per fixture and sample rate at sample `n`: both phases, the envelope segment, and the engine envelope `e`, amplitude `a`, and theta tap (the same in both channels, and equal to the output, since the fixtures have no binaural layer) as binary64 bits, with the ideal envelope and ideal theta tap at 25 digits (the exact depth law on the binary64 `d`, ideal cosine, ideal sine). Indices cover the start, both sides of the first block boundary, sample 1000, both sides of every segment boundary in the first envelope cycle, the last sample, and two samples past the end (case `past_end`: taps and output `+0.0`; the phase columns show `n * inc mod 2^64` only for reference).
+
+| Case | Fixture | fs | n | Carrier phase | Envelope phase | Segment | e (binary64 bits) | a (binary64 bits) | Theta (binary64 bits) | e ideal | Theta ideal |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| signal | theta-sine-1hz.json | 44100 | 0 | 0 | 0 | zero degree | `0x3feffffff0e5ea1a` | `0x3feffffff4ac6f94` | `0x0000000000000000` | 1 | 0 |
+| signal | theta-sine-1hz.json | 44100 | 1 | 188232082384791328 | 418293516410647 | cosine | `0x3fefffffee30fb3e` | `0x3feffffff2a4bc6e` | `0x3fb066e7e49e604a` | 0.9999999949251575298390198 | 0.06407021973685321324278564 |
+| signal | theta-sine-1hz.json | 44100 | 63 | 11858621190241853664 | 26352491533870761 | cosine | `0x3fefffd5b45f5478` | `0x3fefffe047477f5a` | `0xbfe904aaa7f77b36` | 0.9999798580854355519984199 | -0.7818196717808368576639740 |
+| signal | theta-sine-1hz.json | 44100 | 64 | 12046853272626644992 | 26770785050281408 | cosine | `0x3fefffd45a60b15d` | `0x3fefffdf43c88506` | `0xbfea3ebf090cb5dd` | 0.9999792135892336120055529 | -0.8201594682689182577234098 |
+| signal | theta-sine-1hz.json | 44100 | 65 | 12235085355011436320 | 27189078566692055 | cosine | `0x3fefffd2faef25a0` | `0x3fefffde3c335c38` | `0xbfeb5d377b434d6e` | 0.9999785589437686827313636 | -0.8551290116322954420980881 |
+| signal | theta-sine-1hz.json | 44100 | 1000 | 3764641647695811840 | 418293516410647000 | cosine | `0x3fefd67f4209fa1b` | `0x3fefe0df71877b94` | `0x3fee8f90ff77a510` | 0.9949337363899708007699656 | 0.9550252049932008314491565 |
+| signal | theta-sine-1hz.json | 44100 | 11025 | 9223372036854610208 | 4611686018427383175 | cosine | `0x3fe0000000000007` | `0x3fe4000000000005` | `0x3d23d88b5bcc4db9` | 0.5000000000000008053774476 | 3.525335835389587407033101e-14 |
+| signal | theta-sine-1hz.json | 44100 | 11026 | 9411604119239401536 | 4612104311943793822 | cosine | `0x3fdffed534db57e6` | `0x3fe3ff8ff3d240f6` | `0xbfa4802f09811bf6` | 0.4999287620715889898492118 | -0.04004046431560219825400372 |
+| signal | theta-sine-1hz.json | 44100 | 22050 | 18446744073709220416 | 9223372036854766350 | cosine | `0x3e5e342bcd000000` | `0x3fd0000016a720d8` | `0xbd1fc0df263bc395` | 2.594531332484637567303745e-30 | -2.820268668311667199969542e-14 |
+| signal | theta-sine-1hz.json | 44100 | 22051 | 188232082384460128 | 9223790330371176997 | cosine | `0x3e61cf04c2000000` | `0x3fd000001ab68724` | `0x3f9066e806d92c0c` | 5.074842469931486481039377e-9 | 0.01601755523900978989926266 |
+| signal | theta-sine-1hz.json | 44100 | 440999 | 18258511991318136288 | 18446325780192951809 | cosine | `0x3fefffffee30fb3d` | `0x3feffffff2a4bc6e` | `0xbfb066e7e4a0da0c` | 0.9999999949251575252491462 | -0.06407021973910479231274781 |
+| past_end | theta-sine-1hz.json | 44100 | 441000 | 18446744073702927616 | 18446744073709362456 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| past_end | theta-sine-1hz.json | 44100 | 441063 | 11858621190235229664 | 26352491533681601 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| signal | theta-sine-6hz.json | 44100 | 0 | 0 | 0 | zero degree | `0x3feffffff0e5ea1a` | `0x3feffffff4ac6f94` | `0x0000000000000000` | 1 | 0 |
+| signal | theta-sine-6hz.json | 44100 | 1 | 188232082384791328 | 2509761098463884 | cosine | `0x3fefffff8eebd005` | `0x3fefffffab30dc04` | `0x3fb066e7bffea8df` | 0.9999998173056818908951494 | 0.06407021120176405545827588 |
+| signal | theta-sine-6hz.json | 44100 | 63 | 11858621190241853664 | 158114949203224692 | cosine | `0x3feffa0fa7fa7f78` | `0x3feffb8bbdfbdf9a` | `0xbfe90147f7b04329` | 0.9992750614536604710133596 | -0.7814063976342424685027257 |
+| signal | theta-sine-6hz.json | 44100 | 64 | 12046853272626644992 | 160624710301688576 | cosine | `0x3feff9df059712bd` | `0x3feffb6744314e0e` | `0xbfea3b14c2754dd3` | 0.9992518706677626826540809 | -0.8197120584060922962589202 |
+| signal | theta-sine-6hz.json | 44100 | 65 | 12235085355011436320 | 163134471400152460 | cosine | `0x3feff9ad9f540942` | `0x3feffb42377f06f2` | `0xbfeb594665b6d360` | 0.9992283150399445889271675 | -0.8546478373986624026176413 |
+| signal | theta-sine-6hz.json | 44100 | 1000 | 3764641647695811840 | 2509761098463884000 | cosine | `0x3fea8051962f4c14` | `0x3febe03d30a3790f` | `0x3feab9486d160965` | 0.8281639035517591774887226 | 0.8351175467944826742130302 |
+| signal | theta-sine-6hz.json | 44100 | 1837 | 13740942014089740448 | 4610431137878154908 | cosine | `0x3fe001c030b630ba` | `0x3fe401502488a48c` | `0xbfe3feae7ca2f5cf` | 0.5002137137794512860534854 | -0.6248390881080100146554038 |
+| signal | theta-sine-6hz.json | 44100 | 1838 | 13929174096474531776 | 4612940898976618792 | cosine | `0x3fdffc7f9e939e93` | `0x3fe3feafdb775b78` | `0xbfe3fc0e8c0051b9` | 0.4997862862205490729516964 | -0.6245186821428500890879013 |
+| signal | theta-sine-6hz.json | 44100 | 3675 | 9223372036854720608 | 9223372036854773700 | cosine | `0x3e5e342bcc000000` | `0x3fd0000016a720d8` | `0x3cf52b3f6ed28263` | 1.288847440677176480899700e-31 | 4.700447780519445333282571e-15 |
+| signal | theta-sine-6hz.json | 44100 | 3676 | 9411604119239511936 | 9225881797953237584 | cosine | `0x3e8c450bfee00000` | `0x3fd00000a99e47fa` | `0xbf9066e899582420` | 1.826943181087979531835912e-7 | -0.01601756377412240162894268 |
+| signal | theta-sine-6hz.json | 44100 | 440999 | 18258511991318136288 | 18444234312610834772 | cosine | `0x3fefffff8eebd004` | `0x3fefffffab30dc03` | `0xbfb066e7c00122a0` | 0.9999998173056818540674594 | -0.06407021120401563267918181 |
+| past_end | theta-sine-6hz.json | 44100 | 441000 | 18446744073702927616 | 18446744073709298656 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| past_end | theta-sine-6hz.json | 44100 | 441063 | 11858621190235229664 | 158114949202971732 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| signal | theta-smoothed-on-off-1hz.json | 44100 | 0 | 0 | 0 | zero degree | `0x3ff0000000000000` | `0x3ff0000000000000` | `0x0000000000000000` | 1 | 0 |
+| signal | theta-smoothed-on-off-1hz.json | 44100 | 1 | 188232082384791328 | 418293516410647 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0x3fb066e7eb76f5c7` | 1 | 0.06407021998071291831579454 |
+| signal | theta-smoothed-on-off-1hz.json | 44100 | 63 | 11858621190241853664 | 26352491533870761 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0xbfe904c375007868` | 1 | -0.7818314824680296077474442 |
+| signal | theta-smoothed-on-off-1hz.json | 44100 | 64 | 12046853272626644992 | 26770785050281408 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0xbfea3ed9e2455917` | 1 | -0.8201722545969556928797241 |
+| signal | theta-smoothed-on-off-1hz.json | 44100 | 65 | 12235085355011436320 | 27189078566692055 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0xbfeb5d545af2044a` | 1 | -0.8551427630053459933280693 |
+| signal | theta-smoothed-on-off-1hz.json | 44100 | 1000 | 3764641647695811840 | 418293516410647000 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0x3feead683265b193` | 1 | 0.9586678530366591664698263 |
+| signal | theta-smoothed-on-off-1hz.json | 44100 | 10584 | 18446744073709392640 | 4427218577690287848 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0xbd2e7bb755b4b0b2` | 1 | -5.414915843158401023941522e-14 |
+| signal | theta-smoothed-on-off-1hz.json | 44100 | 10585 | 188232082384632352 | 4427636871206698495 | falling edge | `0x3fefffe556742335` | `0x3fefffec00d71a68` | `0x3fb066ddab943455` | 0.9999873129474575414734769 | 0.06406961033397340429111535 |
+| signal | theta-smoothed-on-off-1hz.json | 44100 | 11025 | 9223372036854610208 | 4611686018427383175 | falling edge | `0x3e5e342bcc000000` | `0x3fd0000016a720d8` | `0x3d0fc0df263bc395` | 1.621582082802898412052924e-27 | 1.410134334155833599984771e-14 |
+| signal | theta-smoothed-on-off-1hz.json | 44100 | 11026 | 9411604119239401536 | 4612104311943793822 | off | `0x0000000000000000` | `0x3fd0000000000000` | `0xbf9066e7eb76e5ee` | 0 | -0.01601755499516415720832934 |
+| signal | theta-smoothed-on-off-1hz.json | 44100 | 33075 | 9223372036854279008 | 13835058055282149525 | off | `0x0000000000000000` | `0x3fd0000000000000` | `0x3d27d0a73af52a0b` | 0 | 4.230403002467500799954314e-14 |
+| signal | theta-smoothed-on-off-1hz.json | 44100 | 33076 | 9411604119239070336 | 13835476348798560172 | rising edge | `0x3eeaa98bdcc58000` | `0x3fd00027fe51cb28` | `0xbf906710eb018f22` | 0.00001268705254187308963986261 | -0.01601816464182145936414354 |
+| signal | theta-smoothed-on-off-1hz.json | 44100 | 33516 | 18446744073709048192 | 14019525496019244852 | rising edge | `0x3feffffff0e5ea1a` | `0x3feffffff4ac6f94` | `0xbd4821f11b4f06b5` | 1 | -1.714723350333493657581482e-13 |
+| signal | theta-smoothed-on-off-1hz.json | 44100 | 33517 | 188232082384287904 | 14019943789535655499 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0x3fb066e7eb76c59c` | 1 | 0.06407021998054179828906387 |
+| signal | theta-smoothed-on-off-1hz.json | 44100 | 440999 | 18258511991318136288 | 18446325780192951809 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0xbfb066e7eb796f89` | 1 | -0.06407021998296449761488218 |
+| past_end | theta-smoothed-on-off-1hz.json | 44100 | 441000 | 18446744073702927616 | 18446744073709362456 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| past_end | theta-smoothed-on-off-1hz.json | 44100 | 441063 | 11858621190235229664 | 26352491533681601 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| signal | theta-smoothed-on-off-6hz.json | 44100 | 0 | 0 | 0 | zero degree | `0x3ff0000000000000` | `0x3ff0000000000000` | `0x0000000000000000` | 1 | 0 |
+| signal | theta-smoothed-on-off-6hz.json | 44100 | 1 | 188232082384791328 | 2509761098463884 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0x3fb066e7eb76f5c7` | 1 | 0.06407021998071291831579454 |
+| signal | theta-smoothed-on-off-6hz.json | 44100 | 63 | 11858621190241853664 | 158114949203224692 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0xbfe904c375007868` | 1 | -0.7818314824680296077474442 |
+| signal | theta-smoothed-on-off-6hz.json | 44100 | 64 | 12046853272626644992 | 160624710301688576 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0xbfea3ed9e2455917` | 1 | -0.8201722545969556928797241 |
+| signal | theta-smoothed-on-off-6hz.json | 44100 | 65 | 12235085355011436320 | 163134471400152460 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0xbfeb5d545af2044a` | 1 | -0.8551427630053459933280693 |
+| signal | theta-smoothed-on-off-6hz.json | 44100 | 1000 | 3764641647695811840 | 2509761098463884000 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0x3feead683265b193` | 1 | 0.9586678530366591664698263 |
+| signal | theta-smoothed-on-off-6hz.json | 44100 | 1396 | 4517569977234971264 | 3503626493455582064 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0x3feffbca6d4f6c67` | 1 | 0.9994862162006876387811942 |
+| signal | theta-smoothed-on-off-6hz.json | 44100 | 1397 | 4705802059619762592 | 3506136254554045948 | falling edge | `0x3feffff94a80f4ac` | `0x3feffffaf7e0b781` | `0x3feffbc565d9945c` | 0.9999968282268041756242711 | 0.9994838385929954908256969 |
+| signal | theta-smoothed-on-off-6hz.json | 44100 | 1837 | 13740942014089740448 | 4610431137878154908 | falling edge | `0x3ecad5fc2d500000` | `0x3fd0000a103e90fe` | `0xbfcffbde8b26ccab` | 0.000003171773195833960187909865 | -0.2498739316578645047519440 |
+| signal | theta-smoothed-on-off-6hz.json | 44100 | 1838 | 13929174096474531776 | 4612940898976618792 | off | `0x0000000000000000` | `0x3fd0000000000000` | `0xbfcffbca6d4f6c6d` | 0 | -0.2498715540501720422732532 |
+| signal | theta-smoothed-on-off-6hz.json | 44100 | 5512 | 4517569977234909440 | 13833803174732928608 | off | `0x0000000000000000` | `0x3fd0000000000000` | `0x3fcffbca6d4f6c62` | 0 | 0.2498715540501717409597199 |
+| signal | theta-smoothed-on-off-6hz.json | 44100 | 5513 | 4705802059619700768 | 13836312935831392492 | rising edge | `0x3ecad5fc2d500000` | `0x3fd0000a103e90fe` | `0x3fcffbde8b26ccb6` | 0.000003171773195812647909758911 | 0.2498739316578647900923482 |
+| signal | theta-smoothed-on-off-6hz.json | 44100 | 5953 | 13740942014089678624 | 14940607819155501452 | rising edge | `0x3feffff94a80f4ac` | `0x3feffffaf7e0b781` | `0xbfeffbc565d99450` | 0.9999968282268041543119930 | -0.9994838385929942695984345 |
+| signal | theta-smoothed-on-off-6hz.json | 44100 | 5954 | 13929174096474469952 | 14943117580253965336 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0xbfeffbca6d4f6c72` | 1 | -0.9994862162006888440353274 |
+| signal | theta-smoothed-on-off-6hz.json | 44100 | 440999 | 18258511991318136288 | 18444234312610834772 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0xbfb066e7eb796f89` | 1 | -0.06407021998296449761488218 |
+| past_end | theta-smoothed-on-off-6hz.json | 44100 | 441000 | 18446744073702927616 | 18446744073709298656 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| past_end | theta-smoothed-on-off-6hz.json | 44100 | 441063 | 11858621190235229664 | 158114949202971732 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| signal | theta-sawtooth-1hz.json | 44100 | 0 | 0 | 0 | zero degree | `0x3feffffff0e5ea1a` | `0x3feffffff4ac6f94` | `0x0000000000000000` | 1 | 0 |
+| signal | theta-sawtooth-1hz.json | 44100 | 1 | 188232082384791328 | 418293516410647 | drop edge | `0x3fefffe556742333` | `0x3fefffec00d71a66` | `0x3fb066ddab94438b` | 0.9999873129474572663163219 | 0.06406961033402742845807258 |
+| signal | theta-sawtooth-1hz.json | 44100 | 63 | 11858621190241853664 | 26352491533870761 | drop edge | `0x3fee6a5e54b4b12a` | `0x3feecfc6bf8784e0` | `0xbfe816e97145127d` | 0.9504844339512096649848826 | -0.7527968611611525705819289 |
+| signal | theta-sawtooth-1hz.json | 44100 | 64 | 12046853272626644992 | 26770785050281408 | drop edge | `0x3fee5d9d5860b164` | `0x3feec6360248850b` | `0xbfe93d7d74382698` | 0.9489275674407826448041901 | -0.7887561104770724933404941 |
+| signal | theta-sawtooth-1hz.json | 44100 | 65 | 12235085355011436320 | 27189078566692055 | drop edge | `0x3fee50ac94e8fc5a` | `0x3feebc816faebd44` | `0xbfea48b214966a6e` | 0.9473479186598116133086291 | -0.8213739782689228051195755 |
+| signal | theta-sawtooth-1hz.json | 44100 | 441 | 9223372036854769184 | 184467440737095327 | drop edge | `0x3e5e342bcd000000` | `0x3fd0000016a720d8` | `0x3cc4527a55e8cf18` | 2.700939940428897455921894e-30 | 5.640537336623334399939085e-16 |
+| signal | theta-sawtooth-1hz.json | 44100 | 442 | 9411604119239560512 | 184885734253505974 | linear rise | `0x3ef80474d3ad3a71` | `0x3fd000480d5e7b08` | `0xbf906731c83f0fdc` | 0.00002290478480953612259269156 | -0.01601865563112868504870757 |
+| signal | theta-sawtooth-1hz.json | 44100 | 1000 | 3764641647695811840 | 418293516410647000 | linear rise | `0x3f8a38dd8d1bae96` | `0x3fd09d55314ea618` | `0x3fcfdb1118979e19` | 0.01280377470853658960349457 | 0.2488728886671131782441616 |
+| signal | theta-sawtooth-1hz.json | 44100 | 22050 | 18446744073709220416 | 9223372036854766350 | linear rise | `0x3fdfad40a57eb4f9` | `0x3fe3e0f83e0f83dd` | `0xbd33b9c0d12827fb` | 0.4949494949494944314905635 | -7.007940327319895932341213e-14 |
+| signal | theta-sawtooth-1hz.json | 44100 | 22051 | 188232082384460128 | 9223790330371176997 | linear rise | `0x3fdfada0b75203af` | `0x3fe3e11c44bec162` | `0x3fa460f77f8b1755` | 0.4949723997343039781813895 | 0.03980229789662696047026831 |
+| signal | theta-sawtooth-1hz.json | 44100 | 440999 | 18258511991318136288 | 18446325780192951809 | linear rise | `0x3fefffcff7165848` | `0x3fefffdbf950c236` | `0xbfb066d5744768b4` | 0.9999770952151800953453888 | -0.06406911934701294229706953 |
+| past_end | theta-sawtooth-1hz.json | 44100 | 441000 | 18446744073702927616 | 18446744073709362456 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| past_end | theta-sawtooth-1hz.json | 44100 | 441063 | 11858621190235229664 | 26352491533681601 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| signal | theta-sawtooth-6hz.json | 44100 | 0 | 0 | 0 | zero degree | `0x3feffffff0e5ea1a` | `0x3feffffff4ac6f94` | `0x0000000000000000` | 1 | 0 |
+| signal | theta-sawtooth-6hz.json | 44100 | 1 | 188232082384791328 | 2509761098463884 | drop edge | `0x3fefffe556742333` | `0x3fefffec00d71a66` | `0x3fb066ddab94438b` | 0.9999873129474572662946344 | 0.06406961033402742845703044 |
+| signal | theta-sawtooth-6hz.json | 44100 | 63 | 11858621190241853664 | 158114949203224692 | drop edge | `0x3fee6a5e54b4b129` | `0x3feecfc6bf8784df` | `0xbfe816e97145127c` | 0.9504844339512095817672466 | -0.7527968611611525217853030 |
+| signal | theta-sawtooth-6hz.json | 44100 | 64 | 12046853272626644992 | 160624710301688576 | drop edge | `0x3fee5d9d5860b162` | `0x3feec6360248850a` | `0xbfe93d7d74382698` | 0.9489275674407825590172407 | -0.7887561104770724405704373 |
+| signal | theta-sawtooth-6hz.json | 44100 | 65 | 12235085355011436320 | 163134471400152460 | drop edge | `0x3fee50ac94e8fc5a` | `0x3feebc816faebd44` | `0xbfea48b214966a6e` | 0.9473479186598115249177755 | -0.8213739782689227484294765 |
+| signal | theta-sawtooth-6hz.json | 44100 | 441 | 9223372036854769184 | 1106804644422572844 | drop edge | `0x3e5e342bcc000000` | `0x3fd0000016a720d8` | `0x3cc4527a55e8cf18` | 9.052520774803528006539569e-32 | 5.640537336623334399939085e-16 |
+| signal | theta-sawtooth-6hz.json | 44100 | 442 | 9411604119239560512 | 1109314405521036728 | linear rise | `0x3f22f8a05dab960b` | `0x3fd001c74f08c816` | `0xbf9068baaadf46d6` | 0.0001447387465624425096101819 | -0.01602451007767665770018098 |
+| signal | theta-sawtooth-6hz.json | 44100 | 1000 | 3764641647695811840 | 2509761098463884000 | linear rise | `0x3fb4b6731644d83c` | `0x3fd3e235942ce88c` | `0x3fd30fd1eb11f266` | 0.08090895932841218504125109 | 0.2978405770072642563735482 |
+| signal | theta-sawtooth-6hz.json | 44100 | 3675 | 9223372036854720608 | 9223372036854773700 | linear rise | `0x3fddf51b3bea3676` | `0x3fe33bea3677d46c` | `0x3d0972a08a0b6b41` | 0.4680851063829786030916802 | 1.130107657869568601962108e-14 |
+| signal | theta-sawtooth-6hz.json | 44100 | 3676 | 9411604119239511936 | 9225881797953237584 | linear rise | `0x3fddf77a4ff5ebea` | `0x3fe33ccdddfc3878` | `0xbfa3b888575ba68c` | 0.4682298451295410578273999 | -0.03851724687940557728785495 |
+| signal | theta-sawtooth-6hz.json | 44100 | 440999 | 18258511991318136288 | 18444234312610834772 | linear rise | `0x3feffed075fa24c4` | `0x3fefff1c587b9b93` | `0xbfb066733b9f5ad9` | 0.9998552612534229569780275 | -0.06406326490046456034280365 |
+| past_end | theta-sawtooth-6hz.json | 44100 | 441000 | 18446744073702927616 | 18446744073709298656 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| past_end | theta-sawtooth-6hz.json | 44100 | 441063 | 11858621190235229664 | 158114949202971732 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| signal | theta-reverse-saw-1hz.json | 44100 | 0 | 0 | 0 | zero degree | `0x3feffffff0e5ea1a` | `0x3feffffff4ac6f94` | `0x0000000000000000` | 1 | 0 |
+| signal | theta-reverse-saw-1hz.json | 44100 | 1 | 188232082384791328 | 418293516410647 | linear fall | `0x3fefffcff71658a5` | `0x3fefffdbf950c27c` | `0x3fb066d57444ef19` | 0.9999770952151904533091740 | 0.06406911934476189940470011 |
+| signal | theta-reverse-saw-1hz.json | 44100 | 63 | 11858621190241853664 | 26352491533870761 | linear fall | `0x3feff42dce7fd0b7` | `0x3feff7225adfdc89` | `0xbfe8fdd4fa23a7ee` | 0.9985569985569985584779627 | -0.7809853444999906155329509 |
+| signal | theta-reverse-saw-1hz.json | 44100 | 64 | 12046853272626644992 | 26770785050281408 | linear fall | `0x3feff3fdc596295c` | `0x3feff6fe54309f05` | `0xbfea3776d61cf417` | 0.9985340937721890117871367 | -0.8192705328850371003124007 |
+| signal | theta-reverse-saw-1hz.json | 44100 | 65 | 12235085355011436320 | 27189078566692055 | linear fall | `0x3feff3cdbcac8202` | `0x3feff6da4d816182` | `0xbfeb5581deab7ad2` | 0.9985111889873794650963107 | -0.8541879035331521598817050 |
+| signal | theta-reverse-saw-1hz.json | 44100 | 1000 | 3764641647695811840 | 418293516410647000 | linear fall | `0x3fef445d2f4a4648` | `0x3fef7345e377b4b6` | `0x3fee267f1f412b67` | 0.9770952151904533091740110 | 0.9421992923784330587323055 |
+| signal | theta-reverse-saw-1hz.json | 44100 | 22050 | 18446744073709220416 | 9223372036854766350 | linear fall | `0x3fdfad40a57eb50c` | `0x3fe3e0f83e0f83e4` | `0xbd33b9c0d1282802` | 0.4949494949494954672869420 | -7.007940327319904696013433e-14 |
+| signal | theta-reverse-saw-1hz.json | 44100 | 22051 | 188232082384460128 | 9223790330371176997 | linear fall | `0x3fdface093ab6657` | `0x3fe3e0d437604661` | `0x3fa460ada2c2fca4` | 0.4949265901646859205961160 | 0.03980009662472497628875126 |
+| signal | theta-reverse-saw-1hz.json | 44100 | 43659 | 9223372036854120032 | 18262276632972437373 | linear fall | `0x3cd27807c1f07c1f` | `0x3fd000000000000e` | `0x3d2f6f9510625653` | 1.025228145224550480918682e-15 | 5.584131963257118230967460e-14 |
+| signal | theta-reverse-saw-1hz.json | 44100 | 43660 | 9411604119238911360 | 18262694926488848020 | rise edge | `0x3eeaa98bdcc20000` | `0x3fd00027fe51cb24` | `0xbf906710eb017fe8` | 0.00001268705254159793248490276 | -0.01601816464180793615212814 |
+| signal | theta-reverse-saw-1hz.json | 44100 | 440999 | 18258511991318136288 | 18446325780192951809 | rise edge | `0x3fefffe5567422cb` | `0x3fefffec00d71a18` | `0xbfb066ddab96bd23` | 0.9999873129474457917291424 | -0.06406961033627843494823797 |
+| past_end | theta-reverse-saw-1hz.json | 44100 | 441000 | 18446744073702927616 | 18446744073709362456 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| past_end | theta-reverse-saw-1hz.json | 44100 | 441063 | 11858621190235229664 | 26352491533681601 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| signal | theta-reverse-saw-6hz.json | 44100 | 0 | 0 | 0 | zero degree | `0x3feffffff0e5ea1a` | `0x3feffffff4ac6f94` | `0x0000000000000000` | 1 | 0 |
+| signal | theta-reverse-saw-6hz.json | 44100 | 1 | 188232082384791328 | 2509761098463884 | linear fall | `0x3feffed075fa2547` | `0x3fefff1c587b9bf5` | `0x3fb066733b9ce15a` | 0.9998552612534375452642802 | 0.06406326489821392646782220 |
+| signal | theta-reverse-saw-6hz.json | 44100 | 63 | 11858621190241853664 | 158114949203224692 | linear fall | `0x3fefb54d088f2c5a` | `0x3fefc7f9c66b6144` | `0xbfe8d8f6410a635a` | 0.9908814589665653516496534 | -0.7764846106274427803576884 |
+| signal | theta-reverse-saw-6hz.json | 44100 | 64 | 12046853272626644992 | 160624710301688576 | linear fall | `0x3fefb41d7e8951a1` | `0x3fefc7161ee6fd39` | `0xbfea102c12b878d2` | 0.9907367202200028969139337 | -0.8144741408003637310664918 |
+| signal | theta-reverse-saw-6hz.json | 44100 | 65 | 12235085355011436320 | 163134471400152460 | linear fall | `0x3fefb2edf48376e8` | `0x3fefc6327762992e` | `0xbfeb2be659f85e3e` | 0.9905919814734404421782139 | -0.8491088637874402750550289 |
+| signal | theta-reverse-saw-6hz.json | 44100 | 1000 | 3764641647695811840 | 2509761098463884000 | linear fall | `0x3feb5e4cd9219b71` | `0x3fec86b9a2d93495` | `0x3feb58e3470c8266` | 0.8552612534375452642802134 | 0.8546005654729749561895484 |
+| signal | theta-reverse-saw-6hz.json | 44100 | 3675 | 9223372036854720608 | 9223372036854773700 | linear fall | `0x3fddf51b3bea367a` | `0x3fe33bea3677d46e` | `0x3d0972a08a0b6b44` | 0.4680851063829788462297844 | 1.130107657869568944819497e-14 |
+| signal | theta-reverse-saw-6hz.json | 44100 | 3676 | 9411604119239511936 | 9225881797953237584 | linear fall | `0x3fddf2bc27de8107` | `0x3fe33b068ef37063` | `0xbfa3b6b597f354db` | 0.4679403676364163914940646 | -0.03850333671440760934897870 |
+| signal | theta-reverse-saw-6hz.json | 44100 | 6909 | 9223372036854672032 | 17339939429286974556 | linear fall | `0x3cb0a39310572621` | `0x3fd0000000000004` | `0x3d03e617ad47ba79` | 2.309119946080829650803877e-16 | 8.836841827376563348169550e-15 |
+| signal | theta-reverse-saw-6hz.json | 44100 | 6910 | 9411604119239463360 | 17342449190385438440 | rise edge | `0x3eeaa98bdccc8000` | `0x3fd00027fe51cb32` | `0xbf906710eb01b4c7` | 0.00001268705254269322442612543 | -0.01601816464185489847125824 |
+| signal | theta-reverse-saw-6hz.json | 44100 | 440999 | 18258511991318136288 | 18444234312610834772 | rise edge | `0x3fefffe55674231c` | `0x3fefffec00d71a55` | `0xbfb066ddab96bd42` | 0.9999873129474547088374796 | -0.06406961033627886343905755 |
+| past_end | theta-reverse-saw-6hz.json | 44100 | 441000 | 18446744073702927616 | 18446744073709298656 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| past_end | theta-reverse-saw-6hz.json | 44100 | 441063 | 11858621190235229664 | 158114949202971732 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| signal | theta-sine-1hz.json | 48000 | 0 | 0 | 0 | zero degree | `0x3feffffff0e5ea1a` | `0x3feffffff4ac6f94` | `0x0000000000000000` | 1 | 0 |
+| signal | theta-sine-1hz.json | 48000 | 1 | 172938225691027040 | 384307168202282 | cosine | `0x3fefffffee9d5928` | `0x3feffffff2f602de` | `0x3fae24505475d6c5` | 0.9999999957163175403660627 | 0.05887080346205116080255006 |
+| signal | theta-sine-1hz.json | 48000 | 63 | 10895108218534703520 | 24211351596743766 | cosine | `0x3fefffdc4a1a2c0e` | `0x3fefffe53793a10a` | `0xbfe14090928e041a` | 0.9999829981606484900985106 | -0.5391314481536343339252677 |
+| signal | theta-sine-1hz.json | 48000 | 64 | 11068046444225730560 | 24595658764946048 | cosine | `0x3fefffdb260c5ccc` | `0x3fefffe45c894599` | `0xbfe2cf12c59add6f` | 0.9999824541392403225125619 | -0.5877775173938280295732510 |
+| signal | theta-sine-1hz.json | 48000 | 65 | 11240984669916757600 | 24979965933148330 | cosine | `0x3fefffd9fd6519c2` | `0x3fefffe37e0bd352` | `0xbfe44ce10f43172c` | 0.9999819015507678792426404 | -0.6343846730126604131137412 |
+| signal | theta-sine-1hz.json | 48000 | 1000 | 6917529027641075456 | 384307168202282000 | cosine | `0x3fefdcf544946ef4` | `0x3fefe5b7f36f5337` | `0x3fe68e08f3841284` | 0.9957224306869052128042449 | 0.7048382574853354563245549 |
+| signal | theta-sine-1hz.json | 48000 | 12000 | 9223372036854699008 | 4611686018427384000 | cosine | `0x3fe0000000000006` | `0x3fe4000000000004` | `0x3d1268639437ef0b` | 0.5000000000000006648749324 | 1.634938358441547507316331e-14 |
+| signal | theta-sine-1hz.json | 48000 | 12001 | 9396310262545726048 | 4612070325595586282 | cosine | `0x3fdffeed7bc31cb9` | `0x3fe3ff990e692ac5` | `0xbfa2d6514526f213` | 0.4999345501532377884788815 | -0.03679136246816852166933136 |
+| signal | theta-sine-1hz.json | 48000 | 24000 | 18446744073709398016 | 9223372036854768000 | cosine | `0x3e5e342bcc000000` | `0x3fd0000016a720d8` | `0xbd0d73d2b072cbac` | 1.768234703110589190858013e-30 | -1.307950686753236962304715e-14 |
+| signal | theta-sine-1hz.json | 48000 | 24001 | 172938225690873440 | 9223756344022970282 | cosine | `0x3e6162a6d7800000` | `0x3fd000001a13fa44` | `0x3f8e245091de87df` | 4.283682459459873423578650e-9 | 0.01471770110192207304446024 |
+| signal | theta-sine-1hz.json | 48000 | 479999 | 18273805848015452576 | 18446359766541193174 | cosine | `0x3fefffffee9d5929` | `0x3feffffff2f602df` | `0xbfae2450547822cc` | 0.9999999957163175368847857 | -0.05887080346309570639780756 |
+| past_end | theta-sine-1hz.json | 48000 | 480000 | 18446744073706479616 | 18446744073709395456 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| past_end | theta-sine-1hz.json | 48000 | 480063 | 10895108218531631520 | 24211351596587606 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| signal | theta-sine-6hz.json | 48000 | 0 | 0 | 0 | zero degree | `0x3feffffff0e5ea1a` | `0x3feffffff4ac6f94` | `0x0000000000000000` | 1 | 0 |
+| signal | theta-sine-6hz.json | 48000 | 1 | 172938225691027040 | 2305843009213694 | cosine | `0x3fefffff9e341c68` | `0x3fefffffb6a7154e` | `0x3fae24501ba767c7` | 0.9999998457874391601507241 | 0.05887079684222599022905689 |
+| signal | theta-sine-6hz.json | 48000 | 63 | 10895108218534703520 | 145268109580462722 | cosine | `0x3feffafc9ea8771a` | `0x3feffc3d76fe5954` | `0xbfe13e981293ab73` | 0.9993880551808063377220276 | -0.5388908807333495056899561 |
+| signal | theta-sine-6hz.json | 48000 | 64 | 11068046444225730560 | 147573952589676416 | cosine | `0x3feffad39077ea16` | `0x3feffc1eac59ef90` | `0xbfe2ccdb2793cb97` | 0.9993684783030087488563463 | -0.5875068529374773863607766 |
+| signal | theta-sine-6hz.json | 48000 | 65 | 11240984669916757600 | 149879795598890110 | cosine | `0x3feffaa9dce72c26` | `0x3feffbff65ad611c` | `0xbfe44a6924bd959b` | 0.9993485933896437927679059 | -0.6340833481794930518809483 |
+| signal | theta-sine-6hz.json | 48000 | 1000 | 6917529027641075456 | 2305843009213694000 | cosine | `0x3feb504f333f2405` | `0x3fec7c3b666f5b04` | `0x3fe42463000e6bcc` | 0.8535533905932737564200422 | 0.6294417382415935718162746 |
+| signal | theta-sine-6hz.json | 48000 | 1999 | 13662119829591123872 | 4609380175418174306 | cosine | `0x3fe003378cb144f1` | `0x3fe40269a984f3b5` | `0xbfe3f9873f1f7bd0` | 0.5003926990413259529646609 | -0.6242100198265284269437829 |
+| signal | theta-sine-6hz.json | 48000 | 2000 | 13835058055282150912 | 4611686018427388000 | cosine | `0x3fe0000000000000` | `0x3fe4000000000000` | `0xbfe3ffffed1f64a0` | 0.4999999999999999836506164 | -0.6249999999999999877379623 |
+| signal | theta-sine-6hz.json | 48000 | 3999 | 9050433811163723168 | 9221066193845562306 | cosine | `0x3e8872f8e6000000` | `0x3fd0000092b1d564` | `0x3f8e245175186624` | 1.542125608398235943788279e-7 | 0.01471770772176247658456754 |
+| signal | theta-sine-6hz.json | 48000 | 4000 | 9223372036854750208 | 9223372036854776000 | cosine | `0x3e5e342bcb000000` | `0x3fd0000016a720d8` | `0x3ce3a28c75a1dd1e` | 1.069209374361415124813364e-33 | 2.179917811255394937174526e-15 |
+| signal | theta-sine-6hz.json | 48000 | 479999 | 18273805848015452576 | 18444438230700360962 | cosine | `0x3fefffff9e341c68` | `0x3fefffffb6a7154e` | `0xbfae24501ba9b3cd` | 0.9999998457874391632325100 | -0.05887079684327053599663830 |
+| past_end | theta-sine-6hz.json | 48000 | 480000 | 18446744073706479616 | 23040 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| past_end | theta-sine-6hz.json | 48000 | 480063 | 10895108218531631520 | 145268109580485762 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| signal | theta-smoothed-on-off-1hz.json | 48000 | 0 | 0 | 0 | zero degree | `0x3ff0000000000000` | `0x3ff0000000000000` | `0x0000000000000000` | 1 | 0 |
+| signal | theta-smoothed-on-off-1hz.json | 48000 | 1 | 172938225691027040 | 384307168202282 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0x3fae245060be0012` | 1 | 0.05887080365118903254141407 |
+| signal | theta-smoothed-on-off-1hz.json | 48000 | 63 | 10895108218534703520 | 24211351596743766 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0xbfe1409f031d85c1` | 1 | -0.5391383229110001153958176 |
+| signal | theta-smoothed-on-off-1hz.json | 48000 | 64 | 11068046444225730560 | 24595658764946048 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0xbfe2cf2304754cf2` | 1 | -0.5877852522924730162989104 |
+| signal | theta-smoothed-on-off-1hz.json | 48000 | 65 | 11240984669916757600 | 24979965933148330 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0xbfe44cf32508f2d7` | 1 | -0.6343932841636453886837200 |
+| signal | theta-smoothed-on-off-1hz.json | 48000 | 1000 | 6917529027641075456 | 384307168202282000 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0x3fe6a09e667e4817` | 1 | 0.7071067811865490658355111 |
+| signal | theta-smoothed-on-off-1hz.json | 48000 | 11520 | 18446744073709477888 | 4427218577690288640 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0xbd1c463abeccb2bb` | 1 | -2.511265318566214967625053e-14 |
+| signal | theta-smoothed-on-off-1hz.json | 48000 | 11521 | 172938225690953312 | 4427602884858490922 | falling edge | `0x3fefffe97c40fb6e` | `0x3fefffef1d30bc92` | `0x3fae244078f20f80` | 0.9999892908320648098422357 | 0.05887033080817187850277097 |
+| signal | theta-smoothed-on-off-1hz.json | 48000 | 12000 | 9223372036854699008 | 4611686018427384000 | falling edge | `0x3e5e342bcd000000` | `0x3fd0000016a720d8` | `0x3cfd73d2b072cbac` | 1.105146689444118198275284e-27 | 6.539753433766184811523577e-15 |
+| signal | theta-smoothed-on-off-1hz.json | 48000 | 12001 | 9396310262545726048 | 4612070325595586282 | off | `0x0000000000000000` | `0x3fd0000000000000` | `0xbf8e245060bdf15f` | 0 | -0.01471770091279072972440150 |
+| signal | theta-smoothed-on-off-1hz.json | 48000 | 36000 | 9223372036854545408 | 13835058055282152000 | off | `0x0000000000000000` | `0x3fd0000000000000` | `0x3d1616dde50feba2` | 0 | 1.961926030129855443457073e-14 |
+| signal | theta-smoothed-on-off-1hz.json | 48000 | 36001 | 9396310262545572448 | 13835442362450354282 | rising edge | `0x3ee683bf048d8000` | `0x3fd00021c59e86d4` | `0xbf8e248fffed5dc0` | 0.00001070916793474608410365111 | -0.01471817375576973780798210 |
+| signal | theta-smoothed-on-off-1hz.json | 48000 | 36480 | 18446744073709318144 | 14019525496019247360 | rising edge | `0x3feffffff0e5ea1a` | `0x3feffffff4ac6f94` | `0xbd366243cf207cf1` | 1 | -7.952340175459680730812669e-14 |
+| signal | theta-smoothed-on-off-1hz.json | 48000 | 36481 | 172938225690793568 | 14019909803187449642 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0x3fae245060bdd361` | 1 | 0.05887080365110964706423755 |
+| signal | theta-smoothed-on-off-1hz.json | 48000 | 479999 | 18273805848015452576 | 18446359766541193174 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0xbfae245060c04c18` | 1 | -0.05887080365223357829373663 |
+| past_end | theta-smoothed-on-off-1hz.json | 48000 | 480000 | 18446744073706479616 | 18446744073709395456 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| past_end | theta-smoothed-on-off-1hz.json | 48000 | 480063 | 10895108218531631520 | 24211351596587606 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| signal | theta-smoothed-on-off-6hz.json | 48000 | 0 | 0 | 0 | zero degree | `0x3ff0000000000000` | `0x3ff0000000000000` | `0x0000000000000000` | 1 | 0 |
+| signal | theta-smoothed-on-off-6hz.json | 48000 | 1 | 172938225691027040 | 2305843009213694 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0x3fae245060be0012` | 1 | 0.05887080365118903254141407 |
+| signal | theta-smoothed-on-off-6hz.json | 48000 | 63 | 10895108218534703520 | 145268109580462722 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0xbfe1409f031d85c1` | 1 | -0.5391383229110001153958176 |
+| signal | theta-smoothed-on-off-6hz.json | 48000 | 64 | 11068046444225730560 | 147573952589676416 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0xbfe2cf2304754cf2` | 1 | -0.5877852522924730162989104 |
+| signal | theta-smoothed-on-off-6hz.json | 48000 | 65 | 11240984669916757600 | 149879795598890110 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0xbfe44cf32508f2d7` | 1 | -0.6343932841636453886837200 |
+| signal | theta-smoothed-on-off-6hz.json | 48000 | 1000 | 6917529027641075456 | 2305843009213694000 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0x3fe6a09e667e4817` | 1 | 0.7071067811865490658355111 |
+| signal | theta-smoothed-on-off-6hz.json | 48000 | 1519 | 4438747792736351136 | 3502575530995601186 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0x3feff1caa62a5b3d` | 1 | 0.9982656101847156983518565 |
+| signal | theta-smoothed-on-off-6hz.json | 48000 | 1520 | 4611686018427378176 | 3504881374004814880 | falling edge | `0x3feffffff0e5ea1a` | `0x3feffffff4ac6f94` | `0x3fefffffd67843d4` | 1 | 1 |
+| signal | theta-smoothed-on-off-6hz.json | 48000 | 1999 | 13662119829591123872 | 4609380175418174306 | falling edge | `0x3ee683bf04938000` | `0x3fd00021c59e86de` | `0xbfcff20e1369e207` | 0.00001070916793539794698365683 | -0.2495744204917266096551270 |
+| signal | theta-smoothed-on-off-6hz.json | 48000 | 2000 | 13835058055282150912 | 4611686018427388000 | off | `0x0000000000000000` | `0x3fd0000000000000` | `0xbfcfffffe1cbd433` | 0 | -0.2500000000000000000000000 |
+| signal | theta-smoothed-on-off-6hz.json | 48000 | 5999 | 4438747792736322464 | 13832752212272950306 | off | `0x0000000000000000` | `0x3fd0000000000000` | `0x3fcff1caa62a5b38` | 0 | 0.2495664025461787808544291 |
+| signal | theta-smoothed-on-off-6hz.json | 48000 | 6000 | 4611686018427349504 | 13835058055282164000 | rising edge | `0x3e5e342bcc000000` | `0x3fd0000016a720d8` | `0x3fd00000078d0add` | 1.670639647439711256173055e-31 | 0.2500000000000000000000000 |
+| signal | theta-smoothed-on-off-6hz.json | 48000 | 6479 | 13662119829591095200 | 14939556856695523426 | rising edge | `0x3fefffe97c40fb6c` | `0x3fefffef1d30bc91` | `0xbfeff1b9cada7986` | 0.9999892908320646044309208 | -0.9982575922391673631353983 |
+| signal | theta-smoothed-on-off-6hz.json | 48000 | 6480 | 13835058055282122240 | 14941862699704737120 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0xbfefffffe1cbd435` | 1 | -1 |
+| signal | theta-smoothed-on-off-6hz.json | 48000 | 479999 | 18273805848015452576 | 18444438230700360962 | plateau | `0x3ff0000000000000` | `0x3ff0000000000000` | `0xbfae245060c04c18` | 1 | -0.05887080365223357829373663 |
+| past_end | theta-smoothed-on-off-6hz.json | 48000 | 480000 | 18446744073706479616 | 23040 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| past_end | theta-smoothed-on-off-6hz.json | 48000 | 480063 | 10895108218531631520 | 145268109580485762 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| signal | theta-sawtooth-1hz.json | 48000 | 0 | 0 | 0 | zero degree | `0x3feffffff0e5ea1a` | `0x3feffffff4ac6f94` | `0x0000000000000000` | 1 | 0 |
+| signal | theta-sawtooth-1hz.json | 48000 | 1 | 172938225691027040 | 384307168202282 | drop edge | `0x3fefffe97c40fb6d` | `0x3fefffef1d30bc92` | `0x3fae244078f21d9c` | 0.9999892908320646011811180 | 0.05887033080819693818643906 |
+| signal | theta-sawtooth-1hz.json | 48000 | 63 | 10895108218534703520 | 24211351596743766 | drop edge | `0x3feea8b4b3c2b2f6` | `0x3feefe8786d20638` | `0xbfe0b5cf1263122a` | 0.9580939785585680270812434 | -0.5221934663211455812516986 |
+| signal | theta-sawtooth-1hz.json | 48000 | 64 | 11068046444225730560 | 24595658764946048 | drop edge | `0x3fee9de1d73acc7c` | `0x3feef669616c195d` | `0xbfe23307224e90a7` | 0.9567727288213005216387682 | -0.5687289879207077510672876 |
+| signal | theta-sawtooth-1hz.json | 48000 | 65 | 11240984669916757600 | 24979965933148330 | drop edge | `0x3fee92e5f1f24d77` | `0x3feeee2c7575ba19` | `0xbfe39f3c776e318c` | 0.9554319124605879854303715 | -0.6131880125963800666636003 |
+| signal | theta-sawtooth-1hz.json | 48000 | 480 | 9223372036854772736 | 184467440737095360 | drop edge | `0x3e5e342bcc000000` | `0x3fd0000016a720d8` | `0x3cb2d97c99e311b6` | 1.856266274933012292185038e-30 | 2.615901373506473924609431e-16 |
+| signal | theta-sawtooth-1hz.json | 48000 | 481 | 9396310262545799776 | 184851747905297642 | linear rise | `0x3ef610e4ef472864` | `0x3fd0004232aecdd4` | `0xbf8e24cd16045864` | 0.00002104377104376226473129164 | -0.01471863006058189541160918 |
+| signal | theta-sawtooth-1hz.json | 48000 | 1000 | 6917529027641075456 | 384307168202282000 | linear rise | `0x3f86692883044f43` | `0x3fd08676f31219dc` | `0x3fc75ec7cd69dc8f` | 0.01094276094276092473847384 | 0.1825799706472844398908319 |
+| signal | theta-sawtooth-1hz.json | 48000 | 24000 | 18446744073709398016 | 9223372036854768000 | linear rise | `0x3fdfad40a57eb4fb` | `0x3fe3e0f83e0f83de` | `0xbd224bd43c6f7300` | 0.4949494949494945218407446 | -3.250059282235314410099278e-14 |
+| signal | theta-sawtooth-1hz.json | 48000 | 24001 | 172938225690873440 | 9223756344022970282 | linear rise | `0x3fdfad98e9127218` | `0x3fe3e1195766eac9` | `0x3fa2b996ed4b6cba` | 0.4949705387205382928667055 | 0.03657218596136986419136552 |
+| signal | theta-sawtooth-1hz.json | 48000 | 479999 | 18273805848015452576 | 18446359766541193174 | linear rise | `0x3fefffd3de362125` | `0x3fefffdee6a898dc` | `0xbfae2431336eb5a5` | 0.9999789562289476780138746 | -0.05886987450444828544041262 |
+| past_end | theta-sawtooth-1hz.json | 48000 | 480000 | 18446744073706479616 | 18446744073709395456 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| past_end | theta-sawtooth-1hz.json | 48000 | 480063 | 10895108218531631520 | 24211351596587606 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| signal | theta-sawtooth-6hz.json | 48000 | 0 | 0 | 0 | zero degree | `0x3feffffff0e5ea1a` | `0x3feffffff4ac6f94` | `0x0000000000000000` | 1 | 0 |
+| signal | theta-sawtooth-6hz.json | 48000 | 1 | 172938225691027040 | 2305843009213694 | drop edge | `0x3fefffe97c40fb6d` | `0x3fefffef1d30bc92` | `0x3fae244078f21d9c` | 0.9999892908320646011613022 | 0.05887033080819693818556413 |
+| signal | theta-sawtooth-6hz.json | 48000 | 63 | 10895108218534703520 | 145268109580462722 | drop edge | `0x3feea8b4b3c2b2f5` | `0x3feefe8786d20638` | `0xbfe0b5cf1263122a` | 0.9580939785585679506412855 | -0.5221934663211455503429156 |
+| signal | theta-sawtooth-6hz.json | 48000 | 64 | 11068046444225730560 | 147573952589676416 | drop edge | `0x3fee9de1d73acc7b` | `0x3feef669616c195c` | `0xbfe23307224e90a7` | 0.9567727288213004428252168 | -0.5687289879207077163232052 |
+| signal | theta-sawtooth-6hz.json | 48000 | 65 | 11240984669916757600 | 149879795598890110 | drop edge | `0x3fee92e5f1f24d76` | `0x3feeee2c7575ba18` | `0xbfe39f3c776e318b` | 0.9554319124605879042103975 | -0.6131880125963800280195457 |
+| signal | theta-sawtooth-6hz.json | 48000 | 479 | 9050433811163745696 | 1104498801413359426 | drop edge | `0x3ee683bf04938000` | `0x3fd00021c59e86de` | `0x3f8e248fffed8a83` | 0.00001070916793539824422171618 | 0.01471817375578961360978323 |
+| signal | theta-sawtooth-6hz.json | 48000 | 480 | 9223372036854772736 | 1106804644422573120 | linear rise | `0x3c510572620ae4c4` | `0x3fd0000000000000` | `0x3cb2d97c7f3321d2` | 3.690901012716610830455747e-18 | 2.615901373506473953574530e-16 |
+| signal | theta-sawtooth-6hz.json | 48000 | 1000 | 6917529027641075456 | 2305843009213694000 | linear rise | `0x3fb1b3bea3677d47` | `0x3fd351b3bea3677e` | `0x3fcb52476e235f38` | 0.06914893617021277092445721 | 0.2134484565549822339435447 |
+| signal | theta-sawtooth-6hz.json | 48000 | 3999 | 9050433811163723168 | 9221066193845562306 | linear rise | `0x3fddf2ed7b190e2a` | `0x3fe33b190e296550` | `0x3fa21d3a4758de00` | 0.4679521276595744804118323 | 0.03537923928200470444599796 |
+| signal | theta-sawtooth-6hz.json | 48000 | 4000 | 9223372036854750208 | 9223372036854776000 | linear rise | `0x3fddf51b3bea3678` | `0x3fe33bea3677d46d` | `0x3cf79a8d7c54cb60` | 0.4680851063829787357334353 | 5.241078993018290035964295e-15 |
+| signal | theta-sawtooth-6hz.json | 48000 | 479999 | 18273805848015452576 | 18444438230700360962 | linear rise | `0x3feffee91f976be5` | `0x3fefff2ed7b190ec` | `0xbfae238b5d9c0e92` | 0.9998670212765970734027616 | -0.05886493222899704451628800 |
+| past_end | theta-sawtooth-6hz.json | 48000 | 480000 | 18446744073706479616 | 23040 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| past_end | theta-sawtooth-6hz.json | 48000 | 480063 | 10895108218531631520 | 145268109580485762 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| signal | theta-reverse-saw-1hz.json | 48000 | 0 | 0 | 0 | zero degree | `0x3feffffff0e5ea1a` | `0x3feffffff4ac6f94` | `0x0000000000000000` | 1 | 0 |
+| signal | theta-reverse-saw-1hz.json | 48000 | 1 | 172938225691027040 | 384307168202282 | linear fall | `0x3fefffd3de362171` | `0x3fefffdee6a89915` | `0x3fae2431336c69d7` | 0.9999789562289562289740390 | 0.05886987450340413372539896 |
+| signal | theta-reverse-saw-1hz.json | 48000 | 63 | 10895108218534703520 | 24211351596743766 | linear fall | `0x3feff523af523af6` | `0x3feff7dac37dac38` | `0xbfe13c3ac80574ee` | 0.9986742424242424253644590 | -0.5386022478740147464165946 |
+| signal | theta-reverse-saw-1hz.json | 48000 | 64 | 11068046444225730560 | 24595658764946048 | linear fall | `0x3feff4f78d885c67` | `0x3feff7b9aa26454d` | `0xbfe2ca45e4216678` | 0.9986531986531986543384980 | -0.5871915298154099127445308 |
+| signal | theta-reverse-saw-1hz.json | 48000 | 65 | 11240984669916757600 | 24979965933148330 | linear fall | `0x3feff4cb6bbe7dd8` | `0x3feff79890cede62` | `0xbfe4479e4a06fad5` | 0.9986321548821548833125371 | -0.6337424703462426595902012 |
+| signal | theta-reverse-saw-1hz.json | 48000 | 1000 | 6917529027641075456 | 384307168202282000 | linear fall | `0x3fef539c0372a3c6` | `0x3fef7eb50295fad4` | `0x3fe64531e151f1f1` | 0.9789562289562289740390317 | 0.6959466362814583387618614 |
+| signal | theta-reverse-saw-1hz.json | 48000 | 24000 | 18446744073709398016 | 9223372036854768000 | linear fall | `0x3fdfad40a57eb50b` | `0x3fe3e0f83e0f83e4` | `0xbd224bd43c6f7305` | 0.4949494949494953769367610 | -3.250059282235317765369544e-14 |
+| signal | theta-reverse-saw-1hz.json | 48000 | 24001 | 172938225690873440 | 9223756344022970282 | linear fall | `0x3fdface861eaf7ed` | `0x3fe3e0d724b81cf8` | `0x3fa2b95892a84048` | 0.4949284511784516059108000 | 0.03657032766580010596306621 |
+| signal | theta-reverse-saw-1hz.json | 48000 | 47520 | 9223372036854471680 | 18262276632972440640 | linear fall | `0x3cce7e0f83e0f83e` | `0x3fd000000000000c` | `0x3d1d286c94c31867` | 8.463347867644422492698367e-16 | 2.589742359771415760730480e-14 |
+| signal | theta-reverse-saw-1hz.json | 48000 | 47521 | 9396310262545498720 | 18262660940140642922 | rise edge | `0x3ee683bf048b8000` | `0x3fd00021c59e86d2` | `0xbf8e248fffed4f9e` | 0.00001070916793453742298599783 | -0.01471817375576346111908052 |
+| signal | theta-reverse-saw-1hz.json | 48000 | 479999 | 18273805848015452576 | 18446359766541193174 | rise edge | `0x3fefffe97c40fb1e` | `0x3fefffef1d30bc56` | `0xbfae244078f46968` | 0.9999892908320558980507386 | -0.05887033080924109127888992 |
+| past_end | theta-reverse-saw-1hz.json | 48000 | 480000 | 18446744073706479616 | 18446744073709395456 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| past_end | theta-reverse-saw-1hz.json | 48000 | 480063 | 10895108218531631520 | 24211351596587606 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| signal | theta-reverse-saw-6hz.json | 48000 | 0 | 0 | 0 | zero degree | `0x3feffffff0e5ea1a` | `0x3feffffff4ac6f94` | `0x0000000000000000` | 1 | 0 |
+| signal | theta-reverse-saw-6hz.json | 48000 | 1 | 172938225691027040 | 2305843009213694 | linear fall | `0x3feffee91f976bd9` | `0x3fefff2ed7b190e3` | `0x3fae238b5d99c293` | 0.9998670212765957446783970 | 0.05886493222795254427343257 |
+| signal | theta-reverse-saw-6hz.json | 48000 | 63 | 10895108218534703520 | 145268109580462722 | linear fall | `0x3fefbb5ec6438a5a` | `0x3fefcc8714b2a7c4` | `0xbfe124ded4800036` | 0.9916223404255319147390115 | -0.5357507849113266106188804 |
+| signal | theta-reverse-saw-6hz.json | 48000 | 64 | 11068046444225730560 | 147573952589676416 | linear fall | `0x3fefba47e5daf633` | `0x3fefcbb5ec6438a6` | `0xbfe2b066e10686bc` | 0.9914893617021276594174085 | -0.5840334315331593586788283 |
+| signal | theta-reverse-saw-6hz.json | 48000 | 65 | 11240984669916757600 | 149879795598890110 | linear fall | `0x3fefb9310572620b` | `0x3fefcae4c415c988` | `0xbfe42b426b63ff39` | 0.9913563829787234040958055 | -0.6302806947217600544724078 |
+| signal | theta-reverse-saw-6hz.json | 48000 | 1000 | 6917529027641075456 | 2305843009213694000 | linear fall | `0x3febbea3677d46cf` | `0x3feccefa8d9df51b` | `0x3fe45ee5c05b380c` | 0.8670212765957446783970073 | 0.6365841633820395167446052 |
+| signal | theta-reverse-saw-6hz.json | 48000 | 3999 | 9050433811163723168 | 9221066193845562306 | linear fall | `0x3fddf748fcbb5ec7` | `0x3fe33cbb5ec6438b` | `0x3fa21ec44da158ff` | 0.4682180851063829689096322 | 0.03539098212847768174045208 |
+| signal | theta-reverse-saw-6hz.json | 48000 | 4000 | 9223372036854750208 | 9223372036854776000 | linear fall | `0x3fddf51b3bea3678` | `0x3fe33bea3677d46d` | `0x3cf79a8d7c54cb60` | 0.4680851063829787135880292 | 5.241078993018289891138799e-15 |
+| signal | theta-reverse-saw-6hz.json | 48000 | 7519 | 9050433811163700640 | 17337633586277765186 | linear fall | `0x3f216e06894270d0` | `0x3fd001a2509cde3a` | `0x3f8e27646d4eff45` | 0.0001329787234042368670979291 | 0.01472357233603783835814403 |
+| signal | theta-reverse-saw-6hz.json | 48000 | 7520 | 9223372036854727680 | 17339939429286978880 | rise edge | `0x3e5e342bcc000000` | `0x3fd0000016a720d8` | `0x3cf274f4ac03ac02` | 2.062518083258902785398834e-31 | 4.098245485160142481888108e-15 |
+| signal | theta-reverse-saw-6hz.json | 48000 | 479999 | 18273805848015452576 | 18444438230700360962 | rise edge | `0x3fefffe97c40fb6e` | `0x3fefffef1d30bc92` | `0xbfae244078f469a1` | 0.9999892908320648151727049 | -0.05887033080924148499749223 |
+| past_end | theta-reverse-saw-6hz.json | 48000 | 480000 | 18446744073706479616 | 23040 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| past_end | theta-reverse-saw-6hz.json | 48000 | 480063 | 10895108218531631520 | 145268109580485762 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
 
 ## 24-bit rounding
 

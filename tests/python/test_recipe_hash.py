@@ -67,7 +67,9 @@ SAME_PAIRS = [("minimal-seed-7.json", "minimal-seed-7-0.json")]
 
 HASH_EXCLUDED = ["/author", "/date", "/rationale", "/loudness_gain_db", "/loudness_hash"]
 IN_HASH = ["/schema_version", "/engine_version", "/seed", "/length_s", "/loudness_target_lufs",
-           "/theta_reference/carrier_hz", "/binaural/carrier_left_hz", "/binaural/beat_rate_hz"]
+           "/theta_reference/carrier_hz", "/theta_reference/rate_hz",
+           "/theta_reference/am_depth_percent", "/theta_reference/shape",
+           "/binaural/carrier_left_hz", "/binaural/beat_rate_hz"]
 
 
 def load_tool():
@@ -147,9 +149,10 @@ def test_hash_equals_sha256_of_the_hand_written_canonical_text():
     canonical = (
         '{"binaural":{"beat_rate_hz":6,"carrier_left_hz":400},"engine_version":"0.0.1",'
         '"length_s":600,"loudness_target_lufs":-36,"schema_version":"1.0","seed":42,'
-        '"theta_reference":{"carrier_hz":200}}').encode("utf-8")
+        '"theta_reference":{"am_depth_percent":0,"carrier_hz":200,"rate_hz":6,"shape":"sine"}}'
+    ).encode("utf-8")
     want = hashlib.sha256(canonical).hexdigest()
-    assert want == "097f8d91f1ca50830fc9d48b4c967a26d810890fc2dfd70a2303a03fe09ee80a"
+    assert want == "fd3e0508393b78386fa9a6f62e6b6282ca0e268648661eececa4fac3430a8a4c"
     tool = load_tool()
     assert tool.canonicalize(drop(drop(drop(drop(drop(base_value(), "/author"), "/date"),
                                              "/rationale"), "/loudness_gain_db"),

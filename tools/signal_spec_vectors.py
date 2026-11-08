@@ -1,4 +1,4 @@
-"""Writes the worked test vectors of docs/signal-spec.md: core, sine, internal block size, stub chain, 24-bit rounding.
+"""Writes the worked test vectors of docs/signal-spec.md: core, sine, internal block size, stub chain, theta reference, 24-bit rounding.
 
 Usage:
   python tools/signal_spec_vectors.py            write tests/data/signal_spec_vectors.json
@@ -34,6 +34,11 @@ engine or from binary64 library calls:
   Python reference: the ideal sine of the theta phase, and per channel the
   exact sum of the ideal theta sine and the ideal binaural sine (the ideal
   output), rounded once to 25 digits.
+- Theta reference (Story 2.1): the spec's envelope, ratio-to-phase, and
+  edge rules evaluated in binary64 in the spec's operation order (engine
+  bits, from the engine sine bits above), and the ideal values of the same
+  phases at 25 digits: ideal cosines in decimal arithmetic, exact ratios,
+  and the exact depth law on the binary64 depth, for the Python reference.
 - 24-bit rounding (Story 1.4): x = s * 2^23 in exact Fraction arithmetic,
   clamped to [-8388608, 8388607], else rounded to the nearest integer, ties
   to even; NaN gives 0. Written as 3 bytes, little-endian two's complement.
@@ -399,13 +404,16 @@ def engine_sine_rows():
 BLOCK_FRAMES = 64
 BLOCK_FRAME_INDICES = (0, 37, 63, 64, 65, 127, 128, 1000, 44099, 47999)
 
-# (fixture, theta_carrier_hz or None, carrier_left_hz, beat_rate_hz,
-# length_s): the 1 s binaural fixtures in recipes/fixtures/valid/. None means
-# the fixture has no theta_reference field. tests/python/test_signal_spec_core.py
-# checks that each fixture holds these values.
+# (fixture, theta or None, carrier_left_hz, beat_rate_hz, length_s): the 1 s
+# binaural fixtures in recipes/fixtures/valid/. theta is (carrier_hz,
+# rate_hz, am_depth_percent, shape), or None when the fixture has no
+# theta_reference field. At depth 0 the theta envelope law gives a = 1.0
+# exactly, so the theta tap is the unmodulated engine sine (Story 2.1 keeps
+# these bytes). tests/python/test_signal_spec_core.py checks that each
+# fixture holds these values.
 STUB_CHAIN_FIXTURES = (
     ("stub-chain-1s-beat-0.json", None, 400.0, 0.0, 1.0),
-    ("stub-chain-1s-beat-6.json", 300.0, 400.0, 6.0, 1.0),
+    ("stub-chain-1s-beat-6.json", (300.0, 6.0, 0.0, "sine"), 400.0, 6.0, 1.0),
 )
 STUB_CHAIN_INDICES = (0, 1, 37, 63, 64, 65, 127, 128, 1000)
 
@@ -415,9 +423,11 @@ def block_rows():
             for k in BLOCK_FRAME_INDICES]
 
 
-def stub_chain_sample(theta_phase, theta_gain, phase, gain):
-    """One channel of the stub chain, spec operation order: (theta, bus, join, master)."""
-    theta = theta_gain * engine_sine(theta_phase)
+def stub_chain_sample(theta, phase, gain):
+    """One channel of the stub chain, spec operation order: (theta, bus, join, master).
+
+    theta is the theta tap value (Theta reference, Per sample), +0.0 without
+    a theta_reference field."""
     gamma = 0.0
     bus = theta + gamma
     binaural = gain * engine_sine(phase)
@@ -437,13 +447,14 @@ def ideal_sum(*phases):
 def stub_chain_rows():
     rows = []
     for fs in RATES:
-        for fixture, theta_hz, left_hz, beat_hz, length_s in STUB_CHAIN_FIXTURES:
+        for fixture, theta_spec, left_hz, beat_hz, length_s in STUB_CHAIN_FIXTURES:
             right_hz = left_hz + beat_hz  # one binary64 addition
-            if theta_hz is None:
-                inc_t, a_t = 0, 0.0
+            theta_hz = None if theta_spec is None else theta_spec[0]
+            if theta_spec is None:
+                inc_t, layer = 0, None
             else:
-                inc_t, _ = increment(theta_hz, fs)
-                a_t = 1.0
+                layer = ThetaLayer(*theta_spec, fs)
+                inc_t = layer.inc_carrier
             inc_l, _ = increment(left_hz, fs)
             inc_r, _ = increment(right_hz, fs)
             frames, _ = samples(length_s, fs)
@@ -456,8 +467,13 @@ def stub_chain_rows():
                     theta = left = right = 0.0
                     ideal_t = ideal_l = ideal_r = "0"
                 else:
-                    tl, bl, jl, left = stub_chain_sample(pt, a_t, pl, 1.0)
-                    tr, br, jr, right = stub_chain_sample(pt, a_t, pr, 1.0)
+                    theta_value = 0.0 if layer is None else layer.engine_sample(n)
+                    if layer is not None:
+                        # Depth 0: a = 1.0 exactly, so the tap is the
+                        # unmodulated engine sine, as in Story 1.5.
+                        assert bits(theta_value) == bits(1.0 * engine_sine(pt))
+                    tl, bl, jl, left = stub_chain_sample(theta_value, pl, 1.0)
+                    tr, br, jr, right = stub_chain_sample(theta_value, pr, 1.0)
                     # The theta reference is the same in both channels, the
                     # stereo bus equals it bit for bit, and join, master, and
                     # out agree bit for bit (signal spec, Stub chain).
@@ -475,6 +491,9 @@ def stub_chain_rows():
                     "case": "past_end" if past_end else "signal",
                     "fixture": fixture, "fs": fs,
                     "theta_carrier_hex": "none" if theta_hz is None else hexf(theta_hz),
+                    "theta_rate_hex": "none" if theta_spec is None else hexf(theta_spec[1]),
+                    "theta_depth_hex": "none" if theta_spec is None else hexf(theta_spec[2]),
+                    "theta_shape": "none" if theta_spec is None else theta_spec[3],
                     "carrier_left_hex": hexf(left_hz), "beat_rate_hex": hexf(beat_hz),
                     "carrier_right_hex": hexf(right_hz),
                     "inc_theta": str(inc_t),
@@ -486,6 +505,336 @@ def stub_chain_rows():
                     "left_bits": bits(left), "right_bits": bits(right),
                     "ideal_theta": ideal_t,
                     "ideal_left": ideal_l, "ideal_right": ideal_r,
+                })
+    return rows
+
+
+# --------------------------------------------------------- theta reference
+#
+# Story 2.1 (signal spec, Theta reference). The fixed envelope constants are
+# written here in their row units, the way the engine and the reference hold
+# them; tests/python/test_signal_spec_core.py checks them against the range
+# rows theta-on-share (percent) and theta-edge (ms). No study sets them:
+# engineering defaults decided by Audio on 2026-11-06.
+
+THETA_SHAPES = ("sine", "smoothed_on_off", "sawtooth", "reverse_saw")
+THETA_ON_SHARE_PERCENT = 50.0  # row theta-on-share
+THETA_EDGE_MS = 10.0           # row theta-edge
+QUARTER = 2**62                # a quarter cycle: sine(p + 2^62) is the cosine of p
+HALF = 2**63
+
+
+def theta_on_share():
+    """D, the on share as a fraction of a cycle: one binary64 division."""
+    return THETA_ON_SHARE_PERCENT / 100.0
+
+
+def theta_edge_s():
+    """E, the edge length in seconds: one binary64 division."""
+    return THETA_EDGE_MS / 1000.0
+
+
+def nearest_u64(x):
+    """Nearest integer to the binary64 x >= 0, ties to even (exact)."""
+    return round_half_even(Fraction(x))
+
+
+def half_on_units():
+    """H = D * 2^63 (exact power-of-two scale), nearest integer, ties to even."""
+    return nearest_u64(theta_on_share() * 2.0**63)
+
+
+def edge_units(rate_hz):
+    """W: w = E * rate (one rounding), then w * 2^64 (exact), nearest integer."""
+    w = theta_edge_s() * rate_hz
+    return nearest_u64(w * 2.0**64), w
+
+
+def ratio_to_phase(r):
+    """Spec ratio-to-phase rule: P = r * 2^63 rounded, clamped to [0, 2^63]."""
+    if not (r > 0.0):  # NaN, both zeros, negatives
+        return 0, None
+    if r >= 1.0:
+        return HALF, None
+    x = r * 2.0**63  # exact: a power-of-two scale
+    return nearest_u64(x), x
+
+
+def engine_raised_cosine(u, w_units):
+    """Engine half raised cosine (1 + cos(pi * u / W)) / 2 for 0 <= u <= W."""
+    r = float(u) / float(w_units)  # two conversions, one division
+    p, _ = ratio_to_phase(r)
+    c = engine_sine((p + QUARTER) % CYCLE)
+    return (1.0 + c) * 0.5
+
+
+def engine_saw(p, w_units):
+    if p < w_units:
+        return engine_raised_cosine(p, w_units)
+    return float(p - w_units) / float(CYCLE - w_units)
+
+
+def theta_region(shape, p, w_units, h_units):
+    """Name of the envelope segment phase p lies in (exact integer tests)."""
+    if shape == "sine":
+        return "zero degree" if p == 0 else "cosine"
+    if shape == "smoothed_on_off":
+        m = p if p < HALF else CYCLE - p
+        if m <= h_units - w_units:
+            return "zero degree" if p == 0 else "plateau"
+        if m >= h_units:
+            return "off"
+        return "falling edge" if p < HALF else "rising edge"
+    if shape == "sawtooth":
+        if p < w_units:
+            return "zero degree" if p == 0 else "drop edge"
+        return "linear rise"
+    if shape == "reverse_saw":
+        q = (CYCLE - p) % CYCLE
+        if q < w_units:
+            return "zero degree" if p == 0 else "rise edge"
+        return "linear fall"
+    raise ValueError(f"shape not modeled in the signal spec: {shape}")
+
+
+def engine_envelope(shape, p, w_units, h_units):
+    """Spec engine envelope e(phase) in binary64, exact operation order."""
+    if shape == "sine":
+        c = engine_sine((p + QUARTER) % CYCLE)
+        return (1.0 + c) * 0.5
+    if shape == "smoothed_on_off":
+        m = p if p < HALF else CYCLE - p  # |s|, exact; 2^63 at s = -2^63
+        if m <= h_units - w_units:
+            return 1.0
+        if m >= h_units:
+            return 0.0
+        return engine_raised_cosine(m - (h_units - w_units), w_units)
+    if shape == "sawtooth":
+        return engine_saw(p, w_units)
+    if shape == "reverse_saw":
+        return engine_saw((CYCLE - p) % CYCLE, w_units)
+    raise ValueError(f"shape not modeled in the signal spec: {shape}")
+
+
+def decimal_cos_pi(num, den):
+    """cos(pi * num / den) as a Decimal at about PREC digits, 0 <= num <= den."""
+    t = Fraction(num, den)
+    sign = 1
+    if t > Fraction(1, 2):
+        t, sign = 1 - t, -1
+    if t == Fraction(1, 2):
+        return Decimal(0)
+    with localcontext() as ctx:
+        ctx.prec = PREC + 10
+        x = decimal_pi() * Decimal(t.numerator) / Decimal(t.denominator)
+        total = Decimal(0)
+        term = Decimal(1)
+        k = 0
+        while abs(term) > Decimal(10) ** -(PREC + 5):
+            total += term
+            term = -term * x * x / ((k + 1) * (k + 2))
+            k += 2
+        total += term
+        return sign * total
+
+
+def ideal_envelope_decimal(shape, p, w_units, h_units):
+    """Ideal e(phase): the same segments, ideal cosines and exact ratios."""
+    half = Decimal(1) / Decimal(2)
+    with localcontext() as ctx:
+        ctx.prec = PREC + 10
+        if shape == "sine":
+            return (1 + ideal_sine_decimal((p + QUARTER) % CYCLE)) * half
+        if shape == "smoothed_on_off":
+            m = p if p < HALF else CYCLE - p
+            if m <= h_units - w_units:
+                return Decimal(1)
+            if m >= h_units:
+                return Decimal(0)
+            return (1 + decimal_cos_pi(m - (h_units - w_units), w_units)) * half
+        if shape in ("sawtooth", "reverse_saw"):
+            q = p if shape == "sawtooth" else (CYCLE - p) % CYCLE
+            if q < w_units:
+                return (1 + decimal_cos_pi(q, w_units)) * half
+            return Decimal(q - w_units) / Decimal(CYCLE - w_units)
+    raise ValueError(f"shape not modeled in the signal spec: {shape}")
+
+
+class ThetaLayer:
+    """One theta reference layer at one sample rate (signal spec, Theta reference)."""
+
+    def __init__(self, carrier_hz, rate_hz, depth_percent, shape, fs):
+        self.carrier_hz, self.rate_hz = carrier_hz, rate_hz
+        self.depth_percent, self.shape, self.fs = depth_percent, shape, fs
+        self.inc_carrier, _ = increment(carrier_hz, fs)
+        self.inc_rate, _ = increment(rate_hz, fs)
+        self.w_units, _ = edge_units(rate_hz)
+        self.h_units = half_on_units()
+        self.depth = depth_percent / 100.0  # d: one binary64 division
+
+    def phases(self, n):
+        return (n * self.inc_carrier) % CYCLE, (n * self.inc_rate) % CYCLE
+
+    def engine_parts(self, n):
+        """(e, a, theta) in binary64, the spec's per-sample operation order."""
+        pc, pe = self.phases(n)
+        e = engine_envelope(self.shape, pe, self.w_units, self.h_units)
+        a = 1.0 - self.depth * (1.0 - e)
+        return e, a, a * engine_sine(pc)
+
+    def engine_sample(self, n):
+        return self.engine_parts(n)[2]
+
+    def ideal_parts(self, n):
+        """(e, theta) ideal: exact depth law on the binary64 d, ideal sines."""
+        pc, pe = self.phases(n)
+        with localcontext() as ctx:
+            ctx.prec = PREC + 10
+            e = ideal_envelope_decimal(self.shape, pe, self.w_units, self.h_units)
+            d = Decimal(Fraction(self.depth).numerator) / Decimal(Fraction(self.depth).denominator)
+            a = 1 - d * (1 - e)
+            return e, a * ideal_sine_decimal(pc)
+
+
+THETA_RATES_HZ = (1.0, 6.0)
+THETA_EDGE_RATES_HZ = (1.0, 2.0, 5.5, 6.0)
+
+
+def kebab(shape):
+    return shape.replace("_", "-")
+
+
+# (fixture, carrier_hz, rate_hz, am_depth_percent, shape, length_s): the
+# Story 2.1 theta fixtures in recipes/fixtures/valid/, each a theta
+# reference only (no binaural field), 10 s. In this order they are the hash
+# probe's theta-envelopes-<fs> components.
+THETA_FIXTURES = tuple(
+    (f"theta-{kebab(shape)}-{int(rate)}hz.json", 450.0, rate, 75.0, shape, 10.0)
+    for shape in THETA_SHAPES for rate in THETA_RATES_HZ)
+
+
+def theta_envelope_phases(shape, w, h):
+    """Phases of the envelope vector table for one shape (exact integers)."""
+    top = CYCLE - 1
+    if shape == "sine":
+        cases = (0, 1, 2**61, QUARTER, HALF, 3 * QUARTER, top)
+    elif shape == "smoothed_on_off":
+        cases = (0, h - w - 1, h - w, h - w + 1, h - w + w // 2, h - 1, h, h + 1, HALF,
+                 CYCLE - h, CYCLE - h + 1, CYCLE - h + w // 2, CYCLE - (h - w),
+                 CYCLE - (h - w) + 1, top)
+    elif shape == "sawtooth":
+        cases = (0, 1, w // 2, w - 1, w, w + 1, HALF, top)
+    else:
+        cases = (0, 1, HALF, CYCLE - w - 1, CYCLE - w, CYCLE - w + 1, CYCLE - w // 2, top)
+    return cases
+
+
+def theta_envelope_rows():
+    rows = []
+    h = half_on_units()
+    for shape in THETA_SHAPES:
+        for rate in THETA_RATES_HZ:
+            w, _ = edge_units(rate)
+            for p in theta_envelope_phases(shape, w, h):
+                e = engine_envelope(shape, p, w, h)
+                assert 0.0 <= e <= 1.0, (shape, rate, p, e)
+                rows.append({
+                    "shape": shape, "rate_hex": hexf(rate), "w_units": str(w),
+                    "h_units": str(h), "phase": str(p),
+                    "region": theta_region(shape, p, w, h),
+                    "e_bits": bits(e),
+                    "ideal_e": format_ideal(ideal_envelope_decimal(shape, p, w, h)),
+                })
+    return rows
+
+
+def theta_edge_rows():
+    rows = []
+    for rate in THETA_EDGE_RATES_HZ:
+        w_units, w = edge_units(rate)
+        rows.append({"rate_hex": hexf(rate), "edge_s_hex": hexf(theta_edge_s()),
+                     "w_hex": hexf(w), "w_units": str(w_units)})
+    return rows
+
+
+RATIO_CASES = (
+    ("zero", 0.0),
+    ("negative zero", -0.0),
+    ("NaN", math.nan),
+    ("negative", -0.5),
+    ("tie x = 1/2, down to even", 2.0**-64),
+    ("tie x = 3/2, up to even", 3 * 2.0**-64),
+    ("tie x = 5/2, down to even", 5 * 2.0**-64),
+    ("quarter", 0.25),
+    ("half", 0.5),
+    ("one third (inexact in binary64)", 1.0 / 3.0),
+    ("largest binary64 below 1", math.nextafter(1.0, 0.0)),
+    ("one", 1.0),
+    ("above one", 1.5),
+    ("infinity", math.inf),
+)
+
+
+def ratio_rows():
+    rows = []
+    for label, r in RATIO_CASES:
+        p, x = ratio_to_phase(r)
+        rows.append({"label": label, "r_hex": hexf(r),
+                     "x_hex": "none" if x is None else hexf(x), "phase": str(p)})
+    return rows
+
+
+def first_at_or_above(boundary, inc):
+    """Smallest n >= 0 with n * inc >= boundary (no wrap within one cycle)."""
+    return -(-boundary // inc)
+
+
+def theta_sample_indices(layer, frames):
+    """Start, block boundaries, segment boundaries of the first cycle, end."""
+    w, h, inc = layer.w_units, layer.h_units, layer.inc_rate
+    bounds = {
+        "sine": (QUARTER, HALF),
+        "smoothed_on_off": (h - w, h, CYCLE - h, CYCLE - (h - w)),
+        "sawtooth": (w, HALF),
+        "reverse_saw": (HALF, CYCLE - w),
+    }[layer.shape]
+    indices = {0, 1, 63, 64, 65, 1000, frames - 1, frames, frames + 63}
+    for b in bounds:
+        n = first_at_or_above(b, inc)
+        indices.update((n - 1, n))
+    return sorted(indices)
+
+
+def theta_sample_rows():
+    rows = []
+    for fs in RATES:
+        for fixture, carrier, rate, depth, shape, length_s in THETA_FIXTURES:
+            layer = ThetaLayer(carrier, rate, depth, shape, fs)
+            frames, _ = samples(length_s, fs)
+            for n in theta_sample_indices(layer, frames):
+                pc, pe = layer.phases(n)
+                past_end = n >= frames
+                if past_end:
+                    e_bits = a_bits = theta_bits = bits(0.0)
+                    ideal_e = ideal_theta = "0"
+                else:
+                    e, a, theta = layer.engine_parts(n)
+                    e_bits, a_bits, theta_bits = bits(e), bits(a), bits(theta)
+                    ie, it = layer.ideal_parts(n)
+                    ideal_e, ideal_theta = format_ideal(ie), format_ideal(it)
+                rows.append({
+                    "case": "past_end" if past_end else "signal",
+                    "fixture": fixture, "fs": fs, "shape": shape,
+                    "carrier_hex": hexf(carrier), "rate_hex": hexf(rate),
+                    "depth_hex": hexf(depth), "length_hex": hexf(length_s),
+                    "inc_carrier": str(layer.inc_carrier), "inc_rate": str(layer.inc_rate),
+                    "w_units": str(layer.w_units), "h_units": str(layer.h_units),
+                    "frames": str(frames), "n": str(n),
+                    "phase_carrier": str(pc), "phase_rate": str(pe),
+                    "region": "past end" if past_end else theta_region(
+                        shape, pe, layer.w_units, layer.h_units),
+                    "e_bits": e_bits, "a_bits": a_bits, "theta_bits": theta_bits,
+                    "ideal_e": ideal_e, "ideal_theta": ideal_theta,
                 })
     return rows
 
@@ -571,7 +920,7 @@ def quantize_rows():
 
 def build():
     return {
-        "spec": "docs/signal-spec.md (sections core, sine, internal block size, stub chain, and 24-bit rounding)",
+        "spec": "docs/signal-spec.md (sections core, sine, internal block size, stub chain, theta reference, and 24-bit rounding)",
         "generator": "tools/signal_spec_vectors.py",
         "cycle": str(CYCLE),
         "sine_coefficients": sine_coefficients(),
@@ -585,6 +934,18 @@ def build():
         "block_frames": BLOCK_FRAMES,
         "blocks": block_rows(),
         "stub_chain": stub_chain_rows(),
+        "theta_constants": {
+            "shapes": list(THETA_SHAPES),
+            "on_share_percent": dec(THETA_ON_SHARE_PERCENT),
+            "edge_ms": dec(THETA_EDGE_MS),
+            "on_share_hex": hexf(theta_on_share()),
+            "edge_s_hex": hexf(theta_edge_s()),
+            "h_units": str(half_on_units()),
+        },
+        "ratio_to_phase": ratio_rows(),
+        "theta_edges": theta_edge_rows(),
+        "theta_envelopes": theta_envelope_rows(),
+        "theta_samples": theta_sample_rows(),
         "quantize_24": quantize_rows(),
     }
 
@@ -662,6 +1023,43 @@ def tables(data):
                    f"| {r['phase_left']} | {r['phase_right']} | `{r['theta_bits']}` "
                    f"| `{r['left_bits']}` | `{r['right_bits']}` "
                    f"| {r['ideal_theta']} | {r['ideal_left']} | {r['ideal_right']} |")
+    out.append("")
+    out.append("| Ratio case | r (hex) | x = r * 2^63 (hex) | P |")
+    out.append("| --- | --- | --- | --- |")
+    for r in data["ratio_to_phase"]:
+        out.append(f"| {r['label']} | `{r['r_hex']}` | `{r['x_hex']}` | {r['phase']} |")
+    out.append("")
+    out.append("| Rate (hex) | E (hex) | w = E * rate (hex) | W |")
+    out.append("| --- | --- | --- | --- |")
+    for r in data["theta_edges"]:
+        out.append(f"| `{r['rate_hex']}` | `{r['edge_s_hex']}` | `{r['w_hex']}` | {r['w_units']} |")
+    out.append("")
+    out.append("| Shape | Rate (hex) | W | H | Envelope phase | Segment | e (binary64 bits) | e ideal |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["theta_envelopes"]:
+        out.append(f"| {r['shape']} | `{r['rate_hex']}` | {r['w_units']} | {r['h_units']} "
+                   f"| {r['phase']} | {r['region']} | `{r['e_bits']}` | {r['ideal_e']} |")
+    out.append("")
+    out.append("| Fixture | fs | Carrier (hex) | Rate (hex) | Depth (hex) | Shape "
+               "| Carrier inc | Rate inc | W | Frames |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    seen = set()
+    for r in data["theta_samples"]:
+        key = (r["fixture"], r["fs"])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(f"| {r['fixture']} | {r['fs']} | `{r['carrier_hex']}` | `{r['rate_hex']}` "
+                   f"| `{r['depth_hex']}` | {r['shape']} | {r['inc_carrier']} | {r['inc_rate']} "
+                   f"| {r['w_units']} | {r['frames']} |")
+    out.append("")
+    out.append("| Case | Fixture | fs | n | Carrier phase | Envelope phase | Segment "
+               "| e (binary64 bits) | a (binary64 bits) | Theta (binary64 bits) | e ideal | Theta ideal |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["theta_samples"]:
+        out.append(f"| {r['case']} | {r['fixture']} | {r['fs']} | {r['n']} | {r['phase_carrier']} "
+                   f"| {r['phase_rate']} | {r['region']} | `{r['e_bits']}` | `{r['a_bits']}` "
+                   f"| `{r['theta_bits']}` | {r['ideal_e']} | {r['ideal_theta']} |")
     out.append("")
     out.append("| Rule | Case | s (hex) | x = s * 2^23 (hex) | Value | Bytes (little-endian) |")
     out.append("| --- | --- | --- | --- | --- | --- |")

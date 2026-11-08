@@ -1,5 +1,5 @@
 {
-  "source": "probe-arith: tools/probe_reference.py, NumPy float32 reference, each operation rounded separately. sine-* and stub-chain-*: the arcani-hashprobe output, byte-identical on all four AD-9 platforms in full run 42236304155; stub-chain-blocks-* equal stub-chain-* (block-size invariance). Design log 2026-11-06 (kk)",
+  "source": "probe-arith: tools/probe_reference.py, NumPy float32 reference, each operation rounded separately. sine-* and stub-chain-*: the arcani-hashprobe output, byte-identical on all four AD-9 platforms in full run 42236304155; stub-chain-blocks-* equal stub-chain-* (block-size invariance). Design log 2026-11-06 (kk). theta-envelopes-*: the windows-x64 dev PC probe, equal to the android-arm64 probe of full run 42339879874 (the desktop probes did not run there because these entries were missing); confirmed on all four platforms by the next full run. Design log 2026-11-06 (ll)",
   "components": {
     "probe-arith": {
       "samples": 4096,
@@ -34,6 +34,16 @@
     "stub-chain-blocks-48000": {
       "samples": 96000,
       "sha256": "4ed5a376fa1d919a3d0ace7052ca60e09b4757e5637078d07fdb9ac8cfc75a70",
+      "scope": "engine"
+    },
+    "theta-envelopes-44100": {
+      "samples": 7056000,
+      "sha256": "a47cf8aabde5c1fd3b4151a2bf0a3a040208327a24529fdff6d95856cca75e04",
+      "scope": "engine"
+    },
+    "theta-envelopes-48000": {
+      "samples": 7680000,
+      "sha256": "1ee54609a07751a9247cae75389fccf1a9d90cdc242ac9b9ddf89e8cb1fb0a48",
       "scope": "engine"
     }
   }

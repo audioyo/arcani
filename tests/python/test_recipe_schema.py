@@ -11,8 +11,14 @@ Contract with recipes/recipe.schema.json (JSON Schema draft 2020-12):
 - Every property carries exactly one `x-arcani-tag`, a string, one of
   `hash-excluded`, `loudness-relevant`, `none`.
 - Property names are snake_case. A property of type `number` holds a quantity
-  and ends in a unit suffix (`_hz`, `_deg`, `_db`, `_lufs`, `_s`). `seed`
-  (integer) is a count, not a quantity.
+  and ends in a unit suffix (`_hz`, `_deg`, `_db`, `_lufs`, `_s`, `_percent`).
+  `seed` (integer) is a count, not a quantity.
+- Story 2.1: `theta_reference` requires `carrier_hz`, `rate_hz`,
+  `am_depth_percent` (numbers, loudness-relevant) and `shape`, a string
+  whose `enum` is exactly ["sine", "smoothed_on_off", "sawtooth",
+  "reverse_saw", "custom"] in that order (`custom` is schema-valid so compile
+  can reject it with a named rule; any other text fails the schema with the
+  `enum` keyword).
 - The schema holds structure and types only. The only numeric bounds allowed
   are the seed bounds 0 and 2^53 - 1; locked ranges live in
   tests/tables/ranges.tsv (Story 1.3).
@@ -38,7 +44,7 @@ SCHEMA = REPO_ROOT / "recipes" / "recipe.schema.json"
 TOOL = REPO_ROOT / "tools" / "recipe_hash.py"
 
 TAGS = {"hash-excluded", "loudness-relevant", "none"}
-UNIT_SUFFIXES = ("_hz", "_deg", "_db", "_lufs", "_s")
+UNIT_SUFFIXES = ("_hz", "_deg", "_db", "_lufs", "_s", "_percent")
 SNAKE = re.compile(r"[a-z][a-z0-9]*(?:_[a-z0-9]+)*")
 ANY_TAG = object()
 SEED_MAX = 2**53 - 1
@@ -57,6 +63,9 @@ FIELDS = {
     "/loudness_hash": ("string", "hash-excluded", False),
     "/theta_reference": ("object", ANY_TAG, False),
     "/theta_reference/carrier_hz": ("number", "loudness-relevant", True),
+    "/theta_reference/rate_hz": ("number", "loudness-relevant", True),
+    "/theta_reference/am_depth_percent": ("number", "loudness-relevant", True),
+    "/theta_reference/shape": ("string", "loudness-relevant", True),
     "/binaural": ("object", ANY_TAG, False),
     "/binaural/carrier_left_hz": ("number", "loudness-relevant", True),
     "/binaural/beat_rate_hz": ("number", "loudness-relevant", True),
@@ -221,3 +230,38 @@ def test_tool_reads_the_same_tags_from_the_schema():
     got = tool.load_tags(schema)
     want = {pointer: prop["x-arcani-tag"] for pointer, prop, _ in walk(schema)}
     assert got == want
+
+
+# ------------------------------------------------- theta shape (Story 2.1)
+
+THETA_SHAPE_ENUM = ["sine", "smoothed_on_off", "sawtooth", "reverse_saw", "custom"]
+
+
+def theta_recipe(shape):
+    return {
+        "schema_version": "1.0", "engine_version": "0.0.1", "seed": 42,
+        "author": "Arcani test", "date": "2026-11-06", "rationale": "Schema enum test.",
+        "length_s": 1, "loudness_target_lufs": -36,
+        "theta_reference": {"carrier_hz": 450, "rate_hz": 6, "am_depth_percent": 75,
+                            "shape": shape},
+    }
+
+
+def test_theta_shape_enum_is_exact():
+    schema = load_schema_strict()
+    node = resolve(schema, schema["properties"]["theta_reference"])
+    shape = resolve(schema, node["properties"]["shape"])
+    assert shape.get("type") == "string"
+    assert shape.get("enum") == THETA_SHAPE_ENUM
+
+
+def test_theta_shape_enum_accepts_custom_and_rejects_other_text():
+    import jsonschema
+
+    validator = jsonschema.Draft202012Validator(load_schema_strict())
+    for shape in THETA_SHAPE_ENUM:
+        assert not list(validator.iter_errors(theta_recipe(shape))), shape
+    for shape in ("square", "Sine", "", "smoothed-on-off"):
+        errors = list(validator.iter_errors(theta_recipe(shape)))
+        assert errors, shape
+        assert {e.validator for e in errors} == {"enum"}, (shape, [e.message for e in errors])
