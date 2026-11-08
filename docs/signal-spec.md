@@ -338,7 +338,7 @@ a_c   = 1.0                                 unit amplitude
 
 For the fixture `stub-chain-1s-beat-6.json` that is a 400 Hz unmodulated sine in the left ear and a 406 Hz unmodulated sine in the right ear, a 6 Hz binaural beat; for `stub-chain-1s-beat-0.json` it is a 400 Hz unmodulated sine in each ear. A recipe without a `binaural` field has `a_L = a_R = 0.0` and `inc_L = inc_R = 0`.
 
-**Muted ear.** The compile option `mute_binaural_ear` (none, left, or right) is an offline measurement control for the isolation test (FR-4), stored in the plan; it is not a recipe field. For the muted ear `c`, the plan holds `inc_c = 0` and `a_c = 0.0`, so the render path has no test branch and that ear's binaural oscillator outputs `0.0 * sine(0) = +0.0`. Muting affects only the binaural oscillator: the theta reference is unchanged, so the muted channel's `join`, `master`, and `out` equal its `theta` bit for bit.
+**Muted ear.** The compile option `mute_binaural_ear` (none, left, or right) is an offline measurement control for the isolation test (FR-4), stored in the plan; it is not a recipe field. For the muted ear `c`, the plan holds `inc_c = 0` and `a_c = 0.0`, so the render path has no test branch and that ear's binaural oscillator outputs `0.0 * sine(0) = +0.0`. Muting affects only the binaural oscillator: the theta reference and the gamma PAC layer are unchanged, so the muted channel's `join`, `master`, and `out` equal its stereo bus (`theta + gamma`) bit for bit, which is the theta tap when there is no `gamma_pac` field. The engine bus is never `-0.0` (the engine gamma tap never is, and `-0.0 + +0.0` is `+0.0`), so adding the muted ear's `+0.0` changes no bit.
 
 **Per sample.** For `0 <= n < N` and each channel `c`, in this order, each line one binary64 operation (Conventions):
 
@@ -956,7 +956,7 @@ Every bound is under row `reference-match` (-100 dBFS).
 
 ### Vectors: gamma envelope
 
-The engine envelope `e` and amplitude `a` (binary64 bits, from the engine sine bits) and their ideal values (25 significant digits: ideal cosine in decimal arithmetic, exact depth law on the binary64 `d`) at the peak, the quarter and half cycle points, and the cycle's last phase, at 0, 25, and 100 percent depth. The envelope does not depend on the rate.
+The engine envelope `e` and amplitude `a` (binary64 bits, from the engine sine bits) and their ideal values (25 significant digits: ideal cosine in decimal arithmetic, exact depth law on the binary64 `d`) at the envelope phases 0 (the peak), 1, 2^61 (an eighth of a cycle), 2^62, 2^63, and 3 * 2^62 (the quarter, half, and three-quarter points), and 2^64 - 1 (the cycle's last phase), at 0, 25, and 100 percent depth. The envelope does not depend on the rate.
 
 | Depth (hex) | Envelope phase | e (binary64 bits) | a (binary64 bits) | e ideal | a ideal |
 | --- | --- | --- | --- | --- | --- |
@@ -1001,7 +1001,7 @@ Per gamma fixture and sample rate: the gamma carrier, rate, and depth as hex flo
 
 ### Vectors: gamma samples
 
-Per fixture and sample rate at sample `n`: both gamma phases, and the engine envelope `e`, amplitude `a`, and gamma tap (the same in both channels) as binary64 bits, with the ideal envelope and ideal gamma tap at 25 digits (the exact depth law on the binary64 `d`, ideal cosine, ideal sine). For the gamma-only fixtures the gamma tap is also the stereo bus and the output. Indices cover the start, both sides of the first two block boundaries, sample 1000, both sides of the quarter, half, and three-quarter points of the first gamma envelope cycle, the last sample, and two samples past the end (case `past_end`: taps and output `+0.0`; the phase columns show `n * inc mod 2^64` only for reference).
+Per fixture and sample rate at sample `n`: both gamma phases, and the engine envelope `e`, amplitude `a`, and gamma tap (the same in both channels) as binary64 bits, with the ideal envelope and ideal gamma tap at 25 digits (the exact depth law on the binary64 `d`, ideal cosine, ideal sine). For the gamma-only fixtures the gamma tap is also the stereo bus and the output. Indices cover the start (0 and 1), both sides of the first two block boundaries (63, 64, 65, 127, 128), sample 1000, both sides of the quarter, half, and three-quarter points of the first gamma envelope cycle, the last sample, and two samples past the end (case `past_end`: taps and output `+0.0`; the phase columns show `n * inc mod 2^64` only for reference).
 
 | Case | Fixture | fs | n | Carrier phase | Envelope phase | e (binary64 bits) | a (binary64 bits) | Gamma (binary64 bits) | e ideal | Gamma ideal |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |

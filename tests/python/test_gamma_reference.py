@@ -498,6 +498,46 @@ def test_engine_gamma_matches_the_reference(fixture, fs, vectors, engine_dumps, 
         assert mod.all_positive_zero(eng[key][2 * frames:]), (fixture, fs, key, "past end")
 
 
+# Theta, gamma, and binaural together, made here (no stored fixture): the
+# 5-sine output of the spec's error bound. A 450 Hz carrier
+# amplitude-modulated at 6 Hz by the sine envelope at 75 percent depth, a
+# 250 Hz sine carrier amplitude-modulated at 40 Hz at 100 percent depth
+# (uncoupled), and a 400 Hz unmodulated sine in the left ear with a 406 Hz
+# unmodulated sine in the right ear (a 6 Hz binaural beat), 1 s.
+THETA_GAMMA_BINAURAL = {
+    "schema_version": "1.0", "engine_version": "0.0.1", "seed": 42,
+    "author": "Arcani test", "date": "2026-11-07",
+    "rationale": "Theta, gamma, and binaural layers together, made in the test.",
+    "length_s": 1, "loudness_target_lufs": -36,
+    "theta_reference": {"carrier_hz": 450, "rate_hz": 6, "am_depth_percent": 75, "shape": "sine"},
+    "gamma_pac": {"carrier_hz": 250, "rate_hz": 40, "am_depth_percent": 100,
+                  "carrier_wave": "sine", "coupling": "uncoupled"},
+    "binaural": {"carrier_left_hz": 400, "beat_rate_hz": 6},
+}
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_engine_output_with_a_binaural_layer_matches_the_reference(fs, tapdump, tmp_path):
+    recipe = tmp_path / "theta-gamma-binaural.json"
+    recipe.write_text(json.dumps(THETA_GAMMA_BINAURAL), encoding="utf-8")
+    frames = ideal().seconds_to_samples(1.0, fs)
+    d = tmp_path / "dump"
+    stdout = run_dump(tapdump, recipe, fs, d, EXTRA_FRAMES)
+    assert f"frames {frames} total {frames + EXTRA_FRAMES}" in stdout, stdout
+    ref = stub_chain().render(recipe, fs, frames=frames + EXTRA_FRAMES)
+    mod = rm()
+    results = []
+    for key, name in DUMP_KEYS:
+        eng = read_f64(d / f"{name}.f64")
+        results += mod.match_stereo(key, eng[:2 * frames], ref[key][:2 * frames])
+        assert mod.all_positive_zero(eng[2 * frames:]), (fs, key, "past end")
+    failed = [r for r in results if r["result"] != "pass"]
+    assert not failed, failed
+    # The binaural layer is really in the output: left and right differ.
+    out = read_f64(d / "out.f64")[:2 * frames]
+    assert not np.array_equal(channel(out, 0), channel(out, 1))
+
+
 def test_engine_dump_holds_the_vector_bits(vectors, engine_dumps):
     for r in vectors["gamma_samples"]:
         e = engine_dumps[(r["fixture"], r["fs"])]

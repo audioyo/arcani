@@ -846,7 +846,6 @@ def theta_sample_rows():
     return rows
 
 
-
 # ------------------------------------------------------- gamma PAC layer
 #
 # Story 2.2 (signal spec, Gamma PAC layer): uncoupled only. The AM law is the

@@ -480,6 +480,67 @@ TEST_CASE("gamma plan holds the increments and the depth", "[gamma][plan]") {
   }
 }
 
+namespace {
+
+// Theta, gamma, and binaural together, made in the test (no stored fixture):
+// a 450 Hz carrier amplitude-modulated at 6 Hz by the sine envelope at
+// 75 percent depth, a 250 Hz sine carrier amplitude-modulated at 40 Hz at
+// 100 percent depth (uncoupled), and a 400 Hz unmodulated sine in the left
+// ear with a 406 Hz unmodulated sine in the right ear (a 6 Hz binaural
+// beat), 1 s.
+std::string theta_gamma_binaural_recipe() {
+  return "{\"schema_version\": \"1.0\", \"engine_version\": \"0.0.1\", \"seed\": 42, "
+         "\"author\": \"Arcani test\", \"date\": \"2026-11-07\", "
+         "\"rationale\": \"Theta, gamma, and binaural layers together, made in the test.\", "
+         "\"length_s\": 1, \"loudness_target_lufs\": -36, "
+         "\"theta_reference\": {\"carrier_hz\": 450, \"rate_hz\": 6, \"am_depth_percent\": 75, "
+         "\"shape\": \"sine\"}, "
+         "\"gamma_pac\": {\"carrier_hz\": 250, \"rate_hz\": 40, \"am_depth_percent\": 100, "
+         "\"carrier_wave\": \"sine\", \"coupling\": \"uncoupled\"}, "
+         "\"binaural\": {\"carrier_left_hz\": 400, \"beat_rate_hz\": 6}}";
+}
+
+Rendered render_text(const std::string& text, std::uint32_t fs, arc_mute_ear mute) {
+  auto p = api::compile_ok(text, api::options(ARC_MODE_MEASURE, fs, mute));
+  Rendered r;
+  r.frames = arc_plan_frame_count(p.get());
+  const auto total = static_cast<std::size_t>(r.frames);
+  r.taps = api::TapBuffers(total);
+  auto renderer = api::renderer(p.get());
+  arc_taps t = r.taps.taps();
+  r.out = api::render(renderer.get(), total, &t);
+  return r;
+}
+
+}  // namespace
+
+TEST_CASE("muting a binaural ear leaves the gamma tap and the other channel unchanged",
+          "[gamma][isolation]") {
+  const std::string text = theta_gamma_binaural_recipe();
+  for (const std::uint32_t fs : spec::sample_rates()) {
+    const Rendered full = render_text(text, fs, ARC_MUTE_NONE);
+    for (const auto& [mute, muted] : {std::pair{ARC_MUTE_LEFT, 0}, std::pair{ARC_MUTE_RIGHT, 1}}) {
+      INFO("fs " << fs << ", muted channel " << muted);
+      const Rendered r = render_text(text, fs, mute);
+      CHECK(api::same_bytes(r.taps.gamma_pac, full.taps.gamma_pac));
+      CHECK(api::same_bytes(r.taps.theta_reference, full.taps.theta_reference));
+      const int open = 1 - muted;
+      CHECK(api::same_bytes(api::channel(r.taps.binaural_join, open),
+                            api::channel(full.taps.binaural_join, open)));
+      CHECK(api::same_bytes(api::channel(r.taps.master, open), api::channel(full.taps.master, open)));
+      CHECK(api::same_bytes(api::channel(r.out, open), api::channel(full.out, open)));
+      // The muted channel: join, master, and out equal its stereo bus
+      // (theta + gamma) bit for bit.
+      const auto bus = api::channel(r.taps.stereo_bus, muted);
+      CHECK(api::same_bytes(api::channel(r.taps.binaural_join, muted), bus));
+      CHECK(api::same_bytes(api::channel(r.taps.master, muted), bus));
+      CHECK(api::same_bytes(api::channel(r.out, muted), bus));
+      // And the gamma layer is really in that bus: it differs from theta.
+      CHECK_FALSE(api::same_bytes(bus, api::channel(r.taps.theta_reference, muted)));
+    }
+  }
+}
+
 TEST_CASE("gamma vector rows cover both rates, the block edges, and past the end", "[gamma]") {
   std::set<std::pair<std::string, std::uint32_t>> signal, past;
   for (const auto& v : spec::kGammaSamples) {

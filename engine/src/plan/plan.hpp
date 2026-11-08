@@ -5,8 +5,9 @@
 // naming parameter, value, rule, and limit. The plan holds everything the
 // renderer needs (session length, theta reference carrier and envelope
 // increments, depth, and edge lengths, gamma PAC carrier and envelope
-// increments and depth, binaural oscillator increments and amplitudes), so render does no lookup and has no test branch: a muted ear
-// is increment 0 and amplitude 0.0 in the plan.
+// increments and depth, binaural oscillator increments and amplitudes), so
+// render does no lookup and has no test branch: a muted ear is increment 0
+// and amplitude 0.0 in the plan.
 //
 // The stage order is fixed and is not a recipe field. Every stage writes
 // channel c only from channel c of its inputs; the master chain limiter alone
