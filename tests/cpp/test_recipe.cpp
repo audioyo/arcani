@@ -48,6 +48,23 @@
 //   };
 //   struct ParseResult { std::optional<Recipe> recipe; Error error; };  // recipe empty on error
 //   ParseResult parse(std::string_view utf8);
+//
+// Story 2.2 (gamma PAC layer, uncoupled), recipe/recipe.hpp:
+//   enum class GammaCarrierWave { Sine, Triangle, SoftenedSquare };
+//   enum class GammaCoupling { Uncoupled };
+//   inline constexpr std::string_view kGammaCarrierWaveEnum = "sine, triangle, softened_square";
+//   inline constexpr std::string_view kGammaCouplingEnum = "uncoupled";
+//   struct GammaPac { double carrier_hz; double rate_hz; double am_depth_percent;
+//                     GammaCarrierWave carrier_wave; GammaCoupling coupling; };
+//   Recipe gains std::optional<GammaPac> gamma_pac;
+// Unknown carrier_wave or coupling text: rule "enum", parameter
+// /gamma_pac/carrier_wave or /gamma_pac/coupling, value the text, limit the
+// enum constant. Field table: /gamma_pac (Object, LoudnessRelevant, not
+// required), then carrier_hz (row gamma-carrier), rate_hz (row gamma-rate),
+// am_depth_percent (row coupling-depth), carrier_wave, coupling (each
+// required, LoudnessRelevant), between the theta_reference rows and the
+// binaural rows. The gamma members are read through templates, so the suite
+// builds before they exist and the missing pieces fail as test cases.
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -394,6 +411,133 @@ TEST_CASE("engine parse stage fills the recipe fields", "[recipe]") {
   CHECK_FALSE(none.recipe->loudness_hash.has_value());
 }
 
+// ------------------------------------------------ gamma PAC layer (Story 2.2)
+
+namespace {
+
+std::string gamma_text(const std::string& wave, const std::string& coupling) {
+  return std::string(
+             "{\"schema_version\": \"1.0\", \"engine_version\": \"0.0.1\", \"seed\": 42, "
+             "\"author\": \"Arcani test\", \"date\": \"2026-11-07\", "
+             "\"rationale\": \"Gamma parse test, made in the test.\", "
+             "\"length_s\": 10, \"loudness_target_lufs\": -36, "
+             "\"gamma_pac\": {\"carrier_hz\": 250, \"rate_hz\": 40, \"am_depth_percent\": 25, "
+             "\"carrier_wave\": \"") +
+         wave + "\", \"coupling\": \"" + coupling + "\"}}";
+}
+
+// Story 2.2: Recipe::gamma_pac (std::optional<GammaPac>). A template, so the
+// suite still builds before the member exists.
+template <class R>
+void check_story_2_2_gamma(const R& rec, const std::string& wave) {
+  if constexpr (requires { rec.gamma_pac; }) {
+    REQUIRE(rec.gamma_pac.has_value());
+    const auto& g = *rec.gamma_pac;
+    using Wave = std::remove_cvref_t<decltype(g.carrier_wave)>;
+    using Coupling = std::remove_cvref_t<decltype(g.coupling)>;
+    CHECK(g.carrier_hz == 250.0);
+    CHECK(g.rate_hz == 40.0);
+    CHECK(g.am_depth_percent == 25.0);
+    CHECK(g.coupling == Coupling::Uncoupled);
+    if (wave == "sine") {
+      CHECK(g.carrier_wave == Wave::Sine);
+    } else if (wave == "triangle") {
+      CHECK(g.carrier_wave == Wave::Triangle);
+    } else {
+      CHECK(g.carrier_wave == Wave::SoftenedSquare);
+    }
+  } else {
+    FAIL("not implemented: Recipe::gamma_pac (Story 2.2)");
+  }
+}
+
+template <class R>
+void check_no_gamma(const R& rec) {
+  if constexpr (requires { rec.gamma_pac; }) {
+    CHECK_FALSE(rec.gamma_pac.has_value());
+  } else {
+    FAIL("not implemented: Recipe::gamma_pac (Story 2.2)");
+  }
+}
+
+}  // namespace
+
+TEST_CASE("engine parse stage fills the gamma PAC fields", "[recipe][gamma]") {
+  // Triangle and softened square are schema-valid: parse accepts them and
+  // compile rejects them by name (tests/cpp/test_validate.cpp).
+  for (const char* wave : {"sine", "triangle", "softened_square"}) {
+    INFO(wave);
+    const auto r = recipe::parse(gamma_text(wave, "uncoupled"));
+    INFO(r.error.rule << " " << r.error.parameter << " " << r.error.value);
+    REQUIRE(r.recipe.has_value());
+    check_story_2_2_gamma(*r.recipe, wave);
+    CHECK_FALSE(r.recipe->theta_reference.has_value());
+    CHECK_FALSE(r.recipe->binaural.has_value());
+  }
+  const auto none = recipe::parse(fixture("valid", "theta-sine-6hz.json"));
+  REQUIRE(none.recipe.has_value());
+  check_no_gamma(*none.recipe);
+}
+
+TEST_CASE("engine parse names text outside the gamma enums", "[recipe][gamma]") {
+  struct Case {
+    std::string wave, coupling, parameter, value, limit;
+  };
+  const Case cases[] = {
+      {"square", "uncoupled", "/gamma_pac/carrier_wave", "square", "sine, triangle, softened_square"},
+      {"Sine", "uncoupled", "/gamma_pac/carrier_wave", "Sine", "sine, triangle, softened_square"},
+      {"sine", "swell", "/gamma_pac/coupling", "swell", "uncoupled"},
+      {"sine", "smooth_swell", "/gamma_pac/coupling", "smooth_swell", "uncoupled"},
+      {"sine", "", "/gamma_pac/coupling", "", "uncoupled"},
+  };
+  for (const auto& c : cases) {
+    INFO(c.wave << " / " << c.coupling);
+    const auto r = recipe::parse(gamma_text(c.wave, c.coupling));
+    REQUIRE_FALSE(r.recipe.has_value());
+    CHECK(r.error.rule == "enum");
+    CHECK(r.error.parameter == c.parameter);
+    CHECK(r.error.value == c.value);
+    CHECK(r.error.limit == c.limit);
+  }
+}
+
+TEST_CASE("field table orders the gamma rows between theta and binaural", "[recipe][gamma][schema]") {
+  std::vector<std::string> paths;
+  for (const auto& f : recipe::fields()) {
+    paths.emplace_back(f.path);
+  }
+  const std::vector<std::string> gamma = {"/gamma_pac", "/gamma_pac/carrier_hz", "/gamma_pac/rate_hz",
+                                          "/gamma_pac/am_depth_percent", "/gamma_pac/carrier_wave",
+                                          "/gamma_pac/coupling"};
+  const auto at = std::find(paths.begin(), paths.end(), gamma.front());
+  REQUIRE(at != paths.end());
+  const auto start = static_cast<std::size_t>(at - paths.begin());
+  REQUIRE(start + gamma.size() <= paths.size());
+  for (std::size_t i = 0; i < gamma.size(); ++i) {
+    CHECK(paths[start + i] == gamma[i]);
+  }
+  REQUIRE(start >= 1);
+  CHECK(paths[start - 1].rfind("/theta_reference", 0) == 0);
+  REQUIRE(start + gamma.size() < paths.size());
+  CHECK(paths[start + gamma.size()] == "/binaural");
+  for (const auto& f : recipe::fields()) {
+    const std::string path(f.path);
+    if (path.rfind("/gamma_pac", 0) != 0) {
+      continue;
+    }
+    INFO(path);
+    CHECK(f.tag == recipe::FieldTag::LoudnessRelevant);
+    if (path == "/gamma_pac") {
+      CHECK(f.type == recipe::FieldType::Object);
+      CHECK_FALSE(f.required);
+    } else {
+      CHECK(f.required);
+      const bool text = path == "/gamma_pac/carrier_wave" || path == "/gamma_pac/coupling";
+      CHECK(f.type == (text ? recipe::FieldType::String : recipe::FieldType::Number));
+    }
+  }
+}
+
 TEST_CASE("seed integer form and seed bounds", "[recipe]") {
   const auto seven = recipe::parse(fixture("valid", "minimal-seed-7-0.json"));
   REQUIRE(seven.recipe.has_value());
@@ -471,6 +615,9 @@ const std::map<std::string, std::pair<std::string, double>> kExpectedRegistratio
     {"/theta_reference/carrier_hz", {"theta-carrier", 1.0}},
     {"/theta_reference/rate_hz", {"theta-rate", 1.0}},             // Story 2.1
     {"/theta_reference/am_depth_percent", {"theta-depth", 1.0}},   // Story 2.1
+    {"/gamma_pac/carrier_hz", {"gamma-carrier", 1.0}},             // Story 2.2
+    {"/gamma_pac/rate_hz", {"gamma-rate", 1.0}},                   // Story 2.2
+    {"/gamma_pac/am_depth_percent", {"coupling-depth", 1.0}},      // Story 2.2
     {"/binaural/carrier_left_hz", {"binaural-carrier", 1.0}},
     {"/binaural/beat_rate_hz", {"beat-rate", 1.0}},
 };

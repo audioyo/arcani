@@ -39,6 +39,14 @@ exact sum of the ideal theta and binaural sines. The theta bits are within
 the sine-error bound of the ideal theta, and the output bits within twice
 the bound plus one rounding (two sines, each within the bound).
 
+Gamma PAC layer, uncoupled (Story 2.2): `gamma_constants`,
+`gamma_envelopes`, `gamma_samples`, and `gamma_bus` in the vectors file. The
+envelope and amplitude bits follow the AM law from the engine sine, the
+sample rows name the gamma fixtures with their values, increments and phases
+follow the core rules, the gamma tap bits are within 1.5 * b + 2^-47 of the
+ideal and the theta and gamma bus within 3 * b + 2^-45 (b the sine-error
+bound), and the bus bits are the binary64 sum of the two taps.
+
 24-bit rounding (Story 1.4): `quantize_24` in the vectors file, one row per
 case with `rule`, `label`, `s_hex`, `x_hex`, `value`, and `bytes`. The
 generator's `quantize_24(s)` (exact Fraction arithmetic) and an independent
@@ -62,7 +70,7 @@ import re
 import struct
 import subprocess
 import sys
-from decimal import Decimal
+from decimal import Decimal, localcontext
 from fractions import Fraction
 from pathlib import Path
 
@@ -1122,3 +1130,353 @@ def test_stub_chain_theta_is_the_depth_0_layer(vectors):
         layer = gen.ThetaLayer(float.fromhex(r["theta_carrier_hex"]), float.fromhex(r["theta_rate_hex"]),
                                float.fromhex(r["theta_depth_hex"]), r["theta_shape"], r["fs"])
         assert bits_text(layer.engine_sample(int(r["n"]))) == r["theta_bits"], r
+
+
+# ------------------------------------------------- gamma PAC layer (Story 2.2)
+#
+# Vectors file keys: `gamma_constants` (carrier_waves, modeled_carrier_waves,
+# couplings), `gamma_envelopes` (depth_hex, phase, e_bits, a_bits, ideal_e,
+# ideal_a), `gamma_samples` (case, fixture, fs, carrier_hex, rate_hex,
+# depth_hex, length_hex, carrier_wave, coupling, theta_carrier_hex,
+# theta_rate_hex, theta_depth_hex, theta_shape, inc_carrier, inc_rate,
+# frames, n, phase_carrier, phase_rate, e_bits, a_bits, gamma_bits, ideal_e,
+# ideal_gamma), and `gamma_bus` (case, fixture, fs, n, phase_theta,
+# phase_theta_envelope, phase_gamma, phase_gamma_envelope, theta_bits,
+# gamma_bits, bus_bits, ideal_theta, ideal_gamma, ideal_bus). The checks
+# below re-derive every integer from the spec rules here, recompute the
+# engine bits from the engine sine in the spec's operation order (signal
+# spec, Gamma PAC layer, AM law), and hold each tap to its stated margin:
+# the gamma tap 2 sines, |gamma - ideal| <= 1.5 * b + 2^-47; the bus with a
+# theta reference 4 sines, within 3 * b + 2^-45.
+
+GAMMA_CARRIER_WAVES = ("sine", "triangle", "softened_square")
+GAMMA_MODELED_WAVES = ("sine",)
+GAMMA_COUPLINGS = ("uncoupled",)
+GAMMA_THETA_FIXTURE = "theta-gamma-uncoupled.json"
+GAMMA_FIXTURE_NAMES = tuple(f"gamma-uncoupled-{rate}hz-{depth}pct.json"
+                            for rate in (40, 60) for depth in (25, 100)) + (GAMMA_THETA_FIXTURE,)
+QUARTER = 2**62
+
+
+def gamma_engine_envelope(p):
+    """c = sine(p + 2^62 mod 2^64), e = (1.0 + c) * 0.5, from the engine sine."""
+    c = engine_sine_value((p + QUARTER) % CYCLE)
+    return (1.0 + c) * 0.5
+
+
+def gamma_amplitude(d, e):
+    return 1.0 - d * (1.0 - e)
+
+
+def gamma_envelope_bound():
+    """|e - e_ideal| <= b / 2 + 2^-52 (signal spec, Gamma PAC layer, Error bound)."""
+    return sine_bound_decimal() / 2 + Decimal(repr(2.0**-52))
+
+
+def gamma_amplitude_bound(d):
+    """|a - a_ideal| <= d * (b / 2 + 2^-52) + 2^-52."""
+    return Decimal(repr(d)) * gamma_envelope_bound() + Decimal(repr(2.0**-52))
+
+
+def gamma_bound():
+    """Gamma tap, 2 sines: |gamma - gamma_ideal| <= 1.5 * b + 2^-47."""
+    return Decimal("1.5") * sine_bound_decimal() + Decimal(repr(2.0**-47))
+
+
+def gamma_bus_bound():
+    """Bus with a theta reference, 4 sines: within 3 * b + 2^-45."""
+    return 3 * sine_bound_decimal() + Decimal(repr(2.0**-45))
+
+
+def exact(x):
+    """The exact value of the binary64 x as a Decimal."""
+    f = Fraction(x)
+    return Decimal(f.numerator) / Decimal(f.denominator)
+
+
+def test_gamma_constants(vectors):
+    c = vectors["gamma_constants"]
+    assert tuple(c["carrier_waves"]) == GAMMA_CARRIER_WAVES
+    assert tuple(c["modeled_carrier_waves"]) == GAMMA_MODELED_WAVES
+    assert tuple(c["couplings"]) == GAMMA_COUPLINGS
+    gen = generator()
+    assert tuple(gen.GAMMA_CARRIER_WAVES) == GAMMA_CARRIER_WAVES
+    assert tuple(gen.GAMMA_MODELED_WAVES) == GAMMA_MODELED_WAVES
+    assert tuple(gen.GAMMA_COUPLINGS) == GAMMA_COUPLINGS
+
+
+def test_gamma_fixture_values_lie_in_the_locked_ranges_and_pass_the_carrier_rule(vectors):
+    record_rows("gamma-rate", "gamma-carrier")
+    rate = range_in("gamma-rate", "Hz")
+    carrier = range_in("gamma-carrier", "Hz")
+    depth = range_in("coupling-depth", "percent")
+    ratio = table_row("carrier-rule").value
+    for r in vectors["gamma_samples"]:
+        f_rate = float.fromhex(r["rate_hex"])
+        f_carrier = float.fromhex(r["carrier_hex"])
+        assert rate.min <= f_rate <= rate.max, r["fixture"]
+        assert carrier.min <= f_carrier <= carrier.max, r["fixture"]
+        assert depth.min <= float.fromhex(r["depth_hex"]) <= depth.max, r["fixture"]
+        assert f_carrier >= ratio * f_rate, r["fixture"]
+    # Not every in-range pair passes the carrier rule (signal spec, Gamma PAC
+    # layer, Recipe fields): the carrier floor is under 4 x the top rate.
+    assert carrier.min < ratio * rate.max
+
+
+def test_gamma_envelope_vectors(vectors):
+    rows = vectors["gamma_envelopes"]
+    depth = range_in("coupling-depth", "percent")
+    gen = generator()
+    depths = set()
+    phases = set()
+    with localcontext() as ctx:
+        ctx.prec = 60
+        for r in rows:
+            p = int(r["phase"])
+            depth_percent = float.fromhex(r["depth_hex"])
+            d = depth_percent / 100.0
+            depths.add(depth_percent)
+            phases.add(p)
+            e = bits_value(r["e_bits"])
+            a = bits_value(r["a_bits"])
+            where = (depth_percent, p)
+            # Engine bits: recomputed here and by the generator.
+            assert e == gamma_engine_envelope(p), where
+            assert e == gen.gamma_envelope(p), where
+            assert a == gamma_amplitude(d, e), where
+            assert 0.0 < e < 1.0 and 0.0 < a <= 1.0, where
+            # Within the stated margins of the ideal.
+            assert abs(exact(e) - Decimal(r["ideal_e"])) <= gamma_envelope_bound(), where
+            assert abs(exact(a) - Decimal(r["ideal_a"])) <= gamma_amplitude_bound(d), where
+            # The ideal is the exact depth law on the binary64 d.
+            ideal_a = 1 - exact(d) * (1 - Decimal(r["ideal_e"]))
+            assert abs(ideal_a - Decimal(r["ideal_a"])) <= Decimal("1e-24"), where
+            ideal_e = (1.0 + ideal().ideal_sine((p + QUARTER) % CYCLE)) / 2.0
+            assert close_to_decimal(ideal_e, r["ideal_e"]), where
+            if p == 0:
+                assert Decimal(r["ideal_e"]) == 1 and Decimal(r["ideal_a"]) == 1, where
+    assert {depth.min, depth.max} <= depths
+    assert {0, QUARTER, HALF, 3 * QUARTER, CYCLE - 1} <= phases
+    # The trough is never 0 in the engine (signal spec, Gamma PAC layer, Uncoupled).
+    troughs = {r["e_bits"] for r in rows if int(r["phase"]) == HALF}
+    assert len(troughs) == 1 and bits_value(troughs.pop()) > 0.0
+
+
+def test_gamma_engine_envelope_stays_positive_and_within_bound():
+    bound = float(gamma_envelope_bound())
+    for k in range(4096):
+        p = (k * 2**52 + 98765) % CYCLE
+        e = gamma_engine_envelope(p)
+        assert 0.0 < e <= 1.0, (p, e)
+        signed = ((p + HALF) % CYCLE) - HALF
+        ideal_e = 0.5 + 0.5 * math.cos(2.0 * math.pi * signed / CYCLE)
+        assert abs(e - ideal_e) <= bound, p
+    for p in (HALF - 1, HALF, HALF + 1):
+        assert gamma_engine_envelope(p) > 0.0, p
+
+
+def test_gamma_sample_rows_name_fixtures_with_their_values(vectors):
+    rows = vectors["gamma_samples"]
+    names = []
+    for r in rows:
+        if r["fixture"] not in names:
+            names.append(r["fixture"])
+    assert tuple(names) == GAMMA_FIXTURE_NAMES
+    checked = set()
+    for r in rows:
+        assert r["carrier_wave"] == "sine" and r["coupling"] == "uncoupled", r["fixture"]
+        if r["fixture"] in checked:
+            continue
+        checked.add(r["fixture"])
+        path = FIXTURES_VALID / r["fixture"]
+        assert path.is_file(), f"missing fixture {path}"
+        recipe = json.loads(path.read_text(encoding="utf-8"))
+        assert "binaural" not in recipe, r["fixture"]
+        g = recipe["gamma_pac"]
+        assert set(g) == {"carrier_hz", "rate_hz", "am_depth_percent", "carrier_wave", "coupling"}, r["fixture"]
+        assert float(g["carrier_hz"]) == float.fromhex(r["carrier_hex"]) == 250.0, r["fixture"]
+        assert float(g["rate_hz"]) == float.fromhex(r["rate_hex"]), r["fixture"]
+        assert float(g["am_depth_percent"]) == float.fromhex(r["depth_hex"]), r["fixture"]
+        assert g["carrier_wave"] == r["carrier_wave"] and g["coupling"] == r["coupling"], r["fixture"]
+        assert float(recipe["length_s"]) == float.fromhex(r["length_hex"]) == 10.0, r["fixture"]
+        if r["theta_carrier_hex"] == "none":
+            assert "theta_reference" not in recipe, r["fixture"]
+            assert r["theta_rate_hex"] == r["theta_depth_hex"] == r["theta_shape"] == "none", r
+        else:
+            theta = recipe["theta_reference"]
+            assert float(theta["carrier_hz"]) == float.fromhex(r["theta_carrier_hex"]), r["fixture"]
+            assert float(theta["rate_hz"]) == float.fromhex(r["theta_rate_hex"]), r["fixture"]
+            assert float(theta["am_depth_percent"]) == float.fromhex(r["theta_depth_hex"]), r["fixture"]
+            assert theta["shape"] == r["theta_shape"], r["fixture"]
+    assert {(float.fromhex(r["rate_hex"]), float.fromhex(r["depth_hex"])) for r in rows} == {
+        (40.0, 25.0), (40.0, 100.0), (60.0, 25.0), (60.0, 100.0)}
+    for r in rows:
+        assert int(r["frames"]) == round(Fraction(float.fromhex(r["length_hex"])) * r["fs"]), r
+
+
+def test_gamma_sample_rows_follow_the_rules(vectors):
+    cases = set()
+    by_key = {}
+    for r in vectors["gamma_samples"]:
+        fs = r["fs"]
+        assert int(r["inc_carrier"]) == spec_increment(float.fromhex(r["carrier_hex"]), fs), r
+        assert int(r["inc_rate"]) == spec_increment(float.fromhex(r["rate_hex"]), fs), r
+        n = int(r["n"])
+        assert int(r["phase_carrier"]) == n * int(r["inc_carrier"]) % CYCLE, r
+        assert int(r["phase_rate"]) == n * int(r["inc_rate"]) % CYCLE, r
+        past = n >= int(r["frames"])
+        assert r["case"] == ("past_end" if past else "signal"), r
+        cases.add((r["fixture"], fs, r["case"]))
+        by_key.setdefault((r["fixture"], fs), set()).add(n)
+        if past:
+            assert r["gamma_bits"] == r["e_bits"] == r["a_bits"] == "0x0000000000000000", r
+            assert r["ideal_gamma"] == "0", r
+    for name in GAMMA_FIXTURE_NAMES:
+        for fs in listed_sample_rates():
+            assert (name, fs, "signal") in cases and (name, fs, "past_end") in cases, (name, fs)
+    # Indices: the start, both sides of the first two block boundaries, 1000,
+    # both sides of the quarter, half, and three-quarter points of the first
+    # gamma envelope cycle, the last sample, and two past the end.
+    for r in vectors["gamma_samples"]:
+        indices = by_key[(r["fixture"], r["fs"])]
+        frames = int(r["frames"])
+        inc = int(r["inc_rate"])
+        want = {0, 63, 64, 65, 127, 128, 1000, frames - 1, frames, frames + 63}
+        for b in (QUARTER, HALF, 3 * QUARTER):
+            k = -(-b // inc)
+            want.update((k - 1, k))
+        assert want <= indices, (r["fixture"], r["fs"], sorted(want - indices))
+
+
+def test_gamma_sample_bits_follow_the_am_law_and_bound(vectors):
+    with localcontext() as ctx:
+        ctx.prec = 60
+        for r in vectors["gamma_samples"]:
+            if r["case"] != "signal":
+                continue
+            where = (r["fixture"], r["fs"], r["n"])
+            e = bits_value(r["e_bits"])
+            assert e == gamma_engine_envelope(int(r["phase_rate"])), where
+            d = float.fromhex(r["depth_hex"]) / 100.0
+            a = gamma_amplitude(d, e)
+            assert a == bits_value(r["a_bits"]), where
+            g = bits_value(r["gamma_bits"])
+            assert g == a * engine_sine_value(int(r["phase_carrier"])), where
+            assert r["gamma_bits"] != "0x8000000000000000", where  # never -0.0
+            assert e > 0.0 and a > 0.0, where
+            assert abs(exact(e) - Decimal(r["ideal_e"])) <= gamma_envelope_bound(), where
+            assert abs(exact(g) - Decimal(r["ideal_gamma"])) <= gamma_bound(), where
+
+
+def test_gamma_sample_bits_match_the_generator_layer(vectors):
+    gen = generator()
+    layers = {}
+    for r in vectors["gamma_samples"]:
+        if r["case"] != "signal":
+            continue
+        key = (r["fixture"], r["fs"])
+        if key not in layers:
+            layers[key] = gen.GammaLayer(float.fromhex(r["carrier_hex"]), float.fromhex(r["rate_hex"]),
+                                         float.fromhex(r["depth_hex"]), r["fs"])
+        e, a, g = layers[key].engine_parts(int(r["n"]))
+        assert (bits_text(e), bits_text(a), bits_text(g)) == (r["e_bits"], r["a_bits"], r["gamma_bits"]), key
+
+
+def test_gamma_sample_ideal_matches_the_reference_ideal_sine(vectors):
+    mod = ideal()
+    for r in vectors["gamma_samples"]:
+        if r["case"] != "signal":
+            continue
+        d = float.fromhex(r["depth_hex"]) / 100.0
+        a = 1.0 - d * (1.0 - float(Decimal(r["ideal_e"])))
+        value = a * mod.ideal_sine(int(r["phase_carrier"]))
+        assert close_to_decimal(value, r["ideal_gamma"]), (r["fixture"], r["fs"], r["n"])
+
+
+def test_gamma_bound_catches_the_unmodulated_stub_and_the_zero_stub(vectors):
+    # Must-fail: an unmodulated carrier (a = 1) and the Story 1.2 stub
+    # (gamma = 0) each miss the gamma bound on every fixture.
+    bound = gamma_bound()
+    rows = [r for r in vectors["gamma_samples"] if r["case"] == "signal"]
+    unmodulated = {r["fixture"] for r in rows
+                   if abs(Decimal(repr(engine_sine_value(int(r["phase_carrier"]))))
+                          - Decimal(r["ideal_gamma"])) > bound}
+    zero = {r["fixture"] for r in rows if abs(Decimal(r["ideal_gamma"])) > bound}
+    assert unmodulated == set(GAMMA_FIXTURE_NAMES)
+    assert zero == set(GAMMA_FIXTURE_NAMES)
+
+
+def theta_gamma_recipe():
+    path = FIXTURES_VALID / GAMMA_THETA_FIXTURE
+    assert path.is_file(), f"missing fixture {path}"
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_gamma_bus_rows_follow_the_rules(vectors):
+    rows = vectors["gamma_bus"]
+    assert {r["fixture"] for r in rows} == {GAMMA_THETA_FIXTURE}
+    recipe = theta_gamma_recipe()
+    theta, g = recipe["theta_reference"], recipe["gamma_pac"]
+    cases = set()
+    for r in rows:
+        fs = r["fs"]
+        n = int(r["n"])
+        inc = {key: spec_increment(float(value), fs) for key, value in (
+            ("theta", theta["carrier_hz"]), ("theta_envelope", theta["rate_hz"]),
+            ("gamma", g["carrier_hz"]), ("gamma_envelope", g["rate_hz"]))}
+        for key, step in inc.items():
+            assert int(r[f"phase_{key}"]) == n * step % CYCLE, (key, r)
+        frames = round(Fraction(float(recipe["length_s"])) * fs)
+        assert r["case"] == ("past_end" if n >= frames else "signal"), r
+        cases.add((fs, r["case"]))
+    for fs in listed_sample_rates():
+        assert (fs, "signal") in cases and (fs, "past_end") in cases, fs
+
+
+def test_gamma_bus_bits_are_the_one_rounding_sum_within_the_bus_bound(vectors):
+    gen = generator()
+    rows = [r for r in vectors["gamma_samples"] if r["fixture"] == GAMMA_THETA_FIXTURE]
+    assert rows
+    first = {r["fs"]: r for r in rows}
+    by_n = {(r["fs"], r["n"]): r for r in rows}
+    with localcontext() as ctx:
+        ctx.prec = 60
+        for r in vectors["gamma_bus"]:
+            where = (r["fs"], r["n"])
+            t = bits_value(r["theta_bits"])
+            g = bits_value(r["gamma_bits"])
+            bus = bits_value(r["bus_bits"])
+            if r["case"] == "past_end":
+                assert r["theta_bits"] == r["gamma_bits"] == r["bus_bits"] == "0x0000000000000000", where
+                continue
+            assert bus == t + g, where  # stereo bus: one binary64 addition
+            s = first[r["fs"]]
+            layer = gen.ThetaLayer(float.fromhex(s["theta_carrier_hex"]), float.fromhex(s["theta_rate_hex"]),
+                                   float.fromhex(s["theta_depth_hex"]), s["theta_shape"], r["fs"])
+            assert bits_text(layer.engine_sample(int(r["n"]))) == r["theta_bits"], where
+            d = float.fromhex(s["depth_hex"]) / 100.0
+            e = gamma_engine_envelope(int(r["phase_gamma_envelope"]))
+            assert g == gamma_amplitude(d, e) * engine_sine_value(int(r["phase_gamma"])), where
+            if where in by_n:
+                assert by_n[where]["gamma_bits"] == r["gamma_bits"], where
+            assert abs(exact(g) - Decimal(r["ideal_gamma"])) <= gamma_bound(), where
+            assert abs(exact(t) - Decimal(r["ideal_theta"])) <= theta_bound(), where
+            assert abs(exact(bus) - Decimal(r["ideal_bus"])) <= gamma_bus_bound(), where
+            total = Decimal(r["ideal_theta"]) + Decimal(r["ideal_gamma"])
+            assert abs(total - Decimal(r["ideal_bus"])) <= Decimal("1e-24"), where
+
+
+def test_gamma_bus_bound_catches_a_bus_without_gamma(vectors):
+    # Must-fail: the theta tap alone (gamma left at +0.0) misses the bus bound.
+    bound = gamma_bus_bound()
+    misses = [r for r in vectors["gamma_bus"] if r["case"] == "signal"
+              and abs(Decimal(repr(bits_value(r["theta_bits"]))) - Decimal(r["ideal_bus"])) > bound]
+    assert misses
+
+
+def test_no_stub_chain_or_theta_fixture_has_a_gamma_layer(vectors):
+    # Their bytes stay unchanged (signal spec, Stub chain: gamma is +0.0).
+    names = {r["fixture"] for r in vectors["stub_chain"]} | {r["fixture"] for r in vectors["theta_samples"]}
+    for name in names:
+        recipe = json.loads((FIXTURES_VALID / name).read_text(encoding="utf-8"))
+        assert "gamma_pac" not in recipe, name

@@ -19,6 +19,15 @@ Contract with recipes/recipe.schema.json (JSON Schema draft 2020-12):
   "reverse_saw", "custom"] in that order (`custom` is schema-valid so compile
   can reject it with a named rule; any other text fails the schema with the
   `enum` keyword).
+- Story 2.2: `gamma_pac` (an optional object, the property right after
+  `theta_reference`, tag `loudness-relevant`, additionalProperties false)
+  requires, in this order, `carrier_hz`, `rate_hz`, `am_depth_percent`
+  (numbers), `carrier_wave`, a string whose `enum` is exactly ["sine",
+  "triangle", "softened_square"] (triangle and softened square are
+  schema-valid so compile rejects them by name), and `coupling`, a string
+  whose `enum` is exactly ["uncoupled"]. Every gamma property is
+  `loudness-relevant`. `coupling` names the gamma depth setting; it is not a
+  coupling target (no field may name a coupling target or a routing).
 - The schema holds structure and types only. The only numeric bounds allowed
   are the seed bounds 0 and 2^53 - 1; locked ranges live in
   tests/tables/ranges.tsv (Story 1.3).
@@ -66,6 +75,12 @@ FIELDS = {
     "/theta_reference/rate_hz": ("number", "loudness-relevant", True),
     "/theta_reference/am_depth_percent": ("number", "loudness-relevant", True),
     "/theta_reference/shape": ("string", "loudness-relevant", True),
+    "/gamma_pac": ("object", ANY_TAG, False),                              # Story 2.2
+    "/gamma_pac/carrier_hz": ("number", "loudness-relevant", True),
+    "/gamma_pac/rate_hz": ("number", "loudness-relevant", True),
+    "/gamma_pac/am_depth_percent": ("number", "loudness-relevant", True),
+    "/gamma_pac/carrier_wave": ("string", "loudness-relevant", True),
+    "/gamma_pac/coupling": ("string", "loudness-relevant", True),
     "/binaural": ("object", ANY_TAG, False),
     "/binaural/carrier_left_hz": ("number", "loudness-relevant", True),
     "/binaural/beat_rate_hz": ("number", "loudness-relevant", True),
@@ -196,11 +211,19 @@ def test_engine_version_stays_in_the_hash():
     assert got["/engine_version"] != "hash-excluded"
 
 
+# Story 2.2: the gamma depth setting is the one field whose name holds
+# "coupling"; it selects how the gamma depth moves, never what it couples to.
+COUPLING_SETTING = "/gamma_pac/coupling"
+
+
 def test_no_routing_or_coupling_target_field_anywhere():
     schema = load_schema_strict()
     for pointer, _, _ in walk(schema):
         name = pointer.rsplit("/", 1)[1]
-        assert "routing" not in name and "coupling" not in name, f"{pointer}: field is outside the decided list"
+        assert "routing" not in name, f"{pointer}: field is outside the decided list"
+        assert "target" not in name or name == "loudness_target_lufs", f"{pointer}: a target field"
+        if pointer != COUPLING_SETTING:
+            assert "coupling" not in name, f"{pointer}: field is outside the decided list"
 
 
 def _numbers_with_keys(node, path=""):
@@ -265,3 +288,76 @@ def test_theta_shape_enum_accepts_custom_and_rejects_other_text():
         errors = list(validator.iter_errors(theta_recipe(shape)))
         assert errors, shape
         assert {e.validator for e in errors} == {"enum"}, (shape, [e.message for e in errors])
+
+
+# ------------------------------------------------- gamma PAC layer (Story 2.2)
+
+GAMMA_PROPERTIES = ["carrier_hz", "rate_hz", "am_depth_percent", "carrier_wave", "coupling"]
+GAMMA_CARRIER_WAVE_ENUM = ["sine", "triangle", "softened_square"]
+GAMMA_COUPLING_ENUM = ["uncoupled"]
+
+
+def gamma_recipe(carrier_wave="sine", coupling="uncoupled"):
+    return {
+        "schema_version": "1.0", "engine_version": "0.0.1", "seed": 42,
+        "author": "Arcani test", "date": "2026-11-07", "rationale": "Schema enum test.",
+        "length_s": 1, "loudness_target_lufs": -36,
+        "gamma_pac": {"carrier_hz": 250, "rate_hz": 40, "am_depth_percent": 25,
+                      "carrier_wave": carrier_wave, "coupling": coupling},
+    }
+
+
+def gamma_node(schema):
+    assert "gamma_pac" in schema["properties"], "no gamma_pac property (Story 2.2)"
+    return resolve(schema, schema["properties"]["gamma_pac"])
+
+
+def test_gamma_pac_follows_theta_reference():
+    schema = load_schema_strict()
+    names = list(schema["properties"])
+    assert "gamma_pac" in names, names
+    assert names.index("gamma_pac") == names.index("theta_reference") + 1, names
+    assert "gamma_pac" not in schema.get("required", [])
+
+
+def test_gamma_pac_shape_tags_and_required():
+    schema = load_schema_strict()
+    node = gamma_node(schema)
+    assert schema["properties"]["gamma_pac"].get("x-arcani-tag") == "loudness-relevant"
+    assert node.get("type") == "object"
+    assert node.get("additionalProperties") is False
+    assert list(node["properties"]) == GAMMA_PROPERTIES
+    assert sorted(node.get("required", [])) == sorted(GAMMA_PROPERTIES)
+    for name in GAMMA_PROPERTIES:
+        assert node["properties"][name].get("x-arcani-tag") == "loudness-relevant", name
+
+
+def test_gamma_enums_are_exact():
+    schema = load_schema_strict()
+    node = gamma_node(schema)
+    wave = resolve(schema, node["properties"]["carrier_wave"])
+    coupling = resolve(schema, node["properties"]["coupling"])
+    assert wave.get("type") == "string" and wave.get("enum") == GAMMA_CARRIER_WAVE_ENUM
+    assert coupling.get("type") == "string" and coupling.get("enum") == GAMMA_COUPLING_ENUM
+    for name in ("carrier_hz", "rate_hz", "am_depth_percent"):
+        assert resolve(schema, node["properties"][name]).get("type") == "number", name
+
+
+def test_gamma_enums_accept_their_members_and_reject_other_text():
+    import jsonschema
+
+    validator = jsonschema.Draft202012Validator(load_schema_strict())
+    for wave in GAMMA_CARRIER_WAVE_ENUM:
+        assert not list(validator.iter_errors(gamma_recipe(carrier_wave=wave))), wave
+    for wave in ("square", "Sine", "", "softened-square"):
+        errors = list(validator.iter_errors(gamma_recipe(carrier_wave=wave)))
+        assert errors, wave
+        assert {e.validator for e in errors} == {"enum"}, (wave, [e.message for e in errors])
+    for coupling in ("swell", "Uncoupled", "", "smooth_swell", "bursts"):
+        errors = list(validator.iter_errors(gamma_recipe(coupling=coupling)))
+        assert errors, coupling
+        assert {e.validator for e in errors} == {"enum"}, (coupling, [e.message for e in errors])
+    extra = gamma_recipe()
+    extra["gamma_pac"]["coupling_target"] = "theta_reference"
+    errors = list(validator.iter_errors(extra))
+    assert {e.validator for e in errors} == {"additionalProperties"}, [e.message for e in errors]

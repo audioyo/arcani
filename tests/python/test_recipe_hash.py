@@ -70,6 +70,15 @@ IN_HASH = ["/schema_version", "/engine_version", "/seed", "/length_s", "/loudnes
            "/theta_reference/carrier_hz", "/theta_reference/rate_hz",
            "/theta_reference/am_depth_percent", "/theta_reference/shape",
            "/binaural/carrier_left_hz", "/binaural/beat_rate_hz"]
+# Story 2.2: every gamma_pac field is in the hash. Checked against a gamma
+# fixture, since the base recipe has no gamma layer.
+GAMMA_BASE = "gamma-uncoupled-40hz-25pct.json"
+GAMMA_IN_HASH = ["/gamma_pac/carrier_hz", "/gamma_pac/rate_hz", "/gamma_pac/am_depth_percent",
+                 "/gamma_pac/carrier_wave", "/gamma_pac/coupling"]
+GAMMA_FIXTURES = ["gamma-uncoupled-40hz-25pct.json", "gamma-uncoupled-40hz-100pct.json",
+                  "gamma-uncoupled-60hz-25pct.json", "gamma-uncoupled-60hz-100pct.json",
+                  "theta-gamma-uncoupled.json", "gamma-carrier-rule-200hz-60hz.json",
+                  "gamma-carrier-wave-triangle.json", "gamma-carrier-wave-softened-square.json"]
 
 
 def load_tool():
@@ -205,8 +214,27 @@ def test_excluded_and_in_hash_lists_cover_every_leaf_tag():
     tool = load_tool()
     tags = tool.load_tags(tool.load_schema())
     assert sorted(p for p, t in tags.items() if t == "hash-excluded") == sorted(HASH_EXCLUDED)
-    leaves = {p for p in tags if p not in ("/theta_reference", "/binaural")}
-    assert leaves == set(HASH_EXCLUDED) | set(IN_HASH)
+    leaves = {p for p in tags if p not in ("/theta_reference", "/gamma_pac", "/binaural")}
+    assert leaves == set(HASH_EXCLUDED) | set(IN_HASH) | set(GAMMA_IN_HASH)
+
+
+@pytest.mark.parametrize("pointer", GAMMA_IN_HASH)
+def test_every_gamma_field_changes_the_hash(pointer):
+    tool = load_tool()
+    path = VALID / GAMMA_BASE
+    assert path.is_file(), f"missing fixture {path} (Story 2.2)"
+    value = json.loads(path.read_text(encoding="utf-8"))
+    assert tool.hash_value(put(value, pointer, changed(get(value, pointer)))) != tool.hash_value(value)
+
+
+def test_gamma_fixtures_have_distinct_hashes():
+    tool = load_tool()
+    hashes = {}
+    for name in GAMMA_FIXTURES:
+        path = VALID / name
+        assert path.is_file(), f"missing fixture {path} (Story 2.2)"
+        hashes[name] = tool.hash_bytes(path.read_bytes())
+    assert len(set(hashes.values())) == len(GAMMA_FIXTURES), hashes
 
 
 def test_tool_uses_only_the_standard_library():
