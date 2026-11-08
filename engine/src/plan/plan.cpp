@@ -69,7 +69,8 @@ CompileResult compile(std::string_view utf8, Mode mode, std::uint32_t sample_rat
     return r;
   }
 
-  // Carrier rule and theta shape rule (Story 2.1), after every range check.
+  // Carrier rules, theta shape rule (Story 2.1), and gamma carrier wave rule
+  // (Story 2.2), after every range check.
   if (std::optional<recipe::Error> e = validate::check_rules(rec)) {
     CompileResult r;
     r.error = std::move(*e);
@@ -107,6 +108,18 @@ CompileResult compile(std::string_view utf8, Mode mode, std::uint32_t sample_rat
     p.theta.shape = envelope_shape(t.shape);
     p.theta.edge_units = core::theta_edge_units(t.rate_hz);
     p.theta.half_on_units = core::theta_half_on_units();
+  }
+
+  // Gamma PAC layer, uncoupled: the carrier at gamma_pac.carrier_hz,
+  // amplitude-modulated at rate_hz by the sine envelope with a constant depth,
+  // both phases 0 at n = 0, the same value in both channels. check_rules() has
+  // rejected a non-sine carrier. The mute option never touches it.
+  if (rec.gamma_pac) {
+    const recipe::GammaPac& g = *rec.gamma_pac;
+    p.gamma.present = true;
+    p.gamma.increment = core::phase_increment(g.carrier_hz, sample_rate);
+    p.gamma.envelope_increment = core::phase_increment(g.rate_hz, sample_rate);
+    p.gamma.depth = g.am_depth_percent / 100.0;
   }
 
   // Binaural join stub: an unmodulated sine per ear, the left ear at

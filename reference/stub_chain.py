@@ -1,4 +1,4 @@
-"""Reference render of the stub chain (docs/signal-spec.md, Stub chain; Story 1.5; Story 2.1).
+"""Reference render of the stub chain (docs/signal-spec.md, Stub chain; Story 1.5; Story 2.1; Story 2.2).
 
 Implemented from the signal spec only, never from engine code, engine
 binaries, or engine output (AD-16, AD-19). Every value is binary64 and every
@@ -15,7 +15,7 @@ sample at frame n >= N is +0.0.
 For 0 <= n < N and each channel c, in the spec's order:
 
     theta[c][n]  = theta.render(...)[n]       the same value in both channels
-    gamma[c][n]  = +0.0
+    gamma[c][n]  = gamma.render(...)[n]       the same value in both channels
     bus[c][n]    = theta[c][n] + gamma[c][n]
     bin[c][n]    = a_c * sine(phase_c[n])
     join[c][n]   = bus[c][n] + bin[c][n]
@@ -25,6 +25,9 @@ For 0 <= n < N and each channel c, in the spec's order:
 with the theta tap from reference/theta.py (docs/signal-spec.md, Theta
 reference: the carrier amplitude-modulated at the theta rate by the recipe's
 envelope shape and depth) when the recipe has `theta_reference`, else +0.0;
+the gamma tap from reference/gamma.py (docs/signal-spec.md, Gamma PAC layer:
+a sine carrier amplitude-modulated at the gamma rate with a constant depth)
+when the recipe has `gamma_pac`, else +0.0;
 f_L = carrier_left_hz, f_R = carrier_left_hz + beat_rate_hz (one binary64
 addition), inc_c = phase_increment(f_c, fs) and a_c = 1.0 when the recipe has
 `binaural` (else 0 and 0.0); phase[n] = n * inc mod 2^64.
@@ -36,7 +39,7 @@ import json
 
 import numpy as np
 
-from . import ideal, theta as theta_layer
+from . import gamma as gamma_layer, ideal, theta as theta_layer
 
 KEYS = ("output", "theta", "gamma", "bus", "join", "master")
 
@@ -70,7 +73,11 @@ def render(recipe_path, fs, frames=None):
         theta = theta_layer.render(theta_ref, fs, n)
     else:
         theta = np.zeros(n, dtype=np.float64)
-    gamma = np.zeros(n, dtype=np.float64)
+    gamma_pac = recipe.get("gamma_pac")
+    if gamma_pac is not None:
+        gamma = gamma_layer.render(gamma_pac, fs, n)
+    else:
+        gamma = np.zeros(n, dtype=np.float64)
     bus = theta + gamma
 
     binaural = recipe.get("binaural")

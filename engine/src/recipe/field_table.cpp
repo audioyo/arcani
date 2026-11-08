@@ -32,6 +32,18 @@ constexpr Field kFields[] = {
     // One of the schema enum members (recipe::kThetaShapeEnum); custom is
     // schema-valid and rejected at compile.
     {"/theta_reference/shape", String, LoudnessRelevant, true, "", 1.0},
+    // Story 2.2, uncoupled only. The carrier rule (carrier_hz >= 4 x rate_hz)
+    // and the carrier wave rule run after every range check; see
+    // validate/validate.hpp.
+    {"/gamma_pac", Object, LoudnessRelevant, false, "", 1.0},
+    {"/gamma_pac/carrier_hz", Number, LoudnessRelevant, true, "gamma-carrier", 1.0},
+    {"/gamma_pac/rate_hz", Number, LoudnessRelevant, true, "gamma-rate", 1.0},
+    {"/gamma_pac/am_depth_percent", Number, LoudnessRelevant, true, "coupling-depth", 1.0},
+    // One of the schema enum members (recipe::kGammaCarrierWaveEnum); triangle
+    // and softened_square are schema-valid and rejected at compile.
+    {"/gamma_pac/carrier_wave", String, LoudnessRelevant, true, "", 1.0},
+    // One of the schema enum members (recipe::kGammaCouplingEnum).
+    {"/gamma_pac/coupling", String, LoudnessRelevant, true, "", 1.0},
     {"/binaural", Object, LoudnessRelevant, false, "", 1.0},
     {"/binaural/carrier_left_hz", Number, LoudnessRelevant, true, "binaural-carrier", 1.0},
     // The derived right carrier (carrier_left_hz + beat_rate_hz, row

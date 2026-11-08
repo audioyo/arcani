@@ -45,6 +45,27 @@ struct ThetaReference {
   ThetaShape shape = ThetaShape::Sine;
 };
 
+// Gamma PAC carrier wave (docs/signal-spec.md, Gamma PAC layer). Triangle and
+// SoftenedSquare are schema-valid only so that compile can reject them by name.
+enum class GammaCarrierWave { Sine, Triangle, SoftenedSquare };
+
+// Gamma PAC coupling. Story 2.2 models uncoupled only; Stories 2.3 and 2.4
+// add smooth_swell and bursts.
+enum class GammaCoupling { Uncoupled };
+
+// The schema enums of gamma_pac.carrier_wave and gamma_pac.coupling, in
+// schema order (the limit of an enum error).
+inline constexpr std::string_view kGammaCarrierWaveEnum = "sine, triangle, softened_square";
+inline constexpr std::string_view kGammaCouplingEnum = "uncoupled";
+
+struct GammaPac {
+  double carrier_hz = 0.0;
+  double rate_hz = 0.0;
+  double am_depth_percent = 0.0;
+  GammaCarrierWave carrier_wave = GammaCarrierWave::Sine;
+  GammaCoupling coupling = GammaCoupling::Uncoupled;
+};
+
 struct Binaural {
   double carrier_left_hz = 0.0;
   double beat_rate_hz = 0.0;
@@ -62,6 +83,7 @@ struct Recipe {
   std::optional<double> loudness_gain_db;
   std::optional<std::string> loudness_hash;
   std::optional<ThetaReference> theta_reference;
+  std::optional<GammaPac> gamma_pac;
   std::optional<Binaural> binaural;
   std::string hash;  // recipe hash, 64 lowercase hex digits
 };

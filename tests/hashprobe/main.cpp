@@ -7,7 +7,8 @@
 // (probe-arith.f32, sine-44100.f32, sine-48000.f32, stub-chain-44100.f32,
 // stub-chain-48000.f32, stub-chain-blocks-44100.f32,
 // stub-chain-blocks-48000.f32, theta-envelopes-44100.f32,
-// theta-envelopes-48000.f32). No hashing here:
+// theta-envelopes-48000.f32, gamma-uncoupled-44100.f32,
+// gamma-uncoupled-48000.f32). No hashing here:
 // tools/hash_manifest.py hashes the files on the host.
 //
 // Component probe-arith: a fixed sequence of float32 multiplies and adds whose
@@ -65,6 +66,19 @@
 // after another. Android runs no ctest, so this carries the theta reference
 // to every platform. tests/python/test_probe_theta.py checks each segment
 // against reference/theta.py.
+//
+// Components gamma-uncoupled-44100 and gamma-uncoupled-48000 (Story 2.2):
+// the five gamma fixtures (docs/signal-spec.md, Vectors: gamma fixtures, in
+// that order: recipes/fixtures/valid/gamma-uncoupled-40hz-25pct.json,
+// -40hz-100pct, -60hz-25pct, -60hz-100pct, each a 250 Hz sine carrier
+// amplitude-modulated at the gamma rate with a constant AM depth, gamma PAC
+// layer only, then theta-gamma-uncoupled.json, that 40 Hz, 100 percent layer
+// plus a theta reference: 450 Hz carrier amplitude-modulated at 6 Hz by the
+// sine envelope, 75 percent depth), each 10 s. Embedded (kGammaFixtures) with
+// the fixtures' values, compiled in measure mode, rendered in one call,
+// interleaved stereo, each binary64 sample converted to float32, one fixture
+// after another. tests/python/test_probe_gamma.py checks each segment against
+// reference/stub_chain.py.
 
 #include <arcani/arcani.h>
 
@@ -165,6 +179,50 @@ std::string theta_recipe(const ThetaFixture& f) {
 })";
 }
 
+// Gamma fixtures in probe order: gamma rate and AM depth (as JSON text), and
+// whether the fixture also has the theta reference.
+struct GammaFixture {
+  const char* rate_hz;
+  const char* depth_percent;
+  bool with_theta;
+};
+constexpr GammaFixture kGammaFixtures[] = {
+    {"40", "25", false}, {"40", "100", false}, {"60", "25", false},
+    {"60", "100", false}, {"40", "100", true},
+};
+
+// The recipe of one gamma fixture, with the fixture file's values.
+std::string gamma_recipe(const GammaFixture& f) {
+  std::string theta;
+  if (f.with_theta) {
+    theta = R"(
+  "theta_reference": {
+    "carrier_hz": 450,
+    "rate_hz": 6,
+    "am_depth_percent": 75,
+    "shape": "sine"
+  },)";
+  }
+  return std::string(R"({
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani hash probe",
+  "date": "2026-11-07",
+  "rationale": "Hash probe gamma PAC component (Story 2.2): 250 Hz sine carrier amplitude-modulated at the gamma rate with a constant AM depth (uncoupled), 10 s.",
+  "length_s": 10,
+  "loudness_target_lufs": -36,)") +
+         theta + R"(
+  "gamma_pac": {
+    "carrier_hz": 250,
+    "rate_hz": )" + f.rate_hz + R"(,
+    "am_depth_percent": )" + f.depth_percent + R"(,
+    "carrier_wave": "sine",
+    "coupling": "uncoupled"
+  }
+})";
+}
+
 // Empty on any API failure (main reports it). With cycle_block_sizes false the
 // whole recipe renders in one call; with it true, in calls cycling through
 // kBlockSizes.
@@ -230,6 +288,19 @@ std::vector<float> probe_theta(std::uint32_t fs) {
   return out;
 }
 
+// The gamma fixtures in turn; empty if any one fails.
+std::vector<float> probe_gamma(std::uint32_t fs) {
+  std::vector<float> out;
+  for (const GammaFixture& f : kGammaFixtures) {
+    const std::vector<float> part = render_recipe(gamma_recipe(f), fs, false);
+    if (part.empty()) {
+      return {};
+    }
+    out.insert(out.end(), part.begin(), part.end());
+  }
+  return out;
+}
+
 // Writes samples as little-endian float32 regardless of host byte order.
 bool write_f32(const std::string& path, const std::vector<float>& samples) {
   std::vector<unsigned char> bytes;
@@ -272,6 +343,8 @@ int main(int argc, char** argv) {
       {"stub-chain-blocks-48000", probe_stub_chain(48000, true)},
       {"theta-envelopes-44100", probe_theta(44100)},
       {"theta-envelopes-48000", probe_theta(48000)},
+      {"gamma-uncoupled-44100", probe_gamma(44100)},
+      {"gamma-uncoupled-48000", probe_gamma(48000)},
   };
   for (const Component& c : components) {
     if (c.samples.empty()) {

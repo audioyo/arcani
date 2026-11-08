@@ -63,6 +63,20 @@
       "rule": "pattern",
       "schema_keyword": "pattern"
     },
+    "gamma-carrier-wave-not-in-enum.json": {
+      "parameter": "/gamma_pac/carrier_wave",
+      "rule": "enum",
+      "value": "square",
+      "limit": "sine, triangle, softened_square",
+      "schema_keyword": "enum"
+    },
+    "gamma-coupling-not-in-enum.json": {
+      "parameter": "/gamma_pac/coupling",
+      "rule": "enum",
+      "value": "swell",
+      "limit": "uncoupled",
+      "schema_keyword": "enum"
+    },
     "infinity-literal.json": {
       "rule": "json.non_finite"
     },

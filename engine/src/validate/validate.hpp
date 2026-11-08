@@ -1,5 +1,5 @@
-// Recipe validator (Story 1.3): locked ranges, the carrier rule, and (Story
-// 2.1) the theta shape rule.
+// Recipe validator (Story 1.3): locked ranges, the carrier rule, (Story 2.1)
+// the theta shape rule, and (Story 2.2) the gamma carrier wave rule.
 //
 // check_ranges() runs after parse in both compile modes. It walks the field
 // table in order and checks every present field that names a range row
@@ -49,16 +49,23 @@ std::span<const RangeRow> range_rows() noexcept;
 // The first locked-range fault of a parsed recipe, or nothing.
 std::optional<recipe::Error> check_ranges(const recipe::Recipe& r);
 
-// Rules after the ranges (Story 2.1), run by compile after check_ranges()
-// and before final.required, first failure wins:
+// Rules after the ranges (Stories 2.1 and 2.2), run by compile after
+// check_ranges() and before final.required, first failure wins:
 // 1. carrier rule on the theta reference: carrier_hz against rate_hz;
 // 2. a custom theta shape: parameter /theta_reference/shape, value custom,
 //    rule kShapeNotModeledRule, limit kModeledThetaShapes. The signal spec
-//    models no custom envelope curve, so it does not exist.
+//    models no custom envelope curve, so it does not exist;
+// 3. carrier rule on the gamma PAC layer: /gamma_pac/carrier_hz against
+//    rate_hz;
+// 4. a non-sine gamma carrier: parameter /gamma_pac/carrier_wave, value the
+//    text (triangle or softened_square), rule kNonSineCarrierRule, limit
+//    kModeledGammaCarrierWaves. The signal spec models only the sine carrier.
 std::optional<recipe::Error> check_rules(const recipe::Recipe& r);
 
 inline constexpr std::string_view kShapeNotModeledRule = "shape not modeled in the signal spec";
 inline constexpr std::string_view kModeledThetaShapes = "sine, smoothed_on_off, sawtooth, reverse_saw";
+inline constexpr std::string_view kNonSineCarrierRule = "non-sine carrier not modeled";
+inline constexpr std::string_view kModeledGammaCarrierWaves = "sine";
 
 // Carrier rule: every modulated carrier is at least this many times its
 // modulation rate (threshold row carrier-rule).
@@ -68,7 +75,8 @@ inline constexpr double kCarrierRatio = 4.0;
 // judged by its maximum, the worst case. Failure: parameter as given, value
 // the carrier, rule carrier_rule, limit for example
 // ">= 24 Hz (4 x 6 Hz, row carrier-rule)". Compile calls it through
-// check_rules() for the theta reference (Story 2.1).
+// check_rules() for the theta reference (Story 2.1) and the gamma PAC layer
+// (Story 2.2).
 std::optional<recipe::Error> check_carrier_rule(std::string_view parameter, double carrier_hz,
                                                 double rate_min_hz, double rate_max_hz);
 

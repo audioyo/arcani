@@ -24,6 +24,9 @@ constexpr RangeRow kRows[] = {
     {"theta-rate", 1.0, 6.0, false, "Hz"},
     {"theta-carrier", 100.0, 500.0, false, "Hz"},
     {"theta-depth", 0.0, 100.0, false, "percent"},
+    {"gamma-rate", 30.0, 60.0, false, "Hz"},
+    {"gamma-carrier", 200.0, 500.0, false, "Hz"},
+    {"coupling-depth", 0.0, 100.0, false, "percent"},
     {"binaural-carrier", 0.0, 1000.0, true, "Hz"},
     {"beat-rate", 0.0, 30.0, true, "Hz"},
     {"binaural-carrier-right", 0.0, 1030.0, true, "Hz"},
@@ -76,6 +79,24 @@ Lookup field_value(const recipe::Recipe& r, std::string_view path) {
   if (path == "/theta_reference/am_depth_percent") {
     if (r.theta_reference) {
       return {true, r.theta_reference->am_depth_percent};
+    }
+    return {true, std::nullopt};
+  }
+  if (path == "/gamma_pac/carrier_hz") {
+    if (r.gamma_pac) {
+      return {true, r.gamma_pac->carrier_hz};
+    }
+    return {true, std::nullopt};
+  }
+  if (path == "/gamma_pac/rate_hz") {
+    if (r.gamma_pac) {
+      return {true, r.gamma_pac->rate_hz};
+    }
+    return {true, std::nullopt};
+  }
+  if (path == "/gamma_pac/am_depth_percent") {
+    if (r.gamma_pac) {
+      return {true, r.gamma_pac->am_depth_percent};
     }
     return {true, std::nullopt};
   }
@@ -181,6 +202,22 @@ std::optional<recipe::Error> check_rules(const recipe::Recipe& r) {
     if (theta.shape == recipe::ThetaShape::Custom) {
       return recipe::Error{"/theta_reference/shape", "custom", std::string(kShapeNotModeledRule),
                            std::string(kModeledThetaShapes)};
+    }
+  }
+  if (r.gamma_pac) {
+    const recipe::GammaPac& gamma = *r.gamma_pac;
+    // A fixed rate: the interval is the one value.
+    if (auto e = check_carrier_rule("/gamma_pac/carrier_hz", gamma.carrier_hz, gamma.rate_hz,
+                                    gamma.rate_hz)) {
+      return e;
+    }
+    if (gamma.carrier_wave == recipe::GammaCarrierWave::Triangle) {
+      return recipe::Error{"/gamma_pac/carrier_wave", "triangle", std::string(kNonSineCarrierRule),
+                           std::string(kModeledGammaCarrierWaves)};
+    }
+    if (gamma.carrier_wave == recipe::GammaCarrierWave::SoftenedSquare) {
+      return recipe::Error{"/gamma_pac/carrier_wave", "softened_square",
+                           std::string(kNonSineCarrierRule), std::string(kModeledGammaCarrierWaves)};
     }
   }
   return std::nullopt;
