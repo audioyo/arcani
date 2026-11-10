@@ -65,11 +65,11 @@ Decisions (2026-11-10, build agent, under Audio's standing "settle tech forks yo
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `docs/signal-spec.md`, `tools/signal_spec_vectors.py`, vectors JSON -- §coupling with worked vectors -- the spec merges first.
-- [ ] tests (files above) -- fresh-context QA agent writes failing tests -- tests first.
-- [ ] schema, field table, recipe, validator, plan, renderer, `reference/gamma.py`, `stub_chain.py`, `tests/assertions/coupling_timing.py`, hash probe -- implementation.
+- [x] `docs/signal-spec.md`, `tools/signal_spec_vectors.py`, vectors JSON -- §coupling with worked vectors -- the spec merges first.
+- [x] tests (files above) -- fresh-context QA agent writes failing tests -- tests first.
+- [x] schema, field table, recipe, validator, plan, renderer, `reference/gamma.py`, `stub_chain.py`, `tests/assertions/coupling_timing.py`, hash probe -- implementation.
 - [ ] fixtures, hash vectors, rows, design log (nn), README, `ci/hash_expected.json` (after the full run) -- records.
-- [ ] `docs/timeline-guidebook.html`, `sprint-status.yaml` -- records.
+- [x] `docs/timeline-guidebook.html`, `sprint-status.yaml` -- records.
 
 **Acceptance Criteria:**
 - Given §coupling, then it defines the swell depth function per theta shape from theta phase alone, with vectors the engine and reference each pass, and states the margin per tap by sine evaluations.
