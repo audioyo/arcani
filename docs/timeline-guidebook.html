@@ -491,8 +491,8 @@ var EPICS = [
   { id:"2.3", title:"Gamma coupled, smooth swell", status:"in-progress",
     plain:"Gamma depth rises and falls with the theta reference and peaks at the coupling phase.",
     spec:["spec-2-3-gamma-coupled-smooth-swell.md"],
-    steps:[true,false,false,false,false,false,false],
-    stepNotes:["8f32b0b: spec approved 2026-11-10 by Audio; zero-level rejection deferred to Story 4.4 and a 0.2 ms calibration row decided by Audio; 28ba75d: signal spec coupling section with 4 vector tables (24 in all)","","","","","",""],
+    steps:[true,true,false,false,false,false,false],
+    stepNotes:["8f32b0b: spec approved 2026-11-10 by Audio; zero-level rejection deferred to Story 4.4 and a 0.2 ms calibration row decided by Audio; 28ba75d: signal spec coupling section with 4 vector tables (24 in all)","bb44cf5: fresh-context QA agent's failing tests; 35 C++ cases and 409 pytest cases red until the engine, reference, timing tool, rows, and fixtures land","","","","",""],
     acs:[
       [" ","signal-spec coupling section; depth function takes theta phase as its only input (structural test)"],
       [" ","Coupling timing tool calibrated on Python signals; never reads engine internals"],
@@ -718,6 +718,7 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-10","bb44cf5","2.3","Failing tests committed (tests only) by the QA agent; 35 C++ and 409 pytest cases red; not pushed"],
   ["2026-11-10","28ba75d","2.3","Signal spec coupling section and vectors committed (smooth swell, coupling phase rule, margin per tap); sprint-status.yaml in-progress; not pushed"],
   ["2026-11-10","968e7e1","2.2","PR #13 merged into main (admin merge, records-only head commit skipped CI); sprint-status.yaml set to done"],
   ["2026-11-10","78a702d","2.2","PR #13 green on fast and full tier (11 checks), all four platforms; ready for Audio to merge"],
