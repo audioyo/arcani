@@ -488,9 +488,12 @@ var EPICS = [
       ["x","Non-sine gamma carriers rejected"],
       ["x","40 and 60 Hz at 25 and 100 percent depth match the reference; within 0.01 Hz; constant depth"]
     ] },
-  { id:"2.3", title:"Gamma coupled, smooth swell", status:"backlog",
+  { id:"2.3", title:"Gamma coupled, smooth swell", status:"in-progress",
     plain:"Gamma depth rises and falls with the theta reference and peaks at the coupling phase.",
-    steps:S7(), acs:[
+    spec:["spec-2-3-gamma-coupled-smooth-swell.md"],
+    steps:[true,false,false,false,false,false,false],
+    stepNotes:["8f32b0b: spec approved 2026-11-10 by Audio; zero-level rejection deferred to Story 4.4 and a 0.2 ms calibration row decided by Audio; 28ba75d: signal spec coupling section with 4 vector tables (24 in all)","","","","","",""],
+    acs:[
       [" ","signal-spec coupling section; depth function takes theta phase as its only input (structural test)"],
       [" ","Coupling timing tool calibrated on Python signals; never reads engine internals"],
       [" ","Every gamma envelope peak within 2 ms of its coupling phase (all shapes, 0/90/180/270 degrees); 3 ms shift fails, 1 ms passes"],
@@ -715,6 +718,7 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-10","28ba75d","2.3","Signal spec coupling section and vectors committed (smooth swell, coupling phase rule, margin per tap); sprint-status.yaml in-progress; not pushed"],
   ["2026-11-10","968e7e1","2.2","PR #13 merged into main (admin merge, records-only head commit skipped CI); sprint-status.yaml set to done"],
   ["2026-11-10","78a702d","2.2","PR #13 green on fast and full tier (11 checks), all four platforms; ready for Audio to merge"],
   ["2026-11-10","972d287","2.2","PR #13 opened; full tier reruns on the PR"],
