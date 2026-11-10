@@ -271,3 +271,74 @@ def test_gamma_am_rate_moved_0_02_hz_fails(fs, rate_hz):
     result = mod.check("moved gamma rate", mod.rate_hz(x, fs), rate_hz)
     assert result["result"] == "fail", result
     assert abs(result["measured"] - MOVE_HZ) < calibration_hz(), result
+
+
+# ------------------------------------------- coupled gamma (Story 2.3)
+#
+# rate_hz(x, fs, min_hz=None): with min_hz the AM-rate peak search starts at
+# the larger of the window's main-lobe floor and min_hz, because a coupled
+# gamma envelope carries a theta-rate swell line as strong as the gamma-rate
+# line. Without min_hz the tool is unchanged.
+
+THETA_RATE_HZ = 6.0
+
+
+def gamma_rate_floor_hz():
+    r = table_row("gamma-rate")
+    assert r.kind == "ranges" and r.unit == "Hz", r
+    return r.min
+
+
+def swell_tone(fs, rate_hz, depth, phase_deg, seconds=SECONDS):
+    """A 250 Hz carrier amplitude-modulated at rate_hz whose AM depth swells at 6 Hz.
+
+    Made here: the depth is depth * s, s a raised cosine at the theta rate
+    peaking at phase_deg of the theta cycle (the smooth swell).
+    """
+    t = np.arange(int(seconds * fs), dtype=np.float64) / fs
+    s = 0.5 + 0.5 * np.cos(2.0 * np.pi * THETA_RATE_HZ * t - np.deg2rad(phase_deg))
+    e = 0.5 + 0.5 * np.cos(2.0 * np.pi * rate_hz * t)
+    a = 1.0 - (depth * s) * (1.0 - e)
+    return a * np.sin(2.0 * np.pi * GAMMA_CARRIER_HZ * t)
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+@pytest.mark.parametrize("depth", GAMMA_DEPTHS)
+@pytest.mark.parametrize("phase_deg", (0.0, 90.0, 180.0, 270.0))
+def test_swell_tone_rate_reads_within_calibration_with_min_hz(fs, depth, phase_deg):
+    mod = freq()
+    for seconds in (5.0, SECONDS):
+        x = swell_tone(fs, 40.0, depth, phase_deg, seconds=seconds)
+        rate = mod.rate_hz(x, fs, min_hz=gamma_rate_floor_hz())
+        carrier = mod.carrier_hz(x, fs)
+        assert abs(rate - 40.0) < calibration_hz(), (fs, depth, phase_deg, seconds, rate)
+        assert abs(carrier - GAMMA_CARRIER_HZ) < calibration_hz(), (fs, depth, phase_deg, seconds, carrier)
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_swell_tone_rate_moved_0_02_hz_fails_with_min_hz(fs):
+    mod = freq()
+    x = swell_tone(fs, 40.0 + MOVE_HZ, 0.25, 90.0)
+    result = mod.check("moved swell gamma rate", mod.rate_hz(x, fs, min_hz=gamma_rate_floor_hz()), 40.0)
+    assert result["result"] == "fail", result
+    assert abs(result["measured"] - MOVE_HZ) < calibration_hz(), result
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_min_hz_none_or_below_the_main_lobe_leaves_the_tool_unchanged(fs):
+    mod = freq()
+    for x in (am_tone(fs, AM_CARRIER_HZ, 6.0, "sawtooth"), gamma_am_tone(fs, 40.0, 0.25)):
+        default = mod.rate_hz(x, fs)
+        assert mod.rate_hz(x, fs, min_hz=None) == default
+        assert mod.rate_hz(x, fs, min_hz=0.0) == default
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_min_hz_skips_a_stronger_line_below_it(fs):
+    # A theta-rate AM tone read from the gamma-rate floor up does not report
+    # the 6 Hz line.
+    mod = freq()
+    x = am_tone(fs, AM_CARRIER_HZ, THETA_RATE_HZ, "sine")
+    assert abs(mod.rate_hz(x, fs) - THETA_RATE_HZ) < calibration_hz()
+    got = mod.rate_hz(x, fs, min_hz=gamma_rate_floor_hz())
+    assert abs(got - THETA_RATE_HZ) > 1.0, got

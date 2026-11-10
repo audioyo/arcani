@@ -91,6 +91,9 @@ Why one swell for every shape: a swell copied from the theta envelope would put 
 
 ## Implementation Notes
 
+- 2026-11-10: Signal spec Coupling section with four vector tables (coupling phase, swell, swell fixtures, swell samples; 24 in all) from `tools/signal_spec_vectors.py`, commit 28ba75d. `tests/cpp/SpecTables.cmake` generates `kCouplingPhases`, `kSwells`, `kSwellSamples`. Compile rule limits chosen by the build agent: AD-5 `theta_reference present with am_depth_percent > 0`; missing phase value `absent`, limit `present with coupling smooth_swell`; stray phase limit `absent with coupling uncoupled`. The frequency tool gains `rate_hz(..., min_hz=None)`, since a coupled gamma envelope has a theta-rate swell line as strong as its gamma-rate line.
+- Red state of the tests-only commit (fresh-context QA agent), on the dev PC: `uv run pytest`: 409 failed, 1724 passed, 2 skipped. Failures by file: `test_coupling_timing_tool.py` 232 (no tool), `test_coupling_reference.py` 134 (no reference swell, fixtures, or engine coupling), `test_frequency_tool.py` 22 (no `min_hz`), `test_recipe_schema.py` 8, `test_probe_swell.py` 6, `test_recipe_hash.py` 5, `test_hash_compare.py` 1 (new component list), `test_gamma_reference.py` 1 (`COUPLINGS` contract). ctest: `arcani_tests` 35 of 246 Catch2 cases fail, the build compiles, the other three ctest entries pass.
+
 ## Spec Change Log
 
 ## Review Triage Log

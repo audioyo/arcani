@@ -65,6 +65,14 @@
 // required, LoudnessRelevant), between the theta_reference rows and the
 // binaural rows. The gamma members are read through templates, so the suite
 // builds before they exist and the missing pieces fail as test cases.
+//
+// Story 2.3 (gamma PAC layer, coupled smooth swell), recipe/recipe.hpp:
+//   enum class GammaCoupling { Uncoupled, SmoothSwell };
+//   inline constexpr std::string_view kGammaCouplingEnum = "uncoupled, smooth_swell";
+//   GammaPac gains std::optional<double> coupling_phase_deg;  // absent when the field is
+// Field table: /gamma_pac/coupling_phase_deg (Number, LoudnessRelevant, not
+// required, range row coupling-phase, scale 1) right after /gamma_pac/coupling.
+// Phase text is rule "type" at /gamma_pac/coupling_phase_deg.
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -89,6 +97,7 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <string>
@@ -486,9 +495,11 @@ TEST_CASE("engine parse names text outside the gamma enums", "[recipe][gamma]") 
   const Case cases[] = {
       {"square", "uncoupled", "/gamma_pac/carrier_wave", "square", "sine, triangle, softened_square"},
       {"Sine", "uncoupled", "/gamma_pac/carrier_wave", "Sine", "sine, triangle, softened_square"},
-      {"sine", "swell", "/gamma_pac/coupling", "swell", "uncoupled"},
-      {"sine", "smooth_swell", "/gamma_pac/coupling", "smooth_swell", "uncoupled"},
-      {"sine", "", "/gamma_pac/coupling", "", "uncoupled"},
+      // Story 2.3: smooth_swell joins the coupling enum.
+      {"sine", "swell", "/gamma_pac/coupling", "swell", "uncoupled, smooth_swell"},
+      {"sine", "bursts", "/gamma_pac/coupling", "bursts", "uncoupled, smooth_swell"},
+      {"sine", "Smooth_swell", "/gamma_pac/coupling", "Smooth_swell", "uncoupled, smooth_swell"},
+      {"sine", "", "/gamma_pac/coupling", "", "uncoupled, smooth_swell"},
   };
   for (const auto& c : cases) {
     INFO(c.wave << " / " << c.coupling);
@@ -501,6 +512,89 @@ TEST_CASE("engine parse names text outside the gamma enums", "[recipe][gamma]") 
   }
 }
 
+// ------------------------------------------ coupled smooth swell (Story 2.3)
+
+namespace {
+
+// gamma_text with an optional coupling_phase_deg member written as given.
+std::string swell_text(const std::string& coupling, const std::string& phase) {
+  std::string t = gamma_text("sine", coupling);
+  if (!phase.empty()) {
+    const auto at = t.rfind("}}");
+    t.insert(at, ", \"coupling_phase_deg\": " + phase);
+  }
+  return t;
+}
+
+template <class E>
+concept HasSmoothSwell = requires { E::SmoothSwell; };
+
+template <class G>
+concept HasCouplingPhase = requires(const G& g) {
+  { g.coupling_phase_deg.has_value() } -> std::convertible_to<bool>;
+  { *g.coupling_phase_deg } -> std::convertible_to<double>;
+};
+
+template <class R>
+void check_swell(const R& rec, bool smooth, std::optional<double> phase) {
+  REQUIRE(rec.gamma_pac.has_value());
+  const auto& g = *rec.gamma_pac;
+  using Coupling = std::remove_cvref_t<decltype(g.coupling)>;
+  if constexpr (HasSmoothSwell<Coupling>) {
+    CHECK(g.coupling == (smooth ? Coupling::SmoothSwell : Coupling::Uncoupled));
+  } else {
+    FAIL("not implemented: recipe::GammaCoupling has no SmoothSwell (Story 2.3)");
+  }
+  using Gamma = std::remove_cvref_t<decltype(g)>;
+  if constexpr (HasCouplingPhase<Gamma>) {
+    REQUIRE(g.coupling_phase_deg.has_value() == phase.has_value());
+    if (phase.has_value()) {
+      CHECK(*g.coupling_phase_deg == *phase);
+    }
+  } else {
+    FAIL("not implemented: recipe::GammaPac has no std::optional<double> coupling_phase_deg (Story 2.3)");
+  }
+}
+
+}  // namespace
+
+TEST_CASE("the coupling enum constant names both couplings in schema order", "[recipe][gamma][coupling]") {
+  CHECK(recipe::kGammaCouplingEnum == "uncoupled, smooth_swell");
+}
+
+TEST_CASE("engine parse stage fills the coupling and the coupling phase", "[recipe][gamma][coupling]") {
+  struct Case {
+    std::string coupling, phase;
+    bool smooth;
+    std::optional<double> want;
+  };
+  // Compile, not parse, rejects smooth_swell without a phase and uncoupled
+  // with one (tests/cpp/test_validate.cpp), so parse accepts all four.
+  const Case cases[] = {
+      {"smooth_swell", "90", true, 90.0},       {"smooth_swell", "0", true, 0.0},
+      {"smooth_swell", "360", true, 360.0},     {"smooth_swell", "359.99", true, 359.99},
+      {"smooth_swell", "", true, std::nullopt}, {"uncoupled", "", false, std::nullopt},
+      {"uncoupled", "90", false, 90.0},
+  };
+  for (const auto& c : cases) {
+    INFO(c.coupling << " / '" << c.phase << "'");
+    const auto r = recipe::parse(swell_text(c.coupling, c.phase));
+    INFO(r.error.rule << " " << r.error.parameter << " " << r.error.value);
+    REQUIRE(r.recipe.has_value());
+    check_swell(*r.recipe, c.smooth, c.want);
+  }
+}
+
+TEST_CASE("engine parse names coupling phase text a type fault", "[recipe][gamma][coupling]") {
+  for (const char* phase : {"\"90\"", "true", "null"}) {
+    INFO(phase);
+    const auto r = recipe::parse(swell_text("smooth_swell", phase));
+    REQUIRE_FALSE(r.recipe.has_value());
+    CHECK(r.error.rule == "type");
+    CHECK(r.error.parameter == "/gamma_pac/coupling_phase_deg");
+  }
+}
+
 TEST_CASE("field table orders the gamma rows between theta and binaural", "[recipe][gamma][schema]") {
   std::vector<std::string> paths;
   for (const auto& f : recipe::fields()) {
@@ -508,7 +602,8 @@ TEST_CASE("field table orders the gamma rows between theta and binaural", "[reci
   }
   const std::vector<std::string> gamma = {"/gamma_pac", "/gamma_pac/carrier_hz", "/gamma_pac/rate_hz",
                                           "/gamma_pac/am_depth_percent", "/gamma_pac/carrier_wave",
-                                          "/gamma_pac/coupling"};
+                                          "/gamma_pac/coupling",
+                                          "/gamma_pac/coupling_phase_deg"};  // Story 2.3
   const auto at = std::find(paths.begin(), paths.end(), gamma.front());
   REQUIRE(at != paths.end());
   const auto start = static_cast<std::size_t>(at - paths.begin());
@@ -530,6 +625,9 @@ TEST_CASE("field table orders the gamma rows between theta and binaural", "[reci
     if (path == "/gamma_pac") {
       CHECK(f.type == recipe::FieldType::Object);
       CHECK_FALSE(f.required);
+    } else if (path == "/gamma_pac/coupling_phase_deg") {
+      CHECK(f.type == recipe::FieldType::Number);
+      CHECK_FALSE(f.required);  // Story 2.3: optional, compile rules decide
     } else {
       CHECK(f.required);
       const bool text = path == "/gamma_pac/carrier_wave" || path == "/gamma_pac/coupling";
@@ -618,6 +716,7 @@ const std::map<std::string, std::pair<std::string, double>> kExpectedRegistratio
     {"/gamma_pac/carrier_hz", {"gamma-carrier", 1.0}},             // Story 2.2
     {"/gamma_pac/rate_hz", {"gamma-rate", 1.0}},                   // Story 2.2
     {"/gamma_pac/am_depth_percent", {"coupling-depth", 1.0}},      // Story 2.2
+    {"/gamma_pac/coupling_phase_deg", {"coupling-phase", 1.0}},    // Story 2.3
     {"/binaural/carrier_left_hz", {"binaural-carrier", 1.0}},
     {"/binaural/beat_rate_hz", {"beat-rate", 1.0}},
 };

@@ -73,6 +73,32 @@
 // ">= 240 Hz (4 x 60 Hz, row carrier-rule)". Compile order after the ranges:
 // theta carrier rule, theta custom shape, gamma carrier rule, carrier wave
 // rule, then final.required.
+//
+// Story 2.3 (gamma PAC layer, coupled smooth swell): the coupling enum is
+// ["uncoupled", "smooth_swell"] (enum limit "uncoupled, smooth_swell"), and
+// gamma_pac gains the optional coupling_phase_deg (range row coupling-phase,
+// 0 to 360 degrees inclusive, unit degrees) right after coupling in the
+// field table. Phase text is a schema fault (rule "type"). Compile order
+// after the carrier wave rule, first failure wins, all before
+// final.required:
+//   1. smooth_swell with gamma am_depth_percent > 0 and no theta_reference,
+//      or theta am_depth_percent 0: parameter /gamma_pac/coupling, value
+//      smooth_swell, rule validate::kCoupledNeedsThetaRule ("coupled gamma
+//      needs a theta reference with AM depth"), limit
+//      validate::kCoupledNeedsThetaLimit ("theta_reference present with
+//      am_depth_percent > 0"). Gamma depth 0 passes, theta or not.
+//   2. smooth_swell without coupling_phase_deg: parameter
+//      /gamma_pac/coupling_phase_deg, value "absent", rule
+//      validate::kCoupledNeedsPhaseRule ("coupled gamma needs a coupling
+//      phase"), limit validate::kCoupledNeedsPhaseLimit ("present with
+//      coupling smooth_swell").
+//   3. uncoupled with coupling_phase_deg: parameter
+//      /gamma_pac/coupling_phase_deg, value the shortest round-trip text,
+//      rule validate::kPhaseNeedsCoupledRule ("coupling phase needs coupled
+//      gamma"), limit validate::kPhaseNeedsCoupledLimit ("absent with
+//      coupling uncoupled").
+// The constants are read through a lookup probe (a global fallback the real
+// declaration hides), so the suite builds before they exist.
 
 #include <arcani/arcani.h>
 
@@ -98,10 +124,32 @@
 #include <string_view>
 #include <vector>
 
+// Story 2.3 lookup probe. Inside arcani::validate_probe the using-directive
+// makes the names of arcani::validate visible as members of arcani, which
+// unqualified lookup reaches before these global fallbacks: a real constant
+// hides its fallback, and a missing one reads as "(missing)".
+inline constexpr std::string_view kCoupledNeedsThetaRule = "(missing)";
+inline constexpr std::string_view kCoupledNeedsThetaLimit = "(missing)";
+inline constexpr std::string_view kCoupledNeedsPhaseRule = "(missing)";
+inline constexpr std::string_view kCoupledNeedsPhaseLimit = "(missing)";
+inline constexpr std::string_view kPhaseNeedsCoupledRule = "(missing)";
+inline constexpr std::string_view kPhaseNeedsCoupledLimit = "(missing)";
+
+namespace arcani::validate_probe {
+using namespace arcani::validate;
+inline const std::string coupled_needs_theta_rule(kCoupledNeedsThetaRule);
+inline const std::string coupled_needs_theta_limit(kCoupledNeedsThetaLimit);
+inline const std::string coupled_needs_phase_rule(kCoupledNeedsPhaseRule);
+inline const std::string coupled_needs_phase_limit(kCoupledNeedsPhaseLimit);
+inline const std::string phase_needs_coupled_rule(kPhaseNeedsCoupledRule);
+inline const std::string phase_needs_coupled_limit(kPhaseNeedsCoupledLimit);
+}  // namespace arcani::validate_probe
+
 namespace api = arcani::test::api;
 namespace recipe = arcani::recipe;
 namespace tables = arcani::test::tables;
 namespace validate = arcani::validate;
+namespace vprobe = arcani::validate_probe;
 
 namespace {
 
@@ -211,6 +259,9 @@ struct Values {
   std::string gamma_am_depth_percent = "25";
   std::string gamma_carrier_wave = "\"sine\"";
   std::string gamma_coupling = "\"uncoupled\"";
+  // Story 2.3. Empty omits coupling_phase_deg (the default, so every earlier
+  // case keeps its recipe); written as given.
+  std::string gamma_coupling_phase_deg;
   bool theta = true;
   bool gamma = false;
   bool binaural = true;
@@ -261,6 +312,7 @@ std::string make_recipe(const Values& v) {
     add("am_depth_percent", v.gamma_am_depth_percent);
     add("carrier_wave", v.gamma_carrier_wave);
     add("coupling", v.gamma_coupling);
+    add("coupling_phase_deg", v.gamma_coupling_phase_deg);
     s += ",\n  \"gamma_pac\": {" + body + "\n  }";
   }
   if (v.binaural) {
@@ -321,8 +373,9 @@ double above(double x) { return std::nextafter(x, std::numeric_limits<double>::i
 TEST_CASE("engine range table equals ranges.tsv row for row", "[validate][ranges]") {
   const auto expected_ids = ids_named_by_fields();
   // Story 2.1 adds theta-rate and theta-depth; Story 2.2 adds gamma-carrier,
-  // gamma-rate, and coupling-depth.
-  REQUIRE(expected_ids.size() == 11);
+  // gamma-rate, and coupling-depth; Story 2.3 adds coupling-phase.
+  REQUIRE(expected_ids.size() == 12);
+  CHECK(expected_ids.count("coupling-phase") == 1);
   CHECK(expected_ids.count("theta-rate") == 1);
   CHECK(expected_ids.count("theta-depth") == 1);
   CHECK(expected_ids.count("gamma-carrier") == 1);
@@ -1053,10 +1106,11 @@ TEST_CASE("gamma: carrier wave and coupling text outside the schema enum is a sc
     v.gamma_carrier_wave = std::string("\"") + text + "\"";
     expect_rejected(v, {"/gamma_pac/carrier_wave", text, "enum", "sine, triangle, softened_square"});
   }
-  for (const char* text : {"swell", "smooth_swell", "bursts", "Uncoupled", ""}) {
+  // Story 2.3: smooth_swell joins the enum; bursts arrives in Story 2.4.
+  for (const char* text : {"swell", "smooth-swell", "Smooth_swell", "bursts", "Uncoupled", ""}) {
     Values v = with_gamma();
     v.gamma_coupling = std::string("\"") + text + "\"";
-    expect_rejected(v, {"/gamma_pac/coupling", text, "enum", "uncoupled"});
+    expect_rejected(v, {"/gamma_pac/coupling", text, "enum", "uncoupled, smooth_swell"});
   }
   for (const bool wave : {true, false}) {
     Values v = with_gamma();
@@ -1205,6 +1259,335 @@ TEST_CASE("gamma: the carrier rule names the gamma parameter when checked direct
   CHECK(bad->rule == "carrier_rule");
   CHECK(bad->limit == ">= 240 Hz (4 x 60 Hz, row carrier-rule)");
   CHECK_FALSE(validate::check_carrier_rule("/gamma_pac/carrier_hz", 240.0, 60.0, 60.0).has_value());
+}
+
+// ------------------------------------------- coupled smooth swell (Story 2.3)
+
+namespace {
+
+const char* const kNeedsTheta = "coupled gamma needs a theta reference with AM depth";
+const char* const kNeedsThetaLimit = "theta_reference present with am_depth_percent > 0";
+const char* const kNeedsPhase = "coupled gamma needs a coupling phase";
+const char* const kNeedsPhaseLimit = "present with coupling smooth_swell";
+const char* const kPhaseNeedsCoupled = "coupling phase needs coupled gamma";
+const char* const kPhaseNeedsCoupledLimitText = "absent with coupling uncoupled";
+
+// The base theta recipe (300 Hz carrier amplitude-modulated at 6 Hz by the
+// sine envelope, 75 percent AM depth) with a 250 Hz sine gamma carrier
+// amplitude-modulated at 40 Hz, 25 percent AM depth, coupled smooth swell
+// peaking at 90 degrees, and the binaural layer.
+Values with_swell(const std::string& phase = "90") {
+  Values v = with_gamma();
+  v.gamma_coupling = "\"smooth_swell\"";
+  v.gamma_coupling_phase_deg = phase;
+  return v;
+}
+
+const Want kWantNeedsTheta{"/gamma_pac/coupling", "smooth_swell", kNeedsTheta, kNeedsThetaLimit};
+const Want kWantNeedsPhase{"/gamma_pac/coupling_phase_deg", "absent", kNeedsPhase, kNeedsPhaseLimit};
+
+}  // namespace
+
+TEST_CASE("coupling: the rule and limit constants hold the spec text", "[validate][coupling]") {
+  CHECK(vprobe::coupled_needs_theta_rule == kNeedsTheta);
+  CHECK(vprobe::coupled_needs_theta_limit == kNeedsThetaLimit);
+  CHECK(vprobe::coupled_needs_phase_rule == kNeedsPhase);
+  CHECK(vprobe::coupled_needs_phase_limit == kNeedsPhaseLimit);
+  CHECK(vprobe::phase_needs_coupled_rule == kPhaseNeedsCoupled);
+  CHECK(vprobe::phase_needs_coupled_limit == kPhaseNeedsCoupledLimitText);
+}
+
+TEST_CASE("coupling: the engine range table names coupling-phase in degrees", "[validate][coupling]") {
+  const auto& r = tables::row("coupling-phase");
+  CHECK(r.kind == "ranges");
+  CHECK(r.unit == "degrees");
+  bool found = false;
+  for (const auto& e : validate::range_rows()) {
+    if (e.id != "coupling-phase") {
+      continue;
+    }
+    found = true;
+    CHECK(e.min == r.min);
+    CHECK(e.max == r.max);
+    CHECK_FALSE(e.max_exclusive);
+    CHECK(std::string(e.unit) == "degrees");
+  }
+  CHECK(found);
+}
+
+TEST_CASE("coupling: a smooth swell recipe compiles in both modes at both rates", "[validate][coupling]") {
+  for (const bool binaural : {true, false}) {
+    Values v = with_swell();
+    v.binaural = binaural;
+    const std::string text = make_recipe(v);
+    for (const arc_mode mode : kModes) {
+      for (const std::uint32_t fs : {44100u, 48000u}) {
+        INFO("binaural " << binaural << ", mode " << mode << ", fs " << fs);
+        CHECK(api::compile_ok(text, api::options(mode, fs)) != nullptr);
+      }
+    }
+  }
+}
+
+TEST_CASE("coupling: phase edges 0, 359.99, and 360 compile", "[validate][coupling]") {
+  const auto& r = tables::row("coupling-phase");
+  require_text_is("0", r.min);
+  require_text_is("360", r.max);
+  for (const char* phase : {"0", "359.99", "360", "359.99999999999994", "0.01", "180"}) {
+    INFO("coupling phase " << phase);
+    expect_plan(with_swell(phase));
+  }
+  require_text_is("359.99999999999994", below(360.0));
+}
+
+TEST_CASE("coupling: just outside a phase edge is rejected with its row", "[validate][coupling]") {
+  require_text_is("360.00000000000006", above(360.0));
+  require_text_is("-5e-324", below(0.0));
+  const Want cases[] = {
+      {"/gamma_pac/coupling_phase_deg", "-0.01", "range.min", ">= 0 degrees (row coupling-phase)"},
+      {"/gamma_pac/coupling_phase_deg", "-5e-324", "range.min", ">= 0 degrees (row coupling-phase)"},
+      {"/gamma_pac/coupling_phase_deg", "360.01", "range.max", "<= 360 degrees (row coupling-phase)"},
+      {"/gamma_pac/coupling_phase_deg", "360.00000000000006", "range.max",
+       "<= 360 degrees (row coupling-phase)"},
+      {"/gamma_pac/coupling_phase_deg", "720", "range.max", "<= 360 degrees (row coupling-phase)"},
+  };
+  for (const auto& c : cases) {
+    expect_rejected(with_swell(c.value), c);
+    // The range check is the same with coupling uncoupled: it comes first.
+    Values u = with_gamma();
+    u.gamma_coupling_phase_deg = c.value;
+    expect_rejected(u, c);
+  }
+}
+
+TEST_CASE("coupling: phase text is a schema fault", "[validate][coupling]") {
+  for (const char* text : {"\"90\"", "true", "null", "[90]"}) {
+    INFO(text);
+    const api::Compiled c = api::compile(make_recipe(with_swell(text)), api::options(ARC_MODE_MEASURE, 48000));
+    INFO(api::describe(c.error));
+    REQUIRE(api::all_written(c.error));
+    CHECK(c.status == ARC_ERR_REJECTED);
+    CHECK(c.plan == nullptr);
+    CHECK(std::string(c.error.parameter) == "/gamma_pac/coupling_phase_deg");
+    CHECK(std::string(c.error.rule) == "type");
+  }
+}
+
+TEST_CASE("coupling: AD-5, coupled gamma needs a theta reference with AM depth",
+          "[validate][coupling][ad5]") {
+  {
+    Values v = with_swell();  // no theta reference
+    v.theta = false;
+    expect_rejected(v, kWantNeedsTheta);
+  }
+  {
+    Values v = with_swell();  // theta AM depth 0
+    v.theta_am_depth_percent = "0";
+    expect_rejected(v, kWantNeedsTheta);
+  }
+  for (const char* depth : {"100", "0.01", "5e-324"}) {
+    Values v = with_swell();  // any gamma depth above 0
+    v.theta = false;
+    v.gamma_am_depth_percent = depth;
+    expect_rejected(v, kWantNeedsTheta);
+  }
+  {
+    Values v = with_swell();  // the smallest theta depth above 0 passes
+    v.theta_am_depth_percent = "5e-324";
+    expect_plan(v);
+  }
+  {
+    Values v = with_swell();  // gamma depth 0 without a theta reference passes
+    v.theta = false;
+    v.gamma_am_depth_percent = "0";
+    expect_plan(v);
+  }
+  {
+    Values v = with_swell();  // gamma depth 0 with theta depth 0 passes
+    v.theta_am_depth_percent = "0";
+    v.gamma_am_depth_percent = "0";
+    expect_plan(v);
+  }
+  {
+    Values v = with_gamma();  // uncoupled gamma without theta, as in Story 2.2
+    v.theta = false;
+    expect_plan(v);
+  }
+  {
+    // No plan at either sample rate.
+    Values v = with_swell();
+    v.theta = false;
+    for (const std::uint32_t fs : {44100u, 48000u}) {
+      const api::Compiled c = api::compile(make_recipe(v), api::options(ARC_MODE_MEASURE, fs));
+      CHECK(c.status == ARC_ERR_REJECTED);
+      CHECK(c.plan == nullptr);
+    }
+  }
+}
+
+TEST_CASE("coupling: smooth swell needs a coupling phase, uncoupled must not have one",
+          "[validate][coupling]") {
+  {
+    Values v = with_swell("");
+    expect_rejected(v, kWantNeedsPhase);
+  }
+  {
+    Values v = with_swell("");  // gamma depth 0 still needs the phase
+    v.gamma_am_depth_percent = "0";
+    v.theta = false;
+    expect_rejected(v, kWantNeedsPhase);
+  }
+  struct Case {
+    const char* text;
+    const char* value;
+  };
+  const Case cases[] = {{"90", "90"}, {"0", "0"}, {"360", "360"}, {"90.0", "90"}, {"359.99", "359.99"}};
+  for (const auto& c : cases) {
+    Values v = with_gamma();
+    v.gamma_coupling_phase_deg = c.text;
+    expect_rejected(v, {"/gamma_pac/coupling_phase_deg", c.value, kPhaseNeedsCoupled,
+                        kPhaseNeedsCoupledLimitText});
+  }
+}
+
+TEST_CASE("coupling: the schema-valid compile-rejected swell fixtures name their rule",
+          "[validate][coupling]") {
+  struct Case {
+    const char* name;
+    Want want;
+  };
+  const Case cases[] = {
+      {"swell-no-theta.json", kWantNeedsTheta},
+      {"swell-theta-depth-0.json", kWantNeedsTheta},
+      {"swell-no-coupling-phase.json", kWantNeedsPhase},
+      {"uncoupled-with-coupling-phase.json",
+       {"/gamma_pac/coupling_phase_deg", "90", kPhaseNeedsCoupled, kPhaseNeedsCoupledLimitText}},
+  };
+  for (const auto& c : cases) {
+    const std::string text = api::valid(c.name);
+    for (const arc_mode mode : kModes) {
+      for (const std::uint32_t fs : {44100u, 48000u}) {
+        INFO(c.name << ", mode " << mode << ", fs " << fs);
+        const api::Compiled r = api::compile(text, api::options(mode, fs));
+        INFO(api::describe(r.error));
+        CHECK(r.status == ARC_ERR_REJECTED);
+        CHECK(r.plan == nullptr);
+        REQUIRE(api::all_written(r.error));
+        CHECK(std::string(r.error.parameter) == c.want.parameter);
+        CHECK(std::string(r.error.value) == c.want.value);
+        CHECK(std::string(r.error.rule) == c.want.rule);
+        CHECK(std::string(r.error.limit) == c.want.limit);
+      }
+    }
+  }
+}
+
+TEST_CASE("coupling: every accepted swell fixture compiles at both rates", "[validate][coupling]") {
+  for (const char* name : {"swell-sine-0deg-100pct.json", "swell-sawtooth-90deg-25pct.json",
+                           "swell-smoothed-on-off-180deg-100pct.json",
+                           "swell-reverse-saw-270deg-25pct.json", "swell-gamma-depth-0-no-theta.json"}) {
+    for (const std::uint32_t fs : {44100u, 48000u}) {
+      INFO(name << ", fs " << fs);
+      CHECK(api::compile_ok(api::valid(name), api::options(ARC_MODE_MEASURE, fs)) != nullptr);
+    }
+  }
+}
+
+TEST_CASE("coupling: check order, ranges then the theta and gamma rules then the coupling rules",
+          "[validate][coupling][order]") {
+  {
+    Values v = with_swell("361");  // a phase range fault wins over AD-5
+    v.theta = false;
+    expect_rejected(v, {"/gamma_pac/coupling_phase_deg", "361", "range.max",
+                        "<= 360 degrees (row coupling-phase)"});
+  }
+  {
+    Values v = with_swell("");  // a gamma depth range fault wins over the phase rule
+    v.gamma_am_depth_percent = "101";
+    expect_rejected(v, {"/gamma_pac/am_depth_percent", "101", "range.max",
+                        "<= 100 percent (row coupling-depth)"});
+  }
+  {
+    Values v = with_swell("-1");  // the phase is checked after the gamma depth, before binaural
+    v.gamma_am_depth_percent = "101";
+    v.beat_rate_hz = "30";
+    expect_rejected(v, {"/gamma_pac/am_depth_percent", "101", "range.max",
+                        "<= 100 percent (row coupling-depth)"});
+  }
+  {
+    Values v = with_swell("-1");
+    v.beat_rate_hz = "30";
+    expect_rejected(v, {"/gamma_pac/coupling_phase_deg", "-1", "range.min",
+                        ">= 0 degrees (row coupling-phase)"});
+  }
+  {
+    Values v = with_swell();  // a binaural range fault wins over AD-5
+    v.theta = false;
+    v.beat_rate_hz = "30";
+    expect_rejected(v, {"/binaural/beat_rate_hz", "30", "range.max", "< 30 Hz (row beat-rate)"});
+  }
+  {
+    Values v = with_swell();  // the theta shape rule wins over AD-5 (theta depth 0)
+    v.theta_shape = "\"custom\"";
+    v.theta_am_depth_percent = "0";
+    expect_rejected(v, {"/theta_reference/shape", "custom", "shape not modeled in the signal spec",
+                        "sine, smoothed_on_off, sawtooth, reverse_saw"});
+  }
+  {
+    Values v = with_swell();  // the gamma carrier rule wins over AD-5
+    v.theta = false;
+    v.gamma_carrier_hz = "200";
+    v.gamma_rate_hz = "60";
+    expect_rejected(v, {"/gamma_pac/carrier_hz", "200", "carrier_rule",
+                        ">= 240 Hz (4 x 60 Hz, row carrier-rule)"});
+  }
+  {
+    Values v = with_swell("");  // the carrier wave rule wins over AD-5 and the phase rule
+    v.theta = false;
+    v.gamma_carrier_wave = "\"triangle\"";
+    expect_rejected(v, {"/gamma_pac/carrier_wave", "triangle", kNonSine, "sine"});
+  }
+  {
+    Values v = with_gamma();  // the carrier wave rule wins over the phase-needs-coupled rule
+    v.gamma_coupling_phase_deg = "90";
+    v.gamma_carrier_wave = "\"softened_square\"";
+    expect_rejected(v, {"/gamma_pac/carrier_wave", "softened_square", kNonSine, "sine"});
+  }
+  {
+    Values v = with_swell("");  // AD-5 wins over the phase rule
+    v.theta = false;
+    expect_rejected(v, kWantNeedsTheta);
+  }
+  {
+    Values v = with_swell("");
+    v.theta_am_depth_percent = "0";
+    expect_rejected(v, kWantNeedsTheta);
+  }
+  {
+    // Each coupling rule comes before final.required.
+    Values a = with_swell();
+    a.gain = false;
+    a.theta = false;
+    expect_rejected(a, kWantNeedsTheta, {ARC_MODE_FINAL});
+    Values b = with_swell("");
+    b.gain = false;
+    expect_rejected(b, kWantNeedsPhase, {ARC_MODE_FINAL});
+    Values c = with_gamma();
+    c.gain = false;
+    c.gamma_coupling_phase_deg = "90";
+    expect_rejected(c, {"/gamma_pac/coupling_phase_deg", "90", kPhaseNeedsCoupled,
+                        kPhaseNeedsCoupledLimitText},
+                    {ARC_MODE_FINAL});
+  }
+  {
+    // A valid swell recipe without the gain: final.required, as before.
+    Values v = with_swell();
+    v.gain = false;
+    const api::Compiled c = api::compile(make_recipe(v), api::options(ARC_MODE_FINAL, 48000));
+    REQUIRE(api::all_written(c.error));
+    CHECK(c.status == ARC_ERR_REJECTED);
+    CHECK(std::string(c.error.rule) == "final.required");
+  }
 }
 
 // ------------------------------------------------------------ part 3
