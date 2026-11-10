@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-10",
+  "rationale": "Smooth swell fixture (Story 2.3), schema-valid and rejected at compile: coupled gamma with AM depth above 0 needs a theta reference with AM depth, and this recipe has none. Gamma PAC layer: 250 Hz sine carrier amplitude-modulated at 40 Hz, its AM depth a smooth swell peaking at 100 percent at the 0 degree coupling phase of the theta reference. 5 s. Values are placeholders, not starter defaults. A test fixture, not for listening.",
+  "length_s": 5,
+  "loudness_target_lufs": -36,
+  "gamma_pac": {
+    "carrier_hz": 250,
+    "rate_hz": 40,
+    "am_depth_percent": 100,
+    "carrier_wave": "sine",
+    "coupling": "smooth_swell",
+    "coupling_phase_deg": 0
+  }
+}

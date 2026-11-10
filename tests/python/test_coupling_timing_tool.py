@@ -257,7 +257,15 @@ def test_swell_curve_has_no_delay(fs, depth):
     a = curve[k:-k] - np.mean(curve[k:-k])
     b = s[k:-k] - np.mean(s[k:-k])
     lags = range(-64, 65)
-    corr = [float(np.dot(a[64:-64], b[64 + lag:b.size - 64 + lag])) for lag in lags]
+    # Normalized per lag: an unnormalized dot product over a truncated window
+    # leans toward a neighbouring lag even for an undelayed copy, while the
+    # normalized one is largest at lag 0 for an undelayed curve
+    # (Cauchy-Schwarz).
+    def ncorr(lag):
+        x, y = a[64:-64], b[64 + lag:b.size - 64 + lag]
+        return float(np.dot(x, y)) / math.sqrt(float(np.dot(x, x)) * float(np.dot(y, y)))
+
+    corr = [ncorr(lag) for lag in lags]
     assert list(lags)[int(np.argmax(corr))] == 0, "the swell curve is delayed"
     # The swell curve rises where the AM depth is largest: it follows s.
     assert corr[64] > 0.0

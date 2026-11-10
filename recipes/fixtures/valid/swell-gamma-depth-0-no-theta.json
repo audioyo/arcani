@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-10",
+  "rationale": "Smooth swell fixture (Story 2.3), accepted at compile: gamma AM depth 0 and no theta reference, so the swell scales nothing and the gamma layer is an unmodulated 250 Hz sine. Gamma PAC layer: 250 Hz sine carrier, 40 Hz AM rate, 0 percent AM depth, smooth swell at a 90 degree coupling phase; 5 s. Values are placeholders, not starter defaults. A test fixture, not for listening.",
+  "length_s": 5,
+  "loudness_target_lufs": -36,
+  "gamma_pac": {
+    "carrier_hz": 250,
+    "rate_hz": 40,
+    "am_depth_percent": 0,
+    "carrier_wave": "sine",
+    "coupling": "smooth_swell",
+    "coupling_phase_deg": 90
+  }
+}

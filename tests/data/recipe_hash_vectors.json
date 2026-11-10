@@ -28,6 +28,14 @@
   "stub-chain-1s-beat-6.json": "f34be932b713eb2cd2a90e107b73a0117e35cf219e5d0377d2c2a583c6c2839a",
   "stub-chain-1s-no-gain.json": "787c57a25880f925c4212b5563e54e37dd89349ed1ed31ee7944ee1f7c48ed34",
   "stub-chain-1s-no-layers.json": "0024c63ea1c830ffa3f0258e30313d06bda81c94c2fedecb940df540a3a0ed84",
+  "swell-gamma-depth-0-no-theta.json": "d875fe2b9be84f6a4ce6cdb5c0450717709fdb41e408d4ce4881cbfea0102f16",
+  "swell-no-coupling-phase.json": "55c90eeeb9548726b07354c7af00ea2cbc881e3d1ad1b629182deccad13ececd",
+  "swell-no-theta.json": "f4fdd603b9f4dddf7a8e42ec23c57593b5fbc95bf4452e86d1574fcf45581c63",
+  "swell-reverse-saw-270deg-25pct.json": "a7c33b1574fe982899309666894918708894aebae052cc88cec3a9e727f18325",
+  "swell-sawtooth-90deg-25pct.json": "3a235720b849e6ff111eb6a3d23e8ec6027b6f10eabb295c18704a6d047b4e6f",
+  "swell-sine-0deg-100pct.json": "0be4174c011e80bff161296afc12759a05b26f6725d7126aa47b61c9c963df91",
+  "swell-smoothed-on-off-180deg-100pct.json": "248bd86b8e7b78307b12b06eaa875b5a6379afccc38fa4ccec306b902a21bb0e",
+  "swell-theta-depth-0.json": "a6240d4583bbae5df54154a9cfa2ee1f2ac2f53b9c8726b41627ecbb474dc910",
   "theta-gamma-uncoupled.json": "042d959d4c0afac104ae998264c899b61cd4dcd32b5d3d9013c70b0c34afd89e",
   "theta-reference-only.json": "529bf5d376aaecba726bd843aa43a862900bb8981934978928615b14a28dc4f6",
   "theta-reverse-saw-1hz.json": "8630d8d07f9ec36a5b7891764ce463d28e524edd1b20bed9c12823bedb311375",
@@ -37,5 +45,6 @@
   "theta-sine-1hz.json": "65b1b1004cf45ae7c2afbef0f09b1650e3f5ebce83e93da96acf1b3e97ea289d",
   "theta-sine-6hz.json": "04ed6231e6adf1a9d7c142b3db9f1544470dc3ae6a5deaddd2d00317d022b454",
   "theta-smoothed-on-off-1hz.json": "4c33ecfd3af3c7a892246b712608510c80ea5c7fd21f702c99df8959b6c59835",
-  "theta-smoothed-on-off-6hz.json": "befc207155e6ab95968099e6af04978efb45b3e1d12645ddb317416ba1ff4da3"
+  "theta-smoothed-on-off-6hz.json": "befc207155e6ab95968099e6af04978efb45b3e1d12645ddb317416ba1ff4da3",
+  "uncoupled-with-coupling-phase.json": "cfed35885c5aebed8888f976c21fed34aa790c1133e5ce451aa5f894600addc9"
 }

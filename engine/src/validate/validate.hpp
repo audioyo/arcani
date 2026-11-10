@@ -1,5 +1,6 @@
 // Recipe validator (Story 1.3): locked ranges, the carrier rule, (Story 2.1)
-// the theta shape rule, and (Story 2.2) the gamma carrier wave rule.
+// the theta shape rule, (Story 2.2) the gamma carrier wave rule, and (Story
+// 2.3) the coupling rules.
 //
 // check_ranges() runs after parse in both compile modes. It walks the field
 // table in order and checks every present field that names a range row
@@ -59,13 +60,29 @@ std::optional<recipe::Error> check_ranges(const recipe::Recipe& r);
 //    rate_hz;
 // 4. a non-sine gamma carrier: parameter /gamma_pac/carrier_wave, value the
 //    text (triangle or softened_square), rule kNonSineCarrierRule, limit
-//    kModeledGammaCarrierWaves. The signal spec models only the sine carrier.
+//    kModeledGammaCarrierWaves. The signal spec models only the sine carrier;
+// 5. (AD-5, docs/signal-spec.md, Coupling) smooth_swell with gamma
+//    am_depth_percent > 0 and no theta reference, or a theta reference at
+//    am_depth_percent 0: parameter /gamma_pac/coupling, value smooth_swell,
+//    rule kCoupledNeedsThetaRule, limit kCoupledNeedsThetaLimit;
+// 6. smooth_swell without coupling_phase_deg: parameter
+//    /gamma_pac/coupling_phase_deg, value absent, rule kCoupledNeedsPhaseRule,
+//    limit kCoupledNeedsPhaseLimit;
+// 7. uncoupled with coupling_phase_deg: parameter
+//    /gamma_pac/coupling_phase_deg, value the phase, rule
+//    kPhaseNeedsCoupledRule, limit kPhaseNeedsCoupledLimit.
 std::optional<recipe::Error> check_rules(const recipe::Recipe& r);
 
 inline constexpr std::string_view kShapeNotModeledRule = "shape not modeled in the signal spec";
 inline constexpr std::string_view kModeledThetaShapes = "sine, smoothed_on_off, sawtooth, reverse_saw";
 inline constexpr std::string_view kNonSineCarrierRule = "non-sine carrier not modeled";
 inline constexpr std::string_view kModeledGammaCarrierWaves = "sine";
+inline constexpr std::string_view kCoupledNeedsThetaRule = "coupled gamma needs a theta reference with AM depth";
+inline constexpr std::string_view kCoupledNeedsThetaLimit = "theta_reference present with am_depth_percent > 0";
+inline constexpr std::string_view kCoupledNeedsPhaseRule = "coupled gamma needs a coupling phase";
+inline constexpr std::string_view kCoupledNeedsPhaseLimit = "present with coupling smooth_swell";
+inline constexpr std::string_view kPhaseNeedsCoupledRule = "coupling phase needs coupled gamma";
+inline constexpr std::string_view kPhaseNeedsCoupledLimit = "absent with coupling uncoupled";
 
 // Carrier rule: every modulated carrier is at least this many times its
 // modulation rate (threshold row carrier-rule).

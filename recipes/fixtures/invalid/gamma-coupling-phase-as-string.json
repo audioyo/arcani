@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-10",
+  "rationale": "Invalid fixture (Story 2.3): gamma_pac.coupling_phase_deg is a string, not a number (rule type). Values are placeholders.",
+  "length_s": 5,
+  "loudness_target_lufs": -36,
+  "theta_reference": {
+    "carrier_hz": 450,
+    "rate_hz": 6,
+    "am_depth_percent": 75,
+    "shape": "sine"
+  },
+  "gamma_pac": {
+    "carrier_hz": 250,
+    "rate_hz": 40,
+    "am_depth_percent": 100,
+    "carrier_wave": "sine",
+    "coupling": "smooth_swell",
+    "coupling_phase_deg": "90"
+  }
+}

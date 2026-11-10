@@ -672,10 +672,13 @@ TEST_CASE("valid/ means schema-valid: the out-of-range hash fixture is rejected 
   // Every other valid fixture compiles in measure mode. The folder is read,
   // so a new valid/ fixture is covered; an expected rejection must be listed.
   // Story 2.2 adds three schema-valid gamma fixtures that compile rejects by
-  // a named rule (checked one by one in the gamma section below).
+  // a named rule (checked one by one in the gamma section below), and Story
+  // 2.3 four coupling fixtures (AD-5 and the coupling phase rules).
   const std::set<std::string> expected_rejected = {
       "both-layers-loudness-target-changed.json", "gamma-carrier-rule-200hz-60hz.json",
-      "gamma-carrier-wave-triangle.json", "gamma-carrier-wave-softened-square.json"};
+      "gamma-carrier-wave-triangle.json", "gamma-carrier-wave-softened-square.json",
+      "swell-no-theta.json", "swell-theta-depth-0.json", "swell-no-coupling-phase.json",
+      "uncoupled-with-coupling-phase.json"};
   std::set<std::string> rejected_seen;
   std::size_t compiled = 0;
   for (const auto& entry :

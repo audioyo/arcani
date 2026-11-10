@@ -8,7 +8,8 @@
 // stub-chain-48000.f32, stub-chain-blocks-44100.f32,
 // stub-chain-blocks-48000.f32, theta-envelopes-44100.f32,
 // theta-envelopes-48000.f32, gamma-uncoupled-44100.f32,
-// gamma-uncoupled-48000.f32). No hashing here:
+// gamma-uncoupled-48000.f32, gamma-swell-44100.f32, gamma-swell-48000.f32).
+// No hashing here:
 // tools/hash_manifest.py hashes the files on the host.
 //
 // Component probe-arith: a fixed sequence of float32 multiplies and adds whose
@@ -78,6 +79,20 @@
 // the fixtures' values, compiled in measure mode, rendered in one call,
 // interleaved stereo, each binary64 sample converted to float32, one fixture
 // after another. tests/python/test_probe_gamma.py checks each segment against
+// reference/stub_chain.py.
+//
+// Components gamma-swell-44100 and gamma-swell-48000 (Story 2.3): the four
+// committed smooth-swell fixtures (docs/signal-spec.md, Vectors: swell
+// fixtures, in that order: recipes/fixtures/valid/swell-sine-0deg-100pct.json,
+// swell-sawtooth-90deg-25pct, swell-smoothed-on-off-180deg-100pct,
+// swell-reverse-saw-270deg-25pct), each a 250 Hz sine carrier
+// amplitude-modulated at 40 Hz with its AM depth a smooth swell at that
+// coupling phase and peak depth, plus a theta reference (450 Hz carrier
+// amplitude-modulated at 6 Hz by that shape, 75 percent depth), 5 s.
+// Embedded (kSwellFixtures) with the fixtures' values, compiled in measure
+// mode, rendered in one call, interleaved stereo, each binary64 sample
+// converted to float32, one fixture after another.
+// tests/python/test_probe_swell.py checks each segment against
 // reference/stub_chain.py.
 
 #include <arcani/arcani.h>
@@ -223,6 +238,49 @@ std::string gamma_recipe(const GammaFixture& f) {
 })";
 }
 
+// Smooth-swell fixtures in probe order: theta shape, coupling phase, and gamma
+// AM depth (as JSON text).
+struct SwellFixture {
+  const char* shape;
+  const char* phase_deg;
+  const char* depth_percent;
+};
+constexpr SwellFixture kSwellFixtures[] = {
+    {"sine", "0", "100"},
+    {"sawtooth", "90", "25"},
+    {"smoothed_on_off", "180", "100"},
+    {"reverse_saw", "270", "25"},
+};
+
+// The recipe of one smooth-swell fixture, with the fixture file's values.
+std::string swell_recipe(const SwellFixture& f) {
+  return std::string(R"({
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani hash probe",
+  "date": "2026-11-10",
+  "rationale": "Hash probe smooth-swell component (Story 2.3): 250 Hz sine carrier amplitude-modulated at 40 Hz, its AM depth a smooth swell at the coupling phase of a 450 Hz theta reference amplitude-modulated at 6 Hz, 75 percent depth, 5 s.",
+  "length_s": 5,
+  "loudness_target_lufs": -36,
+  "theta_reference": {
+    "carrier_hz": 450,
+    "rate_hz": 6,
+    "am_depth_percent": 75,
+    "shape": ")") +
+         f.shape + R"("
+  },
+  "gamma_pac": {
+    "carrier_hz": 250,
+    "rate_hz": 40,
+    "am_depth_percent": )" + f.depth_percent + R"(,
+    "carrier_wave": "sine",
+    "coupling": "smooth_swell",
+    "coupling_phase_deg": )" + f.phase_deg + R"(
+  }
+})";
+}
+
 // Empty on any API failure (main reports it). With cycle_block_sizes false the
 // whole recipe renders in one call; with it true, in calls cycling through
 // kBlockSizes.
@@ -301,6 +359,19 @@ std::vector<float> probe_gamma(std::uint32_t fs) {
   return out;
 }
 
+// The smooth-swell fixtures in turn; empty if any one fails.
+std::vector<float> probe_swell(std::uint32_t fs) {
+  std::vector<float> out;
+  for (const SwellFixture& f : kSwellFixtures) {
+    const std::vector<float> part = render_recipe(swell_recipe(f), fs, false);
+    if (part.empty()) {
+      return {};
+    }
+    out.insert(out.end(), part.begin(), part.end());
+  }
+  return out;
+}
+
 // Writes samples as little-endian float32 regardless of host byte order.
 bool write_f32(const std::string& path, const std::vector<float>& samples) {
   std::vector<unsigned char> bytes;
@@ -345,6 +416,8 @@ int main(int argc, char** argv) {
       {"theta-envelopes-48000", probe_theta(48000)},
       {"gamma-uncoupled-44100", probe_gamma(44100)},
       {"gamma-uncoupled-48000", probe_gamma(48000)},
+      {"gamma-swell-44100", probe_swell(44100)},
+      {"gamma-swell-48000", probe_swell(48000)},
   };
   for (const Component& c : components) {
     if (c.samples.empty()) {

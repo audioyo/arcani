@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-10",
+  "rationale": "Smooth swell fixture (Story 2.3): 5 s. Theta reference: 450 Hz carrier amplitude-modulated at 6 Hz by the smoothed on-off envelope, 75 percent AM depth. Gamma PAC layer: 250 Hz sine carrier amplitude-modulated at 40 Hz, its AM depth a smooth swell peaking at 100 percent at the 180 degree coupling phase of the theta reference. Both the same in both channels; together they can peak near 2.0, so the 24-bit WAV can clip. Values are placeholders, not starter defaults. A test fixture, not for listening.",
+  "length_s": 5,
+  "loudness_target_lufs": -36,
+  "theta_reference": {
+    "carrier_hz": 450,
+    "rate_hz": 6,
+    "am_depth_percent": 75,
+    "shape": "smoothed_on_off"
+  },
+  "gamma_pac": {
+    "carrier_hz": 250,
+    "rate_hz": 40,
+    "am_depth_percent": 100,
+    "carrier_wave": "sine",
+    "coupling": "smooth_swell",
+    "coupling_phase_deg": 180
+  }
+}

@@ -27,6 +27,7 @@ constexpr RangeRow kRows[] = {
     {"gamma-rate", 30.0, 60.0, false, "Hz"},
     {"gamma-carrier", 200.0, 500.0, false, "Hz"},
     {"coupling-depth", 0.0, 100.0, false, "percent"},
+    {"coupling-phase", 0.0, 360.0, false, "degrees"},
     {"binaural-carrier", 0.0, 1000.0, true, "Hz"},
     {"beat-rate", 0.0, 30.0, true, "Hz"},
     {"binaural-carrier-right", 0.0, 1030.0, true, "Hz"},
@@ -97,6 +98,12 @@ Lookup field_value(const recipe::Recipe& r, std::string_view path) {
   if (path == "/gamma_pac/am_depth_percent") {
     if (r.gamma_pac) {
       return {true, r.gamma_pac->am_depth_percent};
+    }
+    return {true, std::nullopt};
+  }
+  if (path == "/gamma_pac/coupling_phase_deg") {
+    if (r.gamma_pac && r.gamma_pac->coupling_phase_deg) {
+      return {true, *r.gamma_pac->coupling_phase_deg};
     }
     return {true, std::nullopt};
   }
@@ -218,6 +225,22 @@ std::optional<recipe::Error> check_rules(const recipe::Recipe& r) {
     if (gamma.carrier_wave == recipe::GammaCarrierWave::SoftenedSquare) {
       return recipe::Error{"/gamma_pac/carrier_wave", "softened_square",
                            std::string(kNonSineCarrierRule), std::string(kModeledGammaCarrierWaves)};
+    }
+    const bool coupled = gamma.coupling == recipe::GammaCoupling::SmoothSwell;
+    // AD-5: coupled gamma with depth reads the theta reference phase, so the
+    // theta reference must exist and carry AM depth. Depth 0 scales nothing.
+    if (coupled && gamma.am_depth_percent > 0.0 &&
+        !(r.theta_reference && r.theta_reference->am_depth_percent > 0.0)) {
+      return recipe::Error{"/gamma_pac/coupling", "smooth_swell", std::string(kCoupledNeedsThetaRule),
+                           std::string(kCoupledNeedsThetaLimit)};
+    }
+    if (coupled && !gamma.coupling_phase_deg) {
+      return recipe::Error{"/gamma_pac/coupling_phase_deg", "absent", std::string(kCoupledNeedsPhaseRule),
+                           std::string(kCoupledNeedsPhaseLimit)};
+    }
+    if (!coupled && gamma.coupling_phase_deg) {
+      return recipe::Error{"/gamma_pac/coupling_phase_deg", json::format_number(*gamma.coupling_phase_deg),
+                           std::string(kPhaseNeedsCoupledRule), std::string(kPhaseNeedsCoupledLimit)};
     }
   }
   return std::nullopt;

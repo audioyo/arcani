@@ -13,7 +13,10 @@ the verdict reads row `frequency-accuracy` through `row` on every call.
 - rate_hz(x, fs): the AM rate. The analytic envelope |analytic|, trimmed and
   mean-removed, times a 4-term Blackman-Harris window; the strongest peak of
   its zero-padded DFT above the window's main lobe at 0 Hz, refined by
-  golden-section search on the windowed DTFT magnitude.
+  golden-section search on the windowed DTFT magnitude. rate_hz(x, fs,
+  min_hz) (Story 2.3) starts the peak search at the larger of the main lobe
+  and min_hz: a coupled gamma envelope has a theta-rate swell line as strong
+  as its gamma-rate line.
 - check(name, measured_hz, expected_hz): the report assertion shape (Story
   1.4), pass when |measured - expected| is strictly below the row; a NaN or
   infinite measured value fails with note "not finite" and measured None.
@@ -87,7 +90,7 @@ def _dtft_magnitude(y, fs, f_hz) -> float:
     return float(np.abs(np.sum(y * np.exp(-2j * math.pi * f_hz * n / fs))))
 
 
-def rate_hz(x, fs) -> float:
+def rate_hz(x, fs, min_hz=None) -> float:
     z, _ = _trimmed(_analytic(x), fs)
     env = np.abs(z)
     env = env - float(np.mean(env))
@@ -95,6 +98,8 @@ def rate_hz(x, fs) -> float:
     size = _PAD * env.size
     spectrum = np.abs(np.fft.rfft(y, n=size))
     lowest = _MAIN_LOBE_BINS * _PAD
+    if min_hz is not None:
+        lowest = max(lowest, int(math.ceil(float(min_hz) * size / fs)))
     k = lowest + int(np.argmax(spectrum[lowest:]))
     step = fs / size
     lo, hi = (k - 1) * step, (k + 1) * step

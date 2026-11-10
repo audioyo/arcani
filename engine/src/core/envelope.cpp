@@ -57,6 +57,19 @@ double sine_envelope(std::uint64_t phase) noexcept {
   return (1.0 + c) * 0.5;
 }
 
+std::uint64_t coupling_phase_units(double coupling_phase_deg) noexcept {
+  const double x = coupling_phase_deg / 360.0;
+  // Negated in-range test, so NaN falls out as well; x = 1 is 2^64 = 0 mod 2^64.
+  if (!(x >= 0.0 && x < 1.0)) {
+    return 0u;
+  }
+  return round_half_even(x * 0x1p64);
+}
+
+double swell(std::uint64_t theta_envelope_phase, std::uint64_t coupling_phase_units) noexcept {
+  return sine_envelope(theta_envelope_phase - coupling_phase_units);  // mod 2^64
+}
+
 double envelope(EnvelopeShape shape, std::uint64_t phase, std::uint64_t edge_units,
                 std::uint64_t half_on_units) noexcept {
   switch (shape) {
