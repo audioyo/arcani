@@ -1,4 +1,4 @@
-"""Writes the worked test vectors of docs/signal-spec.md: core, sine, internal block size, stub chain, theta reference, gamma PAC layer, 24-bit rounding.
+"""Writes the worked test vectors of docs/signal-spec.md: core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, 24-bit rounding.
 
 Usage:
   python tools/signal_spec_vectors.py            write tests/data/signal_spec_vectors.json
@@ -46,6 +46,13 @@ engine or from binary64 library calls:
   the binary64 depth. The bus of the theta and gamma fixture is one binary64
   addition of the two engine taps; its ideal is the exact sum of the two
   ideal taps, rounded once to 25 digits.
+- Coupling, smooth swell (Story 2.3): the coupling phase rule in exact
+  Fraction arithmetic (x = deg / 360 is one binary64 division), and the
+  swell law s = sine_envelope(p_E - C), a = 1 - (d * s) * (1 - e) evaluated
+  in binary64 in the spec's operation order (engine bits), with the ideal
+  values at 25 digits: ideal cosines and sine in decimal arithmetic and the
+  exact law on the binary64 depth. The bus is one binary64 addition of the
+  engine theta and gamma taps; its ideal is the exact sum of the ideal taps.
 - 24-bit rounding (Story 1.4): x = s * 2^23 in exact Fraction arithmetic,
   clamped to [-8388608, 8388607], else rounded to the nearest integer, ties
   to even; NaN gives 0. Written as 3 bytes, little-endian two's complement.
@@ -1054,6 +1061,204 @@ def gamma_bus_rows():
     return rows
 
 
+# ------------------------------------------------------------- coupling
+#
+# Story 2.3 (signal spec, Coupling): the smooth swell. One raised cosine per
+# theta cycle, read from the theta envelope phase alone and centered on the
+# coupling phase C; it scales the gamma AM depth.
+
+GAMMA_COUPLINGS_2_3 = ("uncoupled", "smooth_swell")
+COUPLED = ("smooth_swell",)
+# 45 * 2^-62 and 135 * 2^-62 degrees give x * 2^64 exactly 1/2 and 3/2: the
+# ties, to even (0 and 2).
+COUPLING_PHASE_DEGREES = (0.0, 45.0 * 2.0**-62, 135.0 * 2.0**-62, 0.01, 45.0, 90.0, 180.0,
+                          270.0, 359.99, 360.0)
+SWELL_TEST_DEGREES = (0.0, 90.0, 180.0, 270.0)
+SWELL_OFFSETS = (0, QUARTER, HALF)          # theta envelope phase minus C
+SWELL_GAMMA_PHASES = (0, HALF)              # gamma envelope peak and trough
+
+
+def coupling_phase_units(deg):
+    """C: x = deg / 360.0 (one rounding), x * 2^64 (exact), nearest, ties to even, mod 2^64."""
+    x = deg / 360.0
+    return round_half_even(Fraction(x) * CYCLE) % CYCLE, x
+
+
+def swell(p_e, c_units):
+    """Engine swell s = sine_envelope(p_E - C mod 2^64), spec operation order."""
+    return gamma_envelope((p_e - c_units) % CYCLE)
+
+
+def swell_ideal(p_e, c_units):
+    return gamma_envelope_ideal((p_e - c_units) % CYCLE)
+
+
+def coupled_amplitude(d, s, e):
+    """a = 1.0 - (d * s) * (1.0 - e): four binary64 operations, in this order."""
+    return 1.0 - (d * s) * (1.0 - e)
+
+
+class SwellLayer(GammaLayer):
+    """One smooth-swell gamma PAC layer at one sample rate (signal spec, Coupling).
+
+    theta_rate is the theta reference rate, or None without a theta reference
+    (the theta envelope phase is then 0 for every sample).
+    """
+
+    def __init__(self, carrier_hz, rate_hz, depth_percent, phase_deg, theta_rate, fs):
+        super().__init__(carrier_hz, rate_hz, depth_percent, fs)
+        self.phase_deg = phase_deg
+        self.c_units, self.c_ratio = coupling_phase_units(phase_deg)
+        self.inc_theta_envelope = increment(theta_rate, fs)[0] if theta_rate is not None else 0
+
+    def theta_envelope_phase(self, n):
+        return (n * self.inc_theta_envelope) % CYCLE
+
+    def engine_parts(self, n):
+        """(s, e, a, gamma) in binary64, the spec's per-sample operation order."""
+        pc, pm = self.phases(n)
+        s = swell(self.theta_envelope_phase(n), self.c_units)
+        e = gamma_envelope(pm)
+        a = coupled_amplitude(self.depth, s, e)
+        return s, e, a, a * engine_sine(pc)
+
+    def ideal_parts(self, n):
+        """(s, gamma) ideal: exact law on the binary64 d, ideal cosines and sine."""
+        pc, pm = self.phases(n)
+        with localcontext() as ctx:
+            ctx.prec = PREC + 10
+            s = swell_ideal(self.theta_envelope_phase(n), self.c_units)
+            e = gamma_envelope_ideal(pm)
+            a = 1 - exact_decimal(self.depth) * s * (1 - e)
+            return s, a * ideal_sine_decimal(pc)
+
+
+SWELL_LENGTH_S = 5.0
+SWELL_THETA = (450.0, 6.0, 75.0)   # theta carrier, rate, depth
+SWELL_GAMMA = (250.0, 40.0)        # gamma carrier, rate
+
+# (fixture, theta shape or None, coupling phase in degrees, gamma depth in
+# percent): the Story 2.3 smooth-swell fixtures in recipes/fixtures/valid/.
+# The first four, in this order, are the hash probe's gamma-swell-<fs>
+# components; the last has no theta reference and gamma depth 0.
+SWELL_FIXTURES = (
+    ("swell-sine-0deg-100pct.json", "sine", 0.0, 100.0),
+    ("swell-sawtooth-90deg-25pct.json", "sawtooth", 90.0, 25.0),
+    ("swell-smoothed-on-off-180deg-100pct.json", "smoothed_on_off", 180.0, 100.0),
+    ("swell-reverse-saw-270deg-25pct.json", "reverse_saw", 270.0, 25.0),
+    ("swell-gamma-depth-0-no-theta.json", None, 90.0, 0.0),
+)
+
+
+def coupling_phase_rows():
+    rows = []
+    for deg in COUPLING_PHASE_DEGREES:
+        c, x = coupling_phase_units(deg)
+        rows.append({"deg_hex": hexf(deg), "x_hex": hexf(x),
+                     "x_times_2_64_hex": hexf(x * 2.0**64), "c_units": str(c)})
+    return rows
+
+
+def swell_rows():
+    rows = []
+    for depth_percent in GAMMA_ENVELOPE_DEPTHS:
+        d = depth_percent / 100.0
+        for deg in SWELL_TEST_DEGREES:
+            c, _ = coupling_phase_units(deg)
+            for offset in SWELL_OFFSETS:
+                p_e = (c + offset) % CYCLE
+                for p_m in SWELL_GAMMA_PHASES:
+                    s = swell(p_e, c)
+                    e = gamma_envelope(p_m)
+                    a = coupled_amplitude(d, s, e)
+                    assert 0.0 < s < 1.0 and 0.0 < a <= 1.0, (depth_percent, deg, offset, p_m)
+                    with localcontext() as ctx:
+                        ctx.prec = PREC + 10
+                        i_s = swell_ideal(p_e, c)
+                        i_a = 1 - exact_decimal(d) * i_s * (1 - gamma_envelope_ideal(p_m))
+                    rows.append({
+                        "depth_hex": hexf(depth_percent), "deg_hex": hexf(deg),
+                        "c_units": str(c), "phase_theta_envelope": str(p_e),
+                        "phase_gamma_envelope": str(p_m),
+                        "s_bits": bits(s), "e_bits": bits(e), "a_bits": bits(a),
+                        "ideal_s": format_trimmed(i_s), "ideal_a": format_trimmed(i_a),
+                    })
+    return rows
+
+
+def swell_layers(fs):
+    carrier, rate = SWELL_GAMMA
+    for fixture, shape, deg, depth in SWELL_FIXTURES:
+        theta = None if shape is None else ThetaLayer(*SWELL_THETA, shape, fs)
+        gamma = SwellLayer(carrier, rate, depth, deg, None if shape is None else SWELL_THETA[1], fs)
+        yield fixture, shape, deg, depth, theta, gamma
+
+
+def swell_sample_indices(gamma, frames):
+    """Start, block boundaries, both sides of the first swell peak and swell
+    trough, of the first gamma envelope trough, the last sample, past the end."""
+    indices = {0, 1, 63, 64, 65, 127, 128, 1000, frames - 1, frames, frames + 63}
+    inc = gamma.inc_theta_envelope
+    if inc:
+        for b in (gamma.c_units, (gamma.c_units + HALF) % CYCLE):
+            n = first_at_or_above(b if b else CYCLE, inc)
+            indices.update((n - 1, n))
+    n = first_at_or_above(HALF, gamma.inc_rate)
+    indices.update((n - 1, n))
+    return sorted(i for i in indices if i >= 0)
+
+
+def swell_sample_rows():
+    rows = []
+    for fs in RATES:
+        for fixture, shape, deg, depth, theta, gamma in swell_layers(fs):
+            frames, _ = samples(SWELL_LENGTH_S, fs)
+            for n in swell_sample_indices(gamma, frames):
+                pc, pm = gamma.phases(n)
+                pe = gamma.theta_envelope_phase(n)
+                past_end = n >= frames
+                if past_end:
+                    s_bits = e_bits = a_bits = gamma_bits = theta_bits = bus_bits = bits(0.0)
+                    ideal_s = ideal_gamma = ideal_bus = "0"
+                else:
+                    s, e, a, g = gamma.engine_parts(n)
+                    # a > 0 (s < 1 and e > 0), so the engine tap is never -0.0.
+                    assert a > 0.0 and bits(g) != bits(-0.0), (fixture, fs, n)
+                    if depth == 0.0:
+                        assert a == 1.0, (fixture, fs, n)
+                    t = theta.engine_sample(n) if theta is not None else 0.0
+                    bus = t + g  # stereo bus: one binary64 addition
+                    s_bits, e_bits, a_bits = bits(s), bits(e), bits(a)
+                    gamma_bits, theta_bits, bus_bits = bits(g), bits(t), bits(bus)
+                    with localcontext() as ctx:
+                        ctx.prec = PREC + 10
+                        i_s, i_g = gamma.ideal_parts(n)
+                        i_t = theta.ideal_parts(n)[1] if theta is not None else Decimal(0)
+                        ideal_s, ideal_gamma = format_ideal(i_s), format_ideal(i_g)
+                        ideal_bus = format_ideal(i_t + i_g)
+                row = {
+                    "case": "past_end" if past_end else "signal",
+                    "fixture": fixture, "fs": fs,
+                    "carrier_hex": hexf(SWELL_GAMMA[0]), "rate_hex": hexf(SWELL_GAMMA[1]),
+                    "depth_hex": hexf(depth), "length_hex": hexf(SWELL_LENGTH_S),
+                    "carrier_wave": "sine", "coupling": "smooth_swell", "deg_hex": hexf(deg),
+                    "c_units": str(gamma.c_units),
+                }
+                row.update(_theta_columns(None if shape is None else (*SWELL_THETA, shape)))
+                row.update({
+                    "inc_carrier": str(gamma.inc_carrier), "inc_rate": str(gamma.inc_rate),
+                    "inc_theta_envelope": str(gamma.inc_theta_envelope),
+                    "frames": str(frames), "n": str(n),
+                    "phase_carrier": str(pc), "phase_rate": str(pm),
+                    "phase_theta_envelope": str(pe),
+                    "s_bits": s_bits, "e_bits": e_bits, "a_bits": a_bits,
+                    "gamma_bits": gamma_bits, "theta_bits": theta_bits, "bus_bits": bus_bits,
+                    "ideal_s": ideal_s, "ideal_gamma": ideal_gamma, "ideal_bus": ideal_bus,
+                })
+                rows.append(row)
+    return rows
+
+
 # ------------------------------------------------------- 24-bit rounding
 
 Q24_MAX = 8388607   # 2^23 - 1
@@ -1135,7 +1340,7 @@ def quantize_rows():
 
 def build():
     return {
-        "spec": "docs/signal-spec.md (sections core, sine, internal block size, stub chain, theta reference, gamma PAC layer, and 24-bit rounding)",
+        "spec": "docs/signal-spec.md (sections core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, and 24-bit rounding)",
         "generator": "tools/signal_spec_vectors.py",
         "cycle": str(CYCLE),
         "sine_coefficients": sine_coefficients(),
@@ -1169,6 +1374,14 @@ def build():
         "gamma_envelopes": gamma_envelope_rows(),
         "gamma_samples": gamma_sample_rows(),
         "gamma_bus": gamma_bus_rows(),
+        "coupling_constants": {
+            "couplings": list(GAMMA_COUPLINGS_2_3),
+            "coupled": list(COUPLED),
+            "swell_length_s": dec(SWELL_LENGTH_S),
+        },
+        "coupling_phases": coupling_phase_rows(),
+        "swells": swell_rows(),
+        "swell_samples": swell_sample_rows(),
         "quantize_24": quantize_rows(),
     }
 
@@ -1320,6 +1533,45 @@ def tables(data):
         out.append(f"| {r['case']} | {r['fixture']} | {r['fs']} | {r['n']} | `{r['theta_bits']}` "
                    f"| `{r['gamma_bits']}` | `{r['bus_bits']}` | {r['ideal_theta']} "
                    f"| {r['ideal_gamma']} | {r['ideal_bus']} |")
+    out.append("")
+    out.append("| Coupling phase (hex) | x = deg / 360 (hex) | x * 2^64 (hex) | C |")
+    out.append("| --- | --- | --- | --- |")
+    for r in data["coupling_phases"]:
+        out.append(f"| `{r['deg_hex']}` | `{r['x_hex']}` | `{r['x_times_2_64_hex']}` | {r['c_units']} |")
+    out.append("")
+    out.append("| Depth (hex) | Coupling phase (hex) | C | Theta envelope phase | Gamma envelope phase "
+               "| s (binary64 bits) | e (binary64 bits) | a (binary64 bits) | s ideal | a ideal |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["swells"]:
+        out.append(f"| `{r['depth_hex']}` | `{r['deg_hex']}` | {r['c_units']} | {r['phase_theta_envelope']} "
+                   f"| {r['phase_gamma_envelope']} | `{r['s_bits']}` | `{r['e_bits']}` | `{r['a_bits']}` "
+                   f"| {r['ideal_s']} | {r['ideal_a']} |")
+    out.append("")
+    out.append("| Fixture | fs | Carrier (hex) | Rate (hex) | Depth (hex) | Coupling | Coupling phase (hex) | C "
+               "| Theta carrier (hex) | Theta rate (hex) | Theta depth (hex) | Theta shape "
+               "| Carrier inc | Rate inc | Theta envelope inc | Frames |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    seen = set()
+    for r in data["swell_samples"]:
+        key = (r["fixture"], r["fs"])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(f"| {r['fixture']} | {r['fs']} | `{r['carrier_hex']}` | `{r['rate_hex']}` "
+                   f"| `{r['depth_hex']}` | {r['coupling']} | `{r['deg_hex']}` | {r['c_units']} "
+                   f"| `{r['theta_carrier_hex']}` | `{r['theta_rate_hex']}` | `{r['theta_depth_hex']}` "
+                   f"| {r['theta_shape']} | {r['inc_carrier']} | {r['inc_rate']} "
+                   f"| {r['inc_theta_envelope']} | {r['frames']} |")
+    out.append("")
+    out.append("| Case | Fixture | fs | n | Carrier phase | Envelope phase | Theta envelope phase "
+               "| s (binary64 bits) | e (binary64 bits) | a (binary64 bits) | Gamma (binary64 bits) "
+               "| Theta (binary64 bits) | Bus (binary64 bits) | s ideal | Gamma ideal | Bus ideal |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["swell_samples"]:
+        out.append(f"| {r['case']} | {r['fixture']} | {r['fs']} | {r['n']} | {r['phase_carrier']} "
+                   f"| {r['phase_rate']} | {r['phase_theta_envelope']} | `{r['s_bits']}` | `{r['e_bits']}` "
+                   f"| `{r['a_bits']}` | `{r['gamma_bits']}` | `{r['theta_bits']}` | `{r['bus_bits']}` "
+                   f"| {r['ideal_s']} | {r['ideal_gamma']} | {r['ideal_bus']} |")
     out.append("")
     out.append("| Rule | Case | s (hex) | x = s * 2^23 (hex) | Value | Bytes (little-endian) |")
     out.append("| --- | --- | --- | --- | --- | --- |")
