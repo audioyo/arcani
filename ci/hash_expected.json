@@ -1,6 +1,16 @@
 {
-  "source": "probe-arith: tools/probe_reference.py, NumPy float32 reference, each operation rounded separately. sine-* and stub-chain-*: the arcani-hashprobe output, byte-identical on all four AD-9 platforms in full run 42236304155; stub-chain-blocks-* equal stub-chain-* (block-size invariance). Design log 2026-11-06 (kk). theta-envelopes-*: the windows-x64 dev PC probe, equal to the android-arm64 probe of full run 42339879874 (the desktop probes did not run there because these entries were missing); confirmed on all four platforms by the next full run. Design log 2026-11-06 (ll)",
+  "source": "probe-arith: tools/probe_reference.py, NumPy float32 reference, each operation rounded separately. sine-* and stub-chain-*: the arcani-hashprobe output, byte-identical on all four AD-9 platforms in full run 42236304155; stub-chain-blocks-* equal stub-chain-* (block-size invariance). Design log 2026-11-06 (kk). theta-envelopes-*: the windows-x64 dev PC probe, equal to the android-arm64 probe of full run 42339879874 (the desktop probes did not run there because these entries were missing); confirmed on all four platforms by the next full run. Design log 2026-11-06 (ll) gamma-uncoupled-*: the windows-x64 dev PC probe, equal to the android-arm64 probe and the windows-x64 and windows-arm64 CI probes of full run 42797229080 (the run was red only on these missing entries); confirmed on all four platforms by the next full run. Design log 2026-11-07 (mm)",
   "components": {
+    "gamma-uncoupled-44100": {
+      "samples": 4410000,
+      "sha256": "04d21f6a1934a91fc74057dd0ad03f70386a4a58472e6e975db92950be687b24",
+      "scope": "engine"
+    },
+    "gamma-uncoupled-48000": {
+      "samples": 4800000,
+      "sha256": "4c65b9d8bacf4362ddb972e69fdb85a7189d493b6a61b0896d3401455b05f8f5",
+      "scope": "engine"
+    },
     "probe-arith": {
       "samples": 4096,
       "sha256": "933f0602ecebcc0f413be5f2737d4a57fcf18cfb9f045665c8d483fc9d8bb8fc",

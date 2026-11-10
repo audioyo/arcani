@@ -66,7 +66,7 @@ Decisions (2026-11-07, build agent, under Audio's standing "settle tech forks yo
 - [x] `docs/signal-spec.md`, `tools/signal_spec_vectors.py`, vectors JSON -- §gamma with worked vectors -- the spec merges first.
 - [x] tests (files above) -- QA agent writes failing tests -- tests first.
 - [x] schema, field table, recipe, validator, plan, renderer, `reference/gamma.py`, `stub_chain.py`, `tests/assertions/am_depth.py`, hash probe -- implementation.
-- [ ] fixtures, hash vectors, rows, design log (mm), README, `ci/hash_expected.json` (after the full run) -- records.
+- [x] fixtures, hash vectors, rows, design log (mm), README, `ci/hash_expected.json` (after the full run) -- records.
 - [x] `docs/timeline-guidebook.html`, `sprint-status.yaml` -- records.
 
 **Acceptance Criteria:**
