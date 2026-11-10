@@ -275,8 +275,8 @@
    ===================================================================== */
 
 var LAST_UPDATED = "2026-11-10";
-var CURRENT = "2.2";   // story id being worked on
-var NEXT    = "2.3";   // story id that comes next
+var CURRENT = "2.3";   // story id being worked on
+var NEXT    = "2.5";   // story id that comes next
 
 // Workflow step names, used by every story unless it lists its own "stepNames".
 var STEP_NAMES = [
@@ -477,11 +477,11 @@ var EPICS = [
       ["x","Carrier and rate within 0.01 Hz (frequency tool calibrated first)"],
       ["x","Click tool (8 kHz high-pass, -60 dBFS) calibrated; hard-edged shapes pass; unsmoothed sawtooth must-fail fails"]
     ] },
-  { id:"2.2", title:"Gamma PAC layer, uncoupled", status:"review",
+  { id:"2.2", title:"Gamma PAC layer, uncoupled", status:"done",
     plain:"A separate gamma carrier with AM at the gamma rate at constant depth: the uncoupled control.",
     spec:["spec-2-2-gamma-pac-layer-uncoupled.md"],
-    steps:[true,true,true,true,true,false,false],
-    stepNotes:["Spec approved 2026-11-07 by Audio; field names, sine AM law, and the AM depth tool settled by the build agent under Audio's standing preference","472c319: signal spec gamma section with 4 vector tables (20 in all); f0a2148: fresh-context QA agent's failing tests, 24 C++ cases and 118 pytest cases red until the engine, reference, tool, and fixtures land","2c387ef: gamma_pac schema fields, validator ranges, gamma carrier rule and non-sine carrier rule, engine gamma layer, reference/gamma.py, AM depth tool, 10 fixtures; 4/4 ctest entries, 1,723 pytest pass, 4 hash-entry tests wait for the full run; reference match -137.0 dBFS worst, AM depth -106.8 dBFS worst; design log (mm)","f62387c: review pass 1 by three fresh-context reviewers, 23 findings: 7 patched (muted ear with gamma test, gamma plus binaural reference match, muted ear spec wording, vector prose, design log source and schema guard lines, formatting), 15 rejected with reasons, 1 left to the full run (gamma hash entries)","060b318: gamma hashes pinned from full run 42797229080 (red only on the missing entries; android-arm64 and both Windows probes equal the dev PC); full run 42799207078 green on all four platforms, fast tier green; 972d287: PR #13 opened, 11 checks green on fast and full tier"],
+    steps:[true,true,true,true,true,true,true],
+    stepNotes:["Spec approved 2026-11-07 by Audio; field names, sine AM law, and the AM depth tool settled by the build agent under Audio's standing preference","472c319: signal spec gamma section with 4 vector tables (20 in all); f0a2148: fresh-context QA agent's failing tests, 24 C++ cases and 118 pytest cases red until the engine, reference, tool, and fixtures land","2c387ef: gamma_pac schema fields, validator ranges, gamma carrier rule and non-sine carrier rule, engine gamma layer, reference/gamma.py, AM depth tool, 10 fixtures; 4/4 ctest entries, 1,723 pytest pass, 4 hash-entry tests wait for the full run; reference match -137.0 dBFS worst, AM depth -106.8 dBFS worst; design log (mm)","f62387c: review pass 1 by three fresh-context reviewers, 23 findings: 7 patched (muted ear with gamma test, gamma plus binaural reference match, muted ear spec wording, vector prose, design log source and schema guard lines, formatting), 15 rejected with reasons, 1 left to the full run (gamma hash entries)","060b318: gamma hashes pinned from full run 42797229080 (red only on the missing entries; android-arm64 and both Windows probes equal the dev PC); full run 42799207078 green on all four platforms, fast tier green; 972d287: PR #13 opened, 11 checks green on fast and full tier","968e7e1: PR #13 merged into main, 2026-11-10 (admin merge at Audio's request: the last head commit was guidebook records only, pushed with [skip ci] after the code checks were green)","sprint-status.yaml set to done"],
     acs:[
       ["x","signal-spec gamma section with worked vectors"],
       ["x","Carrier 200 to 500 Hz, rate 30 to 60 Hz, depth range-checked; 200 Hz at 60 Hz rejected, 240 Hz accepted"],
@@ -715,6 +715,7 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-10","968e7e1","2.2","PR #13 merged into main (admin merge, records-only head commit skipped CI); sprint-status.yaml set to done"],
   ["2026-11-10","78a702d","2.2","PR #13 green on fast and full tier (11 checks), all four platforms; ready for Audio to merge"],
   ["2026-11-10","972d287","2.2","PR #13 opened; full tier reruns on the PR"],
   ["2026-11-10","060b318","2.2","Full run 42799207078 green on all four platforms (hash-compare and verdict green) and fast tier green with the gamma hashes pinned; no PR yet"],
