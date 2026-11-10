@@ -1,6 +1,6 @@
-// Renderer: the stub chain with the real theta reference, per sample in the
-// spec's operation order (docs/signal-spec.md, Stub chain and Theta
-// reference, Per sample).
+// Renderer: the stub chain with the real theta reference and gamma PAC layer,
+// per sample in the spec's operation order (docs/signal-spec.md, Stub chain,
+// Theta reference, and Gamma PAC layer, Per sample).
 
 #include "render/renderer.hpp"
 
@@ -30,6 +30,8 @@ void Renderer::seek(std::uint64_t frame) noexcept {
   position_ = frame;
   theta_phase_ = frame * plan_.theta.increment;              // mod 2^64 (unsigned wraparound)
   envelope_phase_ = frame * plan_.theta.envelope_increment;  // mod 2^64 (unsigned wraparound)
+  gamma_phase_ = frame * plan_.gamma.increment;                       // mod 2^64 (unsigned wraparound)
+  gamma_envelope_phase_ = frame * plan_.gamma.envelope_increment;     // mod 2^64 (unsigned wraparound)
   for (std::size_t c = 0; c < 2; ++c) {
     phase_[c] = frame * plan_.binaural.increment[c];  // mod 2^64 (unsigned wraparound)
   }
@@ -41,6 +43,7 @@ void Renderer::render_block(std::size_t count) noexcept {
   const std::size_t live = static_cast<std::size_t>(std::min<std::uint64_t>(live_left, count));
   const auto& ears = plan_.binaural;
   const auto& osc = plan_.theta;
+  const auto& gam = plan_.gamma;
   for (std::size_t i = 0; i < count; ++i) {
     double theta_sample = 0.0;
     if (i < live && osc.present) {
@@ -49,11 +52,19 @@ void Renderer::render_block(std::size_t count) noexcept {
       const double a = 1.0 - osc.depth * (1.0 - e);
       theta_sample = a * core::sine(theta_phase_);
     }
+    double gamma_sample = 0.0;
+    if (i < live && gam.present) {
+      // Gamma PAC layer, Per sample: the sine envelope at the gamma rate, the
+      // constant depth (uncoupled), then the carrier.
+      const double e = core::sine_envelope(gamma_envelope_phase_);
+      const double a = 1.0 - gam.depth * (1.0 - e);
+      gamma_sample = a * core::sine(gamma_phase_);
+    }
     for (std::size_t c = 0; c < 2; ++c) {
       const std::size_t k = 2 * i + c;
       if (i < live) {
         const double theta = theta_sample;                       // theta reference, same in both channels
-        const double gamma = 0.0;                                // gamma PAC stub
+        const double gamma = gamma_sample;                       // gamma PAC layer, same in both channels
         const double bus = theta + gamma;                        // stereo bus, within channel c
         const double bin = ears.amplitude[c] * core::sine(phase_[c]);  // binaural oscillator of ear c
         const double join = bus + bin;                           // binaural join, ear c to channel c only
@@ -74,6 +85,8 @@ void Renderer::render_block(std::size_t count) noexcept {
     }
     theta_phase_ += osc.increment;
     envelope_phase_ += osc.envelope_increment;
+    gamma_phase_ += gam.increment;
+    gamma_envelope_phase_ += gam.envelope_increment;
   }
 }
 

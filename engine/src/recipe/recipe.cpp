@@ -48,6 +48,44 @@ const ShapeName* shape_named(std::string_view s) noexcept {
   return nullptr;
 }
 
+// gamma_pac.carrier_wave and gamma_pac.coupling: the schema enum members, in
+// schema order.
+struct CarrierWaveName {
+  std::string_view name;
+  GammaCarrierWave wave;
+};
+constexpr CarrierWaveName kCarrierWaveNames[] = {
+    {"sine", GammaCarrierWave::Sine},
+    {"triangle", GammaCarrierWave::Triangle},
+    {"softened_square", GammaCarrierWave::SoftenedSquare},
+};
+
+const CarrierWaveName* carrier_wave_named(std::string_view s) noexcept {
+  for (const auto& entry : kCarrierWaveNames) {
+    if (entry.name == s) {
+      return &entry;
+    }
+  }
+  return nullptr;
+}
+
+struct CouplingName {
+  std::string_view name;
+  GammaCoupling coupling;
+};
+constexpr CouplingName kCouplingNames[] = {
+    {"uncoupled", GammaCoupling::Uncoupled},
+};
+
+const CouplingName* coupling_named(std::string_view s) noexcept {
+  for (const auto& entry : kCouplingNames) {
+    if (entry.name == s) {
+      return &entry;
+    }
+  }
+  return nullptr;
+}
+
 // Seed bounds: 0 to 2^53 - 1, the largest integer a JSON number holds exactly.
 constexpr double kSeedMax = 9007199254740991.0;
 constexpr std::string_view kSeedMaxText = "9007199254740991";
@@ -203,6 +241,12 @@ std::optional<Error> check_value(const Field& f, const Value& v) {
   if (f.path == "/theta_reference/shape" && shape_named(v.string()) == nullptr) {
     return make_error(pointer, v.string(), "enum", kThetaShapeEnum);
   }
+  if (f.path == "/gamma_pac/carrier_wave" && carrier_wave_named(v.string()) == nullptr) {
+    return make_error(pointer, v.string(), "enum", kGammaCarrierWaveEnum);
+  }
+  if (f.path == "/gamma_pac/coupling" && coupling_named(v.string()) == nullptr) {
+    return make_error(pointer, v.string(), "enum", kGammaCouplingEnum);
+  }
   if (f.path == "/loudness_hash" && !hash_ok(v.string())) {
     return make_error(pointer, v.string(), "pattern", kLoudnessHashPattern);
   }
@@ -329,6 +373,15 @@ ParseResult parse(std::string_view utf8) {
     t.am_depth_percent = number_at(*theta, "am_depth_percent");
     t.shape = shape_named(string_at(*theta, "shape"))->shape;  // checked: an enum member
     r.theta_reference = t;
+  }
+  if (const Value* gamma = root.find("gamma_pac")) {
+    GammaPac g;
+    g.carrier_hz = number_at(*gamma, "carrier_hz");
+    g.rate_hz = number_at(*gamma, "rate_hz");
+    g.am_depth_percent = number_at(*gamma, "am_depth_percent");
+    g.carrier_wave = carrier_wave_named(string_at(*gamma, "carrier_wave"))->wave;  // checked: an enum member
+    g.coupling = coupling_named(string_at(*gamma, "coupling"))->coupling;          // checked: an enum member
+    r.gamma_pac = g;
   }
   if (const Value* bin = root.find("binaural")) {
     r.binaural = Binaural{number_at(*bin, "carrier_left_hz"), number_at(*bin, "beat_rate_hz")};

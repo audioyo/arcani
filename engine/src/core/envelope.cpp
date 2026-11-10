@@ -52,13 +52,16 @@ std::uint64_t theta_edge_units(double rate_hz) noexcept {
   return round_half_even(w * 0x1p64);
 }
 
+double sine_envelope(std::uint64_t phase) noexcept {
+  const double c = sine(phase + kQuarter);  // mod 2^64: the cosine of phase
+  return (1.0 + c) * 0.5;
+}
+
 double envelope(EnvelopeShape shape, std::uint64_t phase, std::uint64_t edge_units,
                 std::uint64_t half_on_units) noexcept {
   switch (shape) {
-    case EnvelopeShape::Sine: {
-      const double c = sine(phase + kQuarter);  // mod 2^64
-      return (1.0 + c) * 0.5;
-    }
+    case EnvelopeShape::Sine:
+      return sine_envelope(phase);
     case EnvelopeShape::SmoothedOnOff: {
       // Distance from the 0 degree point: p, or 2^64 - p past the half cycle.
       const std::uint64_t m = phase < kHalf ? phase : 0 - phase;

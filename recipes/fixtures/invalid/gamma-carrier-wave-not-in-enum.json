@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-07",
+  "rationale": "Invalid fixture (Story 2.2): gamma_pac.carrier_wave is not in the schema enum (sine, triangle, softened_square). Values are placeholders, not starter defaults. A test fixture, not for listening.",
+  "length_s": 10,
+  "loudness_target_lufs": -36,
+  "gamma_pac": {
+    "carrier_hz": 250,
+    "rate_hz": 40,
+    "am_depth_percent": 100,
+    "carrier_wave": "square",
+    "coupling": "uncoupled"
+  }
+}

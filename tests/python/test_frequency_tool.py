@@ -36,10 +36,20 @@ a coarse FFT bin peak misses an off-bin tone by more than the calibration
 row (so the row catches a tool without refinement); a signal whose first
 and last 0.4 s are another frequency still reads the main carrier (the trim
 works).
+
+Story 2.2 (gamma PAC layer): the tool is reused unchanged. Calibration adds a
+250 Hz carrier amplitude-modulated at 40 and 60 Hz by the sine envelope with
+25 and 100 percent depth (both phases 0 at the first sample, and the
+envelope trough at the engine's nonzero floor from the spec vectors, like
+the engine layer), read within the calibration row at both sample rates;
+must-fail: a gamma AM rate moved 0.02 Hz fails row `frequency-accuracy`.
 """
 
 import importlib
+import json
 import math
+import struct
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -58,6 +68,7 @@ MOVE_HZ = 0.02   # the spec's must-fail offset
 SHAPES = ("sine", "smoothed_on_off", "sawtooth", "reverse_saw")
 
 SAMPLE_RATES = [int(v) for v in load_tables()["sample-rates"].values]
+VECTORS = Path(__file__).resolve().parents[2] / "tests" / "data" / "signal_spec_vectors.json"
 
 
 def freq():
@@ -203,5 +214,60 @@ def test_am_rate_moved_0_02_hz_fails(fs):
     mod = freq()
     x = am_tone(fs, AM_CARRIER_HZ, 6.0 + MOVE_HZ, "sawtooth")
     result = mod.check("moved rate", mod.rate_hz(x, fs), 6.0)
+    assert result["result"] == "fail", result
+    assert abs(result["measured"] - MOVE_HZ) < calibration_hz(), result
+
+
+# ------------------------------------------------- gamma rates (Story 2.2)
+
+GAMMA_CARRIER_HZ = 250.0
+GAMMA_RATES_HZ = (40.0, 60.0)
+GAMMA_DEPTHS = (0.25, 1.0)
+
+
+def engine_envelope_trough():
+    """The engine gamma envelope at its trough, from the spec vectors.
+
+    The engine envelope is never 0 (signal spec, Gamma PAC layer, Uncoupled):
+    the engine sine stays inside (-1, 1). The harness tone below keeps the
+    same floor, so at 100 percent depth it never reaches exact zero either.
+    """
+    rows = json.loads(VECTORS.read_text(encoding="utf-8"))["gamma_envelopes"]
+    e = {struct.unpack(">d", bytes.fromhex(r["e_bits"][2:]))[0] for r in rows if int(r["phase"]) == 2**63}
+    assert len(e) == 1 and 0.0 < min(e) < 1e-6, e
+    return e.pop()
+
+
+def gamma_am_tone(fs, rate_hz, depth, seconds=SECONDS):
+    """A 250 Hz carrier amplitude-modulated at rate_hz by the sine envelope.
+
+    Made here; both phases are 0 at the first sample, like the engine layer,
+    and the envelope spans [trough, 1 - trough] with the engine's trough.
+    """
+    t = np.arange(int(seconds * fs), dtype=np.float64) / fs
+    floor = engine_envelope_trough()
+    e = 0.5 + (0.5 - floor) * np.cos(2.0 * np.pi * rate_hz * t)
+    a = 1.0 - depth * (1.0 - e)
+    return a * np.sin(2.0 * np.pi * GAMMA_CARRIER_HZ * t)
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+@pytest.mark.parametrize("rate_hz", GAMMA_RATES_HZ)
+@pytest.mark.parametrize("depth", GAMMA_DEPTHS)
+def test_gamma_am_tone_carrier_and_rate_read_within_calibration(fs, rate_hz, depth):
+    x = gamma_am_tone(fs, rate_hz, depth)
+    mod = freq()
+    carrier = mod.carrier_hz(x, fs)
+    rate = mod.rate_hz(x, fs)
+    assert abs(carrier - GAMMA_CARRIER_HZ) < calibration_hz(), (fs, rate_hz, depth, carrier)
+    assert abs(rate - rate_hz) < calibration_hz(), (fs, rate_hz, depth, rate)
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+@pytest.mark.parametrize("rate_hz", GAMMA_RATES_HZ)
+def test_gamma_am_rate_moved_0_02_hz_fails(fs, rate_hz):
+    mod = freq()
+    x = gamma_am_tone(fs, rate_hz + MOVE_HZ, 0.25)
+    result = mod.check("moved gamma rate", mod.rate_hz(x, fs), rate_hz)
     assert result["result"] == "fail", result
     assert abs(result["measured"] - MOVE_HZ) < calibration_hz(), result

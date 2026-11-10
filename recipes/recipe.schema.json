@@ -101,6 +101,42 @@
         }
       }
     },
+    "gamma_pac": {
+      "description": "Gamma PAC layer: a separate sine carrier amplitude-modulated at the gamma rate (docs/signal-spec.md, Gamma PAC layer). Story 2.2 models the uncoupled setting only: the AM depth is constant for the render.",
+      "x-arcani-tag": "loudness-relevant",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["carrier_hz", "rate_hz", "am_depth_percent", "carrier_wave", "coupling"],
+      "properties": {
+        "carrier_hz": {
+          "description": "Gamma PAC carrier frequency in Hz.",
+          "x-arcani-tag": "loudness-relevant",
+          "type": "number"
+        },
+        "rate_hz": {
+          "description": "Gamma rate in Hz: the AM envelope repeats at this rate.",
+          "x-arcani-tag": "loudness-relevant",
+          "type": "number"
+        },
+        "am_depth_percent": {
+          "description": "AM depth in percent: the carrier dips to (100 - depth) percent of its peak at each envelope trough.",
+          "x-arcani-tag": "loudness-relevant",
+          "type": "number"
+        },
+        "carrier_wave": {
+          "description": "Carrier waveform. triangle and softened_square are accepted here so that compile rejects them by name: the signal spec models only the sine carrier.",
+          "x-arcani-tag": "loudness-relevant",
+          "type": "string",
+          "enum": ["sine", "triangle", "softened_square"]
+        },
+        "coupling": {
+          "description": "How the AM depth follows the theta reference. uncoupled: the depth is constant and reads nothing from the theta reference.",
+          "x-arcani-tag": "loudness-relevant",
+          "type": "string",
+          "enum": ["uncoupled"]
+        }
+      }
+    },
     "binaural": {
       "description": "Binaural layer (stub chain): two pure sines, one per ear.",
       "x-arcani-tag": "loudness-relevant",

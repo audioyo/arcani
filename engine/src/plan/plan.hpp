@@ -4,9 +4,10 @@
 // compile() turns recipe text into an immutable Plan, or one blocking error
 // naming parameter, value, rule, and limit. The plan holds everything the
 // renderer needs (session length, theta reference carrier and envelope
-// increments, depth, and edge lengths, binaural oscillator increments and
-// amplitudes), so render does no lookup and has no test branch: a muted ear
-// is increment 0 and amplitude 0.0 in the plan.
+// increments, depth, and edge lengths, gamma PAC carrier and envelope
+// increments and depth, binaural oscillator increments and amplitudes), so
+// render does no lookup and has no test branch: a muted ear is increment 0
+// and amplitude 0.0 in the plan.
 //
 // The stage order is fixed and is not a recipe field. Every stage writes
 // channel c only from channel c of its inputs; the master chain limiter alone
@@ -77,6 +78,20 @@ struct ThetaOscillator {
   std::uint64_t half_on_units = 0;  // H
 };
 
+// Gamma PAC layer, uncoupled (docs/signal-spec.md, Gamma PAC layer): a sine
+// carrier amplitude-modulated at the gamma rate by the sine envelope, with a
+// depth constant for the render, the same value in both channels. Carrier
+// and envelope phases are each 0 at n = 0. Per sample:
+// e = sine_envelope(phase_M), a = 1.0 - depth * (1.0 - e),
+// gamma = a * sine(phase_G). Without a gamma_pac field, present is false and
+// gamma is +0.0.
+struct GammaOscillator {
+  bool present = false;
+  std::uint64_t increment = 0;           // carrier: phase increment rule (carrier_hz, fs)
+  std::uint64_t envelope_increment = 0;  // envelope: phase increment rule (rate_hz, fs)
+  double depth = 0.0;                    // d = am_depth_percent / 100.0, constant (uncoupled)
+};
+
 // Binaural oscillators of one ear pair: unmodulated sines, phase 0 at n = 0.
 struct BinauralEars {
   std::array<std::uint64_t, 2> increment{0, 0};  // left, right
@@ -89,6 +104,7 @@ struct Plan {
   std::string recipe_hash;        // from parse, 64 lowercase hex digits
   std::uint64_t seed = 0;         // the recipe seed
   ThetaOscillator theta;
+  GammaOscillator gamma;
   BinauralEars binaural;
   std::array<StageKind, 5> stages{};
   std::vector<recipe::Error> warnings;  // non-blocking; empty in v0.1

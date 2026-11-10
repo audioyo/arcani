@@ -1,4 +1,6 @@
-// Theta reference envelopes (docs/signal-spec.md, Theta reference).
+// Theta reference envelopes (docs/signal-spec.md, Theta reference), and the
+// gamma PAC layer's sine envelope (Gamma PAC layer, AM law), which is the
+// theta sine shape at the gamma rate.
 //
 // Four envelope shapes of a 64-bit envelope phase (one cycle = 2^64), each
 // in [0, 1] with its peak, the 0 degree point, at phase 0. Segments are
@@ -31,6 +33,10 @@ std::uint64_t theta_half_on_units() noexcept;
 // (exact) rounded; the edge length in envelope phase units at rate_hz.
 // Domain: the theta-rate range (W < H - W there).
 std::uint64_t theta_edge_units(double rate_hz) noexcept;
+
+// The sine envelope (1 + cos(2 pi p / 2^64)) / 2: c = sine(p + 2^62), then
+// (1.0 + c) * 0.5. The theta sine shape and the gamma PAC layer's AM law.
+double sine_envelope(std::uint64_t phase) noexcept;
 
 // The engine envelope e of an envelope phase, by the spec's segments and
 // operation order. edge_units is W, half_on_units is H.

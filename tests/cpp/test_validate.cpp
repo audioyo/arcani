@@ -56,6 +56,23 @@
 // sawtooth, reverse_saw". The carrier rule checks carrier_hz against
 // rate_hz; inside the locked ranges it always passes (100 Hz >= 4 x 6 Hz),
 // so its failure is reached only through check_carrier_rule directly.
+//
+// Story 2.2 (gamma PAC layer, uncoupled): gamma_pac requires carrier_hz (row
+// gamma-carrier, 200 to 500 Hz), rate_hz (row gamma-rate, 30 to 60 Hz),
+// am_depth_percent (row coupling-depth, 0 to 100 percent), carrier_wave, and
+// coupling, in that field table order, between the theta_reference rows and
+// the binaural rows. Schema faults: carrier_wave text outside the enum is
+// rule "enum", limit "sine, triangle, softened_square"; coupling text outside
+// it is rule "enum", limit "uncoupled". The schema accepts triangle and
+// softened_square so compile rejects them by name: parameter
+// /gamma_pac/carrier_wave, value the text, rule "non-sine carrier not
+// modeled" (validate::kNonSineCarrierRule), limit "sine"
+// (validate::kModeledGammaCarrierWaves). The gamma carrier rule checks
+// carrier_hz against rate_hz and, unlike theta, is reachable inside the
+// locked ranges: a 200 Hz carrier at a 60 Hz rate fails with limit
+// ">= 240 Hz (4 x 60 Hz, row carrier-rule)". Compile order after the ranges:
+// theta carrier rule, theta custom shape, gamma carrier rule, carrier wave
+// rule, then final.required.
 
 #include <arcani/arcani.h>
 
@@ -186,7 +203,16 @@ struct Values {
   std::string theta_shape = "\"sine\"";
   std::string carrier_left_hz = "400";
   std::string beat_rate_hz = "6";
+  // Story 2.2. The gamma layer is off by default, so every earlier case
+  // keeps its recipe. Empty text omits that gamma field; the two string
+  // fields are written as given.
+  std::string gamma_carrier_hz = "250";
+  std::string gamma_rate_hz = "40";
+  std::string gamma_am_depth_percent = "25";
+  std::string gamma_carrier_wave = "\"sine\"";
+  std::string gamma_coupling = "\"uncoupled\"";
   bool theta = true;
+  bool gamma = false;
   bool binaural = true;
   bool gain = true;  // loudness_gain_db and loudness_hash
 };
@@ -220,6 +246,22 @@ std::string make_recipe(const Values& v) {
     add("am_depth_percent", v.theta_am_depth_percent);
     add("shape", v.theta_shape);
     s += ",\n  \"theta_reference\": {" + body + "\n  }";
+  }
+  if (v.gamma) {
+    std::string body;
+    const auto add = [&body](const char* key, const std::string& text) {
+      if (text.empty()) {
+        return;
+      }
+      body += body.empty() ? "\n" : ",\n";
+      body += std::string("    \"") + key + "\": " + text;
+    };
+    add("carrier_hz", v.gamma_carrier_hz);
+    add("rate_hz", v.gamma_rate_hz);
+    add("am_depth_percent", v.gamma_am_depth_percent);
+    add("carrier_wave", v.gamma_carrier_wave);
+    add("coupling", v.gamma_coupling);
+    s += ",\n  \"gamma_pac\": {" + body + "\n  }";
   }
   if (v.binaural) {
     s += ",\n  \"binaural\": {\n    \"carrier_left_hz\": " + v.carrier_left_hz +
@@ -278,9 +320,14 @@ double above(double x) { return std::nextafter(x, std::numeric_limits<double>::i
 
 TEST_CASE("engine range table equals ranges.tsv row for row", "[validate][ranges]") {
   const auto expected_ids = ids_named_by_fields();
-  REQUIRE(expected_ids.size() == 8);  // Story 2.1 adds theta-rate and theta-depth
+  // Story 2.1 adds theta-rate and theta-depth; Story 2.2 adds gamma-carrier,
+  // gamma-rate, and coupling-depth.
+  REQUIRE(expected_ids.size() == 11);
   CHECK(expected_ids.count("theta-rate") == 1);
   CHECK(expected_ids.count("theta-depth") == 1);
+  CHECK(expected_ids.count("gamma-carrier") == 1);
+  CHECK(expected_ids.count("gamma-rate") == 1);
+  CHECK(expected_ids.count("coupling-depth") == 1);
   // row() is the assertion call: it records each id for the row coverage check.
   const auto via_row = [](const std::string& id) -> const tables::Row* {
     try {
@@ -571,7 +618,11 @@ TEST_CASE("valid/ means schema-valid: the out-of-range hash fixture is rejected 
   }
   // Every other valid fixture compiles in measure mode. The folder is read,
   // so a new valid/ fixture is covered; an expected rejection must be listed.
-  const std::set<std::string> expected_rejected = {"both-layers-loudness-target-changed.json"};
+  // Story 2.2 adds three schema-valid gamma fixtures that compile rejects by
+  // a named rule (checked one by one in the gamma section below).
+  const std::set<std::string> expected_rejected = {
+      "both-layers-loudness-target-changed.json", "gamma-carrier-rule-200hz-60hz.json",
+      "gamma-carrier-wave-triangle.json", "gamma-carrier-wave-softened-square.json"};
   std::set<std::string> rejected_seen;
   std::size_t compiled = 0;
   for (const auto& entry :
@@ -783,6 +834,377 @@ TEST_CASE("theta: check order inside theta_reference, ranges before the shape ru
                         "sine, smoothed_on_off, sawtooth, reverse_saw"},
                     {ARC_MODE_FINAL});
   }
+}
+
+// ------------------------------------------------------------ gamma PAC layer (Story 2.2)
+
+namespace {
+
+Values with_gamma() {
+  Values v;
+  v.gamma = true;
+  return v;
+}
+
+const char* const kNonSine = "non-sine carrier not modeled";
+
+}  // namespace
+
+TEST_CASE("gamma: the base gamma recipe compiles in both modes at both rates", "[validate][gamma]") {
+  for (const bool theta : {true, false}) {
+    for (const bool binaural : {true, false}) {
+      Values v = with_gamma();
+      v.theta = theta;
+      v.binaural = binaural;
+      const std::string text = make_recipe(v);
+      for (const arc_mode mode : kModes) {
+        for (const std::uint32_t fs : {44100u, 48000u}) {
+          INFO("theta " << theta << ", binaural " << binaural << ", mode " << mode << ", fs " << fs);
+          CHECK(api::compile_ok(text, api::options(mode, fs)) != nullptr);
+        }
+      }
+    }
+  }
+}
+
+TEST_CASE("gamma: every gamma fixture compiles at both rates", "[validate][gamma]") {
+  for (const char* name : {"gamma-uncoupled-40hz-25pct.json", "gamma-uncoupled-40hz-100pct.json",
+                           "gamma-uncoupled-60hz-25pct.json", "gamma-uncoupled-60hz-100pct.json",
+                           "theta-gamma-uncoupled.json"}) {
+    for (const std::uint32_t fs : {44100u, 48000u}) {
+      INFO(name << ", fs " << fs);
+      CHECK(api::compile_ok(api::valid(name), api::options(ARC_MODE_MEASURE, fs)) != nullptr);
+    }
+  }
+}
+
+TEST_CASE("gamma: range edges pass at the bound (carrier rule permitting)", "[validate][gamma]") {
+  {
+    // The carrier floor needs a rate the carrier rule allows: 200 >= 4 x 30.
+    Values v = with_gamma();
+    v.gamma_carrier_hz = "200";
+    v.gamma_rate_hz = "30";
+    expect_plan(v);
+  }
+  {
+    Values v = with_gamma();
+    v.gamma_carrier_hz = "500";
+    expect_plan(v);
+  }
+  for (const char* rate : {"30", "60"}) {
+    Values v = with_gamma();
+    v.gamma_rate_hz = rate;  // 250 Hz >= 4 x 60 Hz
+    expect_plan(v);
+  }
+  for (const char* depth : {"0", "100"}) {
+    Values v = with_gamma();
+    v.gamma_am_depth_percent = depth;
+    expect_plan(v);
+  }
+  {
+    Values v = with_gamma();
+    v.gamma_carrier_hz = "500";
+    v.gamma_rate_hz = "60";
+    v.gamma_am_depth_percent = "100";
+    expect_plan(v);
+  }
+}
+
+TEST_CASE("gamma: just outside a range edge is rejected with its row", "[validate][gamma]") {
+  struct Case {
+    std::string text;
+    void (*set)(Values&, const std::string&);
+    Want want;
+  };
+  // The carrier cases run at a 30 Hz rate, so the carrier rule never decides.
+  const auto carrier = [](Values& v, const std::string& t) {
+    v.gamma_carrier_hz = t;
+    v.gamma_rate_hz = "30";
+  };
+  const auto rate = [](Values& v, const std::string& t) { v.gamma_rate_hz = t; };
+  const auto depth = [](Values& v, const std::string& t) { v.gamma_am_depth_percent = t; };
+  const Case cases[] = {
+      {"199.99", carrier,
+       {"/gamma_pac/carrier_hz", "199.99", "range.min", ">= 200 Hz (row gamma-carrier)"}},
+      {"199.99999999999997", carrier,
+       {"/gamma_pac/carrier_hz", "199.99999999999997", "range.min", ">= 200 Hz (row gamma-carrier)"}},
+      {"500.01", carrier,
+       {"/gamma_pac/carrier_hz", "500.01", "range.max", "<= 500 Hz (row gamma-carrier)"}},
+      {"500.00000000000006", carrier,
+       {"/gamma_pac/carrier_hz", "500.00000000000006", "range.max", "<= 500 Hz (row gamma-carrier)"}},
+      {"29.99", rate, {"/gamma_pac/rate_hz", "29.99", "range.min", ">= 30 Hz (row gamma-rate)"}},
+      {"29.999999999999996", rate,
+       {"/gamma_pac/rate_hz", "29.999999999999996", "range.min", ">= 30 Hz (row gamma-rate)"}},
+      {"60.01", rate, {"/gamma_pac/rate_hz", "60.01", "range.max", "<= 60 Hz (row gamma-rate)"}},
+      {"60.00000000000001", rate,
+       {"/gamma_pac/rate_hz", "60.00000000000001", "range.max", "<= 60 Hz (row gamma-rate)"}},
+      {"-0.01", depth,
+       {"/gamma_pac/am_depth_percent", "-0.01", "range.min", ">= 0 percent (row coupling-depth)"}},
+      {"100.01", depth,
+       {"/gamma_pac/am_depth_percent", "100.01", "range.max", "<= 100 percent (row coupling-depth)"}},
+      {"100.00000000000001", depth,
+       {"/gamma_pac/am_depth_percent", "100.00000000000001", "range.max",
+        "<= 100 percent (row coupling-depth)"}},
+  };
+  require_text_is("199.99999999999997", below(200.0));
+  require_text_is("500.00000000000006", above(500.0));
+  require_text_is("29.999999999999996", below(30.0));
+  require_text_is("60.00000000000001", above(60.0));
+  require_text_is("100.00000000000001", above(100.0));
+  for (const auto& c : cases) {
+    Values v = with_gamma();
+    c.set(v, c.text);
+    expect_rejected(v, c.want);
+  }
+}
+
+TEST_CASE("gamma: the carrier rule rejects a carrier below 4 x the gamma rate", "[validate][gamma]") {
+  // Unlike theta, the rule is reachable inside the locked ranges.
+  const auto& carrier = tables::row("gamma-carrier");
+  const auto& rate = tables::row("gamma-rate");
+  CHECK(carrier.min < validate::kCarrierRatio * rate.max);
+  {
+    Values v = with_gamma();
+    v.gamma_carrier_hz = "200";
+    v.gamma_rate_hz = "60";
+    expect_rejected(v, {"/gamma_pac/carrier_hz", "200", "carrier_rule",
+                        ">= 240 Hz (4 x 60 Hz, row carrier-rule)"});
+  }
+  {
+    Values v = with_gamma();
+    v.gamma_carrier_hz = "240";
+    v.gamma_rate_hz = "60";
+    expect_plan(v);
+  }
+  {
+    require_text_is("239.99999999999997", below(240.0));
+    Values v = with_gamma();
+    v.gamma_carrier_hz = "239.99999999999997";
+    v.gamma_rate_hz = "60";
+    expect_rejected(v, {"/gamma_pac/carrier_hz", "239.99999999999997", "carrier_rule",
+                        ">= 240 Hz (4 x 60 Hz, row carrier-rule)"});
+  }
+  {
+    Values v = with_gamma();
+    v.gamma_carrier_hz = "200";
+    v.gamma_rate_hz = "50.5";
+    expect_rejected(v, {"/gamma_pac/carrier_hz", "200", "carrier_rule",
+                        ">= 202 Hz (4 x 50.5 Hz, row carrier-rule)"});
+  }
+  {
+    // No plan at either sample rate.
+    Values v = with_gamma();
+    v.gamma_carrier_hz = "200";
+    v.gamma_rate_hz = "60";
+    for (const std::uint32_t fs : {44100u, 48000u}) {
+      const api::Compiled c = api::compile(make_recipe(v), api::options(ARC_MODE_MEASURE, fs));
+      CHECK(c.status == ARC_ERR_REJECTED);
+      CHECK(c.plan == nullptr);
+    }
+  }
+}
+
+TEST_CASE("gamma: a non-sine carrier wave is rejected by name, with no plan", "[validate][gamma]") {
+  for (const char* wave : {"triangle", "softened_square"}) {
+    Values v = with_gamma();
+    v.gamma_carrier_wave = std::string("\"") + wave + "\"";
+    expect_rejected(v, {"/gamma_pac/carrier_wave", wave, kNonSine, "sine"});
+    for (const std::uint32_t fs : {44100u, 48000u}) {
+      const api::Compiled c = api::compile(make_recipe(v), api::options(ARC_MODE_MEASURE, fs));
+      CHECK(c.status == ARC_ERR_REJECTED);
+      CHECK(c.plan == nullptr);
+    }
+  }
+}
+
+TEST_CASE("gamma: the schema-valid compile-rejected fixtures name their rule", "[validate][gamma]") {
+  struct Case {
+    const char* name;
+    Want want;
+  };
+  const Case cases[] = {
+      {"gamma-carrier-rule-200hz-60hz.json",
+       {"/gamma_pac/carrier_hz", "200", "carrier_rule", ">= 240 Hz (4 x 60 Hz, row carrier-rule)"}},
+      {"gamma-carrier-wave-triangle.json", {"/gamma_pac/carrier_wave", "triangle", kNonSine, "sine"}},
+      {"gamma-carrier-wave-softened-square.json",
+       {"/gamma_pac/carrier_wave", "softened_square", kNonSine, "sine"}},
+  };
+  for (const auto& c : cases) {
+    const std::string text = api::valid(c.name);
+    for (const arc_mode mode : kModes) {
+      INFO(c.name << ", mode " << mode);
+      const api::Compiled r = api::compile(text, api::options(mode, 48000));
+      INFO(api::describe(r.error));
+      CHECK(r.status == ARC_ERR_REJECTED);
+      CHECK(r.plan == nullptr);
+      REQUIRE(api::all_written(r.error));
+      CHECK(std::string(r.error.parameter) == c.want.parameter);
+      CHECK(std::string(r.error.value) == c.want.value);
+      CHECK(std::string(r.error.rule) == c.want.rule);
+      CHECK(std::string(r.error.limit) == c.want.limit);
+    }
+  }
+}
+
+TEST_CASE("gamma: carrier wave and coupling text outside the schema enum is a schema fault",
+          "[validate][gamma]") {
+  for (const char* text : {"square", "Sine", "softened-square", ""}) {
+    Values v = with_gamma();
+    v.gamma_carrier_wave = std::string("\"") + text + "\"";
+    expect_rejected(v, {"/gamma_pac/carrier_wave", text, "enum", "sine, triangle, softened_square"});
+  }
+  for (const char* text : {"swell", "smooth_swell", "bursts", "Uncoupled", ""}) {
+    Values v = with_gamma();
+    v.gamma_coupling = std::string("\"") + text + "\"";
+    expect_rejected(v, {"/gamma_pac/coupling", text, "enum", "uncoupled"});
+  }
+  for (const bool wave : {true, false}) {
+    Values v = with_gamma();
+    (wave ? v.gamma_carrier_wave : v.gamma_coupling) = "3";
+    const api::Compiled c = api::compile(make_recipe(v), api::options(ARC_MODE_MEASURE, 48000));
+    REQUIRE(api::all_written(c.error));
+    CHECK(c.status == ARC_ERR_REJECTED);
+    CHECK(std::string(c.error.parameter) ==
+          (wave ? "/gamma_pac/carrier_wave" : "/gamma_pac/coupling"));
+    CHECK(std::string(c.error.rule) == "type");
+    CHECK(std::string(c.error.limit) == "string");
+  }
+}
+
+TEST_CASE("gamma: every gamma field is required", "[validate][gamma]") {
+  struct Case {
+    void (*drop)(Values&);
+    const char* parameter;
+  };
+  const Case cases[] = {
+      {[](Values& v) { v.gamma_carrier_hz.clear(); }, "/gamma_pac/carrier_hz"},
+      {[](Values& v) { v.gamma_rate_hz.clear(); }, "/gamma_pac/rate_hz"},
+      {[](Values& v) { v.gamma_am_depth_percent.clear(); }, "/gamma_pac/am_depth_percent"},
+      {[](Values& v) { v.gamma_carrier_wave.clear(); }, "/gamma_pac/carrier_wave"},
+      {[](Values& v) { v.gamma_coupling.clear(); }, "/gamma_pac/coupling"},
+  };
+  for (const auto& c : cases) {
+    Values v = with_gamma();
+    c.drop(v);
+    const api::Compiled r = api::compile(make_recipe(v), api::options(ARC_MODE_MEASURE, 48000));
+    INFO(c.parameter << ": " << api::describe(r.error));
+    REQUIRE(api::all_written(r.error));
+    CHECK(r.status == ARC_ERR_REJECTED);
+    CHECK(std::string(r.error.parameter) == c.parameter);
+    CHECK(std::string(r.error.rule) == "required");
+  }
+}
+
+TEST_CASE("gamma: check order, ranges in field table order then the rules",
+          "[validate][gamma][order]") {
+  {
+    Values v = with_gamma();  // carrier before rate before depth inside gamma_pac
+    v.gamma_carrier_hz = "150";
+    v.gamma_rate_hz = "70";
+    v.gamma_am_depth_percent = "101";
+    expect_rejected(v, {"/gamma_pac/carrier_hz", "150", "range.min", ">= 200 Hz (row gamma-carrier)"});
+  }
+  {
+    Values v = with_gamma();
+    v.gamma_rate_hz = "70";
+    v.gamma_am_depth_percent = "101";
+    expect_rejected(v, {"/gamma_pac/rate_hz", "70", "range.max", "<= 60 Hz (row gamma-rate)"});
+  }
+  {
+    Values v = with_gamma();  // theta ranges come before gamma ranges
+    v.theta_carrier_hz = "50";
+    v.gamma_carrier_hz = "150";
+    expect_rejected(v, {"/theta_reference/carrier_hz", "50", "range.min",
+                        ">= 100 Hz (row theta-carrier)"});
+  }
+  {
+    Values v = with_gamma();  // gamma ranges come before binaural ranges
+    v.gamma_carrier_hz = "150";
+    v.carrier_left_hz = "1000";
+    expect_rejected(v, {"/gamma_pac/carrier_hz", "150", "range.min", ">= 200 Hz (row gamma-carrier)"});
+  }
+  {
+    Values v = with_gamma();  // a range fault wins over the gamma carrier rule
+    v.gamma_carrier_hz = "200";
+    v.gamma_rate_hz = "60";
+    v.gamma_am_depth_percent = "101";
+    expect_rejected(v, {"/gamma_pac/am_depth_percent", "101", "range.max",
+                        "<= 100 percent (row coupling-depth)"});
+  }
+  {
+    Values v = with_gamma();  // a range fault wins over the carrier wave rule
+    v.gamma_am_depth_percent = "101";
+    v.gamma_carrier_wave = "\"triangle\"";
+    expect_rejected(v, {"/gamma_pac/am_depth_percent", "101", "range.max",
+                        "<= 100 percent (row coupling-depth)"});
+  }
+  {
+    Values v = with_gamma();  // a binaural range fault wins over both gamma rules
+    v.gamma_carrier_hz = "200";
+    v.gamma_rate_hz = "60";
+    v.gamma_carrier_wave = "\"softened_square\"";
+    v.beat_rate_hz = "30";
+    expect_rejected(v, {"/binaural/beat_rate_hz", "30", "range.max", "< 30 Hz (row beat-rate)"});
+  }
+  {
+    Values v = with_gamma();  // the theta shape rule wins over the gamma carrier rule
+    v.theta_shape = "\"custom\"";
+    v.gamma_carrier_hz = "200";
+    v.gamma_rate_hz = "60";
+    expect_rejected(v, {"/theta_reference/shape", "custom", "shape not modeled in the signal spec",
+                        "sine, smoothed_on_off, sawtooth, reverse_saw"});
+  }
+  {
+    Values v = with_gamma();  // the theta shape rule wins over the carrier wave rule
+    v.theta_shape = "\"custom\"";
+    v.gamma_carrier_wave = "\"triangle\"";
+    expect_rejected(v, {"/theta_reference/shape", "custom", "shape not modeled in the signal spec",
+                        "sine, smoothed_on_off, sawtooth, reverse_saw"});
+  }
+  {
+    Values v = with_gamma();  // the gamma carrier rule wins over the carrier wave rule
+    v.gamma_carrier_hz = "200";
+    v.gamma_rate_hz = "60";
+    v.gamma_carrier_wave = "\"triangle\"";
+    expect_rejected(v, {"/gamma_pac/carrier_hz", "200", "carrier_rule",
+                        ">= 240 Hz (4 x 60 Hz, row carrier-rule)"});
+  }
+  {
+    Values v = with_gamma();  // the gamma carrier rule comes before final.required
+    v.gain = false;
+    v.gamma_carrier_hz = "200";
+    v.gamma_rate_hz = "60";
+    expect_rejected(v, {"/gamma_pac/carrier_hz", "200", "carrier_rule",
+                        ">= 240 Hz (4 x 60 Hz, row carrier-rule)"},
+                    {ARC_MODE_FINAL});
+  }
+  {
+    Values v = with_gamma();  // the carrier wave rule comes before final.required
+    v.gain = false;
+    v.gamma_carrier_wave = "\"softened_square\"";
+    expect_rejected(v, {"/gamma_pac/carrier_wave", "softened_square", kNonSine, "sine"},
+                    {ARC_MODE_FINAL});
+  }
+  {
+    // In range, sine, and without the gain: final.required, as before.
+    Values v = with_gamma();
+    v.gain = false;
+    const api::Compiled c = api::compile(make_recipe(v), api::options(ARC_MODE_FINAL, 48000));
+    REQUIRE(api::all_written(c.error));
+    CHECK(c.status == ARC_ERR_REJECTED);
+    CHECK(std::string(c.error.rule) == "final.required");
+  }
+}
+
+TEST_CASE("gamma: the carrier rule names the gamma parameter when checked directly",
+          "[validate][gamma]") {
+  const auto bad = validate::check_carrier_rule("/gamma_pac/carrier_hz", 200.0, 60.0, 60.0);
+  REQUIRE(bad.has_value());
+  CHECK(bad->parameter == "/gamma_pac/carrier_hz");
+  CHECK(bad->value == "200");
+  CHECK(bad->rule == "carrier_rule");
+  CHECK(bad->limit == ">= 240 Hz (4 x 60 Hz, row carrier-rule)");
+  CHECK_FALSE(validate::check_carrier_rule("/gamma_pac/carrier_hz", 240.0, 60.0, 60.0).has_value());
 }
 
 // ------------------------------------------------------------ part 3

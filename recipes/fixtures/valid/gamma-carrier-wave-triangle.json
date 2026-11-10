@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-07",
+  "rationale": "Gamma PAC fixture (Story 2.2), schema-valid and rejected at compile: carrier wave triangle is not modeled in the signal spec (only sine). 250 Hz carrier, 40 Hz AM rate, 100 percent AM depth, uncoupled. Values are placeholders, not starter defaults. A test fixture, not for listening.",
+  "length_s": 10,
+  "loudness_target_lufs": -36,
+  "gamma_pac": {
+    "carrier_hz": 250,
+    "rate_hz": 40,
+    "am_depth_percent": 100,
+    "carrier_wave": "triangle",
+    "coupling": "uncoupled"
+  }
+}

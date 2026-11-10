@@ -2,7 +2,7 @@
 
 This file is the only source of signal formulas (AD-19). The engine (`engine/`) and the Python reference (`reference/`) each implement it on their own; neither defines a formula of its own, and neither is ported from the other. A shape or stage not in this file does not exist.
 
-Story 0.2 writes the core and sine sections. Story 1.2 writes the internal block size and the stub chain. Story 1.4 writes 24-bit rounding. Story 1.5 adds the theta reference oscillator to the stub chain. Story 2.1 writes the theta reference (envelope shapes, depth law). Later stories add coupling, bursts, ramps and rate curves, loop seams, the limiter, the resampler, the loudness window, and the spectral component model.
+Story 0.2 writes the core and sine sections. Story 1.2 writes the internal block size and the stub chain. Story 1.4 writes 24-bit rounding. Story 1.5 adds the theta reference oscillator to the stub chain. Story 2.1 writes the theta reference (envelope shapes, depth law). Story 2.2 writes the gamma PAC layer, uncoupled (AM law, constant depth). Later stories add coupling, bursts, ramps and rate curves, loop seams, the limiter, the resampler, the loudness window, and the spectral component model.
 
 **Conventions:**
 
@@ -309,7 +309,7 @@ Every sample is a pure function of the plan and its sample index `n` (AD-10). A 
 
 ## Stub chain
 
-The fixed stage list of Story 1.2, before any real layer exists. Story 1.5 routes the sine through the theta reference stub as an unmodulated carrier; Epic 2 replaces the theta reference (Story 2.1, Theta reference) and gamma PAC stubs with the real layers, and Epic 4 replaces the stored gain and the limiter stub.
+The fixed stage list of Story 1.2, before any real layer exists. Story 1.5 routes the sine through the theta reference stub as an unmodulated carrier; Epic 2 replaces the theta reference (Story 2.1, Theta reference) and gamma PAC (Story 2.2, Gamma PAC layer) stubs with the real layers, and Epic 4 replaces the stored gain and the limiter stub.
 
 **Stage order.** Theta reference, gamma PAC layer, stereo bus, binaural join, master chain (per-channel gain, then a stereo-linked limiter). The order is fixed and is not a recipe field. Every stage writes channel `c` only from channel `c` of its inputs. The limiter alone reads both channels, and only to derive one linked gain that it applies to each channel separately. No stage reads one channel to write the other.
 
@@ -338,13 +338,13 @@ a_c   = 1.0                                 unit amplitude
 
 For the fixture `stub-chain-1s-beat-6.json` that is a 400 Hz unmodulated sine in the left ear and a 406 Hz unmodulated sine in the right ear, a 6 Hz binaural beat; for `stub-chain-1s-beat-0.json` it is a 400 Hz unmodulated sine in each ear. A recipe without a `binaural` field has `a_L = a_R = 0.0` and `inc_L = inc_R = 0`.
 
-**Muted ear.** The compile option `mute_binaural_ear` (none, left, or right) is an offline measurement control for the isolation test (FR-4), stored in the plan; it is not a recipe field. For the muted ear `c`, the plan holds `inc_c = 0` and `a_c = 0.0`, so the render path has no test branch and that ear's binaural oscillator outputs `0.0 * sine(0) = +0.0`. Muting affects only the binaural oscillator: the theta reference is unchanged, so the muted channel's `join`, `master`, and `out` equal its `theta` bit for bit.
+**Muted ear.** The compile option `mute_binaural_ear` (none, left, or right) is an offline measurement control for the isolation test (FR-4), stored in the plan; it is not a recipe field. For the muted ear `c`, the plan holds `inc_c = 0` and `a_c = 0.0`, so the render path has no test branch and that ear's binaural oscillator outputs `0.0 * sine(0) = +0.0`. Muting affects only the binaural oscillator: the theta reference and the gamma PAC layer are unchanged, so the muted channel's `join`, `master`, and `out` equal its stereo bus (`theta + gamma`) bit for bit, which is the theta tap when there is no `gamma_pac` field. The engine bus is never `-0.0` (the engine gamma tap never is, and `-0.0 + +0.0` is `+0.0`), so adding the muted ear's `+0.0` changes no bit.
 
 **Per sample.** For `0 <= n < N` and each channel `c`, in this order, each line one binary64 operation (Conventions):
 
 ```
 theta[c][n]  = a[n] * sine(phase_T[n])      theta reference (Theta reference, Per sample): the same value in both channels
-gamma[c][n]  = 0.0                          gamma PAC stub
+gamma[c][n]  = 0.0                          gamma PAC stub (Gamma PAC layer, Per sample: a[n] * sine(phase_G[n]) with a gamma_pac field)
 bus[c][n]    = theta[c][n] + gamma[c][n]    stereo bus: adds the layers within channel c
 bin[c][n]    = a_c * sine(phase_c[n])       binaural oscillator of ear c (Sine, engine sine)
 join[c][n]   = bus[c][n] + bin[c][n]        binaural join: ear c is added to channel c only
@@ -352,7 +352,7 @@ master[c][n] = join[c][n] * g_c             per-channel gain, g_L = g_R = 1.0 (s
 out[c][n]    = master[c][n]                 stereo-linked limiter stub: identity, zero gain reduction
 ```
 
-`y * 1.0 = y` exactly for every binary64 `y`, and `y + +0.0 = y` and `+0.0 + y = y` exactly for every binary64 `y` other than `-0.0` (where the sum is `+0.0`). No stub chain fixture produces `-0.0` (the theta reference can only at 100 percent depth; Theta reference, Per sample): the engine sine (Sine, Engine sine) returns zero only for a folded `s = 0`, where `x = +0.0`, `r = C1 = 1` and `y = 1 * +0.0 = +0.0`, and is otherwise nonzero with the sign of `s`, since `r` stays positive on `[-pi/2, pi/2]`; an absent theta reference, a muted ear, or an absent ear is `0.0 * sine(0) = +0.0`. So `bus = theta` bit for bit. `join = bus + bin` is one rounding; it is exact, and equals the other operand, when `theta` or `bin` is `+0.0` (no `theta_reference` field, or a muted or absent ear). `master` and `out` equal `join` bit for bit.
+`y * 1.0 = y` exactly for every binary64 `y`, and `y + +0.0 = y` and `+0.0 + y = y` exactly for every binary64 `y` other than `-0.0` (where the sum is `+0.0`). No stub chain fixture produces `-0.0` (the theta reference can only at 100 percent depth; Theta reference, Per sample): the engine sine (Sine, Engine sine) returns zero only for a folded `s = 0`, where `x = +0.0`, `r = C1 = 1` and `y = 1 * +0.0 = +0.0`, and is otherwise nonzero with the sign of `s`, since `r` stays positive on `[-pi/2, pi/2]`; an absent theta reference, a muted ear, or an absent ear is `0.0 * sine(0) = +0.0`. No stub chain fixture has a `gamma_pac` field, so `gamma` is `+0.0` and `bus = theta` bit for bit; with a gamma layer the bus is the one-rounding sum (Gamma PAC layer, Stereo bus). `join = bus + bin` is one rounding; it is exact, and equals the other operand, when `theta` or `bin` is `+0.0` (no `theta_reference` field, or a muted or absent ear). `master` and `out` equal `join` bit for bit.
 
 **Level.** Both stub oscillators run at unit amplitude, so a recipe with a theta reference and a binaural layer peaks near 2.0. `stub-chain-1s-beat-6.json` (300 Hz theta, 400 and 406 Hz binaural) does, and its 24-bit WAV clips by the 24-bit rounding rule (24-bit rounding). It is a test fixture, not for listening; real levels arrive in Epic 2 and Epic 4.
 
@@ -510,7 +510,7 @@ So `a = 1` at the envelope peak and `a = 1 - d` where `e = 0`: 75 percent dips t
 theta[c][n] = a[n] * sine(phase_T[n])      the same value in both channels (Sine, engine sine)
 ```
 
-Without a `theta_reference` field, `theta[c][n] = +0.0`. The theta tap is `-0.0` only where `a[n] = 0.0` (depth 100 percent where `e = 0`) and the carrier sine is negative; there the stereo bus, `theta + gamma`, is `+0.0`, equal in value. Everywhere else the bus equals the theta tap bit for bit.
+Without a `theta_reference` field, `theta[c][n] = +0.0`. The theta tap is `-0.0` only where `a[n] = 0.0` (depth 100 percent where `e = 0`) and the carrier sine is negative; there the stereo bus, `theta + gamma`, is `+0.0` without a gamma layer, equal in value. Everywhere else, without a gamma layer, the bus equals the theta tap bit for bit (Gamma PAC layer, Stereo bus, covers the sum).
 
 **Seek.** Seek to frame `k` sets `phase_T` to `k * inc_T mod 2^64` and `phase_E` to `k * inc_E mod 2^64`.
 
@@ -886,6 +886,344 @@ Per fixture and sample rate at sample `n`: both phases, the envelope segment, an
 | signal | theta-reverse-saw-6hz.json | 48000 | 479999 | 18273805848015452576 | 18444438230700360962 | rise edge | `0x3fefffe97c40fb6e` | `0x3fefffef1d30bc92` | `0xbfae244078f469a1` | 0.9999892908320648151727049 | -0.05887033080924148499749223 |
 | past_end | theta-reverse-saw-6hz.json | 48000 | 480000 | 18446744073706479616 | 23040 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
 | past_end | theta-reverse-saw-6hz.json | 48000 | 480063 | 10895108218531631520 | 145268109580485762 | past end | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+
+## Gamma PAC layer
+
+Story 2.2 replaces the gamma PAC stub (Stub chain) with the real layer, uncoupled: a separate sine carrier amplitude-modulated at the gamma rate with a constant AM depth, the same value in both channels. Stories 2.3 and 2.4 add the coupled settings, in which the depth follows the theta reference phase; the uncoupled layer is the control they are compared with. Uncoupled gamma reads nothing from the theta reference.
+
+**Recipe fields.** All five are required in `gamma_pac`:
+
+- `carrier_hz`, the gamma carrier in Hz (range row `gamma-carrier`)
+- `rate_hz`, the gamma rate in Hz (range row `gamma-rate`)
+- `am_depth_percent`, the AM depth in percent (range row `coupling-depth`)
+- `carrier_wave`, one of `sine`, `triangle`, `softened_square`
+- `coupling`, one of `uncoupled` (Stories 2.3 and 2.4 add `smooth_swell` and `bursts`)
+
+The schema also accepts `triangle` and `softened_square` so that compile can reject them by name: parameter `/gamma_pac/carrier_wave`, value the text, rule `non-sine carrier not modeled`, limit `sine`. No non-sine carrier exists until this section models it. Any other carrier wave or coupling text is a schema fault (rule `enum`). The carrier rule (row `carrier-rule`) checks `carrier_hz` against `rate_hz`. Not every pair inside the locked ranges passes it: at a 60 Hz rate the carrier must be at least 240 Hz, above the 200 Hz floor of `gamma-carrier`.
+
+**Compile order.** After every range check, compile runs these rules and the first failure wins: the theta reference carrier rule, the theta shape rule (Theta reference), the gamma carrier rule (parameter `/gamma_pac/carrier_hz`), then the carrier wave rule. All of them run before `final.required`.
+
+**Oscillators.** Two phase accumulators (Core), each at phase 0 at n = 0:
+
+```
+inc_G = phase increment rule (carrier_hz, fs)    carrier phase:  phase_G[n] = n * inc_G mod 2^64
+inc_M = phase increment rule (rate_hz, fs)       envelope phase: phase_M[n] = n * inc_M mod 2^64
+```
+
+`phi = phase_M / 2^64` is the fraction of the gamma envelope cycle; `phi = 0` is its peak, so the first gamma envelope peak is sample 0.
+
+**AM law.** The envelope is the theta reference sine shape (Theta reference, Envelope shapes) at the gamma rate:
+
+```
+ideal:   e = (1 + cos(2 * pi * phase_M / 2^64)) / 2
+engine:  c = sine(phase_M + 2^62 mod 2^64)      engine sine (Sine): sine(p + 2^62) is the cosine of p
+         e = (1.0 + c) * 0.5                    one rounding, then an exact halving
+```
+
+`d = am_depth_percent / 100.0` (binary64, one rounding), once per plan. Per sample:
+
+```
+a[n] = 1.0 - d * (1.0 - e[n])      three binary64 operations, in this order
+```
+
+**Uncoupled.** `d` is the same for every sample of the render; nothing else sets it. So `a = 1` at each envelope peak and `a = 1 - d` at each trough: 100 percent dips the carrier to silence, 25 percent to three quarters of its peak. At `d = 0`, `a = 1.0` exactly and the layer is an unmodulated sine at the gamma carrier.
+
+The engine envelope is never 0: the engine sine stays strictly inside (-1, 1) (Theta reference, Envelope shapes), so `1.0 + c > 0`, and at the trough `e` is about 2.8e-8 (`0x3e5e342bcb000000`). With `d` in [0, 1], `a >= e > 0` for every sample.
+
+**Per sample.** For `0 <= n < N` and each channel `c`, this line replaces the gamma PAC stub line of Stub chain, Per sample; every other line there is unchanged:
+
+```
+gamma[c][n] = a[n] * sine(phase_G[n])      the same value in both channels (Sine, engine sine)
+```
+
+Without a `gamma_pac` field, `gamma[c][n] = +0.0`. Since `a > 0`, the engine gamma tap is `+0.0` only where the carrier sine is `+0.0` (a folded phase of 0) and is never `-0.0`.
+
+**Stereo bus.** `bus[c][n] = theta[c][n] + gamma[c][n]` is one rounding. Without a theta reference, `theta` is `+0.0` and the bus equals the gamma tap bit for bit. With both layers it is the rounded sum. The Python reference's envelope can be exactly 0.0 at 100 percent depth (its binary64 cosine rounds to -1 near the trough), so its gamma tap can be `-0.0` where the carrier sine is negative. There its bus is `theta + -0.0`: the theta tap bit for bit when the theta tap is nonzero or `-0.0`, and `+0.0` when it is `+0.0`. In every case the bus equals the sum of the two taps in value.
+
+**Seek.** Seek to frame `k` sets `phase_G` to `k * inc_G mod 2^64` and `phase_M` to `k * inc_M mod 2^64`.
+
+**Reference.** The Python reference (`reference/gamma.py`, implemented from this section) uses the same integer phases and the same increments. It evaluates the ideal envelope in binary64 with NumPy (the cosine of the signed envelope phase times `2 * pi / 2^64`), the depth law in the order above, and the ideal sine (Sine) for the carrier.
+
+**Error bound.** With `b` the sine error bound (row `sine-error`), the margin of each tap is stated by its count of engine sine evaluations per sample:
+
+- **Gamma tap: 2 sines** (the envelope cosine and the carrier). Halving the cosine halves its error, so `|e - e_ideal| <= b / 2 + 2^-52`, `|a - a_ideal| <= d * (b / 2 + 2^-52) + 2^-52`, and `|gamma - gamma_ideal| <= 1.5 * b + 2^-47`, about -116 dBFS, the theta tap's bound.
+- **Stereo bus.** Without a theta reference it is the gamma tap (2 sines). With one it adds the theta tap's 2 sines, 4 in all: within `3 * b + 2^-45`, about -110 dBFS.
+- **Output.** The binaural join adds that ear's binaural sine, 5 in all with both layers: within `4 * b + 2^-44`, about -108 dBFS.
+
+Every bound is under row `reference-match` (-100 dBFS).
+
+**Level.** The gamma layer runs at unit amplitude, like the theta reference; level fields arrive in Epic 4. `theta-gamma-uncoupled.json` (both layers) peaks near 2.0, and its 24-bit WAV clips by the 24-bit rounding rule. It is a test fixture, not for listening.
+
+### Vectors: gamma envelope
+
+The engine envelope `e` and amplitude `a` (binary64 bits, from the engine sine bits) and their ideal values (25 significant digits: ideal cosine in decimal arithmetic, exact depth law on the binary64 `d`) at the envelope phases 0 (the peak), 1, 2^61 (an eighth of a cycle), 2^62, 2^63, and 3 * 2^62 (the quarter, half, and three-quarter points), and 2^64 - 1 (the cycle's last phase), at 0, 25, and 100 percent depth. The envelope does not depend on the rate.
+
+| Depth (hex) | Envelope phase | e (binary64 bits) | a (binary64 bits) | e ideal | a ideal |
+| --- | --- | --- | --- | --- | --- |
+| `0x0.0p+0` | 0 | `0x3feffffff0e5ea1a` | `0x3ff0000000000000` | 1 | 1 |
+| `0x0.0p+0` | 1 | `0x3feffffff0e5ea1a` | `0x3ff0000000000000` | 1 | 1 |
+| `0x0.0p+0` | 2305843009213693952 | `0x3feb504f333f2405` | `0x3ff0000000000000` | 0.8535533905932737622004222 | 1 |
+| `0x0.0p+0` | 4611686018427387904 | `0x3fe0000000000000` | `0x3ff0000000000000` | 0.5 | 1 |
+| `0x0.0p+0` | 9223372036854775808 | `0x3e5e342bcb000000` | `0x3ff0000000000000` | 0 | 1 |
+| `0x0.0p+0` | 13835058055282163712 | `0x3fe0000000000000` | `0x3ff0000000000000` | 0.5 | 1 |
+| `0x0.0p+0` | 18446744073709551615 | `0x3feffffff0e5ea1a` | `0x3ff0000000000000` | 1 | 1 |
+| `0x1.9000000000000p+4` | 0 | `0x3feffffff0e5ea1a` | `0x3feffffffc397a86` | 1 | 1 |
+| `0x1.9000000000000p+4` | 1 | `0x3feffffff0e5ea1a` | `0x3feffffffc397a86` | 1 | 1 |
+| `0x1.9000000000000p+4` | 2305843009213693952 | `0x3feb504f333f2405` | `0x3feed413cccfc901` | 0.8535533905932737622004222 | 0.9633883476483184405501055 |
+| `0x1.9000000000000p+4` | 4611686018427387904 | `0x3fe0000000000000` | `0x3fec000000000000` | 0.5 | 0.875 |
+| `0x1.9000000000000p+4` | 9223372036854775808 | `0x3e5e342bcb000000` | `0x3fe8000003c6857a` | 0 | 0.75 |
+| `0x1.9000000000000p+4` | 13835058055282163712 | `0x3fe0000000000000` | `0x3fec000000000000` | 0.5 | 0.875 |
+| `0x1.9000000000000p+4` | 18446744073709551615 | `0x3feffffff0e5ea1a` | `0x3feffffffc397a86` | 1 | 1 |
+| `0x1.9000000000000p+6` | 0 | `0x3feffffff0e5ea1a` | `0x3feffffff0e5ea1a` | 1 | 1 |
+| `0x1.9000000000000p+6` | 1 | `0x3feffffff0e5ea1a` | `0x3feffffff0e5ea1a` | 1 | 1 |
+| `0x1.9000000000000p+6` | 2305843009213693952 | `0x3feb504f333f2405` | `0x3feb504f333f2405` | 0.8535533905932737622004222 | 0.8535533905932737622004222 |
+| `0x1.9000000000000p+6` | 4611686018427387904 | `0x3fe0000000000000` | `0x3fe0000000000000` | 0.5 | 0.5 |
+| `0x1.9000000000000p+6` | 9223372036854775808 | `0x3e5e342bcb000000` | `0x3e5e342bcc000000` | 0 | 0 |
+| `0x1.9000000000000p+6` | 13835058055282163712 | `0x3fe0000000000000` | `0x3fe0000000000000` | 0.5 | 0.5 |
+| `0x1.9000000000000p+6` | 18446744073709551615 | `0x3feffffff0e5ea1a` | `0x3feffffff0e5ea1a` | 1 | 1 |
+
+### Vectors: gamma fixtures
+
+Per gamma fixture and sample rate: the gamma carrier, rate, and depth as hex floats, the carrier wave and coupling, the theta reference (`none` without a `theta_reference` field), the increments, and the session length `N` in frames. `gamma-uncoupled-<rate>hz-<depth>pct.json` is a 250 Hz sine carrier amplitude-modulated at 40 or 60 Hz with 25 or 100 percent depth, uncoupled, 10 s, gamma only. `theta-gamma-uncoupled.json` adds a theta reference (450 Hz carrier amplitude-modulated at 6 Hz by the sine envelope, 75 percent depth) to the 40 Hz, 100 percent gamma layer, for the bus sum. None has a binaural layer. In this order the fixtures are the hash probe's `gamma-uncoupled-<fs>` components.
+
+| Fixture | fs | Carrier (hex) | Rate (hex) | Depth (hex) | Carrier wave | Coupling | Theta carrier (hex) | Theta rate (hex) | Theta depth (hex) | Theta shape | Carrier inc | Rate inc | Frames |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| gamma-uncoupled-40hz-25pct.json | 44100 | `0x1.f400000000000p+7` | `0x1.4000000000000p+5` | `0x1.9000000000000p+4` | sine | uncoupled | `none` | `none` | `none` | none | 104573379102661856 | 16731740656425898 | 441000 |
+| gamma-uncoupled-40hz-100pct.json | 44100 | `0x1.f400000000000p+7` | `0x1.4000000000000p+5` | `0x1.9000000000000p+6` | sine | uncoupled | `none` | `none` | `none` | none | 104573379102661856 | 16731740656425898 | 441000 |
+| gamma-uncoupled-60hz-25pct.json | 44100 | `0x1.f400000000000p+7` | `0x1.e000000000000p+5` | `0x1.9000000000000p+4` | sine | uncoupled | `none` | `none` | `none` | none | 104573379102661856 | 25097610984638844 | 441000 |
+| gamma-uncoupled-60hz-100pct.json | 44100 | `0x1.f400000000000p+7` | `0x1.e000000000000p+5` | `0x1.9000000000000p+6` | sine | uncoupled | `none` | `none` | `none` | none | 104573379102661856 | 25097610984638844 | 441000 |
+| theta-gamma-uncoupled.json | 44100 | `0x1.f400000000000p+7` | `0x1.4000000000000p+5` | `0x1.9000000000000p+6` | sine | uncoupled | `0x1.c200000000000p+8` | `0x1.8000000000000p+2` | `0x1.2c00000000000p+6` | sine | 104573379102661856 | 16731740656425898 | 441000 |
+| gamma-uncoupled-40hz-25pct.json | 48000 | `0x1.f400000000000p+7` | `0x1.4000000000000p+5` | `0x1.9000000000000p+4` | sine | uncoupled | `none` | `none` | `none` | none | 96076792050570576 | 15372286728091294 | 480000 |
+| gamma-uncoupled-40hz-100pct.json | 48000 | `0x1.f400000000000p+7` | `0x1.4000000000000p+5` | `0x1.9000000000000p+6` | sine | uncoupled | `none` | `none` | `none` | none | 96076792050570576 | 15372286728091294 | 480000 |
+| gamma-uncoupled-60hz-25pct.json | 48000 | `0x1.f400000000000p+7` | `0x1.e000000000000p+5` | `0x1.9000000000000p+4` | sine | uncoupled | `none` | `none` | `none` | none | 96076792050570576 | 23058430092136940 | 480000 |
+| gamma-uncoupled-60hz-100pct.json | 48000 | `0x1.f400000000000p+7` | `0x1.e000000000000p+5` | `0x1.9000000000000p+6` | sine | uncoupled | `none` | `none` | `none` | none | 96076792050570576 | 23058430092136940 | 480000 |
+| theta-gamma-uncoupled.json | 48000 | `0x1.f400000000000p+7` | `0x1.4000000000000p+5` | `0x1.9000000000000p+6` | sine | uncoupled | `0x1.c200000000000p+8` | `0x1.8000000000000p+2` | `0x1.2c00000000000p+6` | sine | 96076792050570576 | 15372286728091294 | 480000 |
+
+### Vectors: gamma samples
+
+Per fixture and sample rate at sample `n`: both gamma phases, and the engine envelope `e`, amplitude `a`, and gamma tap (the same in both channels) as binary64 bits, with the ideal envelope and ideal gamma tap at 25 digits (the exact depth law on the binary64 `d`, ideal cosine, ideal sine). For the gamma-only fixtures the gamma tap is also the stereo bus and the output. Indices cover the start (0 and 1), both sides of the first two block boundaries (63, 64, 65, 127, 128), sample 1000, both sides of the quarter, half, and three-quarter points of the first gamma envelope cycle, the last sample, and two samples past the end (case `past_end`: taps and output `+0.0`; the phase columns show `n * inc mod 2^64` only for reference).
+
+| Case | Fixture | fs | n | Carrier phase | Envelope phase | e (binary64 bits) | a (binary64 bits) | Gamma (binary64 bits) | e ideal | Gamma ideal |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| signal | gamma-uncoupled-40hz-25pct.json | 44100 | 0 | 0 | 0 | `0x3feffffff0e5ea1a` | `0x3feffffffc397a86` | `0x0000000000000000` | 1 | 0 |
+| signal | gamma-uncoupled-40hz-25pct.json | 44100 | 1 | 104573379102661856 | 16731740656425898 | `0x3fefffeeea596399` | `0x3feffffbba9658e6` | `0x3fa23ba6fa24e1a1` | 0.9999918802740107521512968 | 0.03561136082235714223904246 |
+| signal | gamma-uncoupled-40hz-25pct.json | 44100 | 63 | 6588122883467696928 | 1054099661354831574 | `0x3feefad169e742ed` | `0x3fefbeb45a79d0bb` | `0x3fe8d1b6a3673c83` | 0.9681174353198686015776614 | 0.7755997842658423306230287 |
+| signal | gamma-uncoupled-40hz-25pct.json | 44100 | 64 | 6692696262570358784 | 1070831402011257472 | `0x3feef28db6535f28` | `0x3fefbca36d94d7ca` | `0x3fe817acb93ddcc0` | 0.9671085901832404466932429 | 0.7528899784140633278920989 |
+| signal | gamma-uncoupled-40hz-25pct.json | 44100 | 65 | 6797269641673020640 | 1087563142667683370 | `0x3feeea2a31c8a06f` | `0x3fefba8a8c72281c` | `0x3fe755e27e72c482` | 0.9660845738715742446888820 | 0.7292339774593803749459619 |
+| signal | gamma-uncoupled-40hz-25pct.json | 44100 | 127 | 13280819146038055712 | 2124931063366089046 | `0x3febfd2c1b49e694` | `0x3feeff4b06d279a5` | `0xbfee7250282d8943` | 0.8746548207358215255331877 | -0.9514542477794599830245614 |
+| signal | gamma-uncoupled-40hz-25pct.json | 44100 | 128 | 13385392525140717568 | 2141662804022514944 | `0x3febedaa075b77ec` | `0x3feefb6a81d6ddfb` | `0xbfee9e91786cd36e` | 0.8727617400918978936211149 | -0.9568564894580003405729162 |
+| signal | gamma-uncoupled-40hz-25pct.json | 44100 | 275 | 10310935179522458784 | 4601228680517121950 | `0x3fe00e96e945771c` | `0x3fec03a5ba515dc7` | `0xbfd4489a674e9a8b` | 0.5017809444504765686237708 | -0.3169313439233656920877958 |
+| signal | gamma-uncoupled-40hz-25pct.json | 44100 | 276 | 10415508558625120640 | 4617960421173547848 | `0x3fdfee7e19b8bec3` | `0x3febfdcfc33717d8` | `0xbfd61cd6707c6582` | 0.4989314318836301774100584 | -0.3455101107116091131980556 |
+| signal | gamma-uncoupled-40hz-25pct.json | 44100 | 551 | 2279699664438027808 | 9219189101690669798 | `0x3ea1f60eb5900000` | `0x3fe8000047d83ad6` | `0x3fe0d19b55539456` | 5.074841620277058005370461e-7 | 0.5255867591389927897753315 |
+| signal | gamma-uncoupled-40hz-25pct.json | 44100 | 552 | 2384273043540689664 | 9235920842347095696 | `0x3ed3454f81a30000` | `0x3fe8000268a9f034` | `0x3fe16af748901211` | 0.000004567351277288602850052079 | 0.5443073621434250193243273 |
+| signal | gamma-uncoupled-40hz-25pct.json | 44100 | 826 | 12590634843960486592 | 13820417782207791748 | `0x3fdfd72645132233` | `0x3febfae4c8a26446` | `0xbfe98104fe77ecf4` | 0.4975066828306210936143776 | -0.7969994524748243709025513 |
+| signal | gamma-uncoupled-40hz-25pct.json | 44100 | 827 | 12695208223063148448 | 13837149522864217646 | `0x3fe002eafbd7aacf` | `0x3fec00babef5eab4` | `0xbfe9eb30f076b598` | 0.5003561896131374961342586 | -0.8099598607542841219974838 |
+| signal | gamma-uncoupled-40hz-25pct.json | 44100 | 1000 | 12339658734114097920 | 16731740656425898000 | `0x3fed58cdc0348cc6` | `0x3fef5633700d2332` | `0xbfeb5bdf08e68cc0` | 0.9170902971947589187986647 | -0.8549647500566561134293513 |
+| signal | gamma-uncoupled-40hz-25pct.json | 44100 | 440999 | 18342170694606345760 | 18430012333053497318 | `0x3fefffeeea59639c` | `0x3feffffbba9658e7` | `0xbfa23ba6fa2549e1` | 0.9999918802740111128169410 | -0.03561136082254232055888012 |
+| past_end | gamma-uncoupled-40hz-25pct.json | 44100 | 441000 | 18446744073709007616 | 371600 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| past_end | gamma-uncoupled-40hz-25pct.json | 44100 | 441063 | 6588122883467152928 | 1054099661355203174 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| signal | gamma-uncoupled-40hz-100pct.json | 44100 | 0 | 0 | 0 | `0x3feffffff0e5ea1a` | `0x3feffffff0e5ea1a` | `0x0000000000000000` | 1 | 0 |
+| signal | gamma-uncoupled-40hz-100pct.json | 44100 | 1 | 104573379102661856 | 16731740656425898 | `0x3fefffeeea596399` | `0x3fefffeeea596399` | `0x3fa23b9fad1ed165` | 0.9999918802740107521512968 | 0.03561114395604793215532386 |
+| signal | gamma-uncoupled-40hz-100pct.json | 44100 | 63 | 6588122883467696928 | 1054099661354831574 | `0x3feefad169e742ed` | `0x3feefad169e742ed` | `0x3fe838902e9b88ca` | 0.9681174353198686015776614 | 0.7569046896592798468546508 |
+| signal | gamma-uncoupled-40hz-100pct.json | 44100 | 64 | 6692696262570358784 | 1070831402011257472 | `0x3feef28db6535f28` | `0x3feef28db6535f28` | `0x3fe77e43fe582427` | 0.9671085901832404466932429 | 0.7341632819317234925824482 |
+| signal | gamma-uncoupled-40hz-100pct.json | 44100 | 65 | 6797269641673020640 | 1087563142667683370 | `0x3feeea2a31c8a06f` | `0x3feeea2a31c8a06f` | `0x3fe6bca15373cd27` | 0.9660845738715742446888820 | 0.7105261456175201892804468 |
+| signal | gamma-uncoupled-40hz-100pct.json | 44100 | 127 | 13280819146038055712 | 2124931063366089046 | `0x3febfd2c1b49e694` | `0x3febfd2c1b49e694` | `0xbfeb7ddfdbc4fd54` | 0.8746548207358215255331877 | -0.8591155424491109223113923 |
+| signal | gamma-uncoupled-40hz-100pct.json | 44100 | 128 | 13385392525140717568 | 2141662804022514944 | `0x3febedaa075b77ec` | `0x3febedaa075b77ec` | `0xbfeb99f7c33c67ae` | 0.8727617400918978936211149 | -0.8625449132202722234786983 |
+| signal | gamma-uncoupled-40hz-100pct.json | 44100 | 275 | 10310935179522458784 | 4601228680517121950 | `0x3fe00e96e945771c` | `0x3fe00e96e945771c` | `0xbfc740832bf60ea3` | 0.5017809444504765686237708 | -0.1816562618879420945890785 |
+| signal | gamma-uncoupled-40hz-100pct.json | 44100 | 276 | 10415508558625120640 | 4617960421173547848 | `0x3fdfee7e19b8bec3` | `0x3fdfee7e19b8bec4` | `0xbfc939ac8e2b50ac` | 0.4989314318836301774100584 | -0.1970725721536209271451994 |
+| signal | gamma-uncoupled-40hz-100pct.json | 44100 | 551 | 2279699664438027808 | 9219189101690669798 | `0x3ea1f60eb5900000` | `0x3ea1f60eb5900000` | `0x3e992c7950ddd717` | 5.074841620277058005370461e-7 | 3.556358812194868099237321e-7 |
+| signal | gamma-uncoupled-40hz-100pct.json | 44100 | 552 | 2384273043540689664 | 9235920842347095696 | `0x3ed3454f81a30000` | `0x3ed3454f81a40000` | `0x3ecbf89f2e6f353b` | 0.000004567351277288602850052079 | 0.000003314718854469351895841901 |
+| signal | gamma-uncoupled-40hz-100pct.json | 44100 | 826 | 12590634843960486592 | 13820417782207791748 | `0x3fdfd72645132233` | `0x3fdfd72645132234` | `0xbfdd05d209758f90` | 0.4975066828306210936143776 | -0.4534802529642784564810002 |
+| signal | gamma-uncoupled-40hz-100pct.json | 44100 | 827 | 12695208223063148448 | 13837149522864217646 | `0x3fe002eafbd7aacf` | `0x3fe002eafbd7aacf` | `0xbfdda3b498eb594a` | 0.5003561896131374961342586 | -0.4631167889361472780123346 |
+| signal | gamma-uncoupled-40hz-100pct.json | 44100 | 1000 | 12339658734114097920 | 16731740656425898000 | `0x3fed58cdc0348cc6` | `0x3fed58cdc0348cc6` | `0xbfe99f22e865de39` | 0.9170902971947589187986647 | -0.8006758254023643128775146 |
+| signal | gamma-uncoupled-40hz-100pct.json | 44100 | 440999 | 18342170694606345760 | 18430012333053497318 | `0x3fefffeeea59639c` | `0x3fefffeeea59639c` | `0xbfa23b9fad1f39a5` | 0.9999918802740111128169410 | -0.03561114395623311898034621 |
+| past_end | gamma-uncoupled-40hz-100pct.json | 44100 | 441000 | 18446744073709007616 | 371600 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| past_end | gamma-uncoupled-40hz-100pct.json | 44100 | 441063 | 6588122883467152928 | 1054099661355203174 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| signal | gamma-uncoupled-60hz-25pct.json | 44100 | 0 | 0 | 0 | `0x3feffffff0e5ea1a` | `0x3feffffffc397a86` | `0x0000000000000000` | 1 | 0 |
+| signal | gamma-uncoupled-60hz-25pct.json | 44100 | 1 | 104573379102661856 | 25097610984638844 | `0x3fefffd9a1a9c56a` | `0x3feffff6686a715a` | `0x3fa23ba3f20082fc` | 0.9999817306783336377060537 | 0.03561127046194525210314492 |
+| signal | gamma-uncoupled-60hz-25pct.json | 44100 | 63 | 6588122883467696928 | 1581149492032247172 | `0x3fedbc34cd4c628e` | `0x3fef6f0d335318a4` | `0x3fe89370316644f3` | 0.9292243968009330688164250 | 0.7679978337751059419577345 |
+| signal | gamma-uncoupled-60hz-25pct.json | 44100 | 64 | 6692696262570358784 | 1606247103016886016 | `0x3fedaa1e702db74b` | `0x3fef6a879c0b6dd3` | `0x3fe7d957e6fe16fb` | 0.9270164672969507696338687 | 0.7452811729457364907952104 |
+| signal | gamma-uncoupled-60hz-25pct.json | 44100 | 65 | 6797269641673020640 | 1631344714001524860 | `0x3fed97c6a1e43220` | `0x3fef65f1a8790c88` | `0x3fe717aa809b59e9` | 0.9247773325881769437767825 | 0.7216389190843237630260177 |
+| signal | gamma-uncoupled-60hz-25pct.json | 44100 | 127 | 13280819146038055712 | 3187396595049133188 | `0x3fe7760fc28070a4` | `0x3feddd83f0a01c29` | `0xbfed55af057951c8` | 0.7331618117200625875944575 | -0.9167094432258571166034056 |
+| signal | gamma-uncoupled-60hz-25pct.json | 44100 | 128 | 13385392525140717568 | 3212494206033772032 | `0x3fe757047adad570` | `0x3fedd5c11eb6b55c` | `0xbfed7c58227f3a1a` | 0.7293722533710713045286031 | -0.9214287585267350071364054 |
+| signal | gamma-uncoupled-60hz-25pct.json | 44100 | 183 | 690184302077568032 | 4592862810188908452 | `0x3fe01a42ceefc8e3` | `0x3fec0690b3bbf239` | `0x3fca1c90cd907826` | 0.5032056848270055983685024 | 0.2039967540485474059092128 |
+| signal | gamma-uncoupled-60hz-25pct.json | 44100 | 184 | 794757681180229888 | 4617960421173547296 | `0x3fdfee7e19b8bec5` | `0x3febfdcfc33717d8` | `0x3fcdf0d6a0908362` | 0.4989314318836302714187993 | 0.2339123043066378767250768 |
+| signal | gamma-uncoupled-60hz-25pct.json | 44100 | 367 | 1484941983257797920 | 9210823231362455748 | `0x3ed3454f81a40000` | `0x3fe8000268a9f034` | `0x3fd7418571c14deb` | 0.000004567351277288728054514633 | 0.3633740974811755171776210 |
+| signal | gamma-uncoupled-60hz-25pct.json | 44100 | 368 | 1589515362360459776 | 9235920842347094592 | `0x3ed3454f81a30000` | `0x3fe8000268a9f034` | `0x3fd8bc8c8228ebaf` | 0.000004567351277287799212106386 | 0.3865081056987388545900517 |
+| signal | gamma-uncoupled-60hz-25pct.json | 44100 | 551 | 2279699664438027808 | 13828783652536003044 | `0x3fdfee7e19b8bec1` | `0x3febfdcfc33717d8` | `0x3fe39dac6367bde6` | 0.4989314318836300541087388 | 0.6129972402156272833734057 |
+| signal | gamma-uncoupled-60hz-25pct.json | 44100 | 552 | 2384273043540689664 | 13853881263520641888 | `0x3fe01a42ceefc8e1` | `0x3fec0690b3bbf238` | `0x3fe456e236c6147f` | 0.5032056848270053810624120 | 0.6356059141061848077653730 |
+| signal | gamma-uncoupled-60hz-25pct.json | 44100 | 1000 | 12339658734114097920 | 6650866910929292384 | `0x3fc70956e4587980` | `0x3fe970956e458798` | `0xbfe635e21b2b4c0f` | 0.1799725165330327661247479 | -0.6940775426422400692140930 |
+| signal | gamma-uncoupled-60hz-25pct.json | 44100 | 440999 | 18342170694606345760 | 18421646462724147172 | `0x3fefffd9a1a9c55e` | `0x3feffff6686a7158` | `0xbfa23ba3f200eb39` | 0.9999817306783325231053454 | -0.03561127046213041681903125 |
+| past_end | gamma-uncoupled-60hz-25pct.json | 44100 | 441000 | 18446744073709007616 | 18446744073708786016 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| past_end | gamma-uncoupled-60hz-25pct.json | 44100 | 441063 | 6588122883467152928 | 1581149492031481572 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| signal | gamma-uncoupled-60hz-100pct.json | 44100 | 0 | 0 | 0 | `0x3feffffff0e5ea1a` | `0x3feffffff0e5ea1a` | `0x0000000000000000` | 1 | 0 |
+| signal | gamma-uncoupled-60hz-100pct.json | 44100 | 1 | 104573379102661856 | 25097610984638844 | `0x3fefffd9a1a9c56a` | `0x3fefffd9a1a9c56a` | `0x3fa23b938c8d56cf` | 0.9999817306783336377060537 | 0.03561078251440037161173371 |
+| signal | gamma-uncoupled-60hz-100pct.json | 44100 | 63 | 6588122883467696928 | 1581149492032247172 | `0x3fedbc34cd4c628e` | `0x3fedbc34cd4c628e` | `0x3fe73f766697aa89` | 0.9292243968009330688164250 | 0.7264968876963342921934739 |
+| signal | gamma-uncoupled-60hz-100pct.json | 44100 | 64 | 6692696262570358784 | 1606247103016886016 | `0x3fedaa1e702db74b` | `0x3fedaa1e702db74b` | `0x3fe684f0b5590d10` | 0.9270164672969507696338687 | 0.7037280600584161441948940 |
+| signal | gamma-uncoupled-60hz-100pct.json | 44100 | 65 | 6797269641673020640 | 1631344714001524860 | `0x3fed97c6a1e43220` | `0x3fed97c6a1e43220` | `0x3fe5c3c15c1622c4` | 0.9247773325881769437767825 | 0.6801459121172937416006701 |
+| signal | gamma-uncoupled-60hz-100pct.json | 44100 | 127 | 13280819146038055712 | 3187396595049133188 | `0x3fe7760fc28070a4` | `0x3fe7760fc28070a4` | `0xbfe70b5b50f41f68` | 0.7331618117200625875944575 | -0.7201363242346994566267692 |
+| signal | gamma-uncoupled-60hz-100pct.json | 44100 | 128 | 13385392525140717568 | 3212494206033772032 | `0x3fe757047adad570` | `0x3fe757047adad570` | `0xbfe711126b860260` | 0.7293722533710713045286031 | -0.7208339894952108897326550 |
+| signal | gamma-uncoupled-60hz-100pct.json | 44100 | 183 | 690184302077568032 | 4592862810188908452 | `0x3fe01a42ceefc8e3` | `0x3fe01a42ceefc8e3` | `0x3fbe01729fdc5bc1` | 0.5032056848270055983685024 | 0.1172095909390540681388690 |
+| signal | gamma-uncoupled-60hz-100pct.json | 44100 | 184 | 794757681180229888 | 4617960421173547296 | `0x3fdfee7e19b8bec5` | `0x3fdfee7e19b8bec4` | `0x3fc113e1c7669b0a` | 0.4989314318836302714187993 | 0.1334192489277586758061661 |
+| signal | gamma-uncoupled-60hz-100pct.json | 44100 | 367 | 1484941983257797920 | 9210823231362455748 | `0x3ed3454f81a40000` | `0x3ed3454f81a40000` | `0x3ec2ac5bd9dfa971` | 0.000004567351277288728054514633 | 0.000002212872828696534162546784 |
+| signal | gamma-uncoupled-60hz-100pct.json | 44100 | 368 | 1589515362360459776 | 9235920842347094592 | `0x3ed3454f81a30000` | `0x3ed3454f81a40000` | `0x3ec3dcb29996620e` | 0.000004567351277287799212106386 | 0.000002353754136852975691832334 |
+| signal | gamma-uncoupled-60hz-100pct.json | 44100 | 551 | 2279699664438027808 | 13828783652536003044 | `0x3fdfee7e19b8bec1` | `0x3fdfee7e19b8bec0` | `0x3fd6608a0368e187` | 0.4989314318836300541087388 | 0.3496422799424191938791068 |
+| signal | gamma-uncoupled-60hz-100pct.json | 44100 | 552 | 2384273043540689664 | 13853881263520641888 | `0x3fe01a42ceefc8e1` | `0x3fe01a42ceefc8e1` | `0x3fd75f656dffaaa5` | 0.5032056848270053810624120 | 0.3651975225698936231160787 |
+| signal | gamma-uncoupled-60hz-100pct.json | 44100 | 1000 | 12339658734114097920 | 6650866910929292384 | `0x3fc70956e4587980` | `0x3fc70956e4587980` | `0xbfc41cbcc5e36de8` | 0.1799725165330327661247479 | -0.1571269957447001360164813 |
+| signal | gamma-uncoupled-60hz-100pct.json | 44100 | 440999 | 18342170694606345760 | 18421646462724147172 | `0x3fefffd9a1a9c55e` | `0x3fefffd9a1a9c55e` | `0xbfa23b938c8dbf07` | 0.9999817306783325231053454 | -0.03561078251458550402095074 |
+| past_end | gamma-uncoupled-60hz-100pct.json | 44100 | 441000 | 18446744073709007616 | 18446744073708786016 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| past_end | gamma-uncoupled-60hz-100pct.json | 44100 | 441063 | 6588122883467152928 | 1581149492031481572 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| signal | theta-gamma-uncoupled.json | 44100 | 0 | 0 | 0 | `0x3feffffff0e5ea1a` | `0x3feffffff0e5ea1a` | `0x0000000000000000` | 1 | 0 |
+| signal | theta-gamma-uncoupled.json | 44100 | 1 | 104573379102661856 | 16731740656425898 | `0x3fefffeeea596399` | `0x3fefffeeea596399` | `0x3fa23b9fad1ed165` | 0.9999918802740107521512968 | 0.03561114395604793215532386 |
+| signal | theta-gamma-uncoupled.json | 44100 | 63 | 6588122883467696928 | 1054099661354831574 | `0x3feefad169e742ed` | `0x3feefad169e742ed` | `0x3fe838902e9b88ca` | 0.9681174353198686015776614 | 0.7569046896592798468546508 |
+| signal | theta-gamma-uncoupled.json | 44100 | 64 | 6692696262570358784 | 1070831402011257472 | `0x3feef28db6535f28` | `0x3feef28db6535f28` | `0x3fe77e43fe582427` | 0.9671085901832404466932429 | 0.7341632819317234925824482 |
+| signal | theta-gamma-uncoupled.json | 44100 | 65 | 6797269641673020640 | 1087563142667683370 | `0x3feeea2a31c8a06f` | `0x3feeea2a31c8a06f` | `0x3fe6bca15373cd27` | 0.9660845738715742446888820 | 0.7105261456175201892804468 |
+| signal | theta-gamma-uncoupled.json | 44100 | 127 | 13280819146038055712 | 2124931063366089046 | `0x3febfd2c1b49e694` | `0x3febfd2c1b49e694` | `0xbfeb7ddfdbc4fd54` | 0.8746548207358215255331877 | -0.8591155424491109223113923 |
+| signal | theta-gamma-uncoupled.json | 44100 | 128 | 13385392525140717568 | 2141662804022514944 | `0x3febedaa075b77ec` | `0x3febedaa075b77ec` | `0xbfeb99f7c33c67ae` | 0.8727617400918978936211149 | -0.8625449132202722234786983 |
+| signal | theta-gamma-uncoupled.json | 44100 | 275 | 10310935179522458784 | 4601228680517121950 | `0x3fe00e96e945771c` | `0x3fe00e96e945771c` | `0xbfc740832bf60ea3` | 0.5017809444504765686237708 | -0.1816562618879420945890785 |
+| signal | theta-gamma-uncoupled.json | 44100 | 276 | 10415508558625120640 | 4617960421173547848 | `0x3fdfee7e19b8bec3` | `0x3fdfee7e19b8bec4` | `0xbfc939ac8e2b50ac` | 0.4989314318836301774100584 | -0.1970725721536209271451994 |
+| signal | theta-gamma-uncoupled.json | 44100 | 551 | 2279699664438027808 | 9219189101690669798 | `0x3ea1f60eb5900000` | `0x3ea1f60eb5900000` | `0x3e992c7950ddd717` | 5.074841620277058005370461e-7 | 3.556358812194868099237321e-7 |
+| signal | theta-gamma-uncoupled.json | 44100 | 552 | 2384273043540689664 | 9235920842347095696 | `0x3ed3454f81a30000` | `0x3ed3454f81a40000` | `0x3ecbf89f2e6f353b` | 0.000004567351277288602850052079 | 0.000003314718854469351895841901 |
+| signal | theta-gamma-uncoupled.json | 44100 | 826 | 12590634843960486592 | 13820417782207791748 | `0x3fdfd72645132233` | `0x3fdfd72645132234` | `0xbfdd05d209758f90` | 0.4975066828306210936143776 | -0.4534802529642784564810002 |
+| signal | theta-gamma-uncoupled.json | 44100 | 827 | 12695208223063148448 | 13837149522864217646 | `0x3fe002eafbd7aacf` | `0x3fe002eafbd7aacf` | `0xbfdda3b498eb594a` | 0.5003561896131374961342586 | -0.4631167889361472780123346 |
+| signal | theta-gamma-uncoupled.json | 44100 | 1000 | 12339658734114097920 | 16731740656425898000 | `0x3fed58cdc0348cc6` | `0x3fed58cdc0348cc6` | `0xbfe99f22e865de39` | 0.9170902971947589187986647 | -0.8006758254023643128775146 |
+| signal | theta-gamma-uncoupled.json | 44100 | 440999 | 18342170694606345760 | 18430012333053497318 | `0x3fefffeeea59639c` | `0x3fefffeeea59639c` | `0xbfa23b9fad1f39a5` | 0.9999918802740111128169410 | -0.03561114395623311898034621 |
+| past_end | theta-gamma-uncoupled.json | 44100 | 441000 | 18446744073709007616 | 371600 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| past_end | theta-gamma-uncoupled.json | 44100 | 441063 | 6588122883467152928 | 1054099661355203174 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| signal | gamma-uncoupled-40hz-25pct.json | 48000 | 0 | 0 | 0 | `0x3feffffff0e5ea1a` | `0x3feffffffc397a86` | `0x0000000000000000` | 1 | 0 |
+| signal | gamma-uncoupled-40hz-25pct.json | 48000 | 1 | 96076792050570576 | 15372286728091294 | `0x3feffff191e4435c` | `0x3feffffc647910d7` | `0x3fa0c08c59e0c0ac` | 0.9999931461237133963448144 | 0.03271902675863967234991036 |
+| signal | gamma-uncoupled-40hz-25pct.json | 48000 | 63 | 6052837899185946288 | 968454063869751522 | `0x3fef232a6600f280` | `0x3fefc8ca99803ca0` | `0x3fec08026568a439` | 0.9730426794137726558383146 | 0.8759777057846426936564400 |
+| signal | gamma-uncoupled-40hz-25pct.json | 48000 | 64 | 6148914691236516864 | 983826350597842816 | `0x3fef1c2a64e8f99c` | `0x3fefc70a993a3e67` | `0x3feb85270afc0e83` | 0.9721881851187405242957208 | 0.8600039692313085052347153 |
+| signal | gamma-uncoupled-40hz-25pct.json | 48000 | 65 | 6244991483287087440 | 999198637325934110 | `0x3fef150f3ddf1d6d` | `0x3fefc543cf77c75b` | `0x3feafac949ba5a99` | 0.9713207455460891937426464 | 0.8431135601648747219151542 |
+| signal | gamma-uncoupled-40hz-25pct.json | 48000 | 127 | 12201752590422463152 | 1952280414467594338 | `0x3fec97492d736088` | `0x3fef25d24b5cd822` | `0xbfea7362f6df56ea` | 0.8934675109806686441782552 | -0.8265852760069106445413844 |
+| signal | gamma-uncoupled-40hz-25pct.json | 48000 | 128 | 12297829382473033728 | 1967652701195685632 | `0x3fec8a0226920a4c` | `0x3fef228089a48293` | `0xbfeaf6a844a4d7a6` | 0.8918467286629198812815559 | -0.8426095336643628425281871 |
+| signal | gamma-uncoupled-40hz-25pct.json | 48000 | 299 | 10280216749411050608 | 4596313731699296906 | `0x3fe015724e56b42a` | `0x3fec055c9395ad0a` | `0xbfd3bda24aca4c96` | 0.5026179819157097398050048 | -0.3084493379948952927131321 |
+| signal | gamma-uncoupled-40hz-25pct.json | 48000 | 300 | 10376293541461621184 | 4611686018427388200 | `0x3fdfffffffffffff` | `0x3fec000000000000` | `0xbfd56e2651d8d422` | 0.4999999999999999495894006 | -0.3348480033194531048811354 |
+| signal | gamma-uncoupled-40hz-25pct.json | 48000 | 599 | 2209766217163120176 | 9207999750126685106 | `0x3edcdc37794a0000` | `0x3fe800039b86ef29` | `0x3fe068003048241e` | 0.000006853876286603127289436692 | 0.5126953978314199994868981 |
+| signal | gamma-uncoupled-40hz-25pct.json | 48000 | 600 | 2305843009213690752 | 9223372036854776400 | `0x3e5e342bcc000000` | `0x3fe8000003c6857a` | `0x3fe0f876cf8a2512` | 1.016491412153317573520483e-32 | 0.5303300858899100652626332 |
+| signal | gamma-uncoupled-40hz-25pct.json | 48000 | 899 | 12586059758624741360 | 13819685768554073306 | `0x3fdfd51b635297ad` | `0x3febfaa36c6a52f6` | `0xbfe97c302c744666` | 0.4973820180842903610148119 | -0.7964096905506988146735532 |
+| signal | gamma-uncoupled-40hz-25pct.json | 48000 | 900 | 12682136550675311936 | 13835058055282164600 | `0x3fe0000000000001` | `0x3fec000000000000` | `0xbfe9de5e54aaacdd` | 0.5000000000000001512317982 | -0.8083945909473753990863062 |
+| signal | gamma-uncoupled-40hz-25pct.json | 48000 | 1000 | 3843071682022817920 | 15372286728091294000 | `0x3fe7ffffffffff60` | `0x3fedffffffffffd8` | `0x3fecfa4f702c43a8` | 0.7500000000000001455228656 | 0.9055554621460011131843904 |
+| signal | gamma-uncoupled-40hz-25pct.json | 48000 | 479999 | 18350667281656421040 | 18431371786981933922 | `0x3feffff191e44360` | `0x3feffffc647910d8` | `0xbfa0c08c59e2ab4a` | 0.9999931461237138186617346 | -0.03271902675951117457346068 |
+| past_end | gamma-uncoupled-40hz-25pct.json | 48000 | 480000 | 18446744073706991616 | 473600 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| past_end | gamma-uncoupled-40hz-25pct.json | 48000 | 480063 | 6052837899183386288 | 968454063870225122 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| signal | gamma-uncoupled-40hz-100pct.json | 48000 | 0 | 0 | 0 | `0x3feffffff0e5ea1a` | `0x3feffffff0e5ea1a` | `0x0000000000000000` | 1 | 0 |
+| signal | gamma-uncoupled-40hz-100pct.json | 48000 | 1 | 96076792050570576 | 15372286728091294 | `0x3feffff191e4435c` | `0x3feffff191e4435c` | `0x3fa0c086af76c1ea` | 0.9999931461237133963448144 | 0.03271885856923026865553832 |
+| signal | gamma-uncoupled-40hz-100pct.json | 48000 | 63 | 6052837899185946288 | 968454063869751522 | `0x3fef232a6600f280` | `0x3fef232a6600f280` | `0x3feb75f0c1d341fa` | 0.9730426794137726558383146 | 0.8581470300935055236395220 |
+| signal | gamma-uncoupled-40hz-100pct.json | 48000 | 64 | 6148914691236516864 | 983826350597842816 | `0x3fef1c2a64e8f99c` | `0x3fef1c2a64e8f99c` | `0x3feaf12b735f4b56` | 0.9721881851187405242957208 | 0.8419396655719179062542668 |
+| signal | gamma-uncoupled-40hz-100pct.json | 48000 | 65 | 6244991483287087440 | 999198637325934110 | `0x3fef150f3ddf1d6d` | `0x3fef150f3ddf1d6d` | `0x3fea6526fe3761d0` | 0.9713207455460891937426464 | 0.8248476960797620376523426 |
+| signal | gamma-uncoupled-40hz-100pct.json | 48000 | 127 | 12201752590422463152 | 1952280414467594338 | `0x3fec97492d736088` | `0x3fec97492d736088` | `0xbfe8478db2cb5319` | 0.8934675109806686441782552 | -0.7587345594479062807066298 |
+| signal | gamma-uncoupled-40hz-100pct.json | 48000 | 128 | 12297829382473033728 | 1967652701195685632 | `0x3fec8a0226920a4c` | `0x3fec8a0226920a4c` | `0xbfe8b7305a026fe7` | 0.8918467286629198812815559 | -0.7723619233041357786084289 |
+| signal | gamma-uncoupled-40hz-100pct.json | 48000 | 299 | 10280216749411050608 | 4596313731699296906 | `0x3fe015724e56b42a` | `0x3fe015724e56b42a` | `0xbfc6a97ba0915207` | 0.5026179819157097398050048 | -0.1770472082158821763052761 |
+| signal | gamma-uncoupled-40hz-100pct.json | 48000 | 300 | 10376293541461621184 | 4611686018427388200 | `0x3fdfffffffffffff` | `0x3fe0000000000000` | `0xbfc87de2a6aea94b` | 0.4999999999999999495894006 | -0.1913417161825446148252477 |
+| signal | gamma-uncoupled-40hz-100pct.json | 48000 | 599 | 2209766217163120176 | 9207999750126685106 | `0x3edcdc37794a0000` | `0x3edcdc37794a0000` | `0x3ed3ba872ecef569` | 0.000006853876286603127289436692 | 0.000004685257068538995028019790 |
+| signal | gamma-uncoupled-40hz-100pct.json | 48000 | 600 | 2305843009213690752 | 9223372036854776400 | `0x3e5e342bcc000000` | `0x3e5e342bcc000000` | `0x3e555b787991bc3f` | 1.016491412153317573520483e-32 | 7.187679705514998409671689e-33 |
+| signal | gamma-uncoupled-40hz-100pct.json | 48000 | 899 | 12586059758624741360 | 13819685768554073306 | `0x3fdfd51b635297ad` | `0x3fdfd51b635297ac` | `0xbfdcfeba0c4691c9` | 0.4973820180842903610148119 | -0.4530472874392698249768306 |
+| signal | gamma-uncoupled-40hz-100pct.json | 48000 | 900 | 12682136550675311936 | 13835058055282164600 | `0x3fe0000000000001` | `0x3fe0000000000001` | `0xbfdd906bce79ea23` | 0.5000000000000001512317982 | -0.4619397662556432049521432 |
+| signal | gamma-uncoupled-40hz-100pct.json | 48000 | 1000 | 3843071682022817920 | 15372286728091294000 | `0x3fe7ffffffffff60` | `0x3fe7ffffffffff60` | `0x3fe72ea5f3569c0b` | 0.7500000000000001455228656 | 0.7244443697168010029989477 |
+| signal | gamma-uncoupled-40hz-100pct.json | 48000 | 479999 | 18350667281656421040 | 18431371786981933922 | `0x3feffff191e44360` | `0x3feffff191e44360` | `0xbfa0c086af78ac88` | 0.9999931461237138186617346 | -0.03271885857010177676258912 |
+| past_end | gamma-uncoupled-40hz-100pct.json | 48000 | 480000 | 18446744073706991616 | 473600 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| past_end | gamma-uncoupled-40hz-100pct.json | 48000 | 480063 | 6052837899183386288 | 968454063870225122 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| signal | gamma-uncoupled-60hz-25pct.json | 48000 | 0 | 0 | 0 | `0x3feffffff0e5ea1a` | `0x3feffffffc397a86` | `0x0000000000000000` | 1 | 0 |
+| signal | gamma-uncoupled-60hz-25pct.json | 48000 | 1 | 96076792050570576 | 23058430092136940 | `0x3fefffdf9aaadfdb` | `0x3feffff7e6aab7f7` | `0x3fa0c089fff2c747` | 0.9999845788223948560998296 | 0.03271895668007932224235890 |
+| signal | gamma-uncoupled-60hz-25pct.json | 48000 | 63 | 6052837899185946288 | 1452681095804627220 | `0x3fee14bd40acaf13` | `0x3fef852f502b2bc5` | `0x3febcc62bb705d34` | 0.9400316491455659667406220 | 0.8686994233967480280381539 |
+| signal | gamma-uncoupled-60hz-25pct.json | 48000 | 64 | 6148914691236516864 | 1475739525896764160 | `0x3fee055a2727042e` | `0x3fef815689c9c10c` | `0x3feb48c9a225176d` | 0.9381533400219317911336178 | 0.8526352091143823534947984 |
+| signal | gamma-uncoupled-60hz-25pct.json | 48000 | 65 | 6244991483287087440 | 1498797955988901100 | `0x3fedf5be5f6ccbe4` | `0x3fef7d6f97db32f9` | `0x3feabdc9f94bebb4` | 0.9362480035363985546662673 | 0.8356675979081876765401229 |
+| signal | gamma-uncoupled-60hz-25pct.json | 48000 | 127 | 12201752590422463152 | 2928420621701391380 | `0x3fe8add72d3f5a72` | `0x3fee2b75cb4fd69c` | `0xbfe99ec7792ec1f8` | 0.7712207683315593708560679 | -0.8006322258713751816708431 |
+| signal | gamma-uncoupled-60hz-25pct.json | 48000 | 128 | 12297829382473033728 | 2951479051793528320 | `0x3fe892bf1e0c13f4` | `0x3fee24afc78304fd` | `0xbfea1ad8beaaea66` | 0.7679133974894983003009401 | -0.8157771803714096005923216 |
+| signal | gamma-uncoupled-60hz-25pct.json | 48000 | 199 | 672537544353993008 | 4588627588335251060 | `0x3fe0202b6977689d` | `0x3fec080ada5dda27` | `0x3fc976091a8b619f` | 0.5039269504443556506861813 | 0.1989146594630826113606931 |
+| signal | gamma-uncoupled-60hz-25pct.json | 48000 | 200 | 768614336404563584 | 4611686018427388000 | `0x3fe0000000000000` | `0x3fec000000000000` | `0x3fccfcdc12c14b72` | 0.4999999999999999836506164 | 0.2264666644647053589250620 |
+| signal | gamma-uncoupled-60hz-25pct.json | 48000 | 399 | 1441151880758556592 | 9200313606762639060 | `0x3ef032aa90128000` | `0x3fe8000819554809` | `0x3fd6a08d8cbecdc3` | 0.00001542117760514364335750109 | 0.3535493699926980267041130 |
+| signal | gamma-uncoupled-60hz-25pct.json | 48000 | 400 | 1537228672809127168 | 9223372036854776000 | `0x3e5e342bcb000000` | `0x3fe8000003c6857a` | `0x3fd8000003c68390` | 1.069209374361415124813364e-33 | 0.3749999999999995280339493 |
+| signal | gamma-uncoupled-60hz-25pct.json | 48000 | 599 | 2209766217163120176 | 13811999625190027060 | `0x3fdfbfa92d112ec7` | `0x3febf7f525a225d9` | `0x3fe31e7ded4855c1` | 0.4960730495556443820115774 | 0.5974721559964649777593948 |
+| signal | gamma-uncoupled-60hz-25pct.json | 48000 | 600 | 2305843009213690752 | 13835058055282164000 | `0x3fe0000000000000` | `0x3fec000000000000` | `0x3fe3cc8a99ae7f03` | 0.5000000000000000490481508 | 0.6187184335382284181436421 |
+| signal | gamma-uncoupled-60hz-25pct.json | 48000 | 1000 | 3843071682022817920 | 4611686018427388384 | `0x3fdfffffffffffff` | `0x3fec000000000000` | `0x3feb0bc19be50c16` | 0.4999999999999999182530821 | 0.8451850980029343197667309 |
+| signal | gamma-uncoupled-60hz-25pct.json | 48000 | 479999 | 18350667281656421040 | 18423685643617645076 | `0x3fefffdf9aaadfde` | `0x3feffff7e6aab7f8` | `0xbfa0c089fff4b1e4` | 0.9999845788223951642752815 | -0.03271895668095082166565684 |
+| past_end | gamma-uncoupled-60hz-25pct.json | 48000 | 480000 | 18446744073706991616 | 230400 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| past_end | gamma-uncoupled-60hz-25pct.json | 48000 | 480063 | 6052837899183386288 | 1452681095804857620 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| signal | gamma-uncoupled-60hz-100pct.json | 48000 | 0 | 0 | 0 | `0x3feffffff0e5ea1a` | `0x3feffffff0e5ea1a` | `0x0000000000000000` | 1 | 0 |
+| signal | gamma-uncoupled-60hz-100pct.json | 48000 | 1 | 96076792050570576 | 23058430092136940 | `0x3fefffdf9aaadfdb` | `0x3fefffdf9aaadfdb` | `0x3fa0c07d47bedc54` | 0.9999845788223948560998296 | 0.03271857825498886822533247 |
+| signal | gamma-uncoupled-60hz-100pct.json | 48000 | 63 | 6052837899185946288 | 1452681095804627220 | `0x3fee14bd40acaf13` | `0x3fee14bd40acaf13` | `0x3fea877219f225e5` | 0.9400316491455659667406220 | 0.8290339005419268611663774 |
+| signal | gamma-uncoupled-60hz-100pct.json | 48000 | 64 | 6148914691236516864 | 1475739525896764160 | `0x3fee055a2727042e` | `0x3fee055a2727042e` | `0x3fe9ffb5d0036efd` | 0.9381533400219317911336178 | 0.8124646251042132992945991 |
+| signal | gamma-uncoupled-60hz-100pct.json | 48000 | 65 | 6244991483287087440 | 1498797955988901100 | `0x3fedf5be5f6ccbe4` | `0x3fedf5be5f6ccbe4` | `0x3fe97129bc7da639` | 0.9362480035363985546662673 | 0.7950638470530138561522172 |
+| signal | gamma-uncoupled-60hz-100pct.json | 48000 | 127 | 12201752590422463152 | 2928420621701391380 | `0x3fe8add72d3f5a72` | `0x3fe8add72d3f5a72` | `0xbfe4f51fbc08ff52` | 0.7712207683315593708560679 | -0.6549223589057644292244646 |
+| signal | gamma-uncoupled-60hz-100pct.json | 48000 | 128 | 12297829382473033728 | 2951479051793528320 | `0x3fe892bf1e0c13f4` | `0x3fe892bf1e0c13f4` | `0xbfe547f2421abae7` | 0.7679133974894983003009401 | -0.6650325101323228108649668 |
+| signal | gamma-uncoupled-60hz-100pct.json | 48000 | 199 | 672537544353993008 | 4588627588335251060 | `0x3fe0202b6977689d` | `0x3fe0202b6977689d` | `0x3fbd4b464a10684d` | 0.5039269504443556506861813 | 0.1144298487492118788641394 |
+| signal | gamma-uncoupled-60hz-100pct.json | 48000 | 200 | 768614336404563584 | 4611686018427388000 | `0x3fe0000000000000` | `0x3fe0000000000000` | `0x3fc0907dc193068a` | 0.4999999999999999836506164 | 0.1294095225512602014730081 |
+| signal | gamma-uncoupled-60hz-100pct.json | 48000 | 399 | 1441151880758556592 | 9200313606762639060 | `0x3ef032aa90128000` | `0x3ef032aa90128000` | `0x3ede8ae657bda73e` | 0.00001542117760514364335750109 | 0.000007269492801078856871913147 |
+| signal | gamma-uncoupled-60hz-100pct.json | 48000 | 400 | 1537228672809127168 | 9223372036854776000 | `0x3e5e342bcb000000` | `0x3e5e342bcc000000` | `0x3e4e342bcbfffd98` | 1.069209374361415124813364e-33 | 5.346046871807068895659812e-34 |
+| signal | gamma-uncoupled-60hz-100pct.json | 48000 | 599 | 2209766217163120176 | 13811999625190027060 | `0x3fdfbfa92d112ec7` | `0x3fdfbfa92d112ec8` | `0x3fd5b401a288bbe8` | 0.4960730495556443820115774 | 0.3391117179172484520850150 |
+| signal | gamma-uncoupled-60hz-100pct.json | 48000 | 600 | 2305843009213690752 | 13835058055282164000 | `0x3fe0000000000000` | `0x3fe0000000000000` | `0x3fd6a09e667e4803` | 0.5000000000000000490481508 | 0.3535533905932734115240355 |
+| signal | gamma-uncoupled-60hz-100pct.json | 48000 | 1000 | 3843071682022817920 | 4611686018427388384 | `0x3fdfffffffffffff` | `0x3fe0000000000000` | `0x3fdee8dd44737b87` | 0.4999999999999999182530821 | 0.4829629131445338293283097 |
+| signal | gamma-uncoupled-60hz-100pct.json | 48000 | 479999 | 18350667281656421040 | 18423685643617645076 | `0x3fefffdf9aaadfde` | `0x3fefffdf9aaadfde` | `0xbfa0c07d47c0c6f1` | 0.9999845788223951642752815 | -0.03271857825586036513137376 |
+| past_end | gamma-uncoupled-60hz-100pct.json | 48000 | 480000 | 18446744073706991616 | 230400 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| past_end | gamma-uncoupled-60hz-100pct.json | 48000 | 480063 | 6052837899183386288 | 1452681095804857620 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| signal | theta-gamma-uncoupled.json | 48000 | 0 | 0 | 0 | `0x3feffffff0e5ea1a` | `0x3feffffff0e5ea1a` | `0x0000000000000000` | 1 | 0 |
+| signal | theta-gamma-uncoupled.json | 48000 | 1 | 96076792050570576 | 15372286728091294 | `0x3feffff191e4435c` | `0x3feffff191e4435c` | `0x3fa0c086af76c1ea` | 0.9999931461237133963448144 | 0.03271885856923026865553832 |
+| signal | theta-gamma-uncoupled.json | 48000 | 63 | 6052837899185946288 | 968454063869751522 | `0x3fef232a6600f280` | `0x3fef232a6600f280` | `0x3feb75f0c1d341fa` | 0.9730426794137726558383146 | 0.8581470300935055236395220 |
+| signal | theta-gamma-uncoupled.json | 48000 | 64 | 6148914691236516864 | 983826350597842816 | `0x3fef1c2a64e8f99c` | `0x3fef1c2a64e8f99c` | `0x3feaf12b735f4b56` | 0.9721881851187405242957208 | 0.8419396655719179062542668 |
+| signal | theta-gamma-uncoupled.json | 48000 | 65 | 6244991483287087440 | 999198637325934110 | `0x3fef150f3ddf1d6d` | `0x3fef150f3ddf1d6d` | `0x3fea6526fe3761d0` | 0.9713207455460891937426464 | 0.8248476960797620376523426 |
+| signal | theta-gamma-uncoupled.json | 48000 | 127 | 12201752590422463152 | 1952280414467594338 | `0x3fec97492d736088` | `0x3fec97492d736088` | `0xbfe8478db2cb5319` | 0.8934675109806686441782552 | -0.7587345594479062807066298 |
+| signal | theta-gamma-uncoupled.json | 48000 | 128 | 12297829382473033728 | 1967652701195685632 | `0x3fec8a0226920a4c` | `0x3fec8a0226920a4c` | `0xbfe8b7305a026fe7` | 0.8918467286629198812815559 | -0.7723619233041357786084289 |
+| signal | theta-gamma-uncoupled.json | 48000 | 299 | 10280216749411050608 | 4596313731699296906 | `0x3fe015724e56b42a` | `0x3fe015724e56b42a` | `0xbfc6a97ba0915207` | 0.5026179819157097398050048 | -0.1770472082158821763052761 |
+| signal | theta-gamma-uncoupled.json | 48000 | 300 | 10376293541461621184 | 4611686018427388200 | `0x3fdfffffffffffff` | `0x3fe0000000000000` | `0xbfc87de2a6aea94b` | 0.4999999999999999495894006 | -0.1913417161825446148252477 |
+| signal | theta-gamma-uncoupled.json | 48000 | 599 | 2209766217163120176 | 9207999750126685106 | `0x3edcdc37794a0000` | `0x3edcdc37794a0000` | `0x3ed3ba872ecef569` | 0.000006853876286603127289436692 | 0.000004685257068538995028019790 |
+| signal | theta-gamma-uncoupled.json | 48000 | 600 | 2305843009213690752 | 9223372036854776400 | `0x3e5e342bcc000000` | `0x3e5e342bcc000000` | `0x3e555b787991bc3f` | 1.016491412153317573520483e-32 | 7.187679705514998409671689e-33 |
+| signal | theta-gamma-uncoupled.json | 48000 | 899 | 12586059758624741360 | 13819685768554073306 | `0x3fdfd51b635297ad` | `0x3fdfd51b635297ac` | `0xbfdcfeba0c4691c9` | 0.4973820180842903610148119 | -0.4530472874392698249768306 |
+| signal | theta-gamma-uncoupled.json | 48000 | 900 | 12682136550675311936 | 13835058055282164600 | `0x3fe0000000000001` | `0x3fe0000000000001` | `0xbfdd906bce79ea23` | 0.5000000000000001512317982 | -0.4619397662556432049521432 |
+| signal | theta-gamma-uncoupled.json | 48000 | 1000 | 3843071682022817920 | 15372286728091294000 | `0x3fe7ffffffffff60` | `0x3fe7ffffffffff60` | `0x3fe72ea5f3569c0b` | 0.7500000000000001455228656 | 0.7244443697168010029989477 |
+| signal | theta-gamma-uncoupled.json | 48000 | 479999 | 18350667281656421040 | 18431371786981933922 | `0x3feffff191e44360` | `0x3feffff191e44360` | `0xbfa0c086af78ac88` | 0.9999931461237138186617346 | -0.03271885857010177676258912 |
+| past_end | theta-gamma-uncoupled.json | 48000 | 480000 | 18446744073706991616 | 473600 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+| past_end | theta-gamma-uncoupled.json | 48000 | 480063 | 6052837899183386288 | 968454063870225122 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 |
+
+### Vectors: theta and gamma bus
+
+For `theta-gamma-uncoupled.json` at sample `n`: the theta tap, the gamma tap, and the stereo bus (`theta + gamma`, one rounding; also the output, since there is no binaural layer) as binary64 bits, with the ideal theta and gamma taps and the ideal bus (their exact sum) at 25 digits. Indices are those of both layers' sample tables.
+
+| Case | Fixture | fs | n | Theta (binary64 bits) | Gamma (binary64 bits) | Bus (binary64 bits) | Theta ideal | Gamma ideal | Bus ideal |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| signal | theta-gamma-uncoupled.json | 44100 | 0 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 | 0 |
+| signal | theta-gamma-uncoupled.json | 44100 | 1 | `0x3fb066e7bffea8df` | `0x3fa23b9fad1ed165` | `0x3fb984b7968e1192` | 0.06407021120176405545827588 | 0.03561114395604793215532386 | 0.09968135515781198761359974 |
+| signal | theta-gamma-uncoupled.json | 44100 | 63 | `0xbfe90147f7b04329` | `0x3fe838902e9b88ca` | `0xbf9916f922974be0` | -0.7814063976342424685027257 | 0.7569046896592798468546508 | -0.02450170797496262164807486 |
+| signal | theta-gamma-uncoupled.json | 44100 | 64 | `0xbfea3b14c2754dd3` | `0x3fe77e43fe582427` | `0xbfb5e68620e94d60` | -0.8197120584060922962589202 | 0.7341632819317234925824482 | -0.08554877647436880367647201 |
+| signal | theta-gamma-uncoupled.json | 44100 | 65 | `0xbfeb594665b6d360` | `0x3fe6bca15373cd27` | `0xbfc27294490c18e4` | -0.8546478373986624026176413 | 0.7105261456175201892804468 | -0.1441216917811422133371946 |
+| signal | theta-gamma-uncoupled.json | 44100 | 127 | `0x3fee9c11623a475b` | `0xbfeb7ddfdbc4fd54` | `0x3fb8f18c33aa5038` | 0.9565512699574152850333022 | -0.8591155424491109223113923 | 0.09743572750830436272190995 |
+| signal | theta-gamma-uncoupled.json | 44100 | 128 | `0x3fedf6b101fa7dd9` | `0xbfeb99f7c33c67ae` | `0x3fb2e5c9f5f0b158` | 0.9363637105633015669355198 | -0.8625449132202722234786983 | 0.07381879734302934345682150 |
+| signal | theta-gamma-uncoupled.json | 44100 | 275 | `0xbfedb8a2b8b2cdc1` | `0xbfc740832bf60ea3` | `0xbff1c461c1d828b5` | -0.9287885336142060542484436 | -0.1816562618879420945890785 | -1.110444795502148148837522 |
+| signal | theta-gamma-uncoupled.json | 44100 | 276 | `0xbfecf50af77d3770` | `0xbfc939ac8e2b50ac` | `0xbff1a1bb0d8405ce` | -0.9049124592683689511981064 | -0.1970725721536209271451994 | -1.101985031421989878343306 |
+| signal | theta-gamma-uncoupled.json | 44100 | 551 | `0xbfe55a4e0719a348` | `0x3e992c7950ddd717` | `0xbfe55a4d3db5d8c1` | -0.6672735347968939720221702 | 3.556358812194868099237321e-7 | -0.6672731791610127525353603 |
+| signal | theta-gamma-uncoupled.json | 44100 | 552 | `0xbfe6b7d4484022f9` | `0x3ecbf89f2e6f353b` | `0xbfe6b7cd4a18575d` | -0.7099400914076004685073205 | 0.000003314718854469351895841901 | -0.7099367766887459991554247 |
+| signal | theta-gamma-uncoupled.json | 44100 | 826 | `0x3fd9475718ddee26` | `0xbfdd05d209758f90` | `0xbfadf3d784bd0b50` | 0.3949792616731886889624706 | -0.4534802529642784564810002 | -0.05850099129108976751852953 |
+| signal | theta-gamma-uncoupled.json | 44100 | 827 | `0x3fd5dbcc00ca169c` | `0xbfdda3b498eb594a` | `0xbfbf1fa260850ab8` | 0.3415403373474387766390207 | -0.4631167889361472780123346 | -0.1215764515887085013733139 |
+| signal | theta-gamma-uncoupled.json | 44100 | 1000 | `0x3feab9486d160965` | `0xbfe99f22e865de39` | `0x3fa1a2584b02b2c0` | 0.8351175467944826742130302 | -0.8006758254023643128775146 | 0.03444172139211836133551553 |
+| signal | theta-gamma-uncoupled.json | 44100 | 1837 | `0xbfe3feae7ca2f5cf` | `0x3fc068dfad95deca` | `0xbfdfc8ed227afc39` | -0.6248390881080100146554038 | 0.1282004926285887431076857 | -0.4966385954794212715477181 |
+| signal | theta-gamma-uncoupled.json | 44100 | 1838 | `0xbfe3fc0e8c0051b9` | `0x3fbf2939fd2ded87` | `0xbfe016e74c5a9408` | -0.6245186821428500890879013 | 0.1217228167642363261891371 | -0.5027958653786137628987641 |
+| signal | theta-gamma-uncoupled.json | 44100 | 3675 | `0x3cf52b3f6ed28263` | `0xbfcbb67ae83051b8` | `0xbfcbb67ae830510f` | 4.700447780519445333282571e-15 | -0.2165063509461094591686185 | -0.2165063509461047587208380 |
+| signal | theta-gamma-uncoupled.json | 44100 | 3676 | `0xbf9066e899582420` | `0xbfcadbaef26b7e14` | `0xbfcce88c05968298` | -0.01601756377412240162894268 | -0.2098292049572439019472699 | -0.2258467687313663035762126 |
+| signal | theta-gamma-uncoupled.json | 44100 | 440999 | `0xbfb066e7c00122a0` | `0xbfa23b9fad1f39a5` | `0xbfb984b79690bf72` | -0.06407021120401563267918181 | -0.03561114395623311898034621 | -0.09968135516024875165952803 |
+| past_end | theta-gamma-uncoupled.json | 44100 | 441000 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 | 0 |
+| past_end | theta-gamma-uncoupled.json | 44100 | 441063 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 | 0 |
+| signal | theta-gamma-uncoupled.json | 48000 | 0 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 | 0 |
+| signal | theta-gamma-uncoupled.json | 48000 | 1 | `0x3fae24501ba767c7` | `0x3fa0c086af76c1ea` | `0x3fb7726b658f14d8` | 0.05887079684222599022905689 | 0.03271885856923026865553832 | 0.09158965541145625888459521 |
+| signal | theta-gamma-uncoupled.json | 48000 | 63 | `0xbfe13e981293ab73` | `0x3feb75f0c1d341fa` | `0x3fd46eb15e7f2d0e` | -0.5388908807333495056899561 | 0.8581470300935055236395220 | 0.3192561493601560179495659 |
+| signal | theta-gamma-uncoupled.json | 48000 | 64 | `0xbfe2ccdb2793cb97` | `0x3feaf12b735f4b56` | `0x3fd048a09796ff7e` | -0.5875068529374773863607766 | 0.8419396655719179062542668 | 0.2544328126344405198934902 |
+| signal | theta-gamma-uncoupled.json | 48000 | 65 | `0xbfe44a6924bd959b` | `0x3fea6526fe3761d0` | `0x3fc86af765e730d4` | -0.6340833481794930518809483 | 0.8248476960797620376523426 | 0.1907643479002689857713944 |
+| signal | theta-gamma-uncoupled.json | 48000 | 127 | `0x3fedbe4b2f3d3769` | `0xbfe8478db2cb5319` | `0x3fc5daf5f1c79140` | 0.9294792201984671120015262 | -0.7587345594479062807066298 | 0.1707446607505608312948964 |
+| signal | theta-gamma-uncoupled.json | 48000 | 128 | `0x3fee604db546db29` | `0xbfe8b7305a026fe7` | `0x3fc6a4756d11ad08` | 0.9492558157199292130463520 | -0.7723619233041357786084289 | 0.1768938924157934344379231 |
+| signal | theta-gamma-uncoupled.json | 48000 | 299 | `0xbfedec30077adb81` | `0xbfc6a97ba0915207` | `0xbff1cb4777cf9801` | -0.9350815008077821309765957 | -0.1770472082158821763052761 | -1.112128709023664307281872 |
+| signal | theta-gamma-uncoupled.json | 48000 | 300 | `0xbfed4200a8796724` | `0xbfc87de2a6aea94b` | `0xbff1b0bca91288bb` | -0.9143069581264454355356920 | -0.1913417161825446148252477 | -1.105648674308990050360940 |
+| signal | theta-gamma-uncoupled.json | 48000 | 599 | `0xbfe463df6a89b150` | `0x3ed3ba872ecef569` | `0xbfe463d58d4619e9` | -0.6371914942062871038807910 | 0.000004685257068538995028019790 | -0.6371868089492185648857630 |
+| signal | theta-gamma-uncoupled.json | 48000 | 600 | `0xbfe5b3dc10c3ed74` | `0x3e555b787991bc3f` | `0xbfe5b3dc06163137` | -0.6782055214922352513012556 | 7.187679705514998409671689e-33 | -0.6782055214922352513012556 |
+| signal | theta-gamma-uncoupled.json | 48000 | 899 | `0x3fd96d12ac24d4d5` | `0xbfdcfeba0c4691c9` | `0xbfac8d3b010de7a0` | 0.3972822838911114858235444 | -0.4530472874392698249768306 | -0.05576500354815833915328613 |
+| signal | theta-gamma-uncoupled.json | 48000 | 900 | `0x3fd64a8cd8ca2d76` | `0xbfdd906bce79ea23` | `0xbfbd177bd6bef2b4` | 0.3483001820681990878589172 | -0.4619397662556432049521432 | -0.1136395841874441170932261 |
+| signal | theta-gamma-uncoupled.json | 48000 | 1000 | `0x3fe42463000e6bcc` | `0x3fe72ea5f3569c0b` | `0x3ff5a98479b283ec` | 0.6294417382415935718162746 | 0.7244443697168010029989477 | 1.353886107958394574815222 |
+| signal | theta-gamma-uncoupled.json | 48000 | 1999 | `0xbfe3f9873f1f7bd0` | `0x3fc0bec26b386ba6` | `0xbfdf93ad48a2c1cd` | -0.6242100198265284269437829 | 0.1308215163743175975130081 | -0.4933885034522108294307747 |
+| signal | theta-gamma-uncoupled.json | 48000 | 2000 | `0xbfe3ffffed1f64a0` | `0x3fc0000000000021` | `0xbfdfffffda3ec930` | -0.6249999999999999877379623 | 0.1250000000000009321329501 | -0.4999999999999990556050122 |
+| signal | theta-gamma-uncoupled.json | 48000 | 3999 | `0x3f8e245175186624` | `0xbfcc7a51894b7a78` | `0xbfca980c71f9f416` | 0.01471770772176247658456754 | -0.2224828645260472271397718 | -0.2077651568042847505552042 |
+| signal | theta-gamma-uncoupled.json | 48000 | 4000 | `0x3ce3a28c75a1dd1e` | `0xbfcbb67ae83051cb` | `0xbfcbb67ae830517c` | 2.179917811255394937174526e-15 | -0.2165063509461100658840250 | -0.2165063509461078859662137 |
+| signal | theta-gamma-uncoupled.json | 48000 | 479999 | `0xbfae24501ba9b3cd` | `0xbfa0c086af78ac88` | `0xbfb7726b6591302a` | -0.05887079684327053599663830 | -0.03271885857010177676258912 | -0.09158965541337231275922741 |
+| past_end | theta-gamma-uncoupled.json | 48000 | 480000 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 | 0 |
+| past_end | theta-gamma-uncoupled.json | 48000 | 480063 | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 | 0 |
 
 ## 24-bit rounding
 
