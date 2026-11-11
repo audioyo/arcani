@@ -37,7 +37,10 @@ Calibrated on Python-synthesized signals of known peak times first
   fitted by c0 + c1 cos(w t) + c2 sin(w t), w = 2 pi theta_rate_hz, in least
   squares; its peak is the cosine maximum nearest p. The error is that peak
   minus p, wrapped into [-T / 2, T / 2), T = 1 / theta_rate_hz. Seconds,
-  one per cycle.
+  one per cycle. A cycle whose fitted swell amplitude hypot(c1, c2) is
+  below row `reference-match` read as linear full-scale amplitude (the AM
+  depth tool's reuse, design log (mm)) has no swell to time: ValueError
+  "no swell in gamma tap", so check() fails with that note.
 - check(name, gamma, theta, fs, theta_rate_hz, shape, coupling_phase_deg,
   row_id=ROW): the report assertion shape (Story 1.4). measured is the
   largest |error| in ms; pass when it is strictly below the row. A
@@ -57,6 +60,7 @@ from . import row
 
 ROW = "coupling-timing"
 CALIBRATION_ROW = "coupling-timing-calibration"
+SWELL_FLOOR_ROW = "reference-match"
 TRIM_S = 0.5
 SHAPES = ("sine", "smoothed_on_off", "sawtooth", "reverse_saw")
 
@@ -229,6 +233,7 @@ def timing_errors(gamma, theta, fs, theta_rate_hz, shape, coupling_phase_deg) ->
     period = 1.0 / rate
     w = 2.0 * math.pi * rate
     offset = (float(coupling_phase_deg) / 360.0) * period
+    floor = 10.0 ** (row(SWELL_FLOOR_ROW).value / 20.0)
     errors = []
     for z in zeros:
         p = z + offset
@@ -238,6 +243,8 @@ def timing_errors(gamma, theta, fs, theta_rate_hz, shape, coupling_phase_deg) ->
         t = idx / float(fs) - p
         basis = np.stack([np.ones_like(t), np.cos(w * t), np.sin(w * t)], axis=1)
         c, *_ = np.linalg.lstsq(basis, curve[idx], rcond=None)
+        if not math.hypot(float(c[1]), float(c[2])) >= floor:
+            raise ValueError("no swell in gamma tap")
         peak = math.atan2(float(c[2]), float(c[1])) / w   # cosine maximum nearest p, in [-T/2, T/2]
         errors.append(math.remainder(peak, period))
     return np.asarray(errors, dtype=np.float64)

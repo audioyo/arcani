@@ -600,6 +600,30 @@ def test_engine_timing_render(fs, shape, phase, depth, tapdump, tmp_path):
 
 
 @pytest.mark.parametrize("fs", SAMPLE_RATES)
+@pytest.mark.parametrize("phase", (359.99, 0.01))
+def test_engine_render_at_a_rounded_coupling_phase(fs, phase, tapdump, tmp_path):
+    """A coupling phase whose C needs rounding: engine and reference agree, timing holds."""
+    # deg / 360 rounds once for both; for 0.01 the product x * 2^64 also has a
+    # fraction, so C rounds again. Neither is a multiple of 90 degrees.
+    c = gamma().coupling_phase_units(phase)
+    assert c % 2**62 != 0, c
+    recipe = write_recipe(tmp_path / "recipes", f"timing-sine-{phase}deg-100pct.json",
+                          timing_recipe("sine", phase, 100))
+    frames = ideal().seconds_to_samples(float(LENGTH_S), fs)
+    _, eng = dump_arrays(tapdump, recipe, fs, tmp_path / "dump", 0)
+    where = (phase, fs)
+    timing = ct().check(f"timing {where}", channel(eng["gamma"], 0), channel(eng["theta"], 0), fs,
+                        float(THETA["rate_hz"]), "sine", float(phase))
+    assert timing["result"] == "pass", timing
+    ref = stub_chain().render(recipe, fs)
+    results = []
+    for key in ("gamma", "bus", "output"):
+        results += rm().match_stereo(key, eng[key][:2 * frames], ref[key][:2 * frames])
+    failed = [r for r in results if r["result"] != "pass"]
+    assert not failed, (where, failed)
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
 def test_engine_uncoupled_timing_recipe_fails_the_timing_check(fs, tapdump, tmp_path):
     # Must-fail on engine output: the same layers with an uncoupled gamma
     # (constant AM depth) have no swell peak at the phase.

@@ -419,3 +419,69 @@ def test_signal_with_no_full_cycle_fails():
         result = mod.check("short", gamma, theta, fs, THETA_RATE_HZ, "sine", 0.0)
         assert result["result"] == "fail", result
         assert result["measured"] is None, result
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_depth_0_gamma_fails_with_no_swell(fs):
+    # Must-fail by design: a depth-0 gamma tap is an unmodulated carrier, so
+    # its swell curve is flat and every cycle's fitted swell amplitude is
+    # below row reference-match; the check names that, not a lucky phase.
+    mod = ct()
+    for shape in SHAPES:
+        for phase in PHASES_DEG:
+            gamma = gamma_tap(fs, 0.0, phase)
+            result = mod.check("depth 0", gamma, theta_tap(fs, shape), fs, THETA_RATE_HZ, shape, phase)
+            assert result["result"] == "fail", (shape, phase, result)
+            assert result["note"] == "no swell in gamma tap", (shape, phase, result)
+            assert result["measured"] is None
+
+
+def test_uncoupled_gamma_fails_with_no_swell():
+    mod = ct()
+    fs = SAMPLE_RATES[-1]
+    gamma = gamma_tap(fs, 1.0, 0.0, coupled=False)
+    result = mod.check("uncoupled", gamma, theta_tap(fs, "sine"), fs, THETA_RATE_HZ, "sine", 0.0)
+    assert result["result"] == "fail" and result["note"] == "no swell in gamma tap", result
+
+
+# ------------------------------------- calibration at the rate-range edges
+
+EDGE_SECONDS = 8.0   # at a 1 Hz theta rate, 7 s after the trims: 6 full cycles
+
+
+def edge_taps(fs, theta_rate, gamma_rate, depth, phase_deg, zero_s):
+    """Sine-shape theta and a swell-coupled gamma at the given rates."""
+    t = times(fs, EDGE_SECONDS)
+    e_t = 0.5 + 0.5 * np.cos(2.0 * np.pi * theta_rate * (t - zero_s))
+    theta = (1.0 - THETA_DEPTH * (1.0 - e_t)) * np.sin(2.0 * np.pi * THETA_CARRIER_HZ * t)
+    peak = zero_s + phase_deg / 360.0 / theta_rate
+    s = 0.5 + 0.5 * np.cos(2.0 * np.pi * theta_rate * (t - peak))
+    e = 0.5 + 0.5 * np.cos(2.0 * np.pi * gamma_rate * t)
+    gamma = (1.0 - (depth * s) * (1.0 - e)) * np.sin(2.0 * np.pi * GAMMA_CARRIER_HZ * t)
+    return gamma, theta
+
+
+def _rate_edges(row_id):
+    r = table_row(row_id)
+    return (r.min, r.max)
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+@pytest.mark.parametrize("depth", DEPTHS)
+@pytest.mark.parametrize("theta_edge", (0, 1))
+@pytest.mark.parametrize("gamma_edge", (0, 1))
+def test_calibration_at_the_theta_and_gamma_rate_edges(fs, depth, theta_edge, gamma_edge):
+    # The low-pass is tightest at the bottom gamma rate with the top theta
+    # rate (its sidebands reach the stop edge), and the fewest cycles fall at
+    # the bottom theta rate.
+    theta_rate = _rate_edges("theta-rate")[theta_edge]
+    gamma_rate = _rate_edges("gamma-rate")[gamma_edge]
+    assert GAMMA_CARRIER_HZ >= 4.0 * gamma_rate
+    mod = ct()
+    for phase in PHASES_DEG:
+        gamma, theta = edge_taps(fs, theta_rate, gamma_rate, depth, phase, zero_s=0.0123)
+        got = mod.timing_errors(gamma, theta, fs, theta_rate, "sine", phase)
+        assert got.size >= int((EDGE_SECONDS - 2 * mod.TRIM_S) * theta_rate) - 2, (phase, got)
+        assert np.max(np.abs(got)) < calibration_s(), (theta_rate, gamma_rate, phase, got)
+        result = mod.check("edge", gamma, theta, fs, theta_rate, "sine", phase, row_id=mod.CALIBRATION_ROW)
+        assert result["result"] == "pass", result
