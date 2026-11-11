@@ -3,7 +3,7 @@ title: 'Story 2.3: Gamma coupled, smooth swell'
 type: 'feature'
 created: '2026-11-10'
 baseline_commit: '2a14bc5388e9b80bc18ac5203af672af3249116b'
-status: 'in-progress'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 context:
@@ -99,3 +99,28 @@ Why one swell for every shape: a swell copied from the theta envelope would put 
 ## Spec Change Log
 
 ## Review Triage Log
+
+Pass 1 (2026-11-10): blind hunter (BH), edge case hunter (EC), verification gap (VG), all fresh context, on diff 2a14bc5..9c04e38 (`_bmad-output`, the guidebook, and the generated `tests/data/signal_spec_vectors.json` left out). VG found no gaps.
+
+| # | Finding | Verdict | Evidence | Route |
+|---|---------|---------|----------|-------|
+| 1 | BH, VG: the swell hash-entry tests fail until `ci/hash_expected.json` has `gamma-swell-*` | medium | true; the entries wait on a green four-platform full run (design log (kk)), as in Story 2.2; every existing pin still matches on the dev PC | CI gate before merge |
+| 2 | BH, EC: timing tool never checks a swell exists; a flat swell curve gives an atan2-of-noise peak | medium | true; `coupling_timing.py:240-241` fits and takes atan2 with no amplitude floor; the constant-depth must-fails pass only because the noise phase lands far off | patch |
+| 3 | BH: timing tool calibrated only at a 6 Hz theta rate and a 40 Hz gamma rate | low | true; every calibration case uses one setting, while the low-pass claims the whole locked range; Story 2.6 and the starters use other rates | patch (test) |
+| 4 | BH: no render or reference match at a rounded coupling phase | low | true; renders use multiples of 90 degrees; rounded C appears only in the phase-rule table | patch (test) |
+| 5 | BH: carrier rule ignores the swell; at 60 Hz gamma with a 240 Hz carrier, gamma rate plus theta rate exceeds a quarter of the carrier | maybe-false | depends on whether "modulation rate" in the carrier rule means the gamma rate or the highest modulation component; no doc settles it; would be medium | defer (ask Audio) |
+| 6 | BH: spacing rule ignores the swell side frequencies | false | no spacing check exists yet for any layer; Story 3.1's AC lists the smooth swell component model, Story 3.2 the check | reject |
+| 7 | BH: swell shape locked without independent review | false | design log (nn) status is `proposed`, not `locked`; rule 4 gates locking; the table's "engineering default" column follows entries (ll), (mm) | reject |
+| 8 | BH: no 8-hour coupling timing check | false | the whole-session drift check is Story 5.1, whose AC names coupled gamma | reject |
+| 9 | BH: swell fixtures clip | low | pre-existing (Story 2.2 row 18); levels are Epic 4 | reject |
+| 10 | BH, EC: reference `coupling_phase_units` has no out-of-domain guard and the reference does not enforce AD-5 | low | the range check and compile rules reject those recipes before any render; the reference is called only on compile-valid fixtures (Story 2.2 row 21) | reject |
+| 11 | EC: flat theta envelope gives made-up 0 degree times | low | coupled gamma with theta depth 0 is compile-rejected; needs a new guard | reject |
+| 12 | EC: infinite phase or rate raises OverflowError from `check` | low | loud failure on inputs never given | reject |
+| 13 | EC: invalid `fs` not validated | low | loud failure on inputs never given | reject |
+| 14 | EC: rows could give `f_stop <= f_pass` | low | unreachable with today's rows (30 Hz gamma floor, 6 Hz theta ceiling) | reject |
+| 15 | EC: `min_hz` above Nyquist gives a bare ValueError | low | loud failure; never called so | reject |
+| 16 | EC: `math.remainder` can return +T/2 against a half-open doc | low | cosmetic, measure-zero | reject |
+| 17 | EC: seek test underflows below 512 frames | low | every fixture is 5 s | reject |
+| 18 | EC: one AD-5 error at a time | false | the spec's first-failure-wins order, as every compile rule | reject |
+
+- Review pass 1 patches in b9365a8 (triage rows 2 to 4). Row 1 waits on the four-platform full run before merge; row 5 is deferred to Audio in `deferred-work.md`. Orchestrator check: `windows-clang-cl` workflow 4/4 ctest entries pass; `uv run pytest` 2,162 passed, 2 NDK-only skips, 4 failed (exactly the row 1 hash-entry tests; every existing pin matches); engine source, wording, row coverage, table log, and vector checks exit 0.
