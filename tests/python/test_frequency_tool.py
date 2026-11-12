@@ -342,3 +342,191 @@ def test_min_hz_skips_a_stronger_line_below_it(fs):
     assert abs(mod.rate_hz(x, fs) - THETA_RATE_HZ) < calibration_hz()
     got = mod.rate_hz(x, fs, min_hz=gamma_rate_floor_hz())
     assert abs(got - THETA_RATE_HZ) > 1.0, got
+
+
+# ------------------------------------------- phase mode (Story 2.5)
+#
+# Contract with tests/assertions/frequency.py:
+#
+# - `PHASE_STEP_CYCLES = 1e-4`.
+# - `phase_track(x, fs, expected_cycles) -> dict`: expected_cycles is a
+#   float64 array the length of x, the closed-form phase in cycles (any
+#   constant offset). Keys:
+#   "residual_cycles": the unwrapped phase of the FFT analytic signal of x
+#     minus 2 pi times expected_cycles, in cycles, trimmed by TRIM_S at each
+#     end, its first trimmed value subtracted;
+#   "rate_error_hz": the instantaneous rate error, from the derivative of the
+#     residual, in Hz (finite where x is);
+#   "max_rate_error_hz": max abs of rate_error_hz;
+#   "max_step_cycles": max abs of np.diff(residual_cycles).
+# - `check_phase(name, x, fs, expected_cycles) -> dict`: the Story 1.4 report
+#   assertion shape of check(), row frequency-accuracy read on every call;
+#   measured = max_rate_error_hz; "pass" only when measured is strictly below
+#   the row and max_step_cycles is below PHASE_STEP_CYCLES; note "phase step"
+#   when the step test fails; note "not finite" and measured None for a NaN
+#   or infinite measure.
+#
+# The per-sample difference of the residual alone, times fs, carries the
+# edge ripple of the FFT analytic signal at twice the carrier (about 0.19 Hz
+# half a second in from the ends, on a perfect tone), so these tests pin
+# rate_error_hz only through the calibration: every Python-synthesized swept
+# tone below reads within row frequency-accuracy-calibration, and the
+# must-fails read outside row frequency-accuracy.
+#
+# Calibration: swept tones made here with NumPy from the closed form
+# Phi(t) = (f_L + r) t + K (cos phi0 - cos(2 pi t / P + phi0)),
+# K = s P / (2 pi) (signal spec, Rate curve), sine of 2 pi Phi plus a phase
+# offset. Must-fail: a schedule whose center is off by 0.02 Hz fails row
+# frequency-accuracy; a tone with a 0.01 cycle phase step fails with note
+# "phase step".
+
+PHASE_SECONDS = 10.0
+# (left carrier, center, swing, period, start phase degrees, seconds)
+SWEPT_TONES = (
+    (100.0, 1.5, 1.5, 60.0, 270.0, PHASE_SECONDS),  # the Sleep cycle on a 100 Hz left carrier
+    (100.0, 1.5, 1.5, 60.0, 0.0, 12.0),
+    (100.0, 1.5, 1.5, 60.0, 90.0, PHASE_SECONDS),
+    (400.0, 6.0, 3.0, 60.0, 180.0, PHASE_SECONDS),
+    (250.0, 10.0, 5.0, 60.0, 45.0, 20.0),
+)
+
+
+def swept_cycles(fs, left_hz, center_hz, swing_hz, period_s, start_deg, seconds):
+    """The closed-form right-ear phase in cycles at each sample (made here)."""
+    t = np.arange(int(round(seconds * fs)), dtype=np.float64) / fs
+    phi0 = math.radians(start_deg)
+    k = swing_hz * period_s / (2.0 * math.pi)
+    return (left_hz + center_hz) * t + k * (math.cos(phi0) - np.cos(2.0 * math.pi * t / period_s + phi0))
+
+
+def swept_tone(cycles, phase=0.4):
+    return 0.9 * np.sin(2.0 * np.pi * cycles + phase)
+
+
+def own_residual(x, fs, expected_cycles):
+    """The residual by its definition, made here with NumPy."""
+    n = x.size
+    spectrum = np.fft.fft(np.asarray(x, dtype=np.float64))
+    h = np.zeros(n)
+    h[0] = 1.0
+    if n % 2 == 0:
+        h[n // 2] = 1.0
+        h[1:n // 2] = 2.0
+    else:
+        h[1:(n + 1) // 2] = 2.0
+    z = np.fft.ifft(spectrum * h)
+    k = int(round(freq().TRIM_S * fs))
+    residual = (np.unwrap(np.angle(z)) - 2.0 * np.pi * expected_cycles) / (2.0 * np.pi)
+    residual = residual[k:n - k]
+    return residual - residual[0]
+
+
+def test_phase_step_constant():
+    assert freq().PHASE_STEP_CYCLES == 1e-4
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_phase_track_keys_and_definitions(fs):
+    mod = freq()
+    cycles = swept_cycles(fs, *SWEPT_TONES[0])
+    x = swept_tone(cycles)
+    got = mod.phase_track(x, fs, cycles)
+    assert set(got) == {"residual_cycles", "rate_error_hz", "max_rate_error_hz", "max_step_cycles"}
+    residual = np.asarray(got["residual_cycles"])
+    k = int(round(mod.TRIM_S * fs))
+    assert residual.shape == (x.size - 2 * k,)
+    assert residual[0] == 0.0
+    assert np.max(np.abs(residual - own_residual(x, fs, cycles))) < 1e-9
+    rate = np.asarray(got["rate_error_hz"], dtype=np.float64)
+    assert rate.ndim == 1 and rate.size > 0 and np.all(np.isfinite(rate))
+    assert got["max_rate_error_hz"] == float(np.max(np.abs(rate)))
+    assert got["max_step_cycles"] == float(np.max(np.abs(np.diff(residual))))
+    # Any constant offset in expected_cycles gives the same residual.
+    shifted = mod.phase_track(x, fs, cycles + 123.25)
+    assert np.max(np.abs(np.asarray(shifted["residual_cycles"]) - residual)) < 1e-9
+    assert abs(shifted["max_rate_error_hz"] - got["max_rate_error_hz"]) < 1e-6
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+@pytest.mark.parametrize("tone", SWEPT_TONES)
+def test_swept_tone_reads_within_calibration(fs, tone):
+    mod = freq()
+    cycles = swept_cycles(fs, *tone)
+    got = mod.phase_track(swept_tone(cycles), fs, cycles)
+    assert got["max_rate_error_hz"] < calibration_hz(), (fs, tone, got["max_rate_error_hz"])
+    assert got["max_step_cycles"] < mod.PHASE_STEP_CYCLES, (fs, tone, got["max_step_cycles"])
+    result = mod.check_phase(f"swept {tone}", swept_tone(cycles), fs, cycles)
+    assert result["result"] == "pass" and result["note"] == "", result
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_fixed_tone_reads_within_calibration_in_phase_mode(fs):
+    mod = freq()
+    t = np.arange(int(PHASE_SECONDS * fs), dtype=np.float64) / fs
+    for f in (100.0, 451.237):
+        got = mod.phase_track(swept_tone(f * t), fs, f * t)
+        assert got["max_rate_error_hz"] < calibration_hz(), (fs, f, got["max_rate_error_hz"])
+
+
+def test_check_phase_report_shape():
+    mod = freq()
+    fs = SAMPLE_RATES[0]
+    cycles = swept_cycles(fs, *SWEPT_TONES[0])
+    result = mod.check_phase("sleep", swept_tone(cycles), fs, cycles)
+    assert set(result) == {"name", "row", "threshold", "unit", "measured", "result", "note"}
+    assert result["name"] == "sleep"
+    assert result["row"] == "frequency-accuracy"
+    assert result["threshold"] == accuracy_hz()
+    assert result["unit"] == "Hz"
+    track = mod.phase_track(swept_tone(cycles), fs, cycles)
+    assert result["measured"] == track["max_rate_error_hz"]
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+@pytest.mark.parametrize("start_deg", (270.0, 0.0))
+def test_swept_center_off_by_0_02_hz_fails(fs, start_deg):
+    mod = freq()
+    left, center, swing, period, _, seconds = SWEPT_TONES[0]
+    want = swept_cycles(fs, left, center, swing, period, start_deg, seconds)
+    moved = swept_cycles(fs, left, center + MOVE_HZ, swing, period, start_deg, seconds)
+    result = mod.check_phase("moved center", swept_tone(moved), fs, want)
+    assert result["result"] == "fail", result
+    assert result["note"] == "", result
+    assert result["measured"] > accuracy_hz(), result
+    assert abs(result["measured"] - MOVE_HZ) < calibration_hz(), result
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_swept_tone_with_a_phase_step_fails_with_note(fs):
+    mod = freq()
+    cycles = swept_cycles(fs, *SWEPT_TONES[0])
+    stepped = cycles.copy()
+    stepped[stepped.size // 2:] += 0.01
+    result = mod.check_phase("phase step", swept_tone(stepped), fs, cycles)
+    assert result["result"] == "fail", result
+    assert result["note"] == "phase step", result
+    track = mod.phase_track(swept_tone(stepped), fs, cycles)
+    assert track["max_step_cycles"] >= mod.PHASE_STEP_CYCLES, track["max_step_cycles"]
+
+
+def test_check_phase_not_finite_fails():
+    mod = freq()
+    fs = SAMPLE_RATES[0]
+    cycles = swept_cycles(fs, *SWEPT_TONES[0])
+    for bad in (math.nan, math.inf):
+        x = swept_tone(cycles)
+        x[x.size // 2] = bad
+        result = mod.check_phase("bad", x, fs, cycles)
+        assert result["result"] == "fail" and result["note"] == "not finite", (bad, result)
+        assert result["measured"] is None
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_wrong_start_phase_schedule_fails(fs):
+    # Must-fail: the Sleep tone judged against the same cycle at 90 degrees.
+    mod = freq()
+    left, center, swing, period, _, seconds = SWEPT_TONES[0]
+    x = swept_tone(swept_cycles(fs, left, center, swing, period, 270.0, seconds))
+    wrong = swept_cycles(fs, left, center, swing, period, 90.0, seconds)
+    result = mod.check_phase("wrong start phase", x, fs, wrong)
+    assert result["result"] == "fail", result

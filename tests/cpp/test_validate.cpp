@@ -99,6 +99,32 @@
 //      coupling uncoupled").
 // The constants are read through a lookup probe (a global fallback the real
 // declaration hides), so the suite builds before they exist.
+//
+// Story 2.5 (binaural layer and rate curve): binaural gains the optional
+// beat_rate_cycle {swing_hz, period_s, start_phase_deg} (all three required
+// inside it) and the optional waveform (enum "sine", "triangle"; absent means
+// sine). The field table rows follow beat_rate_hz: beat_rate_cycle,
+// swing_hz (no range row), period_s (row rate-cycle-period, 60 to 60 s
+// inclusive), start_phase_deg (row rate-cycle-start-phase, 0 to 360 degrees
+// inclusive), waveform. With a cycle, right after the existing binaural
+// checks and in this order (first failure wins), all on parameter
+// /binaural/beat_rate_cycle/swing_hz unless named:
+//   1. swing_hz >= 0: value the swing, rule range.min, limit ">= 0 Hz";
+//   2. r - s (binary64) against row beat-rate: rule range.min, limit
+//      ">= 0 Hz (row beat-rate)", value the shortest round-trip text of r - s;
+//   3. r + s against row beat-rate: rule range.max, limit
+//      "< 30 Hz (row beat-rate)";
+//   4. (f_L + r) + s against row binaural-carrier-right: rule range.max,
+//      limit "< 1030 Hz (row binaural-carrier-right)";
+//   5. period_s against row rate-cycle-period (parameter
+//      /binaural/beat_rate_cycle/period_s);
+//   6. start_phase_deg against row rate-cycle-start-phase (parameter
+//      /binaural/beat_rate_cycle/start_phase_deg).
+// Then, in check_rules after every gamma and coupling rule, the waveform
+// rule: triangle is rejected, parameter /binaural/waveform, value triangle,
+// rule validate::kNonSineBinauralRule ("non-sine binaural not modeled"),
+// limit validate::kModeledBinauralWaveforms ("sine"). Both constants are read
+// through the lookup probe.
 
 #include <arcani/arcani.h>
 
@@ -134,6 +160,8 @@ inline constexpr std::string_view kCoupledNeedsPhaseRule = "(missing)";
 inline constexpr std::string_view kCoupledNeedsPhaseLimit = "(missing)";
 inline constexpr std::string_view kPhaseNeedsCoupledRule = "(missing)";
 inline constexpr std::string_view kPhaseNeedsCoupledLimit = "(missing)";
+inline constexpr std::string_view kNonSineBinauralRule = "(missing)";
+inline constexpr std::string_view kModeledBinauralWaveforms = "(missing)";
 
 namespace arcani::validate_probe {
 using namespace arcani::validate;
@@ -143,6 +171,8 @@ inline const std::string coupled_needs_phase_rule(kCoupledNeedsPhaseRule);
 inline const std::string coupled_needs_phase_limit(kCoupledNeedsPhaseLimit);
 inline const std::string phase_needs_coupled_rule(kPhaseNeedsCoupledRule);
 inline const std::string phase_needs_coupled_limit(kPhaseNeedsCoupledLimit);
+inline const std::string non_sine_binaural_rule(kNonSineBinauralRule);
+inline const std::string modeled_binaural_waveforms(kModeledBinauralWaveforms);
 }  // namespace arcani::validate_probe
 
 namespace api = arcani::test::api;
@@ -262,6 +292,11 @@ struct Values {
   // Story 2.3. Empty omits coupling_phase_deg (the default, so every earlier
   // case keeps its recipe); written as given.
   std::string gamma_coupling_phase_deg;
+  // Story 2.5. Empty omits the field (the default, so every earlier case
+  // keeps its recipe); written as given. binaural_cycle is the whole
+  // beat_rate_cycle value, for example cycle_text("1.5", "60", "270").
+  std::string binaural_cycle;
+  std::string binaural_waveform;
   bool theta = true;
   bool gamma = false;
   bool binaural = true;
@@ -317,7 +352,14 @@ std::string make_recipe(const Values& v) {
   }
   if (v.binaural) {
     s += ",\n  \"binaural\": {\n    \"carrier_left_hz\": " + v.carrier_left_hz +
-         ",\n    \"beat_rate_hz\": " + v.beat_rate_hz + "\n  }";
+         ",\n    \"beat_rate_hz\": " + v.beat_rate_hz;
+    if (!v.binaural_cycle.empty()) {
+      s += ",\n    \"beat_rate_cycle\": " + v.binaural_cycle;
+    }
+    if (!v.binaural_waveform.empty()) {
+      s += ",\n    \"waveform\": " + v.binaural_waveform;
+    }
+    s += "\n  }";
   }
   s += "\n}\n";
   return s;
@@ -373,8 +415,11 @@ double above(double x) { return std::nextafter(x, std::numeric_limits<double>::i
 TEST_CASE("engine range table equals ranges.tsv row for row", "[validate][ranges]") {
   const auto expected_ids = ids_named_by_fields();
   // Story 2.1 adds theta-rate and theta-depth; Story 2.2 adds gamma-carrier,
-  // gamma-rate, and coupling-depth; Story 2.3 adds coupling-phase.
-  REQUIRE(expected_ids.size() == 12);
+  // gamma-rate, and coupling-depth; Story 2.3 adds coupling-phase; Story 2.5
+  // adds rate-cycle-period and rate-cycle-start-phase.
+  REQUIRE(expected_ids.size() == 14);
+  CHECK(expected_ids.count("rate-cycle-period") == 1);
+  CHECK(expected_ids.count("rate-cycle-start-phase") == 1);
   CHECK(expected_ids.count("coupling-phase") == 1);
   CHECK(expected_ids.count("theta-rate") == 1);
   CHECK(expected_ids.count("theta-depth") == 1);
@@ -673,12 +718,14 @@ TEST_CASE("valid/ means schema-valid: the out-of-range hash fixture is rejected 
   // so a new valid/ fixture is covered; an expected rejection must be listed.
   // Story 2.2 adds three schema-valid gamma fixtures that compile rejects by
   // a named rule (checked one by one in the gamma section below), and Story
-  // 2.3 four coupling fixtures (AD-5 and the coupling phase rules).
+  // 2.3 four coupling fixtures (AD-5 and the coupling phase rules), and Story
+  // 2.5 three binaural fixtures (the waveform rule and two worst-case rates).
   const std::set<std::string> expected_rejected = {
       "both-layers-loudness-target-changed.json", "gamma-carrier-rule-200hz-60hz.json",
       "gamma-carrier-wave-triangle.json", "gamma-carrier-wave-softened-square.json",
       "swell-no-theta.json", "swell-theta-depth-0.json", "swell-no-coupling-phase.json",
-      "uncoupled-with-coupling-phase.json"};
+      "uncoupled-with-coupling-phase.json", "binaural-waveform-triangle.json",
+      "binaural-cycle-below-0.json", "binaural-cycle-above-30.json"};
   std::set<std::string> rejected_seen;
   std::size_t compiled = 0;
   for (const auto& entry :
@@ -1585,6 +1632,455 @@ TEST_CASE("coupling: check order, ranges then the theta and gamma rules then the
   {
     // A valid swell recipe without the gain: final.required, as before.
     Values v = with_swell();
+    v.gain = false;
+    const api::Compiled c = api::compile(make_recipe(v), api::options(ARC_MODE_FINAL, 48000));
+    REQUIRE(api::all_written(c.error));
+    CHECK(c.status == ARC_ERR_REJECTED);
+    CHECK(std::string(c.error.rule) == "final.required");
+  }
+}
+
+// ------------------------------------------- binaural layer and rate curve (Story 2.5)
+
+namespace {
+
+const char* const kSwingParam = "/binaural/beat_rate_cycle/swing_hz";
+const char* const kPeriodParam = "/binaural/beat_rate_cycle/period_s";
+const char* const kStartParam = "/binaural/beat_rate_cycle/start_phase_deg";
+const char* const kNonSineBinaural = "non-sine binaural not modeled";
+
+std::string cycle_text(const std::string& swing, const std::string& period, const std::string& phase) {
+  return "{\"swing_hz\": " + swing + ", \"period_s\": " + period + ", \"start_phase_deg\": " + phase + "}";
+}
+
+// The base recipe with the Sleep cycle: center 1.5 Hz, swing 1.5 Hz, 60 s
+// period, start phase 270 degrees, on the 400 Hz left carrier.
+Values with_cycle(const std::string& swing = "1.5", const std::string& period = "60",
+                  const std::string& phase = "270") {
+  Values v;
+  v.beat_rate_hz = "1.5";
+  v.binaural_cycle = cycle_text(swing, period, phase);
+  return v;
+}
+
+const Want kWantTriangle{"/binaural/waveform", "triangle", kNonSineBinaural, "sine"};
+
+std::uint64_t render_hash(const std::string& text, std::uint32_t fs) {
+  auto plan = api::compile_ok(text, api::options(ARC_MODE_MEASURE, fs));
+  const auto frames = static_cast<std::size_t>(arc_plan_frame_count(plan.get()));
+  auto r = api::renderer(plan.get());
+  const auto out = api::render(r.get(), frames);
+  // FNV-1a over the bytes: equal bytes give equal values.
+  std::uint64_t h = UINT64_C(14695981039346656037);
+  const auto* b = reinterpret_cast<const unsigned char*>(out.data());
+  for (std::size_t i = 0; i < out.size() * sizeof(double); ++i) {
+    h = (h ^ b[i]) * UINT64_C(1099511628211);
+  }
+  return h;
+}
+
+}  // namespace
+
+TEST_CASE("binaural: the waveform rule constants hold the spec text", "[validate][binaural]") {
+  CHECK(vprobe::non_sine_binaural_rule == kNonSineBinaural);
+  CHECK(vprobe::modeled_binaural_waveforms == "sine");
+}
+
+TEST_CASE("binaural: the engine range table names the two rate cycle rows", "[validate][binaural]") {
+  struct Want2 {
+    const char* id;
+    const char* unit;
+  };
+  for (const Want2 w : {Want2{"rate-cycle-period", "s"}, Want2{"rate-cycle-start-phase", "degrees"}}) {
+    INFO(w.id);
+    const auto& r = tables::row(w.id);
+    CHECK(r.kind == "ranges");
+    CHECK(r.unit == w.unit);
+    CHECK(r.max_bound == "inclusive");
+    CHECK(r.pending.empty());
+    bool found = false;
+    for (const auto& e : validate::range_rows()) {
+      if (e.id != w.id) {
+        continue;
+      }
+      found = true;
+      CHECK(e.min == r.min);
+      CHECK(e.max == r.max);
+      CHECK_FALSE(e.max_exclusive);
+      CHECK(std::string(e.unit) == w.unit);
+    }
+    CHECK(found);
+  }
+  // Locked by Audio on 2026-11-11: the period is exactly 60 s, the start
+  // phase 0 to 360 degrees.
+  CHECK(tables::row("rate-cycle-period").min == 60.0);
+  CHECK(tables::row("rate-cycle-period").max == 60.0);
+  CHECK(tables::row("rate-cycle-start-phase").min == 0.0);
+  CHECK(tables::row("rate-cycle-start-phase").max == 360.0);
+}
+
+TEST_CASE("binaural: a beat rate cycle recipe compiles in both modes at both rates", "[validate][binaural]") {
+  for (const bool theta : {true, false}) {
+    Values v = with_cycle();
+    v.theta = theta;
+    const std::string text = make_recipe(v);
+    for (const arc_mode mode : kModes) {
+      for (const std::uint32_t fs : {44100u, 48000u}) {
+        INFO("theta " << theta << ", mode " << mode << ", fs " << fs);
+        CHECK(api::compile_ok(text, api::options(mode, fs)) != nullptr);
+      }
+    }
+  }
+}
+
+TEST_CASE("binaural: accepted cycle edges compile", "[validate][binaural]") {
+  require_text_is("0.9999999999999981", 0.9999999999999981);
+  {
+    volatile double r = 29.0;
+    volatile double s = 0.9999999999999981;
+    CHECK(r + s == below(30.0));  // 29.999999999999996
+  }
+  struct Case {
+    const char* left;
+    const char* center;
+    const char* swing;
+    const char* period;
+    const char* phase;
+  };
+  const Case cases[] = {
+      {"400", "1.5", "1.5", "60", "270"},                // r - s = 0, the row minimum
+      {"400", "1.5", "0", "60", "270"},                  // no swing
+      {"400", "29", "0.9999999999999981", "60", "90"},   // r + s just below 30
+      {"400", "1.5", "1.5", "60", "0"},                  // start phase row minimum
+      {"400", "1.5", "1.5", "60", "360"},                // start phase row maximum
+      {"400", "1.5", "1.5", "60", "359.99"},
+      {"400", "1.5", "1.5", "60", "0.01"},
+      {"0", "1.5", "1.5", "60", "180"},
+      {"999.9999999999999", "15", "14", "60", "270"},    // f_C + s = 1028.9999999999998
+  };
+  for (const auto& c : cases) {
+    INFO("left " << c.left << ", center " << c.center << ", swing " << c.swing << ", period " << c.period
+                 << ", start phase " << c.phase);
+    Values v = with_cycle(c.swing, c.period, c.phase);
+    v.carrier_left_hz = c.left;
+    v.beat_rate_hz = c.center;
+    expect_plan(v);
+  }
+}
+
+TEST_CASE("binaural: worst-case rates are rejected with the row, parameter the swing", "[validate][binaural]") {
+  require_text_is("-0.010000000000000009", 1.5 - 1.51);
+  {
+    Values v = with_cycle("-0.5");
+    expect_rejected(v, {kSwingParam, "-0.5", "range.min", ">= 0 Hz"});
+  }
+  {
+    Values v = with_cycle("-5e-324");
+    expect_rejected(v, {kSwingParam, "-5e-324", "range.min", ">= 0 Hz"});
+  }
+  {
+    Values v = with_cycle("1.51");  // r - s = -0.01
+    expect_rejected(v, {kSwingParam, "-0.010000000000000009", "range.min", ">= 0 Hz (row beat-rate)"});
+  }
+  {
+    Values v = with_cycle("2");  // r - s = -0.5
+    expect_rejected(v, {kSwingParam, "-0.5", "range.min", ">= 0 Hz (row beat-rate)"});
+  }
+  {
+    Values v = with_cycle("15");  // r + s = 30
+    v.beat_rate_hz = "15";
+    expect_rejected(v, {kSwingParam, "30", "range.max", "< 30 Hz (row beat-rate)"});
+  }
+  {
+    Values v = with_cycle("1");  // r + s = 30
+    v.beat_rate_hz = "29";
+    expect_rejected(v, {kSwingParam, "30", "range.max", "< 30 Hz (row beat-rate)"});
+  }
+  {
+    // (f_L + r) + s rounds to 1030 while r + s stays below 30 and f_L + r
+    // passes as 1029.
+    volatile double left = 999.9999999999999;
+    volatile double r = 29.0;
+    volatile double s = 0.9999999999999981;
+    const double f_c = left + r;
+    CHECK(f_c == 1029.0);
+    CHECK(r + s < 30.0);
+    CHECK(f_c + s == 1030.0);
+    Values v = with_cycle("0.9999999999999981", "60", "90");
+    v.carrier_left_hz = "999.9999999999999";
+    v.beat_rate_hz = "29";
+    expect_rejected(v, {kSwingParam, "1030", "range.max", "< 1030 Hz (row binaural-carrier-right)"});
+  }
+  {
+    Values v = with_cycle("2", "60", "90");
+    v.carrier_left_hz = "999.9999999999999";
+    v.beat_rate_hz = "28";
+    expect_rejected(v, {kSwingParam, "30", "range.max", "< 30 Hz (row beat-rate)"});
+  }
+  {
+    // No plan at either sample rate.
+    Values v = with_cycle("1.51");
+    for (const std::uint32_t fs : {44100u, 48000u}) {
+      const api::Compiled c = api::compile(make_recipe(v), api::options(ARC_MODE_MEASURE, fs));
+      CHECK(c.status == ARC_ERR_REJECTED);
+      CHECK(c.plan == nullptr);
+    }
+  }
+}
+
+TEST_CASE("binaural: period and start phase are checked against their rows", "[validate][binaural]") {
+  const Want cases[] = {
+      {kPeriodParam, "59.99", "range.min", ">= 60 s (row rate-cycle-period)"},
+      {kPeriodParam, "60.01", "range.max", "<= 60 s (row rate-cycle-period)"},
+      {kPeriodParam, "0", "range.min", ">= 60 s (row rate-cycle-period)"},
+      {kPeriodParam, "-60", "range.min", ">= 60 s (row rate-cycle-period)"},
+      {kPeriodParam, "120", "range.max", "<= 60 s (row rate-cycle-period)"},
+      {kPeriodParam, "59.99999999999999", "range.min", ">= 60 s (row rate-cycle-period)"},
+      {kPeriodParam, "60.00000000000001", "range.max", "<= 60 s (row rate-cycle-period)"},
+      {kStartParam, "-0.01", "range.min", ">= 0 degrees (row rate-cycle-start-phase)"},
+      {kStartParam, "-5e-324", "range.min", ">= 0 degrees (row rate-cycle-start-phase)"},
+      {kStartParam, "360.01", "range.max", "<= 360 degrees (row rate-cycle-start-phase)"},
+      {kStartParam, "360.00000000000006", "range.max", "<= 360 degrees (row rate-cycle-start-phase)"},
+      {kStartParam, "720", "range.max", "<= 360 degrees (row rate-cycle-start-phase)"},
+  };
+  require_text_is("59.99999999999999", below(60.0));
+  require_text_is("60.00000000000001", above(60.0));
+  require_text_is("360.00000000000006", above(360.0));
+  for (const auto& c : cases) {
+    Values v = c.parameter == std::string(kPeriodParam) ? with_cycle("1.5", c.value, "270")
+                                                        : with_cycle("1.5", "60", c.value);
+    expect_rejected(v, c);
+  }
+}
+
+TEST_CASE("binaural: start phase 0 and 360 compile and render byte-identically", "[validate][binaural]") {
+  for (const std::uint32_t fs : {44100u, 48000u}) {
+    INFO("fs " << fs);
+    Values zero = with_cycle("1.5", "60", "0");
+    Values full = with_cycle("1.5", "60", "360");
+    Values near = with_cycle("1.5", "60", "359.99");
+    zero.theta = full.theta = near.theta = false;
+    CHECK(render_hash(make_recipe(zero), fs) == render_hash(make_recipe(full), fs));
+    CHECK(render_hash(make_recipe(zero), fs) != render_hash(make_recipe(near), fs));
+  }
+}
+
+TEST_CASE("binaural: waveform sine and absent compile and render the same bits; triangle is rejected",
+          "[validate][binaural]") {
+  for (const bool cycle : {false, true}) {
+    Values absent = cycle ? with_cycle() : Values{};
+    Values sine = absent;
+    sine.binaural_waveform = "\"sine\"";
+    expect_plan(sine);
+    expect_plan(absent);
+    for (const std::uint32_t fs : {44100u, 48000u}) {
+      INFO("cycle " << cycle << ", fs " << fs);
+      CHECK(render_hash(make_recipe(sine), fs) == render_hash(make_recipe(absent), fs));
+    }
+    Values triangle = absent;
+    triangle.binaural_waveform = "\"triangle\"";
+    expect_rejected(triangle, kWantTriangle);
+    for (const std::uint32_t fs : {44100u, 48000u}) {
+      const api::Compiled c = api::compile(make_recipe(triangle), api::options(ARC_MODE_MEASURE, fs));
+      CHECK(c.status == ARC_ERR_REJECTED);
+      CHECK(c.plan == nullptr);
+    }
+  }
+}
+
+TEST_CASE("binaural: waveform and cycle faults are schema faults", "[validate][binaural]") {
+  for (const char* text : {"square", "Sine", "", "triangle_wave"}) {
+    Values v;
+    v.binaural_waveform = std::string("\"") + text + "\"";
+    expect_rejected(v, {"/binaural/waveform", text, "enum", "sine, triangle"});
+  }
+  {
+    Values v;
+    v.binaural_waveform = "3";
+    const api::Compiled c = api::compile(make_recipe(v), api::options(ARC_MODE_MEASURE, 48000));
+    REQUIRE(api::all_written(c.error));
+    CHECK(c.status == ARC_ERR_REJECTED);
+    CHECK(std::string(c.error.parameter) == "/binaural/waveform");
+    CHECK(std::string(c.error.rule) == "type");
+    CHECK(std::string(c.error.limit) == "string");
+  }
+  struct Case {
+    std::string cycle;
+    const char* parameter;
+    const char* rule;
+  };
+  const Case cases[] = {
+      {"{\"swing_hz\": 1.5, \"start_phase_deg\": 270}", kPeriodParam, "required"},
+      {"{\"period_s\": 60, \"start_phase_deg\": 270}", kSwingParam, "required"},
+      {"{\"swing_hz\": 1.5, \"period_s\": 60}", kStartParam, "required"},
+      {cycle_text("\"1.5\"", "60", "270"), kSwingParam, "type"},
+      {cycle_text("1.5", "true", "270"), kPeriodParam, "type"},
+      {cycle_text("1.5", "60", "null"), kStartParam, "type"},
+      {"{\"swing_hz\": 1.5, \"period_s\": 60, \"start_phase_deg\": 270, \"shape\": \"sine\"}",
+       "/binaural/beat_rate_cycle/shape", "unknown_property"},
+      {"[1.5, 60, 270]", "/binaural/beat_rate_cycle", "type"},
+  };
+  for (const auto& c : cases) {
+    Values v = with_cycle();
+    v.binaural_cycle = c.cycle;
+    const api::Compiled r = api::compile(make_recipe(v), api::options(ARC_MODE_MEASURE, 48000));
+    INFO(c.cycle << ": " << api::describe(r.error));
+    REQUIRE(api::all_written(r.error));
+    CHECK(r.status == ARC_ERR_REJECTED);
+    CHECK(r.plan == nullptr);
+    CHECK(std::string(r.error.parameter) == c.parameter);
+    CHECK(std::string(r.error.rule) == c.rule);
+  }
+}
+
+TEST_CASE("binaural: the schema-valid compile-rejected binaural fixtures name their rule",
+          "[validate][binaural]") {
+  struct Case {
+    const char* name;
+    Want want;
+  };
+  const Case cases[] = {
+      {"binaural-waveform-triangle.json", kWantTriangle},
+      {"binaural-cycle-below-0.json",
+       {kSwingParam, "-0.010000000000000009", "range.min", ">= 0 Hz (row beat-rate)"}},
+      {"binaural-cycle-above-30.json", {kSwingParam, "30", "range.max", "< 30 Hz (row beat-rate)"}},
+  };
+  for (const auto& c : cases) {
+    const std::string text = api::valid(c.name);
+    for (const arc_mode mode : kModes) {
+      for (const std::uint32_t fs : {44100u, 48000u}) {
+        INFO(c.name << ", mode " << mode << ", fs " << fs);
+        const api::Compiled r = api::compile(text, api::options(mode, fs));
+        INFO(api::describe(r.error));
+        CHECK(r.status == ARC_ERR_REJECTED);
+        CHECK(r.plan == nullptr);
+        REQUIRE(api::all_written(r.error));
+        CHECK(std::string(r.error.parameter) == c.want.parameter);
+        CHECK(std::string(r.error.value) == c.want.value);
+        CHECK(std::string(r.error.rule) == c.want.rule);
+        CHECK(std::string(r.error.limit) == c.want.limit);
+      }
+    }
+  }
+}
+
+TEST_CASE("binaural: every accepted binaural fixture compiles at both rates", "[validate][binaural]") {
+  for (const char* name : {"binaural-beat-0.json", "binaural-beat-6.json", "binaural-beat-29.json",
+                           "binaural-cycle-sleep.json"}) {
+    for (const arc_mode mode : kModes) {
+      for (const std::uint32_t fs : {44100u, 48000u}) {
+        INFO(name << ", mode " << mode << ", fs " << fs);
+        const api::Compiled c = api::compile(api::valid(name), api::options(mode, fs));
+        INFO(api::describe(c.error));
+        // Measure mode compiles; final mode needs the stored gain, which
+        // these fixtures leave to Epic 4, so only final.required may stop it.
+        if (mode == ARC_MODE_MEASURE) {
+          CHECK(c.status == ARC_OK);
+        } else if (c.status != ARC_OK) {
+          REQUIRE(api::all_written(c.error));
+          CHECK(std::string(c.error.rule) == "final.required");
+        }
+      }
+    }
+  }
+}
+
+TEST_CASE("binaural: check order, existing binaural checks then the cycle checks then the rules",
+          "[validate][binaural][order]") {
+  {
+    Values v = with_cycle("-1");  // the beat rate range check comes first
+    v.beat_rate_hz = "30";
+    expect_rejected(v, {"/binaural/beat_rate_hz", "30", "range.max", "< 30 Hz (row beat-rate)"});
+  }
+  {
+    Values v = with_cycle("-1");  // the left carrier comes before everything in binaural
+    v.carrier_left_hz = "1000";
+    expect_rejected(v, {"/binaural/carrier_left_hz", "1000", "range.max", "< 1000 Hz (row binaural-carrier)"});
+  }
+  {
+    Values v = with_cycle("-1", "59", "400");  // swing first
+    expect_rejected(v, {kSwingParam, "-1", "range.min", ">= 0 Hz"});
+  }
+  {
+    Values v = with_cycle("2", "59", "400");  // the lowest rate before the period
+    expect_rejected(v, {kSwingParam, "-0.5", "range.min", ">= 0 Hz (row beat-rate)"});
+  }
+  {
+    Values v = with_cycle("15", "59", "400");  // the highest rate before the period
+    v.beat_rate_hz = "15";
+    expect_rejected(v, {kSwingParam, "30", "range.max", "< 30 Hz (row beat-rate)"});
+  }
+  {
+    // The highest right carrier before the period.
+    Values v = with_cycle("0.9999999999999981", "59", "400");
+    v.carrier_left_hz = "999.9999999999999";
+    v.beat_rate_hz = "29";
+    expect_rejected(v, {kSwingParam, "1030", "range.max", "< 1030 Hz (row binaural-carrier-right)"});
+  }
+  {
+    Values v = with_cycle("1.5", "59", "400");  // the period before the start phase
+    expect_rejected(v, {kPeriodParam, "59", "range.min", ">= 60 s (row rate-cycle-period)"});
+  }
+  {
+    Values v = with_cycle("1.5", "60", "400");
+    expect_rejected(v, {kStartParam, "400", "range.max", "<= 360 degrees (row rate-cycle-start-phase)"});
+  }
+  {
+    Values v = with_gamma();  // a gamma range fault (earlier in the field table) wins
+    v.beat_rate_hz = "1.5";
+    v.binaural_cycle = cycle_text("1.51", "60", "270");
+    v.gamma_am_depth_percent = "101";
+    expect_rejected(v, {"/gamma_pac/am_depth_percent", "101", "range.max", "<= 100 percent (row coupling-depth)"});
+  }
+  {
+    Values v = with_cycle("1.51");  // a cycle range fault wins over the theta shape rule
+    v.theta_shape = "\"custom\"";
+    expect_rejected(v, {kSwingParam, "-0.010000000000000009", "range.min", ">= 0 Hz (row beat-rate)"});
+  }
+  {
+    Values v = with_cycle("1.5", "60", "361");  // a cycle range fault wins over the waveform rule
+    v.binaural_waveform = "\"triangle\"";
+    expect_rejected(v, {kStartParam, "361", "range.max", "<= 360 degrees (row rate-cycle-start-phase)"});
+  }
+  {
+    Values v = with_cycle();  // the theta shape rule wins over the waveform rule
+    v.theta_shape = "\"custom\"";
+    v.binaural_waveform = "\"triangle\"";
+    expect_rejected(v, {"/theta_reference/shape", "custom", "shape not modeled in the signal spec",
+                        "sine, smoothed_on_off, sawtooth, reverse_saw"});
+  }
+  {
+    Values v = with_gamma();  // the gamma carrier wave rule wins over the waveform rule
+    v.gamma_carrier_wave = "\"triangle\"";
+    v.binaural_waveform = "\"triangle\"";
+    expect_rejected(v, {"/gamma_pac/carrier_wave", "triangle", kNonSine, "sine"});
+  }
+  {
+    Values v = with_swell();  // AD-5 wins over the waveform rule
+    v.theta = false;
+    v.binaural_waveform = "\"triangle\"";
+    expect_rejected(v, kWantNeedsTheta);
+  }
+  {
+    Values v = with_gamma();  // the phase-needs-coupled rule wins over the waveform rule
+    v.gamma_coupling_phase_deg = "90";
+    v.binaural_waveform = "\"triangle\"";
+    expect_rejected(v, {"/gamma_pac/coupling_phase_deg", "90", kPhaseNeedsCoupled, kPhaseNeedsCoupledLimitText});
+  }
+  {
+    // The cycle checks and the waveform rule come before final.required.
+    Values a = with_cycle("1.51");
+    a.gain = false;
+    expect_rejected(a, {kSwingParam, "-0.010000000000000009", "range.min", ">= 0 Hz (row beat-rate)"},
+                    {ARC_MODE_FINAL});
+    Values b = with_cycle();
+    b.gain = false;
+    b.binaural_waveform = "\"triangle\"";
+    expect_rejected(b, kWantTriangle, {ARC_MODE_FINAL});
+  }
+  {
+    // A valid cycle recipe without the gain: final.required, as before.
+    Values v = with_cycle();
     v.gain = false;
     const api::Compiled c = api::compile(make_recipe(v), api::options(ARC_MODE_FINAL, 48000));
     REQUIRE(api::all_written(c.error));

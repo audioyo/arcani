@@ -34,6 +34,14 @@ Contract with recipes/recipe.schema.json (JSON Schema draft 2020-12):
   It is a setting of the gamma depth (where in the theta cycle the swell
   peaks), not a coupling target; phase text fails the schema with the `type`
   keyword. Its locked range (row coupling-phase) lives in the tables.
+- Story 2.5: `binaural` gains, in this order after `beat_rate_hz`, the
+  optional `beat_rate_cycle` (an object, additionalProperties false, that
+  requires `swing_hz`, `period_s`, and `start_phase_deg`, each a number) and
+  the optional `waveform`, a string whose `enum` is exactly ["sine",
+  "triangle"] (triangle is schema-valid so compile rejects it by name; absent
+  means sine). Every new property is `loudness-relevant`. The cycle's locked
+  ranges (rows rate-cycle-period and rate-cycle-start-phase) and its
+  worst-case rate checks live in the tables and the validator, not the schema.
 - The schema holds structure and types only. The only numeric bounds allowed
   are the seed bounds 0 and 2^53 - 1; locked ranges live in
   tests/tables/ranges.tsv (Story 1.3).
@@ -91,6 +99,11 @@ FIELDS = {
     "/binaural": ("object", ANY_TAG, False),
     "/binaural/carrier_left_hz": ("number", "loudness-relevant", True),
     "/binaural/beat_rate_hz": ("number", "loudness-relevant", True),
+    "/binaural/beat_rate_cycle": ("object", "loudness-relevant", False),             # Story 2.5
+    "/binaural/beat_rate_cycle/swing_hz": ("number", "loudness-relevant", True),
+    "/binaural/beat_rate_cycle/period_s": ("number", "loudness-relevant", True),
+    "/binaural/beat_rate_cycle/start_phase_deg": ("number", "loudness-relevant", True),
+    "/binaural/waveform": ("string", "loudness-relevant", False),                    # Story 2.5
 }
 
 
@@ -415,3 +428,82 @@ def test_coupling_phase_accepts_numbers_and_rejects_text():
         assert {e.validator for e in errors} == {"type"}, (bad, [e.message for e in errors])
         assert {"/".join(str(p) for p in e.absolute_path) for e in errors} == {
             "gamma_pac/coupling_phase_deg"}, bad
+
+
+# ------------------------------------------- binaural layer (Story 2.5)
+
+BINAURAL_PROPERTIES = ["carrier_left_hz", "beat_rate_hz", "beat_rate_cycle", "waveform"]
+CYCLE_PROPERTIES = ["swing_hz", "period_s", "start_phase_deg"]
+BINAURAL_WAVEFORM_ENUM = ["sine", "triangle"]
+
+
+def binaural_recipe(cycle=None, waveform=None):
+    b = {"carrier_left_hz": 100, "beat_rate_hz": 1.5}
+    if cycle is not None:
+        b["beat_rate_cycle"] = cycle
+    if waveform is not None:
+        b["waveform"] = waveform
+    return {
+        "schema_version": "1.0", "engine_version": "0.0.1", "seed": 42,
+        "author": "Arcani test", "date": "2026-11-12", "rationale": "Schema binaural test.",
+        "length_s": 1, "loudness_target_lufs": -36, "binaural": b,
+    }
+
+
+def binaural_node(schema):
+    return resolve(schema, schema["properties"]["binaural"])
+
+
+def test_binaural_gains_the_cycle_and_the_waveform_in_order():
+    schema = load_schema_strict()
+    node = binaural_node(schema)
+    assert list(node["properties"]) == BINAURAL_PROPERTIES
+    assert sorted(node.get("required", [])) == ["beat_rate_hz", "carrier_left_hz"]
+    for name in ("beat_rate_cycle", "waveform"):
+        assert node["properties"][name].get("x-arcani-tag") == "loudness-relevant", name
+    cycle = resolve(schema, node["properties"]["beat_rate_cycle"])
+    assert cycle.get("type") == "object"
+    assert cycle.get("additionalProperties") is False
+    assert list(cycle["properties"]) == CYCLE_PROPERTIES
+    assert sorted(cycle.get("required", [])) == sorted(CYCLE_PROPERTIES)
+    for name in CYCLE_PROPERTIES:
+        prop = cycle["properties"][name]
+        assert prop.get("x-arcani-tag") == "loudness-relevant", name
+        assert resolve(schema, prop).get("type") == "number", name
+        assert not {"minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"} & set(resolve(schema, prop))
+    wave = resolve(schema, node["properties"]["waveform"])
+    assert wave.get("type") == "string" and wave.get("enum") == BINAURAL_WAVEFORM_ENUM
+
+
+def test_binaural_cycle_and_waveform_accept_and_reject():
+    import jsonschema
+
+    validator = jsonschema.Draft202012Validator(load_schema_strict())
+    sleep = {"swing_hz": 1.5, "period_s": 60, "start_phase_deg": 270}
+    assert not list(validator.iter_errors(binaural_recipe())), "no cycle, no waveform"
+    assert not list(validator.iter_errors(binaural_recipe(cycle=sleep)))
+    for wave in BINAURAL_WAVEFORM_ENUM:
+        assert not list(validator.iter_errors(binaural_recipe(cycle=sleep, waveform=wave))), wave
+    # Out of the locked ranges is still schema-valid (the ranges live in the tables).
+    for cycle in ({"swing_hz": -1, "period_s": 59.99, "start_phase_deg": 360.01},
+                  {"swing_hz": 1.51, "period_s": 60.01, "start_phase_deg": -0.01}):
+        assert not list(validator.iter_errors(binaural_recipe(cycle=cycle))), cycle
+    for wave in ("square", "Sine", "", "triangle_wave"):
+        errors = list(validator.iter_errors(binaural_recipe(waveform=wave)))
+        assert {e.validator for e in errors} == {"enum"}, (wave, [e.message for e in errors])
+    errors = list(validator.iter_errors(binaural_recipe(waveform=1)))
+    assert {e.validator for e in errors} == {"type"}, [e.message for e in errors]
+    for name in CYCLE_PROPERTIES:
+        missing = {k: v for k, v in sleep.items() if k != name}
+        errors = list(validator.iter_errors(binaural_recipe(cycle=missing)))
+        assert {e.validator for e in errors} == {"required"}, (name, [e.message for e in errors])
+        text = dict(sleep, **{name: "1"})
+        errors = list(validator.iter_errors(binaural_recipe(cycle=text)))
+        assert {e.validator for e in errors} == {"type"}, (name, [e.message for e in errors])
+        assert {"/".join(str(p) for p in e.absolute_path) for e in errors} == {
+            f"binaural/beat_rate_cycle/{name}"}, name
+    extra = dict(sleep, curve="linear")
+    errors = list(validator.iter_errors(binaural_recipe(cycle=extra)))
+    assert {e.validator for e in errors} == {"additionalProperties"}, [e.message for e in errors]
+    errors = list(validator.iter_errors(binaural_recipe(cycle=[1.5, 60, 270])))
+    assert {e.validator for e in errors} == {"type"}, [e.message for e in errors]

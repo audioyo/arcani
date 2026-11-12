@@ -19,6 +19,7 @@
 #include "spec_helpers.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -153,6 +154,70 @@ TEST_CASE("seek at or past the session end renders exact zeros", "[seek]") {
   const auto last = api::render(r.get(), 20);
   CHECK(api::same_bytes(last.data(), s.out.data() + 2 * (s.frames - 10), 20));
   CHECK(api::all_exact_zero(last.data() + 20, 20));
+}
+
+// Story 2.5: with a beat rate cycle, seek also sets the cycle phase to
+// P0 + k * inc_P (signal spec, Rate curve, Seek). binaural-cycle-sleep.json
+// (a 100 Hz pure sine in the left ear and a pure sine in the right ear whose
+// beat rate cycles over 0 to 3 Hz every 60 s from 0 Hz rising, 120 s) is
+// sought to kSeekSeconds (55 s) and compared, chunk by chunk, with a second
+// renderer that renders continuously from frame 0, so neither needs a
+// whole-length buffer.
+
+namespace {
+
+constexpr const char* kCycleFixture = "binaural-cycle-sleep.json";
+
+// Frames [k, end) of a renderer sought to k against the same frames of a
+// continuous render from 0. Returns the number of chunks that differ in the
+// output, the binaural join tap, or the master tap.
+std::size_t seek_differences(const api::PlanPtr& plan, std::uint64_t k, std::uint64_t end) {
+  constexpr std::size_t kChunk = 32768;
+  auto continuous = api::renderer(plan.get());
+  auto sought = api::renderer(plan.get());
+  for (std::uint64_t at = 0; at < k;) {
+    const auto n = static_cast<std::size_t>(std::min<std::uint64_t>(kChunk, k - at));
+    (void)api::render(continuous.get(), n);
+    at += n;
+  }
+  api::seek(sought.get(), k);
+  std::size_t differing = 0;
+  for (std::uint64_t at = k; at < end;) {
+    const auto n = static_cast<std::size_t>(std::min<std::uint64_t>(kChunk, end - at));
+    api::TapBuffers a(n);
+    api::TapBuffers b(n);
+    const arc_taps ta = a.taps();
+    const arc_taps tb = b.taps();
+    const auto out_a = api::render(continuous.get(), n, &ta);
+    const auto out_b = api::render(sought.get(), n, &tb);
+    const bool same = api::same_bytes(out_a, out_b) && api::same_bytes(a.binaural_join, b.binaural_join) &&
+                      api::same_bytes(a.master, b.master);
+    differing += same ? 0 : 1;
+    at += n;
+  }
+  return differing;
+}
+
+}  // namespace
+
+TEST_CASE("seek: the beat rate cycle fixture sought to 55 s equals the continuous render", "[seek][binaural]") {
+  for (const std::uint32_t fs : {44100u, 48000u}) {
+    INFO(kCycleFixture << " at " << fs);
+    auto plan = api::compile_ok(api::valid(kCycleFixture), api::options(ARC_MODE_MEASURE, fs));
+    const std::uint64_t frames = arc_plan_frame_count(plan.get());
+    const std::uint64_t k =
+        static_cast<std::uint64_t>(std::llround(spec::kSeekSeconds * static_cast<double>(fs)));
+    REQUIRE(k > 0);
+    REQUIRE(k < frames);
+    CHECK(seek_differences(plan, k, frames + 64) == 0);
+    // Other seek points: block boundaries, a quarter of the first cycle, and
+    // just before the end.
+    for (const std::uint64_t other : {std::uint64_t{63}, std::uint64_t{64}, std::uint64_t{15} * fs + 1,
+                                      frames - 100}) {
+      INFO("seek to " << other);
+      CHECK(seek_differences(plan, other, std::min<std::uint64_t>(other + 3 * fs, frames + 64)) == 0);
+    }
+  }
 }
 
 TEST_CASE("seek comparison catches a one-sample offset", "[seek]") {

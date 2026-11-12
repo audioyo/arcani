@@ -73,6 +73,22 @@
 // Field table: /gamma_pac/coupling_phase_deg (Number, LoudnessRelevant, not
 // required, range row coupling-phase, scale 1) right after /gamma_pac/coupling.
 // Phase text is rule "type" at /gamma_pac/coupling_phase_deg.
+//
+// Story 2.5 (binaural layer and rate curve), recipe/recipe.hpp:
+//   enum class BinauralWaveform { Sine, Triangle };
+//   inline constexpr std::string_view kBinauralWaveformEnum = "sine, triangle";
+//   struct BeatRateCycle { double swing_hz = 0.0; double period_s = 0.0;
+//                          double start_phase_deg = 0.0; };
+//   Binaural gains std::optional<BeatRateCycle> beat_rate_cycle; and
+//   BinauralWaveform waveform = BinauralWaveform::Sine;  // absent means sine
+// Field table, right after /binaural/beat_rate_hz and in this order:
+// /binaural/beat_rate_cycle (Object, not required), its swing_hz (no range
+// row: the worst-case rate checks bound it), period_s (row
+// rate-cycle-period), start_phase_deg (row rate-cycle-start-phase), each a
+// required Number, then /binaural/waveform (String, not required); every one
+// LoudnessRelevant. Waveform text outside the enum is rule "enum", limit
+// "sine, triangle". The new members are read through templates and the enum
+// constant through a lookup probe, so the suite builds before they exist.
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -106,6 +122,16 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+
+// Story 2.5 lookup probe: inside arcani::recipe_probe the using-directive
+// makes arcani::recipe's names visible as members of arcani, found before
+// this global fallback.
+inline constexpr std::string_view kBinauralWaveformEnum = "(missing)";
+
+namespace arcani::recipe_probe {
+using namespace arcani::recipe;
+inline const std::string binaural_waveform_enum(kBinauralWaveformEnum);
+}  // namespace arcani::recipe_probe
 
 namespace fs = std::filesystem;
 namespace json = arcani::json;
@@ -420,6 +446,175 @@ TEST_CASE("engine parse stage fills the recipe fields", "[recipe]") {
   CHECK_FALSE(none.recipe->loudness_hash.has_value());
 }
 
+// ------------------------------------------- binaural layer (Story 2.5)
+
+namespace {
+
+std::string binaural_text(const std::string& extra) {
+  return "{\"schema_version\": \"1.0\", \"engine_version\": \"0.0.1\", \"seed\": 42, "
+         "\"author\": \"Arcani test\", \"date\": \"2026-11-12\", "
+         "\"rationale\": \"Binaural parse test, made in the test.\", "
+         "\"length_s\": 10, \"loudness_target_lufs\": -36, "
+         "\"binaural\": {\"carrier_left_hz\": 100, \"beat_rate_hz\": 1.5" +
+         extra + "}}";
+}
+
+template <class B>
+concept HasCycleAndWaveform = requires(const B& b) {
+  { b.beat_rate_cycle.has_value() } -> std::convertible_to<bool>;
+  { b.beat_rate_cycle->swing_hz } -> std::convertible_to<double>;
+  { b.beat_rate_cycle->period_s } -> std::convertible_to<double>;
+  { b.beat_rate_cycle->start_phase_deg } -> std::convertible_to<double>;
+  b.waveform;
+};
+
+struct WantCycle {
+  double swing_hz, period_s, start_phase_deg;
+};
+
+template <class B>
+void check_binaural(const B& b, std::optional<WantCycle> cycle, bool triangle) {
+  CHECK(b.carrier_left_hz == 100.0);
+  CHECK(b.beat_rate_hz == 1.5);
+  if constexpr (HasCycleAndWaveform<B>) {
+    using Wave = std::remove_cvref_t<decltype(b.waveform)>;
+    REQUIRE(b.beat_rate_cycle.has_value() == cycle.has_value());
+    if (cycle.has_value()) {
+      CHECK(b.beat_rate_cycle->swing_hz == cycle->swing_hz);
+      CHECK(b.beat_rate_cycle->period_s == cycle->period_s);
+      CHECK(b.beat_rate_cycle->start_phase_deg == cycle->start_phase_deg);
+    }
+    CHECK(b.waveform == (triangle ? Wave::Triangle : Wave::Sine));
+  } else {
+    FAIL("not implemented: recipe::Binaural has no beat_rate_cycle and waveform (Story 2.5)");
+  }
+}
+
+template <class B>
+void check_binaural_no_cycle(const B& b) {
+  if constexpr (HasCycleAndWaveform<B>) {
+    using Wave = std::remove_cvref_t<decltype(b.waveform)>;
+    CHECK_FALSE(b.beat_rate_cycle.has_value());
+    CHECK(b.waveform == Wave::Sine);
+  } else {
+    FAIL("not implemented: recipe::Binaural has no beat_rate_cycle and waveform (Story 2.5)");
+  }
+}
+
+}  // namespace
+
+TEST_CASE("the binaural waveform enum constant names both waveforms in schema order", "[recipe][binaural]") {
+  CHECK(arcani::recipe_probe::binaural_waveform_enum == "sine, triangle");
+}
+
+TEST_CASE("engine parse stage fills the beat rate cycle and the waveform", "[recipe][binaural]") {
+  struct Case {
+    std::string extra;
+    std::optional<WantCycle> cycle;
+    bool triangle;
+  };
+  // Compile, not parse, rejects triangle and out-of-range cycle values
+  // (tests/cpp/test_validate.cpp), so parse accepts them all.
+  const Case cases[] = {
+      {"", std::nullopt, false},
+      {", \"waveform\": \"sine\"", std::nullopt, false},
+      {", \"waveform\": \"triangle\"", std::nullopt, true},
+      {", \"beat_rate_cycle\": {\"swing_hz\": 1.5, \"period_s\": 60, \"start_phase_deg\": 270}",
+       WantCycle{1.5, 60.0, 270.0}, false},
+      {", \"beat_rate_cycle\": {\"start_phase_deg\": 0, \"period_s\": 59.99, \"swing_hz\": 0}, "
+       "\"waveform\": \"triangle\"",
+       WantCycle{0.0, 59.99, 0.0}, true},
+      {", \"beat_rate_cycle\": {\"swing_hz\": 1.51, \"period_s\": 60.01, \"start_phase_deg\": 360.01}",
+       WantCycle{1.51, 60.01, 360.01}, false},
+  };
+  for (const auto& c : cases) {
+    INFO("'" << c.extra << "'");
+    const auto r = recipe::parse(binaural_text(c.extra));
+    INFO(r.error.rule << " " << r.error.parameter << " " << r.error.value);
+    REQUIRE(r.recipe.has_value());
+    REQUIRE(r.recipe->binaural.has_value());
+    check_binaural(*r.recipe->binaural, c.cycle, c.triangle);
+  }
+  // Every earlier fixture has neither field.
+  const auto old = recipe::parse(fixture("valid", "binaural-only.json"));
+  REQUIRE(old.recipe.has_value());
+  REQUIRE(old.recipe->binaural.has_value());
+  check_binaural_no_cycle(*old.recipe->binaural);
+}
+
+TEST_CASE("engine parse names binaural waveform and cycle faults", "[recipe][binaural]") {
+  struct Case {
+    std::string extra, rule, parameter, value, limit;
+  };
+  const Case cases[] = {
+      {", \"waveform\": \"square\"", "enum", "/binaural/waveform", "square", "sine, triangle"},
+      {", \"waveform\": \"Sine\"", "enum", "/binaural/waveform", "Sine", "sine, triangle"},
+      {", \"waveform\": \"\"", "enum", "/binaural/waveform", "", "sine, triangle"},
+      {", \"waveform\": 1", "type", "/binaural/waveform", "", ""},
+      {", \"beat_rate_cycle\": {\"swing_hz\": 1.5, \"start_phase_deg\": 270}", "required",
+       "/binaural/beat_rate_cycle/period_s", "", ""},
+      {", \"beat_rate_cycle\": {\"period_s\": 60, \"start_phase_deg\": 270}", "required",
+       "/binaural/beat_rate_cycle/swing_hz", "", ""},
+      {", \"beat_rate_cycle\": {\"swing_hz\": 1.5, \"period_s\": 60}", "required",
+       "/binaural/beat_rate_cycle/start_phase_deg", "", ""},
+      {", \"beat_rate_cycle\": {\"swing_hz\": \"1.5\", \"period_s\": 60, \"start_phase_deg\": 270}",
+       "type", "/binaural/beat_rate_cycle/swing_hz", "", ""},
+      {", \"beat_rate_cycle\": {\"swing_hz\": 1.5, \"period_s\": 60, \"start_phase_deg\": 270, "
+       "\"curve\": \"linear\"}",
+       "unknown_property", "/binaural/beat_rate_cycle/curve", "", ""},
+      {", \"beat_rate_cycle\": 60", "type", "/binaural/beat_rate_cycle", "", ""},
+  };
+  for (const auto& c : cases) {
+    INFO("'" << c.extra << "'");
+    const auto r = recipe::parse(binaural_text(c.extra));
+    INFO("got " << r.error.rule << " " << r.error.parameter << " '" << r.error.value << "' " << r.error.limit);
+    REQUIRE_FALSE(r.recipe.has_value());
+    CHECK(r.error.rule == c.rule);
+    CHECK(r.error.parameter == c.parameter);
+    if (c.rule == "enum") {
+      CHECK(r.error.value == c.value);
+      CHECK(r.error.limit == c.limit);
+    }
+  }
+}
+
+TEST_CASE("field table orders the binaural rows last, the cycle and waveform after the beat rate",
+          "[recipe][binaural][schema]") {
+  std::vector<std::string> paths;
+  for (const auto& f : recipe::fields()) {
+    paths.emplace_back(f.path);
+  }
+  const std::vector<std::string> binaural = {
+      "/binaural", "/binaural/carrier_left_hz", "/binaural/beat_rate_hz", "/binaural/beat_rate_cycle",
+      "/binaural/beat_rate_cycle/swing_hz", "/binaural/beat_rate_cycle/period_s",
+      "/binaural/beat_rate_cycle/start_phase_deg", "/binaural/waveform"};
+  const auto at = std::find(paths.begin(), paths.end(), binaural.front());
+  REQUIRE(at != paths.end());
+  const auto start = static_cast<std::size_t>(at - paths.begin());
+  REQUIRE(start + binaural.size() == paths.size());
+  for (std::size_t i = 0; i < binaural.size(); ++i) {
+    CHECK(paths[start + i] == binaural[i]);
+  }
+  for (const auto& f : recipe::fields()) {
+    const std::string path(f.path);
+    if (path.rfind("/binaural", 0) != 0) {
+      continue;
+    }
+    INFO(path);
+    CHECK(f.tag == recipe::FieldTag::LoudnessRelevant);
+    if (path == "/binaural" || path == "/binaural/beat_rate_cycle") {
+      CHECK(f.type == recipe::FieldType::Object);
+      CHECK_FALSE(f.required);
+    } else if (path == "/binaural/waveform") {
+      CHECK(f.type == recipe::FieldType::String);
+      CHECK_FALSE(f.required);
+    } else {
+      CHECK(f.type == recipe::FieldType::Number);
+      CHECK(f.required);
+    }
+  }
+}
+
 // ------------------------------------------------ gamma PAC layer (Story 2.2)
 
 namespace {
@@ -704,6 +899,10 @@ namespace {
 const std::map<std::string, std::string> kRangeExempt = {
     {"/seed", "schema-bounded integer (0 to 2^53 - 1 in the schema)"},
     {"/loudness_gain_db", "written by the measure pass, not authored; Story 4.2 checks it"},
+    // Story 2.5: the worst-case rate checks (r - s and r + s against row
+    // beat-rate, f_C + s against binaural-carrier-right) and swing_hz >= 0
+    // bound it; signal spec, Rate curve, Range checks.
+    {"/binaural/beat_rate_cycle/swing_hz", "bounded by the worst-case rate checks, no range row of its own"},
 };
 
 // The field-to-row mapping settled in the Story 1.3 spec (path -> row, scale).
@@ -719,6 +918,8 @@ const std::map<std::string, std::pair<std::string, double>> kExpectedRegistratio
     {"/gamma_pac/coupling_phase_deg", {"coupling-phase", 1.0}},    // Story 2.3
     {"/binaural/carrier_left_hz", {"binaural-carrier", 1.0}},
     {"/binaural/beat_rate_hz", {"beat-rate", 1.0}},
+    {"/binaural/beat_rate_cycle/period_s", {"rate-cycle-period", 1.0}},              // Story 2.5
+    {"/binaural/beat_rate_cycle/start_phase_deg", {"rate-cycle-start-phase", 1.0}},  // Story 2.5
 };
 
 template <class F>
