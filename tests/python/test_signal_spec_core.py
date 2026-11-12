@@ -287,8 +287,10 @@ def test_spec_tables_equal_json(vectors):
     # theta reference (5: ratio to phase, edge length, envelopes, fixtures,
     # samples), gamma PAC layer (4: envelope, fixtures, samples, theta and
     # gamma bus), coupling (4: coupling phase, swell, swell fixtures, swell
-    # samples), 24-bit rounding (1).
-    assert len(generated) == 24, generated
+    # samples), binaural layer and rate curve (5: cycles to units, rate
+    # cycle, rate curve, binaural fixtures, binaural samples), 24-bit
+    # rounding (1).
+    assert len(generated) == 29, generated
     assert len(in_doc) == len(generated), [b[0] for b in in_doc]
     assert not problems, "\n".join(problems)
 

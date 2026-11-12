@@ -1,4 +1,4 @@
-"""Writes the worked test vectors of docs/signal-spec.md: core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, 24-bit rounding.
+"""Writes the worked test vectors of docs/signal-spec.md: core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, binaural layer and rate curve, 24-bit rounding.
 
 Usage:
   python tools/signal_spec_vectors.py            write tests/data/signal_spec_vectors.json
@@ -53,6 +53,15 @@ engine or from binary64 library calls:
   values at 25 digits: ideal cosines and sine in decimal arithmetic and the
   exact law on the binary64 depth. The bus is one binary64 addition of the
   engine theta and gamma taps; its ideal is the exact sum of the ideal taps.
+- Binaural layer and rate curve (Story 2.5): the cycles-to-units rule in
+  exact Fraction arithmetic, the rate cycle constants (P0 by the coupling
+  phase rule, inc_P by the increment rule on 1.0 / P, K = (s * P) * the
+  binary64 nearest 1 / (2 pi), checked against decimal pi), and the right
+  ear phase phase_C + U evaluated in binary64 in the spec's operation order
+  (engine bits), with ideal values at 25 digits: the exact K = s P / (2 pi),
+  ideal cosines of the integer cycle phases, and the ideal sine of
+  phase_C / 2^64 + U in decimal arithmetic. The ideal rate-curve law
+  (rate and beat phase at chosen times) is exact in decimal arithmetic.
 - 24-bit rounding (Story 1.4): x = s * 2^23 in exact Fraction arithmetic,
   clamped to [-8388608, 8388607], else rounded to the nearest integer, ties
   to even; NaN gives 0. Written as 3 bytes, little-endian two's complement.
@@ -1259,6 +1268,318 @@ def swell_sample_rows():
     return rows
 
 
+# ------------------------------------------------- binaural layer and rate curve
+#
+# Story 2.5 (signal spec, Binaural layer and Rate curve). The right ear plays
+# the left carrier plus the beat rate; with a beat rate cycle the beat rate is
+# r + s * sin(2 pi t / P + phi0), and the right ear phase is the closed-form
+# integral phase_C[n] + U[n] mod 2^64.
+
+BINAURAL_WAVEFORMS = ("sine", "triangle")
+BINAURAL_MODELED_WAVEFORMS = ("sine",)
+# The binary64 nearest to 1 / (2 pi), as a hex float; checked against
+# decimal pi below, so the generator never takes it on trust.
+INV_TWO_PI_HEX = "0x1.45f306dc9c883p-3"
+TWO_POW_52 = 2.0**52
+
+
+def inv_two_pi():
+    k = float.fromhex(INV_TWO_PI_HEX)
+    with localcontext() as ctx:
+        ctx.prec = PREC + 10
+        exact = 1 / (2 * decimal_pi())
+        f = Fraction(exact)
+    assert binary64(f) == k, (binary64(f).hex(), INV_TWO_PI_HEX)
+    return k
+
+
+def cycles_to_units(v):
+    """Spec cycles-to-units rule: (v mod 1) * 2^64, nearest, ties to even, mod 2^64.
+
+    Returns (units, f) with f = v - trunc(v), the exact fractional part, or
+    None where the domain check returns before the reduction."""
+    if not (abs(v) < TWO_POW_52):
+        return 0, None  # NaN, infinities, and |v| >= 2^52 (an integer, so 0 mod 1)
+    w = math.trunc(v)
+    f = v - float(w)  # binary64; exact (the fraction bits of v)
+    assert Fraction(f) == Fraction(v) - w, v
+    return round_half_even(Fraction(f) * CYCLE) % CYCLE, f
+
+
+def decimal_sin_cycles(x):
+    """sin(2 pi x) for a Fraction x of cycles, as a Decimal at about PREC digits."""
+    y = Fraction(x) - (Fraction(x).numerator // Fraction(x).denominator)  # [0, 1), exact
+    if y >= Fraction(1, 2):
+        y -= 1  # [-1/2, 1/2)
+    if y > Fraction(1, 4):
+        y = Fraction(1, 2) - y
+    elif y < -Fraction(1, 4):
+        y = -Fraction(1, 2) - y
+    if y == 0:
+        return Decimal(0)
+    with localcontext() as ctx:
+        ctx.prec = PREC + 10
+        arg = 2 * decimal_pi() * Decimal(y.numerator) / Decimal(y.denominator)
+        total = Decimal(0)
+        term = arg
+        k = 1
+        while abs(term) > Decimal(10) ** -(PREC + 5):
+            total += term
+            term = -term * arg * arg / ((k + 1) * (k + 2))
+            k += 2
+        total += term
+    return total
+
+
+def decimal_sin_decimal_cycles(x):
+    """sin(2 pi x) for a Decimal x of cycles (reduced in decimal arithmetic)."""
+    with localcontext() as ctx:
+        ctx.prec = PREC + 20
+        return decimal_sin_cycles(Fraction(x))
+
+
+class BinauralLayer:
+    """One binaural layer at one sample rate (signal spec, Binaural layer and Rate curve).
+
+    cycle is None (a fixed beat rate) or (swing_hz, period_s, start_phase_deg)."""
+
+    def __init__(self, left_hz, beat_hz, cycle, fs):
+        self.left_hz, self.beat_hz, self.cycle, self.fs = left_hz, beat_hz, cycle, fs
+        self.center_hz = left_hz + beat_hz  # f_C: one binary64 addition
+        self.inc_left, _ = increment(left_hz, fs)
+        self.inc_center, _ = increment(self.center_hz, fs)
+        if cycle is not None:
+            swing, period, start = cycle
+            self.p0, self.start_ratio = coupling_phase_units(start)
+            self.inv_period = 1.0 / period  # one binary64 division
+            self.inc_cycle, self.q_cycle = increment(self.inv_period, fs)
+            self.swing_period = swing * period  # one rounding
+            self.k = self.swing_period * inv_two_pi()  # one rounding
+            self.c0 = engine_sine((self.p0 + QUARTER) % CYCLE)
+        else:
+            self.p0 = self.inc_cycle = 0
+            self.k = 0.0
+
+    def phases(self, n):
+        """(phase_L, phase_C, cycle phase or None) at sample n."""
+        cycle = None if self.cycle is None else (self.p0 + n * self.inc_cycle) % CYCLE
+        return (n * self.inc_left) % CYCLE, (n * self.inc_center) % CYCLE, cycle
+
+    def engine_parts(self, n):
+        """(c, v, U, phase_R, left, right) in binary64, the spec's per-sample order."""
+        pl, pc, pp = self.phases(n)
+        if pp is None:
+            c = v = None
+            u = 0
+        else:
+            c = engine_sine((pp + QUARTER) % CYCLE)
+            v = self.k * (self.c0 - c)  # c0 - c, then K times it
+            u, _ = cycles_to_units(v)
+        pr = (pc + u) % CYCLE
+        return c, v, u, pr, engine_sine(pl), engine_sine(pr)
+
+    def ideal_beat_cycles(self, n):
+        """Ideal U[n] in cycles: K (cos(2 pi P0 / 2^64) - cos(2 pi p_P[n] / 2^64)), K = s P / (2 pi)."""
+        if self.cycle is None:
+            return Decimal(0)
+        swing, period, _ = self.cycle
+        _, _, pp = self.phases(n)
+        with localcontext() as ctx:
+            ctx.prec = PREC + 10
+            k = exact_decimal(swing) * exact_decimal(period) / (2 * decimal_pi())
+            c0 = ideal_sine_decimal((self.p0 + QUARTER) % CYCLE)
+            c = ideal_sine_decimal((pp + QUARTER) % CYCLE)
+            return k * (c0 - c)
+
+    def ideal_parts(self, n):
+        """(left, right) ideal: ideal sines of phase_L and of phase_C / 2^64 + U."""
+        pl, pc, _ = self.phases(n)
+        with localcontext() as ctx:
+            ctx.prec = PREC + 10
+            left = ideal_sine_decimal(pl)
+            x = Decimal(pc) / Decimal(CYCLE) + self.ideal_beat_cycles(n)
+            right = decimal_sin_decimal_cycles(x)
+            return left, right
+
+
+# (fixture, left carrier, beat rate (the cycle center with a cycle), cycle or
+# None, length_s): the Story 2.5 binaural fixtures in recipes/fixtures/valid/.
+# binaural-cycle-sleep.json is the hash probe's binaural-cycle-<fs> source.
+SLEEP_CYCLE = (1.5, 60.0, 270.0)  # swing, period, start phase: 0 to 3 Hz every 60 s, from 0 Hz rising
+BINAURAL_FIXTURES = (
+    ("binaural-beat-0.json", 400.0, 0.0, None, 5.0),
+    ("binaural-beat-6.json", 400.0, 6.0, None, 5.0),
+    ("binaural-beat-29.json", 400.0, 29.0, None, 5.0),
+    ("binaural-cycle-sleep.json", 100.0, 1.5, SLEEP_CYCLE, 120.0),
+)
+SEEK_S = 55.0  # the seek point of the cycle fixture's seek test and probe component
+
+# Cycles-to-units cases: (label, v).
+CYCLES_TO_UNITS_CASES = (
+    ("zero", 0.0),
+    ("negative zero", -0.0),
+    ("quarter cycle", 0.25),
+    ("minus a quarter cycle", -0.25),
+    ("half cycle", 0.5),
+    ("minus a half cycle", -0.5),
+    ("tie 1/2 unit, to even", 2.0**-65),
+    ("tie 3/2 units, to even", 3 * 2.0**-65),
+    ("tie -1/2 unit, to even", -(2.0**-65)),
+    ("tie -3/2 units, to even", -3 * 2.0**-65),
+    ("tiny negative", -1e-30),
+    ("largest below 1", 1.0 - 2.0**-53),
+    ("smallest above -1", -(1.0 - 2.0**-53)),
+    ("one cycle", 1.0),
+    ("minus one cycle", -1.0),
+    ("Sleep K", 1.5 * 60.0 * float.fromhex(INV_TWO_PI_HEX)),
+    ("minus Sleep K", -(1.5 * 60.0 * float.fromhex(INV_TWO_PI_HEX))),
+    ("twice Sleep K", 2.0 * (1.5 * 60.0 * float.fromhex(INV_TWO_PI_HEX))),
+    ("half above the last fractional binade", 2.0**52 - 0.5),
+    ("2^52, no fraction", 2.0**52),
+    ("2^63, no fraction", 2.0**63),
+    ("+infinity", math.inf),
+    ("-infinity", -math.inf),
+    ("NaN", math.nan),
+)
+
+# Rate cycle constants: the Sleep swing and period at these start phases.
+RATE_CYCLE_START_DEGREES = (0.0, 90.0, 180.0, 270.0, 360.0)
+
+# Ideal rate-curve law: (center, swing, period, start phase, times in s).
+RATE_CURVE_CASES = (
+    (1.5, 1.5, 60.0, 270.0, (0.0, 7.5, 15.0, 30.0, 45.0, 60.0, 75.0, 120.0)),
+    (1.5, 1.5, 60.0, 0.0, (0.0, 15.0, 30.0, 45.0, 60.0)),
+    (1.5, 1.5, 60.0, 90.0, (0.0, 15.0, 30.0)),
+)
+
+
+def cycles_to_units_rows():
+    rows = []
+    for label, v in CYCLES_TO_UNITS_CASES:
+        u, f = cycles_to_units(v)
+        rows.append({"label": label, "v_hex": hexf(v),
+                     "f_hex": "none" if f is None else hexf(f),
+                     "f_times_2_64_hex": "none" if f is None else hexf(f * 2.0**64),
+                     "units": str(u)})
+    return rows
+
+
+def rate_cycle_rows():
+    swing, period, _ = SLEEP_CYCLE
+    rows = []
+    for fs in RATES:
+        for deg in RATE_CYCLE_START_DEGREES:
+            layer = BinauralLayer(100.0, 1.5, (swing, period, deg), fs)
+            with localcontext() as ctx:
+                ctx.prec = PREC + 10
+                ideal_c0 = ideal_sine_decimal((layer.p0 + QUARTER) % CYCLE)
+            rows.append({
+                "swing_hex": hexf(swing), "period_hex": hexf(period), "start_hex": hexf(deg),
+                "x_hex": hexf(layer.start_ratio), "p0": str(layer.p0),
+                "inv_period_hex": hexf(layer.inv_period), "fs": fs,
+                "q_hex": hexf(layer.q_cycle), "inc_cycle": str(layer.inc_cycle),
+                "swing_period_hex": hexf(layer.swing_period), "k_hex": hexf(layer.k),
+                "c0_bits": bits(layer.c0), "ideal_c0": format_ideal(ideal_c0),
+            })
+    return rows
+
+
+def rate_curve_rows():
+    rows = []
+    for center, swing, period, deg, times in RATE_CURVE_CASES:
+        for t in times:
+            theta = Fraction(t) / Fraction(period) + Fraction(deg) / 360  # cycles
+            with localcontext() as ctx:
+                ctx.prec = PREC + 10
+                sin_t = decimal_sin_cycles(theta)
+                cos_t = decimal_sin_cycles(theta + Fraction(1, 4))
+                cos_0 = decimal_sin_cycles(Fraction(deg) / 360 + Fraction(1, 4))
+                rate = exact_decimal(center) + exact_decimal(swing) * sin_t
+                k = exact_decimal(swing) * exact_decimal(period) / (2 * decimal_pi())
+                beat = exact_decimal(center) * exact_decimal(t) + k * (cos_0 - cos_t)
+            rows.append({"center_hex": hexf(center), "swing_hex": hexf(swing),
+                         "period_hex": hexf(period), "start_hex": hexf(deg), "t_hex": hexf(t),
+                         "ideal_rate": format_trimmed(rate), "ideal_beat_cycles": format_trimmed(beat)})
+    return rows
+
+
+def binaural_sample_indices(layer, frames, fs):
+    """Start, block boundaries, the cycle's quarter points, the seek point, the end."""
+    indices = {0, 1, 63, 64, 65, 127, 128, 1000, frames - 1, frames, frames + 63}
+    if layer.cycle is not None:
+        for k in (1, 2, 3, 4):
+            n = first_at_or_above(k * QUARTER, layer.inc_cycle)
+            indices.update((n - 1, n))
+        seek, _ = samples(SEEK_S, fs)
+        indices.update((seek - 1, seek, seek + 1))
+    return sorted(i for i in indices if i >= 0)
+
+
+# Engine against ideal, per sample (signal spec, Binaural layer, Error bound):
+# the engine sine error is at most E_T (the polynomial truncation plus
+# rounding), so a fixed-beat ear is within E_T of its ideal and a cycle right
+# ear within 2 pi (K (|c0 error| + E_T) + 2^-49 K + 2^-64) + E_T.
+E_T = 5.7e-8
+
+
+def binaural_bound(layer):
+    if layer.cycle is None:
+        return E_T
+    with localcontext() as ctx:
+        ctx.prec = PREC + 10
+        c0_err = abs(Decimal(layer.c0) - ideal_sine_decimal((layer.p0 + QUARTER) % CYCLE))
+    k = layer.k
+    return 2 * math.pi * (k * (float(c0_err) + E_T) + 2.0**-49 * k + 2.0**-64) + E_T
+
+
+def binaural_sample_rows():
+    rows = []
+    for fs in RATES:
+        for fixture, left_hz, beat_hz, cycle, length_s in BINAURAL_FIXTURES:
+            layer = BinauralLayer(left_hz, beat_hz, cycle, fs)
+            frames, _ = samples(length_s, fs)
+            bound = binaural_bound(layer)
+            for n in binaural_sample_indices(layer, frames, fs):
+                pl, pc, pp = layer.phases(n)
+                c, v, u, pr, left, right = layer.engine_parts(n)
+                past_end = n >= frames
+                if past_end:
+                    left = right = 0.0
+                    ideal_l = ideal_r = "0"
+                else:
+                    if cycle is None:
+                        # A fixed beat: the right ear is the stub's oscillator.
+                        assert pr == (n * increment(left_hz + beat_hz, fs)[0]) % CYCLE
+                    il, ir = layer.ideal_parts(n)
+                    assert abs(Decimal(left) - il) <= Decimal(E_T), (fixture, fs, n)
+                    assert abs(Decimal(right) - ir) <= Decimal(bound), (fixture, fs, n)
+                    ideal_l, ideal_r = format_ideal(il), format_ideal(ir)
+                row = {
+                    "case": "past_end" if past_end else "signal",
+                    "fixture": fixture, "fs": fs,
+                    "left_hex": hexf(left_hz), "beat_hex": hexf(beat_hz),
+                    "center_hex": hexf(layer.center_hz),
+                    "swing_hex": "none" if cycle is None else hexf(cycle[0]),
+                    "period_hex": "none" if cycle is None else hexf(cycle[1]),
+                    "start_hex": "none" if cycle is None else hexf(cycle[2]),
+                    "length_hex": hexf(length_s),
+                    "inc_left": str(layer.inc_left), "inc_center": str(layer.inc_center),
+                    "p0": "none" if cycle is None else str(layer.p0),
+                    "inc_cycle": "none" if cycle is None else str(layer.inc_cycle),
+                    "k_hex": "none" if cycle is None else hexf(layer.k),
+                    "frames": str(frames), "n": str(n),
+                    "phase_left": str(pl), "phase_center": str(pc),
+                    "phase_cycle": "none" if pp is None else str(pp),
+                    "c_bits": "none" if c is None else bits(c),
+                    "v_bits": "none" if v is None else bits(v),
+                    "u_units": str(u), "phase_right": str(pr),
+                    "left_bits": bits(left), "right_bits": bits(right),
+                    "ideal_left": ideal_l, "ideal_right": ideal_r,
+                }
+                rows.append(row)
+    return rows
+
+
 # ------------------------------------------------------- 24-bit rounding
 
 Q24_MAX = 8388607   # 2^23 - 1
@@ -1340,7 +1661,7 @@ def quantize_rows():
 
 def build():
     return {
-        "spec": "docs/signal-spec.md (sections core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, and 24-bit rounding)",
+        "spec": "docs/signal-spec.md (sections core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, binaural layer, rate curve, and 24-bit rounding)",
         "generator": "tools/signal_spec_vectors.py",
         "cycle": str(CYCLE),
         "sine_coefficients": sine_coefficients(),
@@ -1382,6 +1703,16 @@ def build():
         "coupling_phases": coupling_phase_rows(),
         "swells": swell_rows(),
         "swell_samples": swell_sample_rows(),
+        "binaural_constants": {
+            "waveforms": list(BINAURAL_WAVEFORMS),
+            "modeled_waveforms": list(BINAURAL_MODELED_WAVEFORMS),
+            "inv_two_pi_hex": INV_TWO_PI_HEX,
+            "seek_s": dec(SEEK_S),
+        },
+        "cycles_to_units": cycles_to_units_rows(),
+        "rate_cycles": rate_cycle_rows(),
+        "rate_curve": rate_curve_rows(),
+        "binaural_samples": binaural_sample_rows(),
         "quantize_24": quantize_rows(),
     }
 
@@ -1572,6 +1903,54 @@ def tables(data):
                    f"| {r['phase_rate']} | {r['phase_theta_envelope']} | `{r['s_bits']}` | `{r['e_bits']}` "
                    f"| `{r['a_bits']}` | `{r['gamma_bits']}` | `{r['theta_bits']}` | `{r['bus_bits']}` "
                    f"| {r['ideal_s']} | {r['ideal_gamma']} | {r['ideal_bus']} |")
+    out.append("")
+    out.append("| Case | v (hex) | f = v - trunc(v) (hex) | f * 2^64 (hex) | U |")
+    out.append("| --- | --- | --- | --- | --- |")
+    for r in data["cycles_to_units"]:
+        out.append(f"| {r['label']} | `{r['v_hex']}` | `{r['f_hex']}` | `{r['f_times_2_64_hex']}` "
+                   f"| {r['units']} |")
+    out.append("")
+    out.append("| Swing (hex) | Period (hex) | Start phase (hex) | x = deg / 360 (hex) | P0 "
+               "| 1 / P (hex) | fs | q (hex) | inc_P | s * P (hex) | K (hex) "
+               "| c0 (binary64 bits) | c0 ideal |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["rate_cycles"]:
+        out.append(f"| `{r['swing_hex']}` | `{r['period_hex']}` | `{r['start_hex']}` | `{r['x_hex']}` "
+                   f"| {r['p0']} | `{r['inv_period_hex']}` | {r['fs']} | `{r['q_hex']}` "
+                   f"| {r['inc_cycle']} | `{r['swing_period_hex']}` | `{r['k_hex']}` "
+                   f"| `{r['c0_bits']}` | {r['ideal_c0']} |")
+    out.append("")
+    out.append("| Center (hex) | Swing (hex) | Period (hex) | Start phase (hex) | t (hex) "
+               "| Rate ideal (Hz) | Beat phase ideal (cycles) |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["rate_curve"]:
+        out.append(f"| `{r['center_hex']}` | `{r['swing_hex']}` | `{r['period_hex']}` "
+                   f"| `{r['start_hex']}` | `{r['t_hex']}` | {r['ideal_rate']} "
+                   f"| {r['ideal_beat_cycles']} |")
+    out.append("")
+    out.append("| Fixture | fs | Left carrier (hex) | Beat rate (hex) | f_C (hex) | Swing (hex) "
+               "| Period (hex) | Start phase (hex) | Left inc | Center inc | P0 | inc_P | K (hex) | Frames |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    seen = set()
+    for r in data["binaural_samples"]:
+        key = (r["fixture"], r["fs"])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(f"| {r['fixture']} | {r['fs']} | `{r['left_hex']}` | `{r['beat_hex']}` "
+                   f"| `{r['center_hex']}` | `{r['swing_hex']}` | `{r['period_hex']}` "
+                   f"| `{r['start_hex']}` | {r['inc_left']} | {r['inc_center']} | {r['p0']} "
+                   f"| {r['inc_cycle']} | `{r['k_hex']}` | {r['frames']} |")
+    out.append("")
+    out.append("| Case | Fixture | fs | n | Left phase | Center phase | Cycle phase "
+               "| c (binary64 bits) | v (binary64 bits) | U | Right phase "
+               "| Left (binary64 bits) | Right (binary64 bits) | Left ideal | Right ideal |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["binaural_samples"]:
+        out.append(f"| {r['case']} | {r['fixture']} | {r['fs']} | {r['n']} | {r['phase_left']} "
+                   f"| {r['phase_center']} | {r['phase_cycle']} | `{r['c_bits']}` | `{r['v_bits']}` "
+                   f"| {r['u_units']} | {r['phase_right']} | `{r['left_bits']}` | `{r['right_bits']}` "
+                   f"| {r['ideal_left']} | {r['ideal_right']} |")
     out.append("")
     out.append("| Rule | Case | s (hex) | x = s * 2^23 (hex) | Value | Bytes (little-endian) |")
     out.append("| --- | --- | --- | --- | --- | --- |")
