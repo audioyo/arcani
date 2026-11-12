@@ -143,7 +143,7 @@
       }
     },
     "binaural": {
-      "description": "Binaural layer (stub chain): two pure sines, one per ear.",
+      "description": "Binaural layer: two pure sines, one per ear; the right carrier is the left carrier plus the beat rate (docs/signal-spec.md, Binaural layer).",
       "x-arcani-tag": "loudness-relevant",
       "type": "object",
       "additionalProperties": false,
@@ -155,9 +155,39 @@
           "type": "number"
         },
         "beat_rate_hz": {
-          "description": "Binaural beat rate in Hz.",
+          "description": "Binaural beat rate in Hz; with beat_rate_cycle, the center of the cycle.",
           "x-arcani-tag": "loudness-relevant",
           "type": "number"
+        },
+        "beat_rate_cycle": {
+          "description": "Optional sinusoidal beat rate cycle (docs/signal-spec.md, Rate curve): the beat rate is beat_rate_hz + swing_hz * sin(2 pi t / period_s + start_phase_deg).",
+          "x-arcani-tag": "loudness-relevant",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["swing_hz", "period_s", "start_phase_deg"],
+          "properties": {
+            "swing_hz": {
+              "description": "Swing in Hz: the beat rate spans beat_rate_hz - swing_hz to beat_rate_hz + swing_hz.",
+              "x-arcani-tag": "loudness-relevant",
+              "type": "number"
+            },
+            "period_s": {
+              "description": "Cycle period in seconds.",
+              "x-arcani-tag": "loudness-relevant",
+              "type": "number"
+            },
+            "start_phase_deg": {
+              "description": "Start phase in degrees: 0 at the center rising, 90 at the maximum, 270 at the minimum; 360 is the same point as 0.",
+              "x-arcani-tag": "loudness-relevant",
+              "type": "number"
+            }
+          }
+        },
+        "waveform": {
+          "description": "Waveform of both ears; absent means sine. triangle is accepted here so that compile rejects it by name: the signal spec models only the sine.",
+          "x-arcani-tag": "loudness-relevant",
+          "type": "string",
+          "enum": ["sine", "triangle"]
         }
       }
     }

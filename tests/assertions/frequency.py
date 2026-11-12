@@ -20,6 +20,19 @@ the verdict reads row `frequency-accuracy` through `row` on every call.
 - check(name, measured_hz, expected_hz): the report assertion shape (Story
   1.4), pass when |measured - expected| is strictly below the row; a NaN or
   infinite measured value fails with note "not finite" and measured None.
+- Phase mode (Story 2.5), for a carrier whose rate follows a rate curve:
+  phase_track(x, fs, expected_cycles) takes the FFT analytic signal of x
+  (each end tapered by a raised cosine over the first half of its TRIM_S
+  trim, so the record's end jump does not ring into the kept part), removes
+  the expected phase integral (cycles per sample, any constant offset),
+  trims TRIM_S at each end, and unwraps: the residual in cycles (its first
+  value subtracted), the instantaneous rate error np.diff(residual) * fs,
+  its maximum magnitude, and the largest per-sample step.
+  check_phase(name, x, fs, expected_cycles) is the report assertion shape
+  of check() on row frequency-accuracy: measured is the maximum
+  instantaneous rate error; it passes only when that is strictly below the
+  row and no per-sample step reaches PHASE_STEP_CYCLES (note "phase step");
+  a NaN or infinite measure fails with note "not finite".
 
 NumPy and the standard library only.
 """
@@ -130,4 +143,68 @@ def check(name, measured_hz, expected_hz) -> dict:
     error = abs(measured - float(expected_hz))
     result["measured"] = error
     result["result"] = "pass" if error < r.value else "fail"
+    return result
+
+
+# ------------------------------------------------------------ phase mode
+#
+# Story 2.5: along a rate curve the instantaneous rate must follow the
+# schedule within row frequency-accuracy, with continuous phase. The tool
+# subtracts the closed-form phase integral from the tap's analytic phase.
+
+# A per-sample phase change this large (in cycles) is a step, not a rate:
+# at 48 kHz row frequency-accuracy allows about 2e-7 cycles per sample.
+PHASE_STEP_CYCLES = 1e-4
+
+
+def phase_track(x, fs, expected_cycles) -> dict:
+    """Residual phase of x against the expected phase integral (cycles per sample)."""
+    a = np.asarray(x, dtype=np.float64)
+    expected = np.asarray(expected_cycles, dtype=np.float64)
+    if expected.shape != a.shape:
+        raise ValueError(f"expected_cycles has shape {expected.shape}, x has {a.shape}")
+    # A raised-cosine taper over each trimmed end removes the jump at the
+    # ends of the record, which would otherwise ring through the analytic
+    # phase; inside the kept part the taper is 1, so the phase is unchanged.
+    k = int(round(TRIM_S * fs))
+    if a.size <= 2 * k + 1:
+        raise ValueError(f"signal of {a.size} samples is too short for a {TRIM_S} s trim at each end")
+    taper = np.ones(a.size)
+    m = k // 2
+    edge = 0.5 - 0.5 * np.cos(math.pi * np.arange(m) / m)
+    taper[:m] = edge
+    taper[a.size - m:] = edge[::-1]
+    z = _analytic(a * taper)
+    # Remove the expected phase before unwrapping, so the unwrapped value
+    # stays small and keeps its precision over long renders.
+    frac = expected - np.rint(expected)
+    z = z * np.exp(-2j * math.pi * frac)
+    z, _ = _trimmed(z, fs)
+    residual = np.unwrap(np.angle(z)) / (2.0 * math.pi)
+    residual = residual - residual[0]
+    step = np.diff(residual)
+    rate_error = step * float(fs)
+    return {
+        "residual_cycles": residual,
+        "rate_error_hz": rate_error,
+        "max_rate_error_hz": float(np.max(np.abs(rate_error))) if rate_error.size else 0.0,
+        "max_step_cycles": float(np.max(np.abs(step))) if step.size else 0.0,
+    }
+
+
+def check_phase(name, x, fs, expected_cycles) -> dict:
+    r = row(ACCURACY_ROW)
+    result = {"name": name, "row": ACCURACY_ROW, "threshold": r.value, "unit": r.unit,
+              "measured": None, "result": "fail", "note": ""}
+    track = phase_track(x, fs, expected_cycles)
+    measured = track["max_rate_error_hz"]
+    step = track["max_step_cycles"]
+    if not (math.isfinite(measured) and math.isfinite(step)):
+        result["note"] = "not finite"
+        return result
+    result["measured"] = measured
+    if not step < PHASE_STEP_CYCLES:
+        result["note"] = "phase step"
+        return result
+    result["result"] = "pass" if measured < r.value else "fail"
     return result

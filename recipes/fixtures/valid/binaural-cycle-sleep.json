@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-12",
+  "rationale": "Binaural fixture (Story 2.5): 100 Hz pure sine in the left ear and a pure sine in the right ear whose binaural beat rate cycles sinusoidally over 0 to 3 Hz every 60 s (center 1.5 Hz, swing 1.5 Hz), starting at 0 Hz and rising (start phase 270 degrees): the Sleep cycle of docs/signal-spec.md, Rate curve. Binaural layer only, 120 s. Values are placeholders, not starter defaults. A test fixture, not for listening.",
+  "length_s": 120,
+  "loudness_target_lufs": -36,
+  "binaural": {
+    "carrier_left_hz": 100,
+    "beat_rate_hz": 1.5,
+    "beat_rate_cycle": {
+      "swing_hz": 1.5,
+      "period_s": 60,
+      "start_phase_deg": 270
+    }
+  }
+}

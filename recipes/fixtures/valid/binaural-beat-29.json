@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-12",
+  "rationale": "Binaural fixture (Story 2.5): 400 Hz pure sine in the left ear, 429 Hz pure sine in the right ear, a fixed 29 Hz binaural beat, binaural layer only, 5 s. Values are placeholders, not starter defaults. A test fixture, not for listening.",
+  "length_s": 5,
+  "loudness_target_lufs": -36,
+  "binaural": {
+    "carrier_left_hz": 400,
+    "beat_rate_hz": 29
+  }
+}

@@ -13,6 +13,8 @@ burst-edge	10	10	inclusive	ms	Burst width	thresholds-and-ranges.md, Locked range
 binaural-carrier	0	1000	exclusive	Hz	Binaural carriers	thresholds-and-ranges.md, Locked ranges; Licklider et al. 1950, cited by Lopez-Caballero and Escera 2017; below 1000 Hz, no lower limit set, so the floor is 0 Hz	
 binaural-carrier-right	0	1030	exclusive	Hz		Derived: binaural-carrier max plus beat-rate max (the right ear carrier is the left carrier plus the beat rate)	
 beat-rate	0	30	exclusive	Hz	Binaural beat rate	thresholds-and-ranges.md, Locked ranges; design log 2026-10-27 (f)	
+rate-cycle-period	60	60	inclusive	s	Binaural beat rate cycle	thresholds-and-ranges.md, Locked ranges; Lee et al. 2024 (the right-ear carrier cycled every minute); the only period with a source, decided by Audio 2026-11-11; design log 2026-10-27 (n), 2026-11-12 (pp)	
+rate-cycle-start-phase	0	360	inclusive	degrees	Binaural beat rate cycle	thresholds-and-ranges.md, Locked ranges; engineering default, the whole cycle (360 the same point as 0); design log 2026-11-12 (pp)	
 session-length	0	8	inclusive	h	Session length	thresholds-and-ranges.md, Locked ranges; engineering default, the longest length the drift test proves; design log 2026-11-01 (u)	
 max-run-time-focus	45	45	inclusive	min	Looping max run time	thresholds-and-ranges.md, Locked ranges; engineering default, top of the Focus length range (listening-modes.md); design log 2026-10-27 (m)	2-7-looping-body-and-seams
 max-run-time-learn	20	20	inclusive	min	Looping max run time	thresholds-and-ranges.md, Locked ranges; engineering default, top of the Learn length range (listening-modes.md); design log 2026-10-27 (m)	2-7-looping-body-and-seams

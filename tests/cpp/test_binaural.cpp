@@ -402,7 +402,7 @@ TEST_CASE("binaural: the cycles-to-units rule reproduces every vector row", "[bi
     CHECK(probe::call_units(v) == 0);
   }
   // v and v + 1 are the same point of the cycle (exact for these v).
-  for (const double v : {0.25, 0.125, 0.3, -0.3, 0.7}) {
+  for (const double v : {0.25, 0.125, 0.375, -0.375, 0.75}) {
     INFO("v " << v);
     CHECK(probe::call_units(v) == probe::call_units(v + 1.0));
     CHECK(probe::call_units(v) == probe::call_units(v - 2.0));
@@ -633,7 +633,7 @@ TEST_CASE("binaural: fixtures render the vector bits through the C API", "[binau
                                         api::all_exact_zero(taps.gamma_pac.data(), 2 * count);
                     other_layer_chunks += silent ? 0 : 1;
                   });
-    CHECK(rows >= 12);
+    CHECK(rows >= 11);  // the generator's 11 indices for a fixed beat, more with a cycle
     CHECK(other_layer_chunks == 0);
   }
 }

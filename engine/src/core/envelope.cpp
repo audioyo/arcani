@@ -66,6 +66,29 @@ std::uint64_t coupling_phase_units(double coupling_phase_deg) noexcept {
   return round_half_even(x * 0x1p64);
 }
 
+std::uint64_t cycles_to_units(double v) noexcept {
+  // Negated in-range test, so NaN falls out as well. At or above 2^52 every
+  // binary64 value is an integer: 0 mod 1.
+  if (!(v > -0x1p52 && v < 0x1p52)) {
+    return 0u;
+  }
+  const auto whole = static_cast<std::int64_t>(v);  // toward zero; fits, |v| < 2^52
+  const double f = v - static_cast<double>(whole);  // exact: the fraction bits of v
+  // f * 2^64 is exact and its magnitude is below 2^64. Ties to even is
+  // symmetric, so a negative fraction wraps to 2^64 minus the rounded
+  // magnitude (0 when that rounds to 0).
+  if (f < 0.0) {
+    return 0 - round_half_even(-f * 0x1p64);  // mod 2^64
+  }
+  return round_half_even(f * 0x1p64);
+}
+
+std::uint64_t rate_cycle_offset(std::uint64_t cycle_phase, double k, double c0) noexcept {
+  const double c = sine(cycle_phase + kQuarter);  // mod 2^64: the cosine of the cycle phase
+  const double v = k * (c0 - c);                  // c0 - c, then K times it
+  return cycles_to_units(v);
+}
+
 double swell(std::uint64_t theta_envelope_phase, std::uint64_t coupling_phase_units) noexcept {
   return sine_envelope(theta_envelope_phase - coupling_phase_units);  // mod 2^64
 }

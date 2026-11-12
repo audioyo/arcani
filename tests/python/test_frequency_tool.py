@@ -404,9 +404,21 @@ def swept_tone(cycles, phase=0.4):
 
 
 def own_residual(x, fs, expected_cycles):
-    """The residual by its definition, made here with NumPy."""
+    """The residual by its definition, made here with NumPy.
+
+    Each end is tapered first by a raised cosine over the first half of its
+    TRIM_S trim (the tool's documented definition): without the taper, the
+    jump at the ends of a record that is not whole cycles rings through the
+    analytic phase by up to about 0.19 Hz in the kept part, so no tool could
+    reach the calibration row (implementation finding, Story 2.5)."""
     n = x.size
-    spectrum = np.fft.fft(np.asarray(x, dtype=np.float64))
+    k = int(round(freq().TRIM_S * fs))
+    m = k // 2
+    taper = np.ones(n)
+    edge = 0.5 - 0.5 * np.cos(np.pi * np.arange(m) / m)
+    taper[:m] = edge
+    taper[n - m:] = edge[::-1]
+    spectrum = np.fft.fft(np.asarray(x, dtype=np.float64) * taper)
     h = np.zeros(n)
     h[0] = 1.0
     if n % 2 == 0:

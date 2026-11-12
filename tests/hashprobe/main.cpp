@@ -8,7 +8,8 @@
 // stub-chain-48000.f32, stub-chain-blocks-44100.f32,
 // stub-chain-blocks-48000.f32, theta-envelopes-44100.f32,
 // theta-envelopes-48000.f32, gamma-uncoupled-44100.f32,
-// gamma-uncoupled-48000.f32, gamma-swell-44100.f32, gamma-swell-48000.f32).
+// gamma-uncoupled-48000.f32, gamma-swell-44100.f32, gamma-swell-48000.f32,
+// binaural-cycle-44100.f32, binaural-cycle-48000.f32).
 // No hashing here:
 // tools/hash_manifest.py hashes the files on the host.
 //
@@ -94,6 +95,19 @@
 // converted to float32, one fixture after another.
 // tests/python/test_probe_swell.py checks each segment against
 // reference/stub_chain.py.
+//
+// Components binaural-cycle-44100 and binaural-cycle-48000 (Story 2.5): the
+// fixture recipes/fixtures/valid/binaural-cycle-sleep.json (docs/signal-spec.md,
+// Vectors: binaural fixtures), a 100 Hz pure sine in the left ear and a pure
+// sine in the right ear whose beat rate cycles over 0 to 3 Hz every 60 s
+// from 0 Hz rising, 120 s, binaural only. Embedded (kBinauralCycleRecipe)
+// with the fixture's values, compiled in measure mode, then 5 s rendered
+// from frame 0 and, after arc_seek to frame seconds_to_samples(55, fs),
+// 5 s more, interleaved stereo, each binary64 sample converted to float32,
+// the two parts in that order. The seek lands mid-cycle, so the component
+// carries both the closed-form phase and seek to every platform.
+// tests/python/test_probe_binaural.py checks each part against
+// reference/binaural.py.
 
 #include <arcani/arcani.h>
 
@@ -281,6 +295,29 @@ std::string swell_recipe(const SwellFixture& f) {
 })";
 }
 
+constexpr char kBinauralCycleRecipe[] = R"({
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani hash probe",
+  "date": "2026-11-12",
+  "rationale": "Hash probe binaural cycle component (Story 2.5): 100 Hz pure sine in the left ear, a pure sine in the right ear whose beat rate cycles over 0 to 3 Hz every 60 s from 0 Hz rising, 120 s.",
+  "length_s": 120,
+  "loudness_target_lufs": -36,
+  "binaural": {
+    "carrier_left_hz": 100,
+    "beat_rate_hz": 1.5,
+    "beat_rate_cycle": {
+      "swing_hz": 1.5,
+      "period_s": 60,
+      "start_phase_deg": 270
+    }
+  }
+})";
+
+constexpr double kBinauralPartSeconds = 5.0;
+constexpr double kBinauralSeekSeconds = 55.0;
+
 // Empty on any API failure (main reports it). With cycle_block_sizes false the
 // whole recipe renders in one call; with it true, in calls cycling through
 // kBlockSizes.
@@ -372,6 +409,43 @@ std::vector<float> probe_swell(std::uint32_t fs) {
   return out;
 }
 
+// The binaural cycle fixture: 5 s from frame 0, then 5 s after a seek to
+// 55 s; empty on any API failure.
+std::vector<float> probe_binaural_cycle(std::uint32_t fs) {
+  const std::string recipe(kBinauralCycleRecipe, sizeof kBinauralCycleRecipe - 1);
+  arc_compile_options options;
+  std::memset(&options, 0, sizeof options);
+  options.mode = ARC_MODE_MEASURE;
+  options.sample_rate = fs;
+  options.mute_binaural_ear = ARC_MUTE_NONE;
+  arc_error error;
+  arc_plan* plan = nullptr;
+  if (arc_compile(recipe.data(), recipe.size(), &options, &plan, &error) != ARC_OK) {
+    std::fprintf(stderr, "arcani-hashprobe: compile failed: %s %s %s %s\n", error.parameter, error.value,
+                 error.rule, error.limit);
+    return {};
+  }
+  const auto part = static_cast<std::size_t>(arcani::core::seconds_to_samples(kBinauralPartSeconds, fs));
+  const std::uint64_t seek = arcani::core::seconds_to_samples(kBinauralSeekSeconds, fs);
+  arc_renderer* renderer = nullptr;
+  std::vector<double> stereo(4 * part);
+  bool ok = arc_renderer_create(plan, &renderer, &error) == ARC_OK;
+  ok = ok && arc_render(renderer, stereo.data(), part, nullptr, &error) == ARC_OK;
+  ok = ok && arc_seek(renderer, seek, &error) == ARC_OK;
+  ok = ok && arc_render(renderer, stereo.data() + 2 * part, part, nullptr, &error) == ARC_OK;
+  arc_renderer_destroy(renderer);
+  arc_plan_release(plan);
+  if (!ok) {
+    std::fprintf(stderr, "arcani-hashprobe: render failed: %s\n", error.rule);
+    return {};
+  }
+  std::vector<float> out(stereo.size());
+  for (std::size_t i = 0; i < stereo.size(); ++i) {
+    out[i] = static_cast<float>(stereo[i]);
+  }
+  return out;
+}
+
 // Writes samples as little-endian float32 regardless of host byte order.
 bool write_f32(const std::string& path, const std::vector<float>& samples) {
   std::vector<unsigned char> bytes;
@@ -418,6 +492,8 @@ int main(int argc, char** argv) {
       {"gamma-uncoupled-48000", probe_gamma(48000)},
       {"gamma-swell-44100", probe_swell(44100)},
       {"gamma-swell-48000", probe_swell(48000)},
+      {"binaural-cycle-44100", probe_binaural_cycle(44100)},
+      {"binaural-cycle-48000", probe_binaural_cycle(48000)},
   };
   for (const Component& c : components) {
     if (c.samples.empty()) {

@@ -370,7 +370,7 @@ def md_text():
 def test_md_parse_sees_both_tables(md_text):
     md = md_tables(md_text)
     assert len(md["Test thresholds"]) == 21, [f for f, _ in md["Test thresholds"]]
-    assert len(md["Locked ranges"]) == 13, [f for f, _ in md["Locked ranges"]]
+    assert len(md["Locked ranges"]) == 14, [f for f, _ in md["Locked ranges"]]  # Story 2.5: beat rate cycle
 
 
 def test_md_mapping_holds_for_real_tables(md_text, real_rows):

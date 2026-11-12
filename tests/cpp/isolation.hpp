@@ -16,6 +16,10 @@
 // binaural-isolation-master (master output). It fails as silent when
 // |X_active(f)| is exactly zero: a silent active ear proves nothing.
 //
+// Band mode (Story 2.5, measure_band below) is for a beat rate cycle, whose
+// active carrier sweeps a band: it compares the two channels' energy over
+// that band instead of one bin.
+//
 // The measurement is calibrated on Python-synthesized signals with known
 // leakage (tools/isolation_calibration.py, tests/data/isolation_calibration.json,
 // read here by load_calibration) before it judges any engine render.
@@ -24,7 +28,9 @@
 
 #include "spec_helpers.hpp"
 
+#include <algorithm>
 #include <cmath>
+#include <complex>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -35,6 +41,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace arcani::test::isolation {
@@ -80,7 +87,10 @@ inline double hann_bin_magnitude(const std::vector<double>& stereo, Channel ch, 
 
 struct Measurement {
   Channel active = Channel::Left;
-  double carrier_hz = 0.0;
+  double carrier_hz = 0.0;  // bin mode: the active carrier; band mode: the band center
+  bool band = false;        // band mode (measure_band)
+  double band_lo_hz = 0.0;  // band mode: the band the active carrier spans, before the guard
+  double band_hi_hz = 0.0;
   double active_magnitude = 0.0;
   double muted_magnitude = 0.0;
   double level_db = 0.0;  // -inf when the muted channel measures exactly zero
@@ -101,6 +111,126 @@ inline Measurement measure(const std::vector<double>& stereo, Channel active, do
     m.level_db = -std::numeric_limits<double>::infinity();
   } else {
     m.level_db = 20.0 * std::log10(m.muted_magnitude / m.active_magnitude);
+  }
+  return m;
+}
+
+// ------------------------------------------------------------- band mode
+//
+// Story 2.5. Along a beat rate cycle the active ear's carrier sweeps a band,
+// so one DFT bin no longer holds it. Band mode reads the muted channel's
+// energy over the band the active carrier spans, extended by a guard of
+// kBandGuardBins DFT bins of the render length (the Hann main lobe half
+// width) on each side, against the active channel's energy over the same
+// band:
+//
+//   X_c[k]   = FFT of w[n] * x_c[n], zero-padded to M = the next power of two >= N
+//   band     = [band_lo - G * fs / N, band_hi + G * fs / N],  G = kBandGuardBins
+//   E_c      = sum over k with k * fs / M in band of |X_c[k]|^2
+//   level_db = 10 * log10(E_muted / E_active)
+//
+// with the same Hann window w[n] as bin mode. It fails as silent when
+// E_active is exactly zero.
+
+inline constexpr int kBandGuardBins = 2;
+
+namespace detail {
+
+// In-place iterative radix-2 FFT (decimation in time); size a power of two.
+inline void fft(std::vector<std::complex<double>>& a) {
+  const std::size_t n = a.size();
+  for (std::size_t i = 1, j = 0; i < n; ++i) {
+    std::size_t bit = n >> 1;
+    for (; (j & bit) != 0; bit >>= 1) {
+      j ^= bit;
+    }
+    j ^= bit;
+    if (i < j) {
+      std::swap(a[i], a[j]);
+    }
+  }
+  const double two_pi = 6.283185307179586476925286766559;
+  for (std::size_t len = 2; len <= n; len <<= 1) {
+    const std::size_t half = len / 2;
+    // Twiddles computed directly per index (not by repeated multiplication),
+    // so long transforms keep their accuracy.
+    std::vector<std::complex<double>> w(half);
+    for (std::size_t k = 0; k < half; ++k) {
+      const double angle = -two_pi * static_cast<double>(k) / static_cast<double>(len);
+      w[k] = std::complex<double>(std::cos(angle), std::sin(angle));
+    }
+    for (std::size_t i = 0; i < n; i += len) {
+      for (std::size_t k = 0; k < half; ++k) {
+        const std::complex<double> u = a[i + k];
+        const std::complex<double> v = a[i + k + half] * w[k];
+        a[i + k] = u + v;
+        a[i + k + half] = u - v;
+      }
+    }
+  }
+}
+
+}  // namespace detail
+
+inline Measurement measure_band(const std::vector<double>& stereo, Channel active, double band_lo_hz,
+                                double band_hi_hz, std::uint32_t fs) {
+  if (stereo.size() % 2 != 0) {
+    throw std::runtime_error("isolation: stereo buffer has an odd sample count");
+  }
+  if (!(band_lo_hz <= band_hi_hz)) {
+    throw std::runtime_error("isolation: band_lo_hz is above band_hi_hz");
+  }
+  Measurement m;
+  m.active = active;
+  m.band = true;
+  m.band_lo_hz = band_lo_hz;
+  m.band_hi_hz = band_hi_hz;
+  m.carrier_hz = 0.5 * (band_lo_hz + band_hi_hz);
+  const std::size_t frames = stereo.size() / 2;
+  double e_active = 0.0;
+  double e_muted = 0.0;
+  if (frames > 0) {
+    std::size_t size = 1;
+    while (size < frames) {
+      size <<= 1;
+    }
+    // One transform per channel, so a channel of exact zeros has exactly zero
+    // energy.
+    const double two_pi = 6.283185307179586476925286766559;
+    const double big_n = static_cast<double>(frames);
+    const double rate = static_cast<double>(fs);
+    const double guard = static_cast<double>(kBandGuardBins) * rate / big_n;
+    const double df = rate / static_cast<double>(size);
+    const double lo = band_lo_hz - guard;
+    const double hi = band_hi_hz + guard;
+    const std::size_t first = lo <= 0.0 ? 0 : static_cast<std::size_t>(std::ceil(lo / df));
+    const std::size_t last = std::min(size / 2, static_cast<std::size_t>(std::floor(hi / df)));
+    double e[2] = {0.0, 0.0};
+    std::vector<std::complex<double>> z(size);
+    for (std::size_t c = 0; c < 2; ++c) {
+      std::fill(z.begin(), z.end(), std::complex<double>(0.0, 0.0));
+      for (std::size_t n = 0; n < frames; ++n) {
+        const double w = 0.5 - 0.5 * std::cos(two_pi * static_cast<double>(n) / big_n);
+        z[n] = std::complex<double>(w * stereo[2 * n + c], 0.0);
+      }
+      detail::fft(z);
+      for (std::size_t k = first; k <= last; ++k) {
+        e[c] += std::norm(z[k]);
+      }
+    }
+    const std::size_t a = active == Channel::Left ? 0 : 1;
+    e_active = e[a];
+    e_muted = e[1 - a];
+  }
+  m.active_magnitude = std::sqrt(e_active);
+  m.muted_magnitude = std::sqrt(e_muted);
+  m.silent = e_active == 0.0;
+  if (m.silent) {
+    m.level_db = std::numeric_limits<double>::quiet_NaN();
+  } else if (e_muted == 0.0) {
+    m.level_db = -std::numeric_limits<double>::infinity();
+  } else {
+    m.level_db = 10.0 * std::log10(e_muted / e_active);
   }
   return m;
 }
@@ -381,8 +511,11 @@ struct CalibrationCase {
 struct CalibrationSetup {
   std::string id;
   std::uint32_t fs = 0;
-  double carrier_hz = 0.0;
+  double carrier_hz = 0.0;  // bin mode: the carrier; band mode: the sweep center
   Channel active = Channel::Left;
+  bool band = false;        // mode "band" (Story 2.5): read with measure_band
+  double band_lo_hz = 0.0;  // band mode: the swept carrier's minimum
+  double band_hi_hz = 0.0;  // band mode: the swept carrier's maximum
   std::vector<CalibrationCase> cases;
 };
 
@@ -409,6 +542,16 @@ inline std::vector<CalibrationSetup> load_calibration(const std::string& path) {
       throw std::runtime_error("calibration: bad active_channel " + ch);
     }
     setup.active = ch == "left" ? Channel::Left : Channel::Right;
+    const auto mode = s.object.find("mode");
+    const std::string mode_text = mode == s.object.end() ? std::string("bin") : mode->second.string;
+    if (mode_text != "bin" && mode_text != "band") {
+      throw std::runtime_error("calibration: bad mode " + mode_text);
+    }
+    setup.band = mode_text == "band";
+    if (setup.band) {
+      setup.band_lo_hz = s.at("band_lo_hz").number;
+      setup.band_hi_hz = s.at("band_hi_hz").number;
+    }
     const auto frames = static_cast<std::size_t>(s.at("frames").number);
     const std::vector<double> active = detail::decode_f32(s.at("active").string);
     if (active.size() != frames) {

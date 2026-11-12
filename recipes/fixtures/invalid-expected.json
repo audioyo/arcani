@@ -16,6 +16,11 @@
       "rule": "type",
       "schema_keyword": "type"
     },
+    "binaural-cycle-missing-period.json": {
+      "parameter": "/binaural/beat_rate_cycle/period_s",
+      "rule": "required",
+      "schema_keyword": "required"
+    },
     "block-comment.json": {
       "rule": "json.comment"
     },

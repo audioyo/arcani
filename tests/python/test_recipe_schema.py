@@ -492,7 +492,8 @@ def test_binaural_cycle_and_waveform_accept_and_reject():
         errors = list(validator.iter_errors(binaural_recipe(waveform=wave)))
         assert {e.validator for e in errors} == {"enum"}, (wave, [e.message for e in errors])
     errors = list(validator.iter_errors(binaural_recipe(waveform=1)))
-    assert {e.validator for e in errors} == {"type"}, [e.message for e in errors]
+    # jsonschema also reports enum for a non-string, as for gamma_pac.carrier_wave.
+    assert "type" in {e.validator for e in errors}, [e.message for e in errors]
     for name in CYCLE_PROPERTIES:
         missing = {k: v for k, v in sleep.items() if k != name}
         errors = list(validator.iter_errors(binaural_recipe(cycle=missing)))

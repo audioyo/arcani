@@ -6,7 +6,9 @@
 #include <string>
 #include <utility>
 
+#include "core/envelope.hpp"
 #include "core/phase.hpp"
+#include "core/sine.hpp"
 #include "validate/validate.hpp"
 
 namespace arcani::plan {
@@ -129,20 +131,40 @@ CompileResult compile(std::string_view utf8, Mode mode, std::uint32_t sample_rat
     }
   }
 
-  // Binaural join stub: an unmodulated sine per ear, the left ear at
-  // carrier_left_hz and the right ear at carrier_left_hz + beat_rate_hz
-  // (range row binaural-carrier-right), unit amplitude, phase 0.
+  // Binaural layer: a pure sine per ear, the left ear at carrier_left_hz and
+  // the right ear at f_C = carrier_left_hz + beat_rate_hz (range row
+  // binaural-carrier-right), unit amplitude, phase 0; with a beat rate cycle
+  // the right phase adds the closed-form offset U (Rate curve, Engine).
+  // check_rules() has rejected a non-sine waveform.
   if (rec.binaural) {
-    const double f_left = rec.binaural->carrier_left_hz;
-    const double f_right = rec.binaural->carrier_left_hz + rec.binaural->beat_rate_hz;
+    const recipe::Binaural& b = *rec.binaural;
+    const double f_left = b.carrier_left_hz;
+    const double f_center = b.carrier_left_hz + b.beat_rate_hz;
     p.binaural.increment = {core::phase_increment(f_left, sample_rate),
-                            core::phase_increment(f_right, sample_rate)};
+                            core::phase_increment(f_center, sample_rate)};
     p.binaural.amplitude = {1.0, 1.0};
+    if (b.beat_rate_cycle) {
+      const recipe::BeatRateCycle& cycle = *b.beat_rate_cycle;
+      constexpr std::uint64_t kQuarter = std::uint64_t{1} << 62;
+      p.binaural.cycle = true;
+      p.binaural.cycle_start = core::coupling_phase_units(cycle.start_phase_deg);
+      p.binaural.cycle_increment = core::phase_increment(1.0 / cycle.period_s, sample_rate);
+      p.binaural.cycle_k = (cycle.swing_hz * cycle.period_s) * core::kInvTwoPi;
+      p.binaural.cycle_c0 = core::sine(p.binaural.cycle_start + kQuarter);  // mod 2^64
+    }
   }
   if (mute != MuteEar::None) {
     const std::size_t c = mute == MuteEar::Left ? 0 : 1;
     p.binaural.increment[c] = 0;
     p.binaural.amplitude[c] = 0.0;
+    if (c == 1) {
+      // A muted right ear has no cycle, so it outputs 0.0 * sine(0) = +0.0.
+      p.binaural.cycle = false;
+      p.binaural.cycle_start = 0;
+      p.binaural.cycle_increment = 0;
+      p.binaural.cycle_k = 0.0;
+      p.binaural.cycle_c0 = 0.0;
+    }
   }
 
   CompileResult r;

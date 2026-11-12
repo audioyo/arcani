@@ -52,6 +52,17 @@ constexpr Field kFields[] = {
     // The derived right carrier (carrier_left_hz + beat_rate_hz, row
     // binaural-carrier-right) is checked after this field and reported on it.
     {"/binaural/beat_rate_hz", Number, LoudnessRelevant, true, "beat-rate", 1.0},
+    // Story 2.5 (docs/signal-spec.md, Rate curve). swing_hz has no row: the
+    // worst-case checks (swing >= 0, beat_rate_hz -/+ swing_hz against
+    // beat-rate, the highest right carrier against binaural-carrier-right)
+    // run when the validator reaches it (validate/validate.hpp).
+    {"/binaural/beat_rate_cycle", Object, LoudnessRelevant, false, "", 1.0},
+    {"/binaural/beat_rate_cycle/swing_hz", Number, LoudnessRelevant, true, "", 1.0},
+    {"/binaural/beat_rate_cycle/period_s", Number, LoudnessRelevant, true, "rate-cycle-period", 1.0},
+    {"/binaural/beat_rate_cycle/start_phase_deg", Number, LoudnessRelevant, true, "rate-cycle-start-phase", 1.0},
+    // One of the schema enum members (recipe::kBinauralWaveformEnum); triangle
+    // is schema-valid and rejected at compile.
+    {"/binaural/waveform", String, LoudnessRelevant, false, "", 1.0},
 };
 
 }  // namespace
