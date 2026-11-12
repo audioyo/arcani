@@ -85,3 +85,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-6-determinism-and-block-size-invariance.md`
   summary: Make the hash probe report how many `arc_render` calls (and of which sizes) produced each `stub-chain-blocks-*` component, and assert it against row `block-sizes`, so a loop bug that renders in one call cannot pass the block-size proof on Android.
   evidence: Review pass 1 finding 20 (Story 1.6, verification gap); today only byte equality with the one-call component and a source-text check of `kBlockSizes` are tested.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-3-gamma-coupled-smooth-swell.md`
+  summary: In Story 4.4, reject coupled gamma wherever gamma level and depth are non-zero while the theta reference layer's gain, including its ramp, is exactly zero per sample (master gain does not count; gamma level uses the same definition), with a must-fail fixture where a theta-only fade to silence ends before a coupled gamma fade (AD-5, design log 2026-11-04 (ee), Story 2.3 AC).
+  evidence: Decided 2026-11-10 (Audio): no level or fade field exists before Story 4.4, so no recipe can reach zero level in Story 2.3; 2.3 ships the missing-theta and zero-AM-depth rejections only.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-3-gamma-coupled-smooth-swell.md`
+  summary: Decide whether the carrier rule for coupled gamma checks the gamma carrier against the gamma rate alone (today) or against the gamma rate plus the theta rate, its highest modulation component with a smooth swell (a 240 Hz carrier at 60 Hz gamma and 6 Hz theta would then fail, limit 264 Hz).
+  evidence: Unverified, would be medium. Story 2.3 review pass 1 row 5: no doc defines "modulation rate" for a carrier with two nested modulations; settle with Audio and the research library before Story 3.1's component model.

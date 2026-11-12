@@ -79,6 +79,14 @@ GAMMA_FIXTURES = ["gamma-uncoupled-40hz-25pct.json", "gamma-uncoupled-40hz-100pc
                   "gamma-uncoupled-60hz-25pct.json", "gamma-uncoupled-60hz-100pct.json",
                   "theta-gamma-uncoupled.json", "gamma-carrier-rule-200hz-60hz.json",
                   "gamma-carrier-wave-triangle.json", "gamma-carrier-wave-softened-square.json"]
+# Story 2.3: the coupling phase is in the hash too. Checked against a coupled
+# fixture, since no uncoupled fixture has the field.
+SWELL_BASE = "swell-sawtooth-90deg-25pct.json"
+SWELL_IN_HASH = ["/gamma_pac/coupling_phase_deg", "/gamma_pac/coupling", "/gamma_pac/am_depth_percent"]
+SWELL_FIXTURES = ["swell-sine-0deg-100pct.json", "swell-sawtooth-90deg-25pct.json",
+                  "swell-smoothed-on-off-180deg-100pct.json", "swell-reverse-saw-270deg-25pct.json",
+                  "swell-gamma-depth-0-no-theta.json", "swell-no-theta.json", "swell-theta-depth-0.json",
+                  "swell-no-coupling-phase.json", "uncoupled-with-coupling-phase.json"]
 
 
 def load_tool():
@@ -215,7 +223,7 @@ def test_excluded_and_in_hash_lists_cover_every_leaf_tag():
     tags = tool.load_tags(tool.load_schema())
     assert sorted(p for p, t in tags.items() if t == "hash-excluded") == sorted(HASH_EXCLUDED)
     leaves = {p for p in tags if p not in ("/theta_reference", "/gamma_pac", "/binaural")}
-    assert leaves == set(HASH_EXCLUDED) | set(IN_HASH) | set(GAMMA_IN_HASH)
+    assert leaves == set(HASH_EXCLUDED) | set(IN_HASH) | set(GAMMA_IN_HASH) | set(SWELL_IN_HASH)
 
 
 @pytest.mark.parametrize("pointer", GAMMA_IN_HASH)
@@ -235,6 +243,28 @@ def test_gamma_fixtures_have_distinct_hashes():
         assert path.is_file(), f"missing fixture {path} (Story 2.2)"
         hashes[name] = tool.hash_bytes(path.read_bytes())
     assert len(set(hashes.values())) == len(GAMMA_FIXTURES), hashes
+
+
+@pytest.mark.parametrize("pointer", SWELL_IN_HASH)
+def test_every_swell_field_changes_the_hash(pointer):
+    tool = load_tool()
+    path = VALID / SWELL_BASE
+    assert path.is_file(), f"missing fixture {path} (Story 2.3)"
+    value = json.loads(path.read_text(encoding="utf-8"))
+    new = changed(get(value, pointer)) if pointer != "/gamma_pac/coupling" else "uncoupled"
+    assert tool.hash_value(put(value, pointer, new)) != tool.hash_value(value)
+    if pointer == "/gamma_pac/coupling_phase_deg":
+        assert tool.hash_value(drop(value, pointer)) != tool.hash_value(value)
+
+
+def test_swell_fixtures_have_distinct_hashes_from_each_other_and_the_gamma_fixtures():
+    tool = load_tool()
+    hashes = {}
+    for name in SWELL_FIXTURES + GAMMA_FIXTURES:
+        path = VALID / name
+        assert path.is_file(), f"missing fixture {path}"
+        hashes[name] = tool.hash_bytes(path.read_bytes())
+    assert len(set(hashes.values())) == len(hashes), hashes
 
 
 def test_tool_uses_only_the_standard_library():

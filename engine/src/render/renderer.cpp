@@ -1,6 +1,6 @@
 // Renderer: the stub chain with the real theta reference and gamma PAC layer,
 // per sample in the spec's operation order (docs/signal-spec.md, Stub chain,
-// Theta reference, and Gamma PAC layer, Per sample).
+// Theta reference, Gamma PAC layer, and Coupling, Per sample).
 
 #include "render/renderer.hpp"
 
@@ -55,9 +55,16 @@ void Renderer::render_block(std::size_t count) noexcept {
     double gamma_sample = 0.0;
     if (i < live && gam.present) {
       // Gamma PAC layer, Per sample: the sine envelope at the gamma rate, the
-      // constant depth (uncoupled), then the carrier.
+      // depth (constant when uncoupled; Coupling: scaled by the swell of the
+      // theta envelope phase, the only signal it reads), then the carrier.
       const double e = core::sine_envelope(gamma_envelope_phase_);
-      const double a = 1.0 - gam.depth * (1.0 - e);
+      double a = 0.0;
+      if (gam.coupled) {
+        const double s = core::swell(envelope_phase_, gam.coupling_phase_units);
+        a = 1.0 - (gam.depth * s) * (1.0 - e);
+      } else {
+        a = 1.0 - gam.depth * (1.0 - e);
+      }
       gamma_sample = a * core::sine(gamma_phase_);
     }
     for (std::size_t c = 0; c < 2; ++c) {

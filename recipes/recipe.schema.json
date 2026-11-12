@@ -102,7 +102,7 @@
       }
     },
     "gamma_pac": {
-      "description": "Gamma PAC layer: a separate sine carrier amplitude-modulated at the gamma rate (docs/signal-spec.md, Gamma PAC layer). Story 2.2 models the uncoupled setting only: the AM depth is constant for the render.",
+      "description": "Gamma PAC layer: a separate sine carrier amplitude-modulated at the gamma rate (docs/signal-spec.md, Gamma PAC layer). Uncoupled, the AM depth is constant for the render; with smooth_swell it follows the theta reference phase (docs/signal-spec.md, Coupling).",
       "x-arcani-tag": "loudness-relevant",
       "type": "object",
       "additionalProperties": false,
@@ -130,10 +130,15 @@
           "enum": ["sine", "triangle", "softened_square"]
         },
         "coupling": {
-          "description": "How the AM depth follows the theta reference. uncoupled: the depth is constant and reads nothing from the theta reference.",
+          "description": "How the AM depth follows the theta reference. uncoupled: the depth is constant and reads nothing from the theta reference. smooth_swell: the depth rises and falls once per theta cycle, peaking at coupling_phase_deg.",
           "x-arcani-tag": "loudness-relevant",
           "type": "string",
-          "enum": ["uncoupled"]
+          "enum": ["uncoupled", "smooth_swell"]
+        },
+        "coupling_phase_deg": {
+          "description": "Coupling phase in degrees, measured on the theta reference envelope from its 0 degree point (the envelope peak); 360 is the same point as 0. Required with smooth_swell and rejected with uncoupled, at compile.",
+          "x-arcani-tag": "loudness-relevant",
+          "type": "number"
         }
       }
     },

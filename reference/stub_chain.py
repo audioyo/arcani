@@ -1,4 +1,4 @@
-"""Reference render of the stub chain (docs/signal-spec.md, Stub chain; Story 1.5; Story 2.1; Story 2.2).
+"""Reference render of the stub chain (docs/signal-spec.md, Stub chain; Story 1.5; Story 2.1; Story 2.2; Story 2.3).
 
 Implemented from the signal spec only, never from engine code, engine
 binaries, or engine output (AD-16, AD-19). Every value is binary64 and every
@@ -26,7 +26,9 @@ with the theta tap from reference/theta.py (docs/signal-spec.md, Theta
 reference: the carrier amplitude-modulated at the theta rate by the recipe's
 envelope shape and depth) when the recipe has `theta_reference`, else +0.0;
 the gamma tap from reference/gamma.py (docs/signal-spec.md, Gamma PAC layer:
-a sine carrier amplitude-modulated at the gamma rate with a constant depth)
+a sine carrier amplitude-modulated at the gamma rate, its depth constant
+when uncoupled; Coupling: with smooth_swell its depth follows the theta
+reference envelope phase, so the recipe's theta_reference is passed in)
 when the recipe has `gamma_pac`, else +0.0;
 f_L = carrier_left_hz, f_R = carrier_left_hz + beat_rate_hz (one binary64
 addition), inc_c = phase_increment(f_c, fs) and a_c = 1.0 when the recipe has
@@ -75,7 +77,7 @@ def render(recipe_path, fs, frames=None):
         theta = np.zeros(n, dtype=np.float64)
     gamma_pac = recipe.get("gamma_pac")
     if gamma_pac is not None:
-        gamma = gamma_layer.render(gamma_pac, fs, n)
+        gamma = gamma_layer.render(gamma_pac, fs, n, theta_ref)
     else:
         gamma = np.zeros(n, dtype=np.float64)
     bus = theta + gamma

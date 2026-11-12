@@ -78,18 +78,22 @@ struct ThetaOscillator {
   std::uint64_t half_on_units = 0;  // H
 };
 
-// Gamma PAC layer, uncoupled (docs/signal-spec.md, Gamma PAC layer): a sine
-// carrier amplitude-modulated at the gamma rate by the sine envelope, with a
-// depth constant for the render, the same value in both channels. Carrier
-// and envelope phases are each 0 at n = 0. Per sample:
-// e = sine_envelope(phase_M), a = 1.0 - depth * (1.0 - e),
-// gamma = a * sine(phase_G). Without a gamma_pac field, present is false and
-// gamma is +0.0.
+// Gamma PAC layer (docs/signal-spec.md, Gamma PAC layer, and Coupling): a
+// sine carrier amplitude-modulated at the gamma rate by the sine envelope,
+// the same value in both channels. Carrier and envelope phases are each 0 at
+// n = 0. Per sample: e = sine_envelope(phase_M); uncoupled,
+// a = 1.0 - depth * (1.0 - e), a depth constant for the render; coupled
+// (smooth swell), s = swell(phase_E, coupling_phase_units) from the theta
+// reference's envelope phase phase_E alone and
+// a = 1.0 - (depth * s) * (1.0 - e); then gamma = a * sine(phase_G). Without
+// a gamma_pac field, present is false and gamma is +0.0.
 struct GammaOscillator {
   bool present = false;
   std::uint64_t increment = 0;           // carrier: phase increment rule (carrier_hz, fs)
   std::uint64_t envelope_increment = 0;  // envelope: phase increment rule (rate_hz, fs)
-  double depth = 0.0;                    // d = am_depth_percent / 100.0, constant (uncoupled)
+  double depth = 0.0;                    // d = am_depth_percent / 100.0
+  bool coupled = false;                  // smooth_swell
+  std::uint64_t coupling_phase_units = 0;  // C, coupling phase rule (coupled only)
 };
 
 // Binaural oscillators of one ear pair: unmodulated sines, phase 0 at n = 0.

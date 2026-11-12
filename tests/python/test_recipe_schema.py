@@ -28,6 +28,12 @@ Contract with recipes/recipe.schema.json (JSON Schema draft 2020-12):
   whose `enum` is exactly ["uncoupled"]. Every gamma property is
   `loudness-relevant`. `coupling` names the gamma depth setting; it is not a
   coupling target (no field may name a coupling target or a routing).
+- Story 2.3: the `coupling` enum is exactly ["uncoupled", "smooth_swell"],
+  and `gamma_pac` gains the optional `coupling_phase_deg` (number,
+  `loudness-relevant`, not required), the property right after `coupling`.
+  It is a setting of the gamma depth (where in the theta cycle the swell
+  peaks), not a coupling target; phase text fails the schema with the `type`
+  keyword. Its locked range (row coupling-phase) lives in the tables.
 - The schema holds structure and types only. The only numeric bounds allowed
   are the seed bounds 0 and 2^53 - 1; locked ranges live in
   tests/tables/ranges.tsv (Story 1.3).
@@ -81,6 +87,7 @@ FIELDS = {
     "/gamma_pac/am_depth_percent": ("number", "loudness-relevant", True),
     "/gamma_pac/carrier_wave": ("string", "loudness-relevant", True),
     "/gamma_pac/coupling": ("string", "loudness-relevant", True),
+    "/gamma_pac/coupling_phase_deg": ("number", "loudness-relevant", False),  # Story 2.3
     "/binaural": ("object", ANY_TAG, False),
     "/binaural/carrier_left_hz": ("number", "loudness-relevant", True),
     "/binaural/beat_rate_hz": ("number", "loudness-relevant", True),
@@ -213,7 +220,9 @@ def test_engine_version_stays_in_the_hash():
 
 # Story 2.2: the gamma depth setting is the one field whose name holds
 # "coupling"; it selects how the gamma depth moves, never what it couples to.
-COUPLING_SETTING = "/gamma_pac/coupling"
+# Story 2.3 adds its phase setting, where in the theta cycle the swell peaks.
+# Neither names a coupling target.
+COUPLING_SETTINGS = ("/gamma_pac/coupling", "/gamma_pac/coupling_phase_deg")
 
 
 def test_no_routing_or_coupling_target_field_anywhere():
@@ -222,7 +231,7 @@ def test_no_routing_or_coupling_target_field_anywhere():
         name = pointer.rsplit("/", 1)[1]
         assert "routing" not in name, f"{pointer}: field is outside the decided list"
         assert "target" not in name or name == "loudness_target_lufs", f"{pointer}: a target field"
-        if pointer != COUPLING_SETTING:
+        if pointer not in COUPLING_SETTINGS:
             assert "coupling" not in name, f"{pointer}: field is outside the decided list"
 
 
@@ -292,9 +301,10 @@ def test_theta_shape_enum_accepts_custom_and_rejects_other_text():
 
 # ------------------------------------------------- gamma PAC layer (Story 2.2)
 
-GAMMA_PROPERTIES = ["carrier_hz", "rate_hz", "am_depth_percent", "carrier_wave", "coupling"]
+GAMMA_REQUIRED = ["carrier_hz", "rate_hz", "am_depth_percent", "carrier_wave", "coupling"]
+GAMMA_PROPERTIES = GAMMA_REQUIRED + ["coupling_phase_deg"]  # Story 2.3: optional, after coupling
 GAMMA_CARRIER_WAVE_ENUM = ["sine", "triangle", "softened_square"]
-GAMMA_COUPLING_ENUM = ["uncoupled"]
+GAMMA_COUPLING_ENUM = ["uncoupled", "smooth_swell"]  # Story 2.3 adds smooth_swell
 
 
 def gamma_recipe(carrier_wave="sine", coupling="uncoupled"):
@@ -327,7 +337,7 @@ def test_gamma_pac_shape_tags_and_required():
     assert node.get("type") == "object"
     assert node.get("additionalProperties") is False
     assert list(node["properties"]) == GAMMA_PROPERTIES
-    assert sorted(node.get("required", [])) == sorted(GAMMA_PROPERTIES)
+    assert sorted(node.get("required", [])) == sorted(GAMMA_REQUIRED)
     for name in GAMMA_PROPERTIES:
         assert node["properties"][name].get("x-arcani-tag") == "loudness-relevant", name
 
@@ -353,7 +363,9 @@ def test_gamma_enums_accept_their_members_and_reject_other_text():
         errors = list(validator.iter_errors(gamma_recipe(carrier_wave=wave)))
         assert errors, wave
         assert {e.validator for e in errors} == {"enum"}, (wave, [e.message for e in errors])
-    for coupling in ("swell", "Uncoupled", "", "smooth_swell", "bursts"):
+    for coupling in GAMMA_COUPLING_ENUM:
+        assert not list(validator.iter_errors(gamma_recipe(coupling=coupling))), coupling
+    for coupling in ("swell", "Uncoupled", "", "smooth-swell", "Smooth_swell", "bursts"):
         errors = list(validator.iter_errors(gamma_recipe(coupling=coupling)))
         assert errors, coupling
         assert {e.validator for e in errors} == {"enum"}, (coupling, [e.message for e in errors])
@@ -361,3 +373,45 @@ def test_gamma_enums_accept_their_members_and_reject_other_text():
     extra["gamma_pac"]["coupling_target"] = "theta_reference"
     errors = list(validator.iter_errors(extra))
     assert {e.validator for e in errors} == {"additionalProperties"}, [e.message for e in errors]
+
+
+# ------------------------------------------- coupled smooth swell (Story 2.3)
+
+
+def test_coupling_phase_is_an_optional_number_after_coupling():
+    schema = load_schema_strict()
+    node = gamma_node(schema)
+    names = list(node["properties"])
+    assert "coupling_phase_deg" in names, names
+    assert names.index("coupling_phase_deg") == names.index("coupling") + 1, names
+    assert "coupling_phase_deg" not in node.get("required", [])
+    phase = resolve(schema, node["properties"]["coupling_phase_deg"])
+    assert phase.get("type") == "number"
+    assert node["properties"]["coupling_phase_deg"].get("x-arcani-tag") == "loudness-relevant"
+    assert not {"minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"} & set(phase)
+
+
+def test_coupling_phase_accepts_numbers_and_rejects_text():
+    import jsonschema
+
+    validator = jsonschema.Draft202012Validator(load_schema_strict())
+    for coupling in GAMMA_COUPLING_ENUM:
+        for phase in (0, 90, 359.99, 360):
+            r = gamma_recipe(coupling=coupling)
+            r["gamma_pac"]["coupling_phase_deg"] = phase
+            # Schema-valid either way: compile, not the schema, pairs the
+            # phase with the coupling and checks the locked range.
+            assert not list(validator.iter_errors(r)), (coupling, phase)
+    # Out of the locked range is still schema-valid (the range lives in the tables).
+    for phase in (-0.01, 360.01):
+        r = gamma_recipe(coupling="smooth_swell")
+        r["gamma_pac"]["coupling_phase_deg"] = phase
+        assert not list(validator.iter_errors(r)), phase
+    for bad in ("90", True, None, [90]):
+        r = gamma_recipe(coupling="smooth_swell")
+        r["gamma_pac"]["coupling_phase_deg"] = bad
+        errors = list(validator.iter_errors(r))
+        assert errors, bad
+        assert {e.validator for e in errors} == {"type"}, (bad, [e.message for e in errors])
+        assert {"/".join(str(p) for p in e.absolute_path) for e in errors} == {
+            "gamma_pac/coupling_phase_deg"}, bad

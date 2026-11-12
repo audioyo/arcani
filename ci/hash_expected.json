@@ -1,6 +1,16 @@
 {
-  "source": "probe-arith: tools/probe_reference.py, NumPy float32 reference, each operation rounded separately. sine-* and stub-chain-*: the arcani-hashprobe output, byte-identical on all four AD-9 platforms in full run 42236304155; stub-chain-blocks-* equal stub-chain-* (block-size invariance). Design log 2026-11-06 (kk). theta-envelopes-*: the windows-x64 dev PC probe, equal to the android-arm64 probe of full run 42339879874 (the desktop probes did not run there because these entries were missing); confirmed on all four platforms by the next full run. Design log 2026-11-06 (ll) gamma-uncoupled-*: the windows-x64 dev PC probe, equal to the android-arm64 probe and the windows-x64 and windows-arm64 CI probes of full run 42797229080 (the run was red only on these missing entries); confirmed on all four platforms by the next full run. Design log 2026-11-07 (mm)",
+  "source": "probe-arith: tools/probe_reference.py, NumPy float32 reference, each operation rounded separately. sine-* and stub-chain-*: the arcani-hashprobe output, byte-identical on all four AD-9 platforms in full run 42236304155; stub-chain-blocks-* equal stub-chain-* (block-size invariance). Design log 2026-11-06 (kk). theta-envelopes-*: the windows-x64 dev PC probe, equal to the android-arm64 probe of full run 42339879874 (the desktop probes did not run there because these entries were missing); confirmed on all four platforms by the next full run. Design log 2026-11-06 (ll) gamma-uncoupled-*: the windows-x64 dev PC probe, equal to the android-arm64 probe and the windows-x64 and windows-arm64 CI probes of full run 42797229080 (the run was red only on these missing entries); confirmed on all four platforms by the next full run. Design log 2026-11-07 (mm) gamma-swell-*: the windows-x64 dev PC probe, equal to the android-arm64 probe and the windows-x64 CI probe of full run 43141633184 (the run was red only on these missing entries); confirmed on all four platforms by the next full run. Design log 2026-11-10 (nn)",
   "components": {
+    "gamma-swell-44100": {
+      "samples": 1764000,
+      "sha256": "f22122ee2f6de4f13b6bfc19eae6dfb9a4ecedac2adfb282f0fdec674738e8ed",
+      "scope": "engine"
+    },
+    "gamma-swell-48000": {
+      "samples": 1920000,
+      "sha256": "442a54362fb8e1bfff7f11f05e6ef2e2858fdc01343410bf197e5719a87a4858",
+      "scope": "engine"
+    },
     "gamma-uncoupled-44100": {
       "samples": 4410000,
       "sha256": "04d21f6a1934a91fc74057dd0ad03f70386a4a58472e6e975db92950be687b24",

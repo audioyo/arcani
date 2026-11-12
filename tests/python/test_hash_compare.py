@@ -93,7 +93,10 @@ samples equal the `stub-chain-*` entry at the same rate. Story 2.1 adds
 each). Story 2.2 adds `gamma-uncoupled-44100` and `gamma-uncoupled-48000`,
 scope `engine`, each 2 * 5 * N samples (the five 10 s gamma fixtures in turn);
 their entries arrive only after a green four-platform full run, so the real
-expected file test fails until then. No other entry.
+expected file test fails until then. Story 2.3 adds `gamma-swell-44100` and
+`gamma-swell-48000`, scope `engine`, each 2 * 4 * N samples (the four 5 s
+coupled swell fixtures in turn, N = 5 * fs frames each); their entries also
+arrive only after a green four-platform full run. No other entry.
 
 Bound has one source (Story 0.3): `bound_dbfs` in `ci/hash_tolerance.json`
 equals the value of threshold row `cross-platform-fallback`, read through the
@@ -819,7 +822,7 @@ def real_rates():
 
 
 def test_real_expected_file_has_every_component_with_its_scope():
-    """Stories 1.6, 2.1, and 2.2: the sine, stub chain, theta, and gamma entries, scoped; probe-arith is the only probe entry."""
+    """Stories 1.6, 2.1, 2.2, and 2.3: the sine, stub chain, theta, gamma, and swell entries, scoped; probe-arith is the only probe entry."""
     components = load_ci("hash_expected.json")["components"]
     rates = real_rates()
     want = {"probe-arith": ("probe", 4096)}
@@ -829,6 +832,7 @@ def test_real_expected_file_has_every_component_with_its_scope():
         want[f"stub-chain-blocks-{fs}"] = ("engine", 2 * fs)
         want[f"theta-envelopes-{fs}"] = ("engine", 2 * 8 * 10 * fs)  # Story 2.1
         want[f"gamma-uncoupled-{fs}"] = ("engine", 2 * 5 * 10 * fs)  # Story 2.2
+        want[f"gamma-swell-{fs}"] = ("engine", 2 * 4 * 5 * fs)  # Story 2.3
     assert set(components) == set(want), sorted(components)
     for name, (scope, samples) in want.items():
         entry = components[name]
@@ -841,6 +845,7 @@ def test_real_expected_file_has_every_component_with_its_scope():
     assert components["stub-chain-44100"]["sha256"] != components["stub-chain-48000"]["sha256"]
     assert components["theta-envelopes-44100"]["sha256"] != components["theta-envelopes-48000"]["sha256"]
     assert components["gamma-uncoupled-44100"]["sha256"] != components["gamma-uncoupled-48000"]["sha256"]
+    assert components["gamma-swell-44100"]["sha256"] != components["gamma-swell-48000"]["sha256"]
 
 
 def test_defaults_use_repo_files(tmp_path, root):

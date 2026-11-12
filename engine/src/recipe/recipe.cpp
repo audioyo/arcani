@@ -75,6 +75,7 @@ struct CouplingName {
 };
 constexpr CouplingName kCouplingNames[] = {
     {"uncoupled", GammaCoupling::Uncoupled},
+    {"smooth_swell", GammaCoupling::SmoothSwell},
 };
 
 const CouplingName* coupling_named(std::string_view s) noexcept {
@@ -381,6 +382,9 @@ ParseResult parse(std::string_view utf8) {
     g.am_depth_percent = number_at(*gamma, "am_depth_percent");
     g.carrier_wave = carrier_wave_named(string_at(*gamma, "carrier_wave"))->wave;  // checked: an enum member
     g.coupling = coupling_named(string_at(*gamma, "coupling"))->coupling;          // checked: an enum member
+    if (gamma->find("coupling_phase_deg") != nullptr) {
+      g.coupling_phase_deg = number_at(*gamma, "coupling_phase_deg");
+    }
     r.gamma_pac = g;
   }
   if (const Value* bin = root.find("binaural")) {

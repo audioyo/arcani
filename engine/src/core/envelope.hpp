@@ -1,6 +1,6 @@
-// Theta reference envelopes (docs/signal-spec.md, Theta reference), and the
+// Theta reference envelopes (docs/signal-spec.md, Theta reference), the
 // gamma PAC layer's sine envelope (Gamma PAC layer, AM law), which is the
-// theta sine shape at the gamma rate.
+// theta sine shape at the gamma rate, and the smooth swell (Coupling).
 //
 // Four envelope shapes of a 64-bit envelope phase (one cycle = 2^64), each
 // in [0, 1] with its peak, the 0 degree point, at phase 0. Segments are
@@ -37,6 +37,20 @@ std::uint64_t theta_edge_units(double rate_hz) noexcept;
 // The sine envelope (1 + cos(2 pi p / 2^64)) / 2: c = sine(p + 2^62), then
 // (1.0 + c) * 0.5. The theta sine shape and the gamma PAC layer's AM law.
 double sine_envelope(std::uint64_t phase) noexcept;
+
+// Coupling phase rule (docs/signal-spec.md, Coupling): x = deg / 360.0 (one
+// rounding), C = x * 2^64 (exact) rounded to the nearest integer, ties to
+// even, mod 2^64. Domain: the coupling-phase range, so x in [0, 1]; x = 1
+// (360 degrees) gives 0. Anything outside [0, 1), NaN included, gives 0.
+std::uint64_t coupling_phase_units(double coupling_phase_deg) noexcept;
+
+// Smooth swell (docs/signal-spec.md, Coupling, Swell law): one raised cosine
+// per theta cycle, sine_envelope(theta_envelope_phase - coupling_phase_units
+// mod 2^64), 1 at the coupling phase and 0 half a theta cycle away. AD-5: its
+// only signal input is the theta reference's envelope phase; the second
+// argument is the plan constant C. tests/cpp/test_coupling.cpp pins this
+// signature.
+double swell(std::uint64_t theta_envelope_phase, std::uint64_t coupling_phase_units) noexcept;
 
 // The engine envelope e of an envelope phase, by the spec's segments and
 // operation order. edge_units is W, half_on_units is H.
