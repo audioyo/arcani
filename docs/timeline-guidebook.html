@@ -503,15 +503,15 @@ var EPICS = [
   { id:"2.5", title:"Binaural layer", status:"in-progress",
     plain:"Two pure sines, one per ear, whose beat rate can follow a rate curve, joining after every other stage.",
     spec:["spec-2-5-binaural-layer.md"],
-    steps:[true,false,false,false,false,false,false],
-    stepNotes:["5911af2: spec 2026-11-11, fields, rate-curve law, tool modes, and fixtures settled by the build agent under Audio's standing preference; Sleep start phase 270 degrees and the 60 s period row decided by Audio; efce4f1: signal spec binaural layer and rate curve sections with 5 vector tables (29 in all)", "", "", "", "", "", ""],
+    steps:[true,true,true,false,false,false,false],
+    stepNotes:["5911af2: spec 2026-11-11, fields, rate-curve law, tool modes, and fixtures settled by the build agent under Audio's standing preference; Sleep start phase 270 degrees and the 60 s period row decided by Audio; efce4f1: signal spec binaural layer and rate curve sections with 5 vector tables (29 in all)", "19e5dad: fresh-context QA agent's failing tests; 42 of 286 C++ cases and 78 pytest cases (plus 8 errors) red until the engine, reference, tools, rows, and fixtures land", "65f8337: beat_rate_cycle and waveform fields, worst-case cycle checks and non-sine binaural rule, closed-form right ear phase, reference/binaural.py, isolation band mode, frequency phase mode, 8 fixtures, binaural-cycle probe components, rows rate-cycle-period and rate-cycle-start-phase; 4/4 ctest entries, 2,256 pytest pass, 4 hash-entry tests wait for the full run; design log (pp); open question on the match at large swings in deferred-work.md", "", "", "", ""],
     acs:[
-      [" ","signal-spec binaural and rate-curve sections: right = left + beat(t), closed-form phase integral, worked vectors"],
-      [" ","Carriers below 1000 Hz and beat 0 to below 30 Hz range-checked; non-sine waveform rejected (binaural.waveform)"],
-      [" ","Isolation at least 90 dB / 60 dB at several beat rates including 0 Hz and a 0 to 3 Hz cycle"],
-      [" ","Instantaneous rate within 0.01 Hz of the schedule with continuous phase"],
-      [" ","Sweeping binaural beat rate and phase leaves every gamma peak time unchanged to the sample"],
-      [" ","Each ear's tap and the output match the reference"]
+      ["x","signal-spec binaural and rate-curve sections: right = left + beat(t), closed-form phase integral, worked vectors"],
+      ["x","Carriers below 1000 Hz and beat 0 to below 30 Hz range-checked; non-sine waveform rejected (binaural.waveform)"],
+      ["x","Isolation at least 90 dB / 60 dB at several beat rates including 0 Hz and a 0 to 3 Hz cycle"],
+      ["x","Instantaneous rate within 0.01 Hz of the schedule with continuous phase"],
+      ["x","Sweeping binaural beat rate and phase leaves every gamma peak time unchanged to the sample"],
+      ["x","Each ear's tap and the output match the reference"]
     ] },
   { id:"2.4", title:"Gamma coupled, 50 ms bursts", status:"backlog",
     plain:"Gamma as 50 ms bursts centered on the coupling phase, depth-gated with soft edges, with no clicks.",
@@ -721,6 +721,7 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-12","65f8337","2.5","Failing tests committed by the QA agent (19e5dad; 42 C++ and 78 pytest cases red, 8 errors); implementation committed (65f8337): 4/4 ctest entries, 2,256 pytest pass, 4 hash-entry tests wait for the four-platform full run; reference match -105.9 dBFS worst (Sleep cycle), rate error 8.4e-5 Hz; design log (pp); not pushed"],
   ["2026-11-12","efce4f1","2.5","Story spec committed (5911af2); signal spec binaural layer and rate curve sections and vectors committed (beat rate cycle law, closed-form phase integral, cycles-to-units rule, worst-case range checks, margin per tap); 29 vector tables; sprint-status.yaml in-progress; not pushed"],
   ["2026-11-11","12f9243","2.3","PR #14 merged into main (admin merge, records-only head commit skipped CI); sprint-status.yaml set to done"],
   ["2026-11-11","b072d0c","2.3","PR #14 green: 11 checks on fast and full tier, all four platforms; hash compare equal on 13 components including gamma-swell-*; windows-x64 full 13.0 of 20 min; not merged"],
