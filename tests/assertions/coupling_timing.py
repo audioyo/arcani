@@ -24,7 +24,10 @@ Calibrated on Python-synthesized signals of known peak times first
   cycle at a time, by alpha + beta * shape_template(rate * (t - tau)) in
   least squares over a window of one theta period centered on tau; tau is
   found by a grid search and refined by golden-section search, so it is
-  sub-sample.
+  sub-sample. Results are cached by the theta samples' bytes with the
+  sample rate, theta rate, shape, and the `theta-on-share` and `theta-edge`
+  row values, so a theta tap timed again (each coupling phase, then
+  check()) returns the same times without the search; a copy is returned.
 - swell_curve(gamma, fs): 1 - |analytic| of the gamma tap, low-passed by a
   zero-phase FFT-domain filter (gain 1 up to the top of row `theta-rate`,
   a raised-cosine fall to 0 at the bottom of row `gamma-rate` minus the top
@@ -67,6 +70,8 @@ SHAPES = ("sine", "smoothed_on_off", "sawtooth", "reverse_saw")
 _GOLDEN = (math.sqrt(5.0) - 1.0) / 2.0
 _GRID_STEPS = 48
 _SEARCH_STEPS = 48
+_ZERO_CACHE_SIZE = 8
+_zero_cache: dict = {}
 
 
 def envelope(x) -> np.ndarray:
@@ -171,6 +176,19 @@ def zero_degree_times(theta, fs, theta_rate_hz, shape) -> np.ndarray:
         raise ValueError(f"theta_rate_hz must be positive and finite, got {theta_rate_hz!r}")
     if shape not in SHAPES:
         raise ValueError(f"shape not modeled in the signal spec: {shape!r}")
+    a = np.ascontiguousarray(theta, dtype=np.float64)
+    key = (a.tobytes(), a.shape, float(fs), rate, shape,
+           _fixed("theta-on-share"), _fixed("theta-edge"))
+    hit = _zero_cache.pop(key, None)
+    if hit is None:
+        hit = _zero_degree_times(a, fs, rate, shape)
+        while len(_zero_cache) >= _ZERO_CACHE_SIZE:
+            del _zero_cache[next(iter(_zero_cache))]
+    _zero_cache[key] = hit   # newest last; the oldest is dropped first
+    return hit.copy()
+
+
+def _zero_degree_times(theta, fs, rate, shape) -> np.ndarray:
     env = envelope(theta)
     lo, hi = _trim_bounds(env.size, fs)
     period = 1.0 / rate
