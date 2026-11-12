@@ -56,7 +56,7 @@ Sources point to `docs/research-library.md`, a research run under `_bmad-output/
 | Later-phase dependency floors | miniaudio 0.11.26 or later 0.11.x; Flutter 3.47.8 or later 3.47.x (security fixes) | locked | 2026-11-04 (ee) |
 | Full-tier toolchain pins | Apple clang 17.0.0.17000013 (Xcode 16.4); Android NDK r30 (clang 21.0.0, API level 21); arm64 LLVM, CMake, Ninja assets | locked | 2026-11-02 (aa); 2026-11-04 (ee) |
 | Cross-platform hash compare | exact against `windows-x64` and `ci/hash_expected.json`; tolerance only per cited (platform, component) entry in `ci/hash_tolerance.json`, bound -100 dBFS (strictly below), and only when the entry shows the cause lies outside the AD-9 rules and has a rule-4 review | locked | 2026-11-02 (aa); 2026-10-27 (j); 2026-11-04 (ee) |
-| CI wall-time budgets and schedule | `ci/wall_time_budget.json`; timeout twice the budget; nightly 03:00 UTC, skipped when main is unchanged | proposed | 2026-11-02 (aa) |
+| CI wall-time budgets and schedule | `ci/wall_time_budget.json`; timeout twice the budget; nightly 03:00 UTC, skipped when main is unchanged; full-tier windows-x64 20 min | proposed | 2026-11-02 (aa); 2026-11-11 (oo) |
 | Phase increment and seconds-to-samples rules | 64-bit accumulator; `inc` = round-half-even of binary64 `f*2^64/fs`; `n` = round-half-even of binary64 `t*fs`; out of domain gives 0 | proposed | 2026-11-03 (bb) |
 | Engine sine | integer fold, odd Taylor to x^11, fixed Horner order; measured -145.0 dBFS against the ideal (bound -120) | proposed | 2026-11-03 (bb); 2026-10-28 (o) |
 | Probe sine components | `sine-44100`, `sine-48000`: 1, 450, 1000 Hz carriers, unmodulated, 1 s each; byte-identical on all four AD-9 platforms (full run 41648370470) | proposed | 2026-11-03 (bb) |
@@ -74,6 +74,17 @@ Sources point to `docs/research-library.md`, a research run under `_bmad-output/
 | All other test thresholds | see `tests/tables/thresholds.tsv` and project plan, Test thresholds (provisional) | provisional | project plan |
 
 ## Entries
+
+### 2026-11-11 (oo): Full-tier windows-x64 wall-time budget and the timing tool cache (S2.3)
+
+- **Cause:** Story 2.3 grew the Python suite from about 1,730 to 2,165 tests. Full run 43145507429 (PR #14) passed every test but went over budget on all three desktop jobs: windows-x64 18.2 of 10 min, windows-arm64 16.3 of 15, macos-arm64 14.4 of 10. Most of the added time was the coupling timing tool re-running its per-cycle template search on the same theta tap for each coupling phase and again in `check()`.
+- **Speedup first (Audio, 2026-11-11):** `tests/assertions/coupling_timing.py` caches `zero_degree_times` by the theta bytes, sample rate, theta rate, shape, and the `theta-on-share` and `theta-edge` row values, returning a copy (commit ce20c06). Outputs are byte-identical to before on every shape at both sample rates. No threshold, range, or search setting changed. Dev PC: whole suite 827 to 487 s.
+- **Measured after the speedup (full run 43152501724):** macos-arm64 5.5 of 10 min, windows-arm64 12.3 of 15, both within budget; windows-x64 14.0 of 10 (Python tests 9.5 min; the same suite takes 3.8 min on macos-arm64). Fast run 43152496703: linux-x64 9.5 of 15, windows-x64 13.0 of 20.
+- **Budget change:** full-tier windows-x64 10 to 20 min (about 1.4 x the measured 14.0 min, rounded up to 5, equal to the windows-x64 fast budget); its job `timeout-minutes` 20 to 40 (twice the budget, entry (aa)). Every other budget is unchanged. The 3 x rule of entry (aa) would give 45 min and hide a later slow regression, so the tighter value is kept.
+- **Cost:** 0 billed minutes (public repo, GitHub-hosted runners free; spending limit $0, entry (aa)). If the repo went private: about 900 more billed-equivalent minutes a month at full budget (45 runs x 10 min x Windows multiplier 2).
+- **Source:** full runs 43145507429 and 43152501724; fast run 43152496703; `tools/check_wall_time.py --estimate`.
+- **Decided by:** Audio (speed up the tests first, then raise a budget only where a job is still over, 2026-11-11).
+- **Status:** proposed.
 
 ### 2026-11-10 (nn): Gamma PAC layer, coupled smooth swell, and the coupling timing tool (S2.3)
 
