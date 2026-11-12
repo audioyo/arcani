@@ -275,8 +275,8 @@
    ===================================================================== */
 
 var LAST_UPDATED = "2026-11-11";
-var CURRENT = "2.3";   // story id being worked on
-var NEXT    = "2.5";   // story id that comes next
+var CURRENT = "2.5";   // story id being worked on
+var NEXT    = "2.4";   // story id that comes next
 
 // Workflow step names, used by every story unless it lists its own "stepNames".
 var STEP_NAMES = [
@@ -488,11 +488,11 @@ var EPICS = [
       ["x","Non-sine gamma carriers rejected"],
       ["x","40 and 60 Hz at 25 and 100 percent depth match the reference; within 0.01 Hz; constant depth"]
     ] },
-  { id:"2.3", title:"Gamma coupled, smooth swell", status:"review",
+  { id:"2.3", title:"Gamma coupled, smooth swell", status:"done",
     plain:"Gamma depth rises and falls with the theta reference and peaks at the coupling phase.",
     spec:["spec-2-3-gamma-coupled-smooth-swell.md"],
-    steps:[true,true,true,true,true,false,false],
-    stepNotes:["8f32b0b: spec approved 2026-11-10 by Audio; zero-level rejection deferred to Story 4.4 and a 0.2 ms calibration row decided by Audio; 28ba75d: signal spec coupling section with 4 vector tables (24 in all)","bb44cf5: fresh-context QA agent's failing tests; 35 C++ cases and 409 pytest cases red until the engine, reference, timing tool, rows, and fixtures land","9290320: smooth_swell and coupling_phase_deg fields, AD-5 and coupling phase rules, engine swell from the theta envelope phase only, reference swell, coupling timing tool, 10 fixtures, gamma-swell probe components; row coupling-timing-calibration; 4/4 ctest entries, 2,129 pytest pass, 4 hash-entry tests wait for the full run; reference match -137.1 dBFS worst, timing error 1.3e-6 ms worst; design log (nn)","b9365a8, 04131c5: review pass 1 (3 fresh-context reviewers): swell floor in the timing tool, rate-edge calibration, rounded coupling phase renders; 14 findings rejected; carrier rule reading for coupled gamma deferred to Audio; 2,162 pytest pass, 4 hash-entry tests wait for the full run","d5dab8d: swell hashes pinned from full run 43141633184 (red only on the missing entries; android-arm64 and windows-x64 CI probes equal the dev PC); PR #14 opened; ce20c06 timing tool cache and b072d0c full windows-x64 budget 10 to 20 min, design log (oo); full run 43154355569 green on all four platforms, hash compare 13 components equal, 11 checks green","",""],
+    steps:[true,true,true,true,true,true,true],
+    stepNotes:["8f32b0b: spec approved 2026-11-10 by Audio; zero-level rejection deferred to Story 4.4 and a 0.2 ms calibration row decided by Audio; 28ba75d: signal spec coupling section with 4 vector tables (24 in all)","bb44cf5: fresh-context QA agent's failing tests; 35 C++ cases and 409 pytest cases red until the engine, reference, timing tool, rows, and fixtures land","9290320: smooth_swell and coupling_phase_deg fields, AD-5 and coupling phase rules, engine swell from the theta envelope phase only, reference swell, coupling timing tool, 10 fixtures, gamma-swell probe components; row coupling-timing-calibration; 4/4 ctest entries, 2,129 pytest pass, 4 hash-entry tests wait for the full run; reference match -137.1 dBFS worst, timing error 1.3e-6 ms worst; design log (nn)","b9365a8, 04131c5: review pass 1 (3 fresh-context reviewers): swell floor in the timing tool, rate-edge calibration, rounded coupling phase renders; 14 findings rejected; carrier rule reading for coupled gamma deferred to Audio; 2,162 pytest pass, 4 hash-entry tests wait for the full run","d5dab8d: swell hashes pinned from full run 43141633184 (red only on the missing entries; android-arm64 and windows-x64 CI probes equal the dev PC); PR #14 opened; ce20c06 timing tool cache and b072d0c full windows-x64 budget 10 to 20 min, design log (oo); full run 43154355569 green on all four platforms, hash compare 13 components equal, 11 checks green","12f9243: PR #14 merged into main, 2026-11-11 (admin merge at Audio's request: the last head commit was guidebook records only, pushed with [skip ci] after the code checks were green)","sprint-status.yaml set to done"],
     acs:[
       ["x","signal-spec coupling section; depth function takes theta phase as its only input (structural test)"],
       ["x","Coupling timing tool calibrated on Python signals; never reads engine internals"],
@@ -718,6 +718,7 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-11","12f9243","2.3","PR #14 merged into main (admin merge, records-only head commit skipped CI); sprint-status.yaml set to done"],
   ["2026-11-11","b072d0c","2.3","PR #14 green: 11 checks on fast and full tier, all four platforms; hash compare equal on 13 components including gamma-swell-*; windows-x64 full 13.0 of 20 min; not merged"],
   ["2026-11-11","ce20c06","2.3","PR #14 opened; its full run passed every test but ran over the wall-time budget on the desktop jobs; timing tool cache (byte-identical, suite 827 to 487 s on the dev PC) brought macOS and windows-arm64 within budget; full windows-x64 budget raised 10 to 20 min (measured 14.0), design log (oo)"],
   ["2026-11-11","0b43d6d","2.3","Pushed; full run 43141633184 red only on the missing swell hash entries; swell hashes equal on android-arm64, the windows-x64 CI probe, and the dev PC; pinned; no PR yet"],
