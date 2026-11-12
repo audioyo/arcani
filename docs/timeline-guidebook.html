@@ -274,7 +274,7 @@
    Update after every completed section plus commit and/or push.
    ===================================================================== */
 
-var LAST_UPDATED = "2026-11-11";
+var LAST_UPDATED = "2026-11-12";
 var CURRENT = "2.5";   // story id being worked on
 var NEXT    = "2.4";   // story id that comes next
 
@@ -500,9 +500,12 @@ var EPICS = [
       ["x","Coupled gamma without a theta reference, or at zero theta depth, is rejected"],
       ["x","Matches the reference; gamma carrier plays continuously"]
     ] },
-  { id:"2.5", title:"Binaural layer", status:"backlog",
+  { id:"2.5", title:"Binaural layer", status:"in-progress",
     plain:"Two pure sines, one per ear, whose beat rate can follow a rate curve, joining after every other stage.",
-    steps:S7(), acs:[
+    spec:["spec-2-5-binaural-layer.md"],
+    steps:[true,false,false,false,false,false,false],
+    stepNotes:["5911af2: spec 2026-11-11, fields, rate-curve law, tool modes, and fixtures settled by the build agent under Audio's standing preference; Sleep start phase 270 degrees and the 60 s period row decided by Audio; efce4f1: signal spec binaural layer and rate curve sections with 5 vector tables (29 in all)", "", "", "", "", "", ""],
+    acs:[
       [" ","signal-spec binaural and rate-curve sections: right = left + beat(t), closed-form phase integral, worked vectors"],
       [" ","Carriers below 1000 Hz and beat 0 to below 30 Hz range-checked; non-sine waveform rejected (binaural.waveform)"],
       [" ","Isolation at least 90 dB / 60 dB at several beat rates including 0 Hz and a 0 to 3 Hz cycle"],
@@ -718,6 +721,7 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-12","efce4f1","2.5","Story spec committed (5911af2); signal spec binaural layer and rate curve sections and vectors committed (beat rate cycle law, closed-form phase integral, cycles-to-units rule, worst-case range checks, margin per tap); 29 vector tables; sprint-status.yaml in-progress; not pushed"],
   ["2026-11-11","12f9243","2.3","PR #14 merged into main (admin merge, records-only head commit skipped CI); sprint-status.yaml set to done"],
   ["2026-11-11","b072d0c","2.3","PR #14 green: 11 checks on fast and full tier, all four platforms; hash compare equal on 13 components including gamma-swell-*; windows-x64 full 13.0 of 20 min; not merged"],
   ["2026-11-11","ce20c06","2.3","PR #14 opened; its full run passed every test but ran over the wall-time budget on the desktop jobs; timing tool cache (byte-identical, suite 827 to 487 s on the dev PC) brought macOS and windows-arm64 within budget; full windows-x64 budget raised 10 to 20 min (measured 14.0), design log (oo)"],
