@@ -12,7 +12,8 @@ each, no other layer:
 - binaural layer: a 100 Hz pure sine in the left ear and a pure sine in the
   right ear whose beat rate cycles around a 15 Hz center with the widest
   swing compile accepts, every 60 s, from start phase 0 degrees (at the
-  center, rising) or 90 degrees (at the maximum).
+  center, rising), 90 (at the maximum), 180 (center, falling), 270 (at the
+  minimum), or 123.4 (off the quadrant points, where c0 is not exact).
 
 The widest swing is found here from row `beat-rate` (read through the
 assertion call): the largest binary64 `s` with `r - s >= min` and
@@ -66,7 +67,8 @@ LEFT_HZ = 100.0
 CENTER_HZ = 15.0
 PERIOD_S = 60.0
 LENGTH_S = 60
-START_PHASES = (0, 90)
+# Every quadrant point and one off-quadrant phase: the bound holds at any start phase.
+START_PHASES = (0, 90, 180, 270, 123.4)
 SWING_PARAMETER = "/binaural/beat_rate_cycle/swing_hz"
 MUST_FAIL_CYCLES_PER_K = 1e-7
 
