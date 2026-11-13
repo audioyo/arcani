@@ -9,18 +9,22 @@
 //   f_C = carrier_left_hz + beat_rate_hz           one binary64 addition
 //   phase_L[n] = n * inc_L,  phase_C[n] = n * inc_C        mod 2^64
 //   P0 = coupling phase rule (start_phase_deg),  inc_P = inc(1.0 / period_s)
-//   K = (swing_hz * period_s) * kInvTwoPi,  c0 = sine(P0 + 2^62)
-//   p_P[n] = P0 + n * inc_P,  c[n] = sine(p_P[n] + 2^62)
+//   K = (swing_hz * period_s) * kInvTwoPi,  c0 = cycle_cosine(P0)
+//   p_P[n] = P0 + n * inc_P,  c[n] = cycle_cosine(p_P[n])
 //   v[n] = K * (c0 - c[n]),  U[n] = cycles-to-units rule (v[n])
 //   phase_R[n] = phase_C[n] + U[n] mod 2^64          (U = 0 without a cycle)
 //   bin[c][n] = a_c * sine(phase_c[n])
 //
 // Expected interface, engine/src/core/envelope.hpp, namespace arcani::core:
 //
+//   double cycle_cosine(std::uint64_t phase) noexcept;
+//   // Rate curve, Cycle cosine: q = phase + 2^62, the engine sine's fold
+//   // and conversion, then the odd Taylor polynomial to x^15 (kCycleCosine-
+//   // Coefficients) in fixed Horner order. Not the engine sine.
 //   std::uint64_t cycles_to_units(double v) noexcept;
 //   std::uint64_t rate_cycle_offset(std::uint64_t cycle_phase, double k,
 //                                   double c0) noexcept;
-//   // U = cycles_to_units(k * (c0 - sine(cycle_phase + 2^62)))
+//   // U = cycles_to_units(k * (c0 - cycle_cosine(cycle_phase)))
 //
 // and engine/src/plan/plan.hpp, plan::BinauralEars keeps increment
 // {inc_L, inc_C} and amplitude, and gains
@@ -29,21 +33,25 @@
 //   std::uint64_t cycle_start = 0;      // P0
 //   std::uint64_t cycle_increment = 0;  // inc_P
 //   double cycle_k = 0.0;               // K
-//   double cycle_c0 = 0.0;              // c0
+//   double cycle_c0 = 0.0;              // c0 = cycle_cosine(cycle_start)
 //
 // A muted right ear has cycle false, increment 0, and amplitude 0.0; a muted
 // left ear leaves the right ear's cycle in place.
 //
 // AD-5 structural: a static_assert pins the exact type of
 // &core::rate_cycle_offset, so its only signal input is the cycle phase (k
-// and c0 are plan constants). The core functions are reached through a lookup
+// and c0 are plan constants), and the exact type of &core::cycle_cosine. One
+// shared cosine serves c0 and c[n], so U[0] = 0 by construction (review pass 1
+// row 8). The core functions are reached through a lookup
 // probe (a global fallback the real declaration hides) and the plan members
 // through a requires-expression, so the suite builds before they exist and
 // the missing pieces show as failing test cases.
 //
 // Every render check reaches the engine through the public C API. Vectors
 // come from the generated spec_tables.hpp (kInvTwoPi, kSeekSeconds,
-// kCyclesToUnits, kRateCycles, kBinauralSamples); rows from the tables
+// kCycleCosineCoefficients, kCycleCosines, kSineCoefficients, kCyclesToUnits,
+// kRateCycles, kBinauralSamples); rows from the tables (sine-error,
+// cycle-cosine-error, block-sizes, block-size-invariance, sample-rates)
 // through the assertion call. Fixtures (recipes/fixtures/valid/):
 // binaural-beat-0.json, binaural-beat-6.json, binaural-beat-29.json (a 400 Hz
 // pure sine in the left ear and a pure sine at 400 Hz plus 0, 6, or 29 Hz in
@@ -72,6 +80,7 @@
 #include <cstring>
 #include <initializer_list>
 #include <limits>
+#include <numbers>
 #include <set>
 #include <string>
 #include <string_view>
@@ -100,10 +109,17 @@ struct MissingOffset {
     return UINT64_C(0xdeadbeefdeadbeef);
   }
 };
+struct MissingCosine {
+  template <class... A>
+  double operator()(A...) const noexcept {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+};
 }  // namespace binaural_missing
 
 inline constexpr binaural_missing::MissingUnits cycles_to_units{};
 inline constexpr binaural_missing::MissingOffset rate_cycle_offset{};
+inline constexpr binaural_missing::MissingCosine cycle_cosine{};
 
 namespace arcani::binaural_probe {
 
@@ -111,6 +127,7 @@ using namespace arcani::core;
 
 using UnitsFn = std::uint64_t (*)(double) noexcept;
 using OffsetFn = std::uint64_t (*)(std::uint64_t, double, double) noexcept;
+using CosineFn = double (*)(std::uint64_t) noexcept;
 
 inline constexpr bool kUnitsDeclared =
     !std::is_same_v<std::remove_cvref_t<decltype(cycles_to_units)>, ::binaural_missing::MissingUnits>;
@@ -118,6 +135,9 @@ inline constexpr bool kUnitsExact = std::is_same_v<decltype(&cycles_to_units), U
 inline constexpr bool kOffsetDeclared =
     !std::is_same_v<std::remove_cvref_t<decltype(rate_cycle_offset)>, ::binaural_missing::MissingOffset>;
 inline constexpr bool kOffsetExact = std::is_same_v<decltype(&rate_cycle_offset), OffsetFn>;
+inline constexpr bool kCosineDeclared =
+    !std::is_same_v<std::remove_cvref_t<decltype(cycle_cosine)>, ::binaural_missing::MissingCosine>;
+inline constexpr bool kCosineExact = std::is_same_v<decltype(&cycle_cosine), CosineFn>;
 
 static_assert(!kUnitsDeclared || kUnitsExact,
               "arcani::core::cycles_to_units must be exactly std::uint64_t(double) noexcept");
@@ -128,7 +148,13 @@ static_assert(!kOffsetDeclared || kOffsetExact,
               "std::uint64_t(std::uint64_t, double, double) noexcept (its only signal input is the "
               "cycle phase)");
 
+static_assert(!kCosineDeclared || kCosineExact,
+              "arcani::core::cycle_cosine must be exactly double(std::uint64_t) noexcept");
+
 inline std::uint64_t call_units(double v) { return cycles_to_units(v); }
+
+// The cycle cosine, or NaN (no vector holds it) while it is missing.
+inline double call_cosine(std::uint64_t phase) { return cycle_cosine(phase); }
 
 inline std::uint64_t call_offset(std::uint64_t cycle_phase, double k, double c0) {
   return rate_cycle_offset(cycle_phase, k, c0);
@@ -186,14 +212,14 @@ std::uint64_t c0_bits_of(const spec::BinauralSampleVector& v) {
   return rate_cycle_row(v.start_phase_deg, v.fs).c0_bits;
 }
 
-// U[n] by the spec's operations, from the vector constants and the engine
-// sine; 0 without a cycle.
+// U[n] by the spec's operations, from the vector constants and the cycle
+// cosine; 0 without a cycle.
 std::uint64_t law_units(const spec::BinauralSampleVector& v, std::uint64_t n) {
   if (!v.has_cycle) {
     return 0;
   }
-  const double c0 = core::sine(v.p0 + kQuarter);
-  const double c = core::sine(v.p0 + n * v.inc_cycle + kQuarter);
+  const double c0 = probe::call_cosine(v.p0);
+  const double c = probe::call_cosine(v.p0 + n * v.inc_cycle);
   const double d = c0 - c;
   const double value = v.k * d;
   return probe::call_units(value);
@@ -380,6 +406,256 @@ TEST_CASE("binaural: the cycles-to-units rule and the rate-curve offset have the
   CHECK(probe::kOffsetExact);
 }
 
+// ------------------------------------------------------------ cycle cosine
+//
+// Rate curve, Cycle cosine: the beat rate cycle's own cosine, more exact than
+// the engine sine because U multiplies its error by K (up to about 143). Its
+// bound is row cycle-cosine-error (dBFS, converted to linear here as
+// test_sine.cpp does for row sine-error) over the phases of Sine, Test
+// resolution.
+
+namespace {
+
+// Ideal cosine cos(2 pi p / 2^64), as the ideal sine of p + 2^62 (an exact
+// integer step) from the signed phase, so the argument lies in [-pi, pi).
+// std::sin is fine here: tests are not engine code; its error (a few units in
+// the last place, under 1e-15) is 5 orders below the bound.
+double ideal_cosine(std::uint64_t phase) {
+  const auto s = static_cast<std::int64_t>(phase + kQuarter);
+  return std::sin(static_cast<double>(s) * (std::numbers::pi * 0x1p-63));
+}
+
+double to_dbfs(double linear) { return 20.0 * std::log10(linear); }
+
+double cycle_cosine_bound_dbfs() { return spec::dbfs_row("cycle-cosine-error").value(); }
+
+double cycle_cosine_bound_linear() { return std::pow(10.0, cycle_cosine_bound_dbfs() / 20.0); }
+
+struct CosineError {
+  double worst = 0.0;
+  std::size_t not_finite = 0;
+};
+
+// Max |f(p) - ideal cosine(p)| over Sine, Test resolution: the 2^24 phases
+// k * 2^40, plus each quadrant edge 0, 2^62, 2^63, 3 * 2^62 and its
+// neighbours edge - 1 and edge + 1, modulo 2^64. A non-finite f(p) is
+// counted, never folded away (std::fmax would drop a NaN).
+template <class F>
+CosineError cosine_error_over_test_resolution(F f) {
+  CosineError e;
+  const auto visit = [&](std::uint64_t p) {
+    const double err = std::fabs(f(p) - ideal_cosine(p));
+    if (!std::isfinite(err)) {
+      ++e.not_finite;
+    } else if (err > e.worst) {
+      e.worst = err;
+    }
+  };
+  for (std::uint64_t k = 0; k < (UINT64_C(1) << 24); ++k) {
+    visit(k << 40);
+  }
+  for (std::uint64_t q = 0; q < 4; ++q) {
+    const std::uint64_t edge = q * kQuarter;
+    for (const std::uint64_t p : {edge - 1, edge, edge + 1}) {
+      visit(p);
+    }
+  }
+  return e;
+}
+
+// The coefficient Dk of kCycleCosineCoefficients, or NaN when the table has
+// no row of that power.
+double cycle_coefficient(int power) {
+  for (const auto& c : spec::kCycleCosineCoefficients) {
+    if (c.power == power) {
+      return c.value;
+    }
+  }
+  return std::numeric_limits<double>::quiet_NaN();
+}
+
+// The spec's cycle cosine, step by step, from the generated coefficients
+// (each * and + one binary64 operation; the build sets -ffp-contract=off).
+double spec_cycle_cosine(std::uint64_t phase) {
+  const std::uint64_t q = phase + kQuarter;
+  std::uint64_t u = q;
+  const auto s = static_cast<std::int64_t>(q);
+  constexpr std::int64_t kEdge = std::int64_t{1} << 62;
+  if (s > kEdge || s < -kEdge) {
+    // s = 2^63 - s above 2^62, s = -2^63 - s below -2^62: the same value
+    // modulo 2^64.
+    u = (UINT64_C(1) << 63) - q;
+  }
+  const double x = static_cast<double>(static_cast<std::int64_t>(u)) * 0x1.921fb54442d18p-62;
+  const double z = x * x;
+  double r = cycle_coefficient(15);
+  for (const int power : {13, 11, 9, 7, 5, 3, 1}) {
+    r = r * z;
+    r = r + cycle_coefficient(power);
+  }
+  return r * x;
+}
+
+std::string degrees_text(double deg) {
+  std::string t = std::to_string(deg);
+  while (!t.empty() && t.back() == '0') {
+    t.pop_back();
+  }
+  if (!t.empty() && t.back() == '.') {
+    t.pop_back();
+  }
+  return t;
+}
+
+}  // namespace
+
+TEST_CASE("binaural: the cycle cosine has its signature", "[binaural][cycle-cosine]") {
+  // The static_assert above fixes the exact type once it exists; here its
+  // absence fails.
+  CHECK(probe::kCosineDeclared);
+  CHECK(probe::kCosineExact);
+}
+
+TEST_CASE("binaural: the cycle cosine coefficient table holds the binary64 nearest to +-1/k!",
+          "[binaural][cycle-cosine][vectors]") {
+  // One division of two exact binary64 values is correctly rounded, and k! is
+  // exact in binary64 up to 15! (below 2^53), so 1.0 / k! is the nearest.
+  std::vector<int> powers;
+  for (const auto& c : spec::kCycleCosineCoefficients) {
+    powers.push_back(c.power);
+    double factorial = 1.0;
+    for (int k = 2; k <= c.power; ++k) {
+      factorial *= k;
+    }
+    const double sign = ((c.power / 2) % 2 == 0) ? 1.0 : -1.0;
+    INFO("power " << c.power);
+    CHECK(api::bits(c.value) == api::bits(sign * (1.0 / factorial)));
+  }
+  std::sort(powers.begin(), powers.end());
+  CHECK(powers == std::vector<int>{1, 3, 5, 7, 9, 11, 13, 15});
+  CHECK(api::bits(cycle_coefficient(1)) == api::bits(1.0));
+  // D1 to D11 equal the engine sine's C1 to C11.
+  std::size_t shared = 0;
+  for (const auto& c : spec::kSineCoefficients) {
+    INFO("power " << c.power);
+    CHECK(api::bits(cycle_coefficient(c.power)) == api::bits(c.value));
+    ++shared;
+  }
+  CHECK(shared == 6);
+}
+
+TEST_CASE("binaural: the cycle cosine reproduces every cycle cosine vector bit for bit",
+          "[binaural][cycle-cosine][vectors][bits]") {
+  const double bound = cycle_cosine_bound_linear();
+  REQUIRE(sizeof(spec::kCycleCosines) / sizeof(spec::kCycleCosines[0]) >= 15);
+  for (const auto& v : spec::kCycleCosines) {
+    INFO(v.label << ", phase " << v.phase);
+    CHECK(api::bits(probe::call_cosine(v.phase)) == v.bits);
+    // The vector bits are the spec algorithm's, within the bound of the ideal.
+    CHECK(api::bits(spec_cycle_cosine(v.phase)) == v.bits);
+    CHECK(std::fabs(spec_cycle_cosine(v.phase) - v.ideal) <= bound);
+    CHECK(std::fabs(probe::call_cosine(v.phase) - v.ideal) <= bound);
+  }
+}
+
+TEST_CASE("binaural: the cycle cosine follows the spec's operations at spread phases",
+          "[binaural][cycle-cosine][bits]") {
+  // A wrong constant or a reordered Horner step can stay under the bound but
+  // changes these bits.
+  std::size_t mismatches = 0;
+  for (std::uint64_t i = 0; i < 65536; ++i) {
+    const std::uint64_t p = i * UINT64_C(0x0003f1c2b5a49786) + UINT64_C(0x123456789abcdef);
+    mismatches += api::bits(probe::call_cosine(p)) != api::bits(spec_cycle_cosine(p)) ? 1 : 0;
+  }
+  CHECK(mismatches == 0);
+}
+
+TEST_CASE("binaural: the cycle cosine error over the test resolution is within row cycle-cosine-error",
+          "[binaural][cycle-cosine][accuracy]") {
+  const CosineError e = cosine_error_over_test_resolution([](std::uint64_t p) { return probe::call_cosine(p); });
+  const double dbfs = to_dbfs(e.worst);
+  INFO("max |cycle cosine - ideal| = " << e.worst << " (" << dbfs << " dBFS), bound "
+                                       << cycle_cosine_bound_dbfs() << " dBFS, " << e.not_finite
+                                       << " non-finite");
+  CHECK(probe::kCosineDeclared);
+  CHECK(e.not_finite == 0);
+  CHECK(dbfs <= cycle_cosine_bound_dbfs());
+}
+
+TEST_CASE("binaural: the spec's cycle cosine algorithm meets row cycle-cosine-error",
+          "[binaural][cycle-cosine][accuracy]") {
+  // The harness evaluation of the spec algorithm: the row is reachable.
+  const CosineError e = cosine_error_over_test_resolution([](std::uint64_t p) { return spec_cycle_cosine(p); });
+  INFO("max |spec cycle cosine - ideal| = " << e.worst << " (" << to_dbfs(e.worst) << " dBFS)");
+  CHECK(e.not_finite == 0);
+  CHECK(to_dbfs(e.worst) <= cycle_cosine_bound_dbfs());
+}
+
+TEST_CASE("binaural: the cycle cosine is exactly +0.0 at 2^62 and 3 * 2^62", "[binaural][cycle-cosine]") {
+  CHECK(api::bits(probe::call_cosine(kQuarter)) == 0);
+  CHECK(api::bits(probe::call_cosine(3 * kQuarter)) == 0);
+}
+
+TEST_CASE("must fail: the engine sine's cosine misses row cycle-cosine-error at phase 0",
+          "[binaural][cycle-cosine][mustfail]") {
+  // The engine sine a quarter cycle on is the cosine the cycle used to take;
+  // its truncation error (about 5.7e-8 at phase 0) is far over the row, so the
+  // row can tell it from the cycle cosine.
+  const double engine_sine_cosine = core::sine(0 + kQuarter);
+  CHECK(to_dbfs(std::fabs(engine_sine_cosine - ideal_cosine(0))) > cycle_cosine_bound_dbfs());
+  const CosineError e =
+      cosine_error_over_test_resolution([](std::uint64_t p) { return core::sine(p + kQuarter); });
+  CHECK(to_dbfs(e.worst) > cycle_cosine_bound_dbfs());
+  // And the cycle cosine is not the engine sine there.
+  CHECK(api::bits(probe::call_cosine(0)) != api::bits(engine_sine_cosine));
+}
+
+TEST_CASE("binaural: the plan c0 is the cycle cosine of the plan start phase bit for bit",
+          "[binaural][plan][cycle-cosine]") {
+  // Review pass 1 row 8: one shared function serves c0 and c[n], so the
+  // offset at the start phase is 0 by construction.
+  for (const std::uint32_t fs : spec::sample_rates()) {
+    for (const double deg : {0.0, 45.0, 90.0, 137.5, 180.0, 270.0, 359.99, 360.0}) {
+      INFO("start phase " << deg << " degrees at " << fs);
+      const plan::Plan p = compile_plan(recipe_text({sleep_member(degrees_text(deg))}), fs);
+      const CycleConstants c = cycle_of(p.binaural);
+      REQUIRE(c.cycle);
+      CHECK(c.start == core::coupling_phase_units(deg));
+      CHECK(c.c0_bits == api::bits(probe::call_cosine(c.start)));
+      double k = 0.0;
+      std::memcpy(&k, &c.k_bits, sizeof k);
+      CHECK(probe::call_offset(c.start, k, probe::call_cosine(c.start)) == 0);
+      if (c.start != kQuarter && c.start != 3 * kQuarter) {
+        // Not the engine sine's cosine (they differ off the zero crossings).
+        CHECK(c.c0_bits != api::bits(core::sine(c.start + kQuarter)));
+      }
+    }
+  }
+}
+
+TEST_CASE("binaural: the rate-curve offset uses the cycle cosine, not the engine sine",
+          "[binaural][rate-curve][cycle-cosine]") {
+  // The widest compile-accepted cycle at the 60 s period: center 15 Hz and
+  // swing 15 - 2^-48 Hz (the largest swing whose r + s rounds below 30), so K
+  // is near 143.2.
+  const double k = (0x1.dfffffffffffep+3 * 60.0) * spec::kInvTwoPi;
+  const double c0 = probe::call_cosine(0);
+  std::size_t mismatches = 0;
+  std::size_t engine_sine_like = 0;
+  for (std::uint64_t i = 0; i < 4096; ++i) {
+    const std::uint64_t p = i * UINT64_C(0x0010000000000123) + UINT64_C(987654321);
+    const double d = c0 - probe::call_cosine(p);
+    const double value = k * d;
+    const std::uint64_t got = probe::call_offset(p, k, c0);
+    mismatches += got != probe::call_units(value) ? 1 : 0;
+    const double old_d = c0 - core::sine(p + kQuarter);
+    const double old_value = k * old_d;
+    engine_sine_like += got == probe::call_units(old_value) ? 1 : 0;
+  }
+  CHECK(mismatches == 0);
+  CHECK(engine_sine_like < 4096);
+}
+
 TEST_CASE("binaural: the cycles-to-units rule reproduces every vector row", "[binaural][rate-curve]") {
   bool nan = false;
   bool tie_even = false;
@@ -412,14 +688,14 @@ TEST_CASE("binaural: the cycles-to-units rule reproduces every vector row", "[bi
 TEST_CASE("binaural: the rate-curve offset is the cycles-to-units rule of K * (c0 - cosine)",
           "[binaural][rate-curve]") {
   const double ks[] = {0.0, 1.0, 0x1.ca5dc1a63c1f8p+3, 27.5};
-  const double c0s[] = {0.0, core::sine(kQuarter), core::sine(UINT64_C(0x8000000000000000) + kQuarter), 0.5};
+  const double c0s[] = {0.0, probe::call_cosine(0), probe::call_cosine(UINT64_C(0x8000000000000000)), 0.5};
   for (const double k : ks) {
     for (const double c0 : c0s) {
       INFO("k " << k << ", c0 " << c0);
       std::size_t mismatches = 0;
       for (std::uint64_t i = 0; i < 4096; ++i) {
         const std::uint64_t p = i * UINT64_C(0x0010000000000123) + UINT64_C(987654321);
-        const double c = core::sine(p + kQuarter);
+        const double c = probe::call_cosine(p);
         const double d = c0 - c;
         const double value = k * d;
         mismatches += probe::call_offset(p, k, c0) != probe::call_units(value) ? 1 : 0;
@@ -447,7 +723,7 @@ TEST_CASE("binaural: the rate cycle vectors follow the once-per-plan constants",
     CHECK(core::phase_increment(r.inv_period, r.fs) == r.inc_cycle);
     CHECK(r.swing_hz * r.period_s == r.swing_period);
     CHECK(api::bits(r.swing_period * spec::kInvTwoPi) == api::bits(r.k));
-    CHECK(api::bits(core::sine(r.p0 + kQuarter)) == r.c0_bits);
+    CHECK(api::bits(probe::call_cosine(r.p0)) == r.c0_bits);
     phases.insert(r.start_phase_deg);
   }
   CHECK(phases == std::set<double>{0.0, 90.0, 180.0, 270.0, 360.0});
@@ -485,9 +761,9 @@ TEST_CASE("binaural: sample vector rows follow the spec's operations", "[binaura
     CHECK(v.inc_cycle == core::phase_increment(1.0 / v.period_s, v.fs));
     CHECK(api::bits(v.k) == api::bits((v.swing_hz * v.period_s) * spec::kInvTwoPi));
     CHECK(v.phase_cycle == v.p0 + v.n * v.inc_cycle);
-    const double c = core::sine(v.phase_cycle + kQuarter);
+    const double c = probe::call_cosine(v.phase_cycle);
     CHECK(api::bits(c) == v.c_bits);
-    const double c0 = core::sine(v.p0 + kQuarter);
+    const double c0 = probe::call_cosine(v.p0);
     CHECK(api::bits(c0) == c0_bits_of(v));
     const double d = c0 - c;
     const double value = v.k * d;
@@ -654,7 +930,7 @@ TEST_CASE("binaural: each ear equals the law sample by sample, never -0.0", "[bi
     std::size_t negative_zero = 0;
     double c0 = 0.0;
     if (v.has_cycle) {
-      c0 = core::sine(v.p0 + kQuarter);
+      c0 = probe::call_cosine(v.p0);
     }
     render_chunks(renderer.get(), v.frames,
                   [&](std::uint64_t start, std::size_t count, const std::vector<double>& out,
