@@ -14,15 +14,16 @@ call.
 - FLOOR_DB: a local maximum below FLOOR_DB re the strongest line is not a
   line. It sits above the window's highest sidelobe (about -92 dB), so no
   sidelobe of a line is read as a line of its own.
-- RESOLUTION_BINS: lines closer than RESOLUTION_BINS / T Hz (T the signal
-  length in seconds, the window's main lobe width) are not resolved.
+- Limit: lines closer than 8 / T Hz (T the signal length in seconds, the
+  window's main lobe width) are not resolved.
 - lines(x, fs, band=None): every spectral line (frequency_hz, level_db),
   sorted by frequency, with band[0] <= frequency_hz <= band[1] (every line
   when band is None). Method: the 4-term Blackman-Harris window over the
   whole signal, the zero-padded real FFT, every local maximum of the
   magnitude at least FLOOR_DB re the strongest, each refined by a parabola
   through the dB magnitudes of the peak bin and its two neighbours (the
-  vertex gives the frequency and the level). level_db is relative to the
+  vertex gives the frequency and the level; the bin itself when a neighbour
+  is exactly zero). level_db is relative to the
   strongest line of the whole spectrum, 0 to fs / 2 (0 dB), so a band never
   moves the reference. ValueError for anything but one channel of at least
   2 finite samples, or a band outside [0, fs / 2] or with band[0] > band[1].
@@ -34,8 +35,9 @@ call.
 - check(name, x, fs, band, expected): two report assertion dicts (Story
   1.4), rows `spectrum-frequency` then `spectrum-level`. measured is the
   worst error over the expected lines; each passes when strictly below its
-  row. A non-finite or unusable input, or no line found in the band, fails
-  both with a note and measured None.
+  row. A non-finite or unusable input, an empty expected list (note
+  `no expected lines`), or no line found in the band, fails both with a note
+  and measured None.
 
 NumPy and the standard library only.
 """
@@ -52,7 +54,6 @@ FREQUENCY_ROW = "spectrum-frequency"
 LEVEL_ROW = "spectrum-level"
 PAD_FACTOR = 8
 FLOOR_DB = -90.0
-RESOLUTION_BINS = 8
 
 _BH = (0.35875, 0.48829, 0.14128, 0.01168)
 
@@ -106,7 +107,8 @@ def _all_lines(x, fs):
     for k in idx:
         y0, y1, y2 = float(db[k - 1]), float(db[k]), float(db[k + 1])
         denom = y0 - 2.0 * y1 + y2
-        delta = 0.5 * (y0 - y2) / denom if denom < 0.0 else 0.0
+        finite = math.isfinite(y0) and math.isfinite(y2)
+        delta = 0.5 * (y0 - y2) / denom if finite and denom < 0.0 else 0.0
         level = y1 - 0.25 * (y0 - y2) * delta
         found.append(((k + delta) * bin_hz, level))
     # Edge bins: a line at DC or at fs / 2 has no neighbour on one side.
@@ -150,6 +152,10 @@ def check(name, x, fs, band, expected) -> list:
         r = row(row_id)
         results.append({"name": name, "row": row_id, "threshold": r.value, "unit": r.unit,
                         "measured": None, "result": "fail", "note": ""})
+    if not expected:
+        for res in results:
+            res["note"] = "no expected lines"
+        return results
     try:
         found = lines(x, fs, band)
     except ValueError as exc:

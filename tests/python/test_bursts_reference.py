@@ -96,8 +96,10 @@ DEPTHS = (25, 100)
 GAMMA_RATES = (40, 45, 60)
 ACCEPTED = ("bursts-40hz.json", "bursts-45hz.json", "bursts-60hz.json")
 REJECTED = {
-    "bursts-no-theta.json": ("/gamma_pac/coupling", "coupled gamma needs a theta reference with AM depth"),
-    "bursts-no-coupling-phase.json": ("/gamma_pac/coupling_phase_deg", "coupled gamma needs a coupling phase"),
+    "bursts-no-theta.json": ("/gamma_pac/coupling", "coupled gamma needs a theta reference with AM depth",
+                             "theta_reference present with am_depth_percent > 0"),
+    "bursts-no-coupling-phase.json": ("/gamma_pac/coupling_phase_deg", "coupled gamma needs a coupling phase",
+                                      "present with coupling bursts"),
 }
 THETA = {"carrier_hz": 450, "rate_hz": 6, "am_depth_percent": 75}
 SAMPLE_RATES = [int(v) for v in load_tables()["sample-rates"].values]
@@ -783,10 +785,11 @@ def test_engine_burst_depth_0_without_theta_equals_uncoupled_depth_0(fs, tapdump
 @pytest.mark.parametrize("fixture", sorted(REJECTED))
 def test_engine_rejects_the_compile_rejected_burst_fixtures(fixture, tapdump, tmp_path):
     load_recipe(fixture)
-    parameter, rule = REJECTED[fixture]
+    parameter, rule, limit = REJECTED[fixture]
     for fs in SAMPLE_RATES:
         result = run_dump(tapdump, FIXTURES_VALID / fixture, fs, tmp_path / f"dump-{fs}", 0, expect_ok=False)
         assert result.returncode == 1, (fixture, fs, result.stdout, result.stderr)
         assert not (tmp_path / f"dump-{fs}" / "gamma.f64").exists(), fixture
         text = result.stdout + result.stderr
-        assert rule in text or parameter in text, (fixture, text)
+        for word in (parameter, rule, limit):
+            assert word in text, (fixture, word, text)

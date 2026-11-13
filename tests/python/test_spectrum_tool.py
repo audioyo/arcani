@@ -321,6 +321,43 @@ def test_an_expected_line_outside_the_band_is_not_found_there():
     assert freq_report["result"] == "fail", freq_report
 
 
+def test_an_empty_expected_list_fails_both_with_a_note():
+    mod = sp()
+    fs = SAMPLE_RATES[0]
+    for report in mod.check("no expected", tones(fs, TONE_SETS["spread"]), fs, None, []):
+        assert report["result"] == "fail", report
+        assert report["measured"] is None, report
+        assert report["note"] == "no expected lines", report
+
+
+# A weak line next to a strong one, as in a burst spectrum: a -55 dB line
+# 6 Hz from a 0 dB line (the theta-rate spacing) and one 2 Hz away (the
+# closest burst line spacing).
+WEAK_NEXT_TO_STRONG = [(400.0, 0.0), (406.0, -55.0), (398.0, -55.0)]
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_a_weak_line_next_to_a_strong_one_is_found_within_both_rows(fs):
+    mod = sp()
+    x = tones(fs, WEAK_NEXT_TO_STRONG)
+    freq_report, level_report = mod.check("weak", x, fs, None, WEAK_NEXT_TO_STRONG)
+    assert freq_report["result"] == "pass", freq_report
+    assert level_report["result"] == "pass", level_report
+    for target in (406.0, 398.0):
+        changed = [(f, level + 2.0 * level_tol()) if f == target else (f, level)
+                   for f, level in WEAK_NEXT_TO_STRONG]
+        _, level_report = mod.check("weak moved", tones(fs, changed), fs, None, WEAK_NEXT_TO_STRONG)
+        assert level_report["result"] == "fail", (target, level_report)
+
+
+def test_a_peak_next_to_a_zero_bin_has_a_finite_line():
+    mod = sp()
+    x = np.zeros(4096)
+    x[0] = 1.0   # an impulse: a flat spectrum, its DC and edge bins included
+    for f, level in mod.lines(x, 48000):
+        assert math.isfinite(f) and math.isfinite(level), (f, level)
+
+
 def test_no_line_in_the_band_fails_both_with_a_note():
     mod = sp()
     fs = SAMPLE_RATES[0]

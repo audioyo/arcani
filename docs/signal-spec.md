@@ -1636,7 +1636,7 @@ a[n] = 1.0 - (d * g[n]) * (1.0 - e[n])      four binary64 operations: d * g, the
 - **On the plateau** `g = 1.0`, so `d * g = d` exactly and `a` is the uncoupled law `1.0 - d * (1.0 - e)` (Gamma PAC layer) bit for bit: at 100 percent the carrier dips to silence at each gamma envelope trough.
 - **At `d = 0`** `a = 1.0` exactly for every sample, theta reference or not. Without a `theta_reference` field `inc_E = 0`, `p_E = 0`, and compile accepts bursts only at gamma depth 0 (Compile order), so the gate never acts.
 
-The gamma envelope runs free: `phase_M` is the one gamma envelope accumulator of Gamma PAC layer, Oscillators, the same clock as uncoupled and smooth swell gamma; it does not restart at a burst. A burst therefore opens on whatever gamma envelope phase the clock has reached. The research run `burst-edge-taper-2026-10-28` restarted the gamma AM at each burst center instead; at a gamma rate that is a whole multiple of the theta rate both give the same signal (Spectrum, below).
+The gamma envelope runs free: `phase_M` is the one gamma envelope accumulator of Gamma PAC layer, Oscillators, the same clock as uncoupled and smooth swell gamma; it does not restart at a burst. A burst therefore opens on whatever gamma envelope phase the clock has reached. The research run `burst-edge-taper-2026-10-28` restarted the gamma AM at each burst center instead; at a gamma rate that is a whole multiple of the theta rate the two agree to within the phase increment rounding of `inc_M` against that multiple of `inc_E` (Core, Frequency error), negligible over the longest session (Spectrum, below).
 
 The engine gate lies in [0, 1] (the edge's raised cosine does, Theta reference, Envelope shapes), so `d * g <= 1`. With `e > 0` (Gamma PAC layer), `(d * g) * (1.0 - e) < 1`, so `a > 0` for every sample and the engine gamma tap is never `-0.0`.
 
@@ -1670,7 +1670,7 @@ Every bound is under row `reference-match` (-100 dBFS).
 | 45 Hz | -58.1 dB | -58.7 dB |
 | 60 Hz | -51.3 dB | -51.3 dB |
 
-At 60 Hz, ten whole gamma cycles per theta cycle, every burst center falls on a gamma envelope peak, so both give the same signal. The test holds the 60 Hz line to the research figure within row `spectrum-level`, and the 40 and 45 Hz lines no louder than -51.3 dB. A carrier-gated rectangular burst at 40 Hz (the carrier silent between bursts, no edges; never an engine signal) reaches about -21 dB, and its hard edges fail the click test (design log 2026-10-28 (o)).
+At 60 Hz, ten whole gamma cycles per theta cycle, every burst center falls on a gamma envelope peak, to within the phase increment rounding (Core, Frequency error; at 44.1 kHz `inc_M` and `10 * inc_E` differ by 4 units per sample), so the two agree to a negligible margin over the longest session. The test holds the 60 Hz line to the research figure within row `spectrum-level`, and the 40 and 45 Hz lines no louder than -51.3 dB. A carrier-gated rectangular burst at 40 Hz (the carrier silent between bursts, no edges; never an engine signal) reaches about -21 dB, and its hard edges fail the click test (design log 2026-10-28 (o)).
 
 **Level.** The gamma layer runs at unit amplitude; level fields arrive in Epic 4. The burst fixtures peak near 2.0, and their 24-bit WAVs clip by the 24-bit rounding rule. They are test fixtures, not for listening.
 
