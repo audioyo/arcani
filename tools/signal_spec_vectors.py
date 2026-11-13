@@ -1,4 +1,4 @@
-"""Writes the worked test vectors of docs/signal-spec.md: core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, binaural layer and rate curve, 24-bit rounding.
+"""Writes the worked test vectors of docs/signal-spec.md: core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer and rate curve, 24-bit rounding.
 
 Usage:
   python tools/signal_spec_vectors.py            write tests/data/signal_spec_vectors.json
@@ -53,6 +53,14 @@ engine or from binary64 library calls:
   values at 25 digits: ideal cosines and sine in decimal arithmetic and the
   exact law on the binary64 depth. The bus is one binary64 addition of the
   engine theta and gamma taps; its ideal is the exact sum of the ideal taps.
+- Bursts (Story 2.4): the burst constants Hb and Wb by the spec's binary64
+  products and an exact nearest-integer rounding, the burst gate (the
+  smoothed on-off segments on u = p_E - C by exact integer comparisons, the
+  engine raised cosine on the edges) and a = 1 - (d * g) * (1 - e) evaluated
+  in binary64 in the spec's operation order (engine bits), with the ideal
+  values at 25 digits: the ideal cosines and sine in decimal arithmetic and
+  the exact law on the binary64 depth. The bus is one binary64 addition of
+  the engine theta and gamma taps; its ideal is the exact sum of the ideal taps.
 - Binaural layer and rate curve (Story 2.5): the cycle cosine (the engine
   sine's fold of p + 2^62 and an odd Taylor polynomial to x^15, coefficients
   the binary64 nearest +-1/k!), the cycles-to-units rule in
@@ -1270,6 +1278,280 @@ def swell_sample_rows():
     return rows
 
 
+# ---------------------------------------------------------------- bursts
+#
+# Story 2.4 (signal spec, Bursts): 50 ms bursts. The burst gate is the
+# smoothed on-off segment rule applied to u = p_E - C mod 2^64, with half
+# width Hb (25 ms of theta envelope phase) and edge Wb (10 ms); it scales the
+# gamma AM depth, a = 1 - (d * g) * (1 - e). The gamma envelope runs free.
+# The fixed constants are written here in their row units; the tests check
+# them against the range rows burst-width and burst-edge (ms).
+
+BURST_WIDTH_MS = 50.0   # row burst-width: the full width
+BURST_EDGE_MS = 10.0    # row burst-edge: each raised-cosine edge, inside the width
+GAMMA_COUPLINGS_2_4 = ("uncoupled", "smooth_swell", "bursts")
+COUPLED_2_4 = ("smooth_swell", "bursts")
+BURST_RATES_HZ = (1.0, 2.0, 5.5, 6.0)       # the theta edge length rates
+BURST_GATE_RATES_HZ = (1.0, 6.0)            # both ends of the theta rate range
+BURST_GATE_DEGREES = (0.0, 270.0)
+BURST_AMPLITUDE_DEPTHS = (0.0, 25.0, 100.0)
+BURST_AMPLITUDE_GAMMA_PHASES = (0, HALF)    # gamma envelope peak and trough
+
+
+def burst_half_width_units(rate_hz):
+    """Hb: w = (50.0 / 1000.0 / 2) * rate_hz, then w * 2^64 (exact), nearest, ties to even."""
+    w = (BURST_WIDTH_MS / 1000.0 / 2) * rate_hz
+    return nearest_u64(w * 2.0**64), w
+
+
+def burst_edge_units(rate_hz):
+    """Wb: w = (10.0 / 1000.0) * rate_hz, then w * 2^64 (exact), nearest, ties to even."""
+    w = (BURST_EDGE_MS / 1000.0) * rate_hz
+    return nearest_u64(w * 2.0**64), w
+
+
+def burst_region(u, hb, wb):
+    """Name of the burst gate segment of u = p_E - C mod 2^64 (exact integer tests)."""
+    m = u if u < HALF else CYCLE - u
+    if m <= hb - wb:
+        return "center" if u == 0 else "plateau"
+    if m >= hb:
+        return "off"
+    return "falling edge" if u < HALF else "rising edge"
+
+
+def burst_gate(p_e, c_units, hb, wb):
+    """Engine burst gate g in binary64, the spec's segments and operation order."""
+    u = (p_e - c_units) % CYCLE
+    m = u if u < HALF else CYCLE - u
+    if m <= hb - wb:
+        return 1.0
+    if m >= hb:
+        return 0.0
+    return engine_raised_cosine(m - (hb - wb), wb)
+
+
+def burst_gate_ideal(p_e, c_units, hb, wb):
+    """Ideal burst gate: the same segments, the ideal raised cosine (Decimal)."""
+    u = (p_e - c_units) % CYCLE
+    m = u if u < HALF else CYCLE - u
+    with localcontext() as ctx:
+        ctx.prec = PREC + 10
+        if m <= hb - wb:
+            return Decimal(1)
+        if m >= hb:
+            return Decimal(0)
+        return (1 + decimal_cos_pi(m - (hb - wb), wb)) * (Decimal(1) / Decimal(2))
+
+
+class BurstLayer(GammaLayer):
+    """One burst gamma PAC layer at one sample rate (signal spec, Bursts)."""
+
+    def __init__(self, carrier_hz, rate_hz, depth_percent, phase_deg, theta_rate, fs):
+        super().__init__(carrier_hz, rate_hz, depth_percent, fs)
+        self.phase_deg = phase_deg
+        self.c_units, self.c_ratio = coupling_phase_units(phase_deg)
+        self.inc_theta_envelope = increment(theta_rate, fs)[0]
+        self.hb, _ = burst_half_width_units(theta_rate)
+        self.wb, _ = burst_edge_units(theta_rate)
+
+    def theta_envelope_phase(self, n):
+        return (n * self.inc_theta_envelope) % CYCLE
+
+    def engine_parts(self, n):
+        """(g, e, a, gamma) in binary64, the spec's per-sample operation order."""
+        pc, pm = self.phases(n)
+        g = burst_gate(self.theta_envelope_phase(n), self.c_units, self.hb, self.wb)
+        e = gamma_envelope(pm)
+        a = coupled_amplitude(self.depth, g, e)
+        return g, e, a, a * engine_sine(pc)
+
+    def ideal_parts(self, n):
+        """(g, gamma) ideal: exact law on the binary64 d, ideal cosines and sine."""
+        pc, pm = self.phases(n)
+        with localcontext() as ctx:
+            ctx.prec = PREC + 10
+            g = burst_gate_ideal(self.theta_envelope_phase(n), self.c_units, self.hb, self.wb)
+            e = gamma_envelope_ideal(pm)
+            a = 1 - exact_decimal(self.depth) * g * (1 - e)
+            return g, a * ideal_sine_decimal(pc)
+
+
+BURST_LENGTH_S = 5.0
+BURST_THETA = (450.0, 6.0, 75.0, "sine")   # theta carrier, rate, depth, shape
+BURST_GAMMA = (250.0, 100.0, 0.0)          # gamma carrier, depth, coupling phase
+
+# (fixture, gamma rate in Hz): the Story 2.4 burst fixtures in
+# recipes/fixtures/valid/. In this order they are the hash probe's
+# gamma-bursts-<fs> components.
+BURST_FIXTURES = (
+    ("bursts-40hz.json", 40.0),
+    ("bursts-45hz.json", 45.0),
+    ("bursts-60hz.json", 60.0),
+)
+
+
+def burst_edge_rows():
+    rows = []
+    for rate in BURST_RATES_HZ:
+        hb, wh = burst_half_width_units(rate)
+        wb, we = burst_edge_units(rate)
+        # Every edge fits inside its half of the burst, and the burst inside
+        # half a theta cycle, so bursts never overlap.
+        assert wb < hb - wb and hb < HALF, (rate, hb, wb)
+        rows.append({
+            "rate_hex": hexf(rate),
+            "half_width_s_hex": hexf(BURST_WIDTH_MS / 1000.0 / 2),
+            "w_half_width_hex": hexf(wh), "hb_units": str(hb),
+            "edge_s_hex": hexf(BURST_EDGE_MS / 1000.0),
+            "w_edge_hex": hexf(we), "wb_units": str(wb),
+            "plateau_end_units": str(hb - wb),
+        })
+    return rows
+
+
+def burst_gate_offsets(hb, wb):
+    """u values: the center, both sides of every segment boundary, mid-edge,
+    the half cycle, and the mirror image of each on the rising side."""
+    p_end = hb - wb
+    falling = (0, 1, p_end, p_end + 1, p_end + wb // 2, hb - 1, hb, HALF)
+    rising = tuple(CYCLE - u for u in (1, p_end, p_end + 1, p_end + wb // 2, hb - 1, hb))
+    return falling + rising
+
+
+def burst_gate_rows():
+    rows = []
+    for rate in BURST_GATE_RATES_HZ:
+        hb, _ = burst_half_width_units(rate)
+        wb, _ = burst_edge_units(rate)
+        for deg in BURST_GATE_DEGREES:
+            c, _ = coupling_phase_units(deg)
+            for u in burst_gate_offsets(hb, wb):
+                p_e = (c + u) % CYCLE
+                g = burst_gate(p_e, c, hb, wb)
+                assert 0.0 <= g <= 1.0, (rate, deg, u, g)
+                rows.append({
+                    "rate_hex": hexf(rate), "deg_hex": hexf(deg), "c_units": str(c),
+                    "hb_units": str(hb), "wb_units": str(wb),
+                    "phase_theta_envelope": str(p_e), "u": str(u),
+                    "region": burst_region(u, hb, wb), "g_bits": bits(g),
+                    "ideal_g": format_trimmed(burst_gate_ideal(p_e, c, hb, wb)),
+                })
+    return rows
+
+
+def burst_amplitude_rows():
+    """a = 1 - (d * g) * (1 - e) at the burst center, mid falling edge, and
+    off, at the gamma envelope peak and trough, at 6 Hz and C = 0."""
+    rate = BURST_GATE_RATES_HZ[-1]
+    hb, _ = burst_half_width_units(rate)
+    wb, _ = burst_edge_units(rate)
+    rows = []
+    for depth_percent in BURST_AMPLITUDE_DEPTHS:
+        d = depth_percent / 100.0
+        for u in (0, hb - wb + wb // 2, hb):
+            for p_m in BURST_AMPLITUDE_GAMMA_PHASES:
+                g = burst_gate(u, 0, hb, wb)
+                e = gamma_envelope(p_m)
+                a = coupled_amplitude(d, g, e)
+                assert 0.0 < a <= 1.0, (depth_percent, u, p_m)
+                if g == 0.0 or d == 0.0:
+                    assert a == 1.0, (depth_percent, u, p_m)   # unmodulated, exactly
+                if g == 1.0:
+                    assert a == 1.0 - d * (1.0 - e), (depth_percent, u, p_m)  # the uncoupled law
+                with localcontext() as ctx:
+                    ctx.prec = PREC + 10
+                    i_g = burst_gate_ideal(u, 0, hb, wb)
+                    i_a = 1 - exact_decimal(d) * i_g * (1 - gamma_envelope_ideal(p_m))
+                rows.append({
+                    "depth_hex": hexf(depth_percent), "rate_hex": hexf(rate),
+                    "phase_theta_envelope": str(u), "region": burst_region(u, hb, wb),
+                    "phase_gamma_envelope": str(p_m),
+                    "g_bits": bits(g), "e_bits": bits(e), "a_bits": bits(a),
+                    "ideal_g": format_trimmed(i_g), "ideal_a": format_trimmed(i_a),
+                })
+    return rows
+
+
+def burst_layers(fs):
+    carrier, depth, deg = BURST_GAMMA
+    for fixture, rate in BURST_FIXTURES:
+        theta = ThetaLayer(*BURST_THETA, fs)
+        gamma = BurstLayer(carrier, rate, depth, deg, BURST_THETA[1], fs)
+        yield fixture, rate, theta, gamma
+
+
+def burst_sample_indices(gamma, frames):
+    """Start, block boundaries, around every segment boundary of the burst at
+    sample 0 and of the next burst, both sides of the first gamma envelope
+    trough, the last sample, past the end."""
+    indices = {0, 1, 63, 64, 65, 127, 128, 1000, frames - 1, frames, frames + 63}
+    inc = gamma.inc_theta_envelope
+    c, hb, wb = gamma.c_units, gamma.hb, gamma.wb
+    for u in (hb - wb, hb, CYCLE - hb, CYCLE - (hb - wb), CYCLE):
+        b = (c + u) % CYCLE or CYCLE
+        n = first_at_or_above(b, inc)
+        # Some boundaries are strict (plateau end, edge start), so the sample
+        # after the first one at or above the boundary is kept as well.
+        indices.update((n - 1, n, n + 1))
+    n = first_at_or_above(HALF, gamma.inc_rate)
+    indices.update((n - 1, n))
+    return sorted(i for i in indices if i >= 0)
+
+
+def burst_sample_rows():
+    rows = []
+    for fs in RATES:
+        for fixture, rate, theta, gamma in burst_layers(fs):
+            frames, _ = samples(BURST_LENGTH_S, fs)
+            for n in burst_sample_indices(gamma, frames):
+                pc, pm = gamma.phases(n)
+                pe = gamma.theta_envelope_phase(n)
+                u = (pe - gamma.c_units) % CYCLE
+                past_end = n >= frames
+                if past_end:
+                    g_bits = e_bits = a_bits = gamma_bits = theta_bits = bus_bits = bits(0.0)
+                    ideal_g = ideal_gamma = ideal_bus = "0"
+                else:
+                    g, e, a, gt = gamma.engine_parts(n)
+                    # a > 0 (e > 0 and d * g <= 1), so the engine tap is never -0.0.
+                    assert a > 0.0 and bits(gt) != bits(-0.0), (fixture, fs, n)
+                    if g == 0.0:
+                        assert a == 1.0, (fixture, fs, n)   # off the burst: unmodulated
+                    t = theta.engine_sample(n)
+                    bus = t + gt  # stereo bus: one binary64 addition
+                    g_bits, e_bits, a_bits = bits(g), bits(e), bits(a)
+                    gamma_bits, theta_bits, bus_bits = bits(gt), bits(t), bits(bus)
+                    with localcontext() as ctx:
+                        ctx.prec = PREC + 10
+                        i_g, i_gt = gamma.ideal_parts(n)
+                        i_t = theta.ideal_parts(n)[1]
+                        ideal_g, ideal_gamma = format_ideal(i_g), format_ideal(i_gt)
+                        ideal_bus = format_ideal(i_t + i_gt)
+                row = {
+                    "case": "past_end" if past_end else "signal",
+                    "fixture": fixture, "fs": fs,
+                    "carrier_hex": hexf(BURST_GAMMA[0]), "rate_hex": hexf(rate),
+                    "depth_hex": hexf(BURST_GAMMA[1]), "length_hex": hexf(BURST_LENGTH_S),
+                    "carrier_wave": "sine", "coupling": "bursts", "deg_hex": hexf(BURST_GAMMA[2]),
+                    "c_units": str(gamma.c_units),
+                    "hb_units": str(gamma.hb), "wb_units": str(gamma.wb),
+                }
+                row.update(_theta_columns(BURST_THETA))
+                row.update({
+                    "inc_carrier": str(gamma.inc_carrier), "inc_rate": str(gamma.inc_rate),
+                    "inc_theta_envelope": str(gamma.inc_theta_envelope),
+                    "frames": str(frames), "n": str(n),
+                    "phase_carrier": str(pc), "phase_rate": str(pm),
+                    "phase_theta_envelope": str(pe),
+                    "region": "past end" if past_end else burst_region(u, gamma.hb, gamma.wb),
+                    "g_bits": g_bits, "e_bits": e_bits, "a_bits": a_bits,
+                    "gamma_bits": gamma_bits, "theta_bits": theta_bits, "bus_bits": bus_bits,
+                    "ideal_g": ideal_g, "ideal_gamma": ideal_gamma, "ideal_bus": ideal_bus,
+                })
+                rows.append(row)
+    return rows
+
 # ------------------------------------------------- binaural layer and rate curve
 #
 # Story 2.5 (signal spec, Binaural layer and Rate curve). The right ear plays
@@ -1717,7 +1999,7 @@ def quantize_rows():
 
 def build():
     return {
-        "spec": "docs/signal-spec.md (sections core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, binaural layer, rate curve, and 24-bit rounding)",
+        "spec": "docs/signal-spec.md (sections core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer, rate curve, and 24-bit rounding)",
         "generator": "tools/signal_spec_vectors.py",
         "cycle": str(CYCLE),
         "sine_coefficients": sine_coefficients(),
@@ -1759,6 +2041,17 @@ def build():
         "coupling_phases": coupling_phase_rows(),
         "swells": swell_rows(),
         "swell_samples": swell_sample_rows(),
+        "burst_constants": {
+            "couplings": list(GAMMA_COUPLINGS_2_4),
+            "coupled": list(COUPLED_2_4),
+            "width_ms": dec(BURST_WIDTH_MS),
+            "edge_ms": dec(BURST_EDGE_MS),
+            "burst_length_s": dec(BURST_LENGTH_S),
+        },
+        "burst_edges": burst_edge_rows(),
+        "burst_gates": burst_gate_rows(),
+        "burst_amplitudes": burst_amplitude_rows(),
+        "burst_samples": burst_sample_rows(),
         "binaural_constants": {
             "waveforms": list(BINAURAL_WAVEFORMS),
             "modeled_waveforms": list(BINAURAL_MODELED_WAVEFORMS),
@@ -1961,6 +2254,58 @@ def tables(data):
                    f"| {r['phase_rate']} | {r['phase_theta_envelope']} | `{r['s_bits']}` | `{r['e_bits']}` "
                    f"| `{r['a_bits']}` | `{r['gamma_bits']}` | `{r['theta_bits']}` | `{r['bus_bits']}` "
                    f"| {r['ideal_s']} | {r['ideal_gamma']} | {r['ideal_bus']} |")
+    out.append("")
+    out.append("| Rate (hex) | Half width seconds (hex) | w = 0.025 * rate (hex) | Hb "
+               "| Edge seconds (hex) | w = 0.01 * rate (hex) | Wb | Hb - Wb |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["burst_edges"]:
+        out.append(f"| `{r['rate_hex']}` | `{r['half_width_s_hex']}` | `{r['w_half_width_hex']}` "
+                   f"| {r['hb_units']} | `{r['edge_s_hex']}` | `{r['w_edge_hex']}` "
+                   f"| {r['wb_units']} | {r['plateau_end_units']} |")
+    out.append("")
+    out.append("| Theta rate (hex) | Coupling phase (hex) | C | Hb | Wb | Theta envelope phase | u "
+               "| Segment | g (binary64 bits) | g ideal |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["burst_gates"]:
+        out.append(f"| `{r['rate_hex']}` | `{r['deg_hex']}` | {r['c_units']} | {r['hb_units']} "
+                   f"| {r['wb_units']} | {r['phase_theta_envelope']} | {r['u']} | {r['region']} "
+                   f"| `{r['g_bits']}` | {r['ideal_g']} |")
+    out.append("")
+    out.append("| Depth (hex) | Theta rate (hex) | Theta envelope phase | Segment | Gamma envelope phase "
+               "| g (binary64 bits) | e (binary64 bits) | a (binary64 bits) | g ideal | a ideal |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["burst_amplitudes"]:
+        out.append(f"| `{r['depth_hex']}` | `{r['rate_hex']}` | {r['phase_theta_envelope']} "
+                   f"| {r['region']} | {r['phase_gamma_envelope']} | `{r['g_bits']}` | `{r['e_bits']}` "
+                   f"| `{r['a_bits']}` | {r['ideal_g']} | {r['ideal_a']} |")
+    out.append("")
+    out.append("| Fixture | fs | Carrier (hex) | Rate (hex) | Depth (hex) | Coupling | Coupling phase (hex) | C "
+               "| Theta carrier (hex) | Theta rate (hex) | Theta depth (hex) | Theta shape "
+               "| Carrier inc | Rate inc | Theta envelope inc | Hb | Wb | Frames |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- "
+               "| --- | --- | --- |")
+    seen = set()
+    for r in data["burst_samples"]:
+        key = (r["fixture"], r["fs"])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(f"| {r['fixture']} | {r['fs']} | `{r['carrier_hex']}` | `{r['rate_hex']}` "
+                   f"| `{r['depth_hex']}` | {r['coupling']} | `{r['deg_hex']}` | {r['c_units']} "
+                   f"| `{r['theta_carrier_hex']}` | `{r['theta_rate_hex']}` | `{r['theta_depth_hex']}` "
+                   f"| {r['theta_shape']} | {r['inc_carrier']} | {r['inc_rate']} "
+                   f"| {r['inc_theta_envelope']} | {r['hb_units']} | {r['wb_units']} | {r['frames']} |")
+    out.append("")
+    out.append("| Case | Fixture | fs | n | Carrier phase | Envelope phase | Theta envelope phase | Segment "
+               "| g (binary64 bits) | e (binary64 bits) | a (binary64 bits) | Gamma (binary64 bits) "
+               "| Theta (binary64 bits) | Bus (binary64 bits) | g ideal | Gamma ideal | Bus ideal |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- "
+               "| --- | --- |")
+    for r in data["burst_samples"]:
+        out.append(f"| {r['case']} | {r['fixture']} | {r['fs']} | {r['n']} | {r['phase_carrier']} "
+                   f"| {r['phase_rate']} | {r['phase_theta_envelope']} | {r['region']} | `{r['g_bits']}` "
+                   f"| `{r['e_bits']}` | `{r['a_bits']}` | `{r['gamma_bits']}` | `{r['theta_bits']}` "
+                   f"| `{r['bus_bits']}` | {r['ideal_g']} | {r['ideal_gamma']} | {r['ideal_bus']} |")
     out.append("")
     out.append("| Term | Exact | Binary64 (hex float) |")
     out.append("| --- | --- | --- |")
