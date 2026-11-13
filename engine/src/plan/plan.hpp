@@ -110,7 +110,7 @@ struct BinauralEars {
   std::uint64_t cycle_start = 0;       // P0, coupling phase rule (start_phase_deg)
   std::uint64_t cycle_increment = 0;   // inc_P, phase increment rule (1.0 / period_s, fs)
   double cycle_k = 0.0;                // K = (swing_hz * period_s) * kInvTwoPi
-  double cycle_c0 = 0.0;               // c0 = sine(P0 + 2^62 mod 2^64)
+  double cycle_c0 = 0.0;               // c0 = cycle_cosine(P0)
 };
 
 struct Plan {

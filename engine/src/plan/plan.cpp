@@ -8,7 +8,6 @@
 
 #include "core/envelope.hpp"
 #include "core/phase.hpp"
-#include "core/sine.hpp"
 #include "validate/validate.hpp"
 
 namespace arcani::plan {
@@ -145,12 +144,11 @@ CompileResult compile(std::string_view utf8, Mode mode, std::uint32_t sample_rat
     p.binaural.amplitude = {1.0, 1.0};
     if (b.beat_rate_cycle) {
       const recipe::BeatRateCycle& cycle = *b.beat_rate_cycle;
-      constexpr std::uint64_t kQuarter = std::uint64_t{1} << 62;
       p.binaural.cycle = true;
       p.binaural.cycle_start = core::coupling_phase_units(cycle.start_phase_deg);
       p.binaural.cycle_increment = core::phase_increment(1.0 / cycle.period_s, sample_rate);
       p.binaural.cycle_k = (cycle.swing_hz * cycle.period_s) * core::kInvTwoPi;
-      p.binaural.cycle_c0 = core::sine(p.binaural.cycle_start + kQuarter);  // mod 2^64
+      p.binaural.cycle_c0 = core::cycle_cosine(p.binaural.cycle_start);  // the per-sample function
     }
   }
   if (mute != MuteEar::None) {

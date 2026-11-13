@@ -54,10 +54,18 @@ inline constexpr double kInvTwoPi = 0x1.45f306dc9c883p-3;
 // v - trunc(v) is exact; NaN, infinities, and |v| >= 2^52 (an integer) give 0.
 std::uint64_t cycles_to_units(double v) noexcept;
 
+// Cycle cosine (docs/signal-spec.md, Rate curve, Cycle cosine): the cosine of
+// a 64-bit phase, more exact than the engine sine because U scales its error
+// by K: the engine sine's exact fold of phase + 2^62, its one conversion, and
+// an odd Taylor polynomial to x^15 in fixed Horner order. Within 1e-10 of
+// cos(2 pi phase / 2^64) (row cycle-cosine-error); exactly +0.0 at 2^62 and
+// 3 * 2^62. The one function for both c0 and the per-sample cosine.
+double cycle_cosine(std::uint64_t phase) noexcept;
+
 // Rate curve offset U (docs/signal-spec.md, Rate curve, Engine):
-// cycles_to_units(k * (c0 - sine(cycle_phase + 2^62))). Its only signal
-// input is the beat rate cycle phase; k (K) and c0 (the start phase cosine)
-// are plan constants.
+// cycles_to_units(k * (c0 - cycle_cosine(cycle_phase))). Its only signal
+// input is the beat rate cycle phase; k (K) and c0 (cycle_cosine of P0) are
+// plan constants.
 std::uint64_t rate_cycle_offset(std::uint64_t cycle_phase, double k, double c0) noexcept;
 
 // Smooth swell (docs/signal-spec.md, Coupling, Swell law): one raised cosine
