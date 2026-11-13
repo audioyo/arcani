@@ -78,22 +78,28 @@ struct ThetaOscillator {
   std::uint64_t half_on_units = 0;  // H
 };
 
-// Gamma PAC layer (docs/signal-spec.md, Gamma PAC layer, and Coupling): a
-// sine carrier amplitude-modulated at the gamma rate by the sine envelope,
-// the same value in both channels. Carrier and envelope phases are each 0 at
-// n = 0. Per sample: e = sine_envelope(phase_M); uncoupled,
-// a = 1.0 - depth * (1.0 - e), a depth constant for the render; coupled
-// (smooth swell), s = swell(phase_E, coupling_phase_units) from the theta
-// reference's envelope phase phase_E alone and
-// a = 1.0 - (depth * s) * (1.0 - e); then gamma = a * sine(phase_G). Without
-// a gamma_pac field, present is false and gamma is +0.0.
+// Gamma PAC layer (docs/signal-spec.md, Gamma PAC layer, Coupling, and
+// Bursts): a sine carrier amplitude-modulated at the gamma rate by the sine
+// envelope, the same value in both channels. Carrier and envelope phases are
+// each 0 at n = 0, and the envelope runs free for every coupling. Per sample:
+// e = sine_envelope(phase_M); uncoupled, a = 1.0 - depth * (1.0 - e), a depth
+// constant for the render; smooth swell, s = swell(phase_E,
+// coupling_phase_units) and a = 1.0 - (depth * s) * (1.0 - e); bursts,
+// g = burst(phase_E, coupling_phase_units, burst_half_width_units,
+// burst_edge_units) and a = 1.0 - (depth * g) * (1.0 - e). The coupled factor
+// reads the theta reference's envelope phase phase_E alone. Then
+// gamma = a * sine(phase_G). Without a gamma_pac field, present is false and
+// gamma is +0.0.
 struct GammaOscillator {
   bool present = false;
   std::uint64_t increment = 0;           // carrier: phase increment rule (carrier_hz, fs)
   std::uint64_t envelope_increment = 0;  // envelope: phase increment rule (rate_hz, fs)
   double depth = 0.0;                    // d = am_depth_percent / 100.0
-  bool coupled = false;                  // smooth_swell
-  std::uint64_t coupling_phase_units = 0;  // C, coupling phase rule (coupled only)
+  recipe::GammaCoupling coupling = recipe::GammaCoupling::Uncoupled;  // the coupling kind
+  bool coupled = false;                      // smooth_swell or bursts
+  std::uint64_t coupling_phase_units = 0;    // C, coupling phase rule (coupled only)
+  std::uint64_t burst_half_width_units = 0;  // Hb at the theta rate (bursts only)
+  std::uint64_t burst_edge_units = 0;        // Wb at the theta rate (bursts only)
 };
 
 // Binaural layer (docs/signal-spec.md, Binaural layer and Rate curve): a pure

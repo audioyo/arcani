@@ -19,6 +19,7 @@ The repo's threshold table and locked-range table (spine Conventions) are built 
 | Determinism | Same recipe, engine version, seed, sample rate: byte-identical file | CLAUDE.md rule 1; FR-6 |
 | Cross-platform | Identical hashes across the AD-9 CI matrix; a component proven unable falls back to -100 dBFS, logged | AD-9; design log (j) |
 | Block-size invariance | Identical bytes at 1, 64, 512, 4096, and 997 (odd) frames per call | AD-10; design log 2026-11-06 (kk) |
+| Spectrum lines | The spectrum tool finds every line of a Python-synthesized multi-tone signal within 0.05 Hz of its frequency and 0.5 dB of its level re the strongest line | Design log 2026-11-13 (qq); Story 3.1 reuses it |
 | Clicks | No discontinuity above -60 dBFS in an 8 kHz high-pass at loop seams, ramp edges, burst edges | Plan Test thresholds |
 | Dropouts | No run of all-zero samples longer than 1 ms in a channel where the recipe sets a non-zero level | Design log (i) |
 | NaN or infinite values | Zero tolerance | FR-13 |

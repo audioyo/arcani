@@ -44,8 +44,9 @@ constexpr Field kFields[] = {
     {"/gamma_pac/carrier_wave", String, LoudnessRelevant, true, "", 1.0},
     // One of the schema enum members (recipe::kGammaCouplingEnum).
     {"/gamma_pac/coupling", String, LoudnessRelevant, true, "", 1.0},
-    // Story 2.3. Required with smooth_swell and rejected with uncoupled; both
-    // rules run after every range check (validate/validate.hpp).
+    // Story 2.3. Required with smooth_swell and (Story 2.4) bursts, and
+    // rejected with uncoupled; both rules run after every range check
+    // (validate/validate.hpp).
     {"/gamma_pac/coupling_phase_deg", Number, LoudnessRelevant, false, "coupling-phase", 1.0},
     {"/binaural", Object, LoudnessRelevant, false, "", 1.0},
     {"/binaural/carrier_left_hz", Number, LoudnessRelevant, true, "binaural-carrier", 1.0},

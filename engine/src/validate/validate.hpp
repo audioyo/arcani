@@ -70,13 +70,15 @@ std::optional<recipe::Error> check_ranges(const recipe::Recipe& r);
 // 4. a non-sine gamma carrier: parameter /gamma_pac/carrier_wave, value the
 //    text (triangle or softened_square), rule kNonSineCarrierRule, limit
 //    kModeledGammaCarrierWaves. The signal spec models only the sine carrier;
-// 5. (AD-5, docs/signal-spec.md, Coupling) smooth_swell with gamma
-//    am_depth_percent > 0 and no theta reference, or a theta reference at
-//    am_depth_percent 0: parameter /gamma_pac/coupling, value smooth_swell,
-//    rule kCoupledNeedsThetaRule, limit kCoupledNeedsThetaLimit;
-// 6. smooth_swell without coupling_phase_deg: parameter
+// 5. (AD-5, docs/signal-spec.md, Coupling and Bursts) coupled gamma
+//    (smooth_swell or bursts) with am_depth_percent > 0 and no theta
+//    reference, or a theta reference at am_depth_percent 0: parameter
+//    /gamma_pac/coupling, value the coupling (smooth_swell or bursts), rule
+//    kCoupledNeedsThetaRule, limit kCoupledNeedsThetaLimit;
+// 6. coupled gamma without coupling_phase_deg: parameter
 //    /gamma_pac/coupling_phase_deg, value absent, rule kCoupledNeedsPhaseRule,
-//    limit kCoupledNeedsPhaseLimit;
+//    limit kCoupledNeedsPhaseLimit (smooth_swell) or kBurstsNeedsPhaseLimit
+//    (bursts);
 // 7. uncoupled with coupling_phase_deg: parameter
 //    /gamma_pac/coupling_phase_deg, value the phase, rule
 //    kPhaseNeedsCoupledRule, limit kPhaseNeedsCoupledLimit;
@@ -94,6 +96,7 @@ inline constexpr std::string_view kCoupledNeedsThetaRule = "coupled gamma needs 
 inline constexpr std::string_view kCoupledNeedsThetaLimit = "theta_reference present with am_depth_percent > 0";
 inline constexpr std::string_view kCoupledNeedsPhaseRule = "coupled gamma needs a coupling phase";
 inline constexpr std::string_view kCoupledNeedsPhaseLimit = "present with coupling smooth_swell";
+inline constexpr std::string_view kBurstsNeedsPhaseLimit = "present with coupling bursts";
 inline constexpr std::string_view kPhaseNeedsCoupledRule = "coupling phase needs coupled gamma";
 inline constexpr std::string_view kPhaseNeedsCoupledLimit = "absent with coupling uncoupled";
 inline constexpr std::string_view kNonSineBinauralRule = "non-sine binaural not modeled";

@@ -9,7 +9,8 @@
 // stub-chain-blocks-48000.f32, theta-envelopes-44100.f32,
 // theta-envelopes-48000.f32, gamma-uncoupled-44100.f32,
 // gamma-uncoupled-48000.f32, gamma-swell-44100.f32, gamma-swell-48000.f32,
-// binaural-cycle-44100.f32, binaural-cycle-48000.f32).
+// binaural-cycle-44100.f32, binaural-cycle-48000.f32, gamma-bursts-44100.f32,
+// gamma-bursts-48000.f32).
 // No hashing here:
 // tools/hash_manifest.py hashes the files on the host.
 //
@@ -95,6 +96,18 @@
 // converted to float32, one fixture after another.
 // tests/python/test_probe_swell.py checks each segment against
 // reference/stub_chain.py.
+//
+// Components gamma-bursts-44100 and gamma-bursts-48000 (Story 2.4): the three
+// committed burst fixtures (docs/signal-spec.md, Vectors: burst fixtures, in
+// that order: recipes/fixtures/valid/bursts-40hz.json, bursts-45hz,
+// bursts-60hz), each a 250 Hz sine carrier amplitude-modulated at that gamma
+// rate with its AM depth opening to 100 percent for 50 ms bursts at the 0
+// degree coupling phase, plus a theta reference (450 Hz carrier
+// amplitude-modulated at 6 Hz by the sine shape, 75 percent depth), 5 s.
+// Embedded (kBurstRates) with the fixtures' values, compiled in measure mode,
+// rendered in one call, interleaved stereo, each binary64 sample converted
+// to float32, one fixture after another. tests/python/test_probe_bursts.py
+// checks each segment against reference/stub_chain.py.
 //
 // Components binaural-cycle-44100 and binaural-cycle-48000 (Story 2.5): the
 // fixture recipes/fixtures/valid/binaural-cycle-sleep.json (docs/signal-spec.md,
@@ -295,6 +308,39 @@ std::string swell_recipe(const SwellFixture& f) {
 })";
 }
 
+// Burst fixtures in probe order: the gamma rate (as JSON text).
+constexpr const char* kBurstRates[] = {"40", "45", "60"};
+
+// The recipe of one burst fixture (bursts-<rate>hz), with the fixture file's
+// values.
+std::string bursts_recipe(const char* rate_hz) {
+  return std::string(R"({
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani hash probe",
+  "date": "2026-11-13",
+  "rationale": "Hash probe burst component (Story 2.4): 250 Hz sine carrier amplitude-modulated at the gamma rate, its AM depth opening to 100 percent for 50 ms bursts at the 0 degree coupling phase of a 450 Hz theta reference amplitude-modulated at 6 Hz by the sine envelope, 75 percent depth, 5 s.",
+  "length_s": 5,
+  "loudness_target_lufs": -36,
+  "theta_reference": {
+    "carrier_hz": 450,
+    "rate_hz": 6,
+    "am_depth_percent": 75,
+    "shape": "sine"
+  },
+  "gamma_pac": {
+    "carrier_hz": 250,
+    "rate_hz": )") +
+         rate_hz + R"(,
+    "am_depth_percent": 100,
+    "carrier_wave": "sine",
+    "coupling": "bursts",
+    "coupling_phase_deg": 0
+  }
+})";
+}
+
 constexpr char kBinauralCycleRecipe[] = R"({
   "schema_version": "1.0",
   "engine_version": "0.0.1",
@@ -409,6 +455,19 @@ std::vector<float> probe_swell(std::uint32_t fs) {
   return out;
 }
 
+// The burst fixtures in turn; empty if any one fails.
+std::vector<float> probe_bursts(std::uint32_t fs) {
+  std::vector<float> out;
+  for (const char* rate : kBurstRates) {
+    const std::vector<float> part = render_recipe(bursts_recipe(rate), fs, false);
+    if (part.empty()) {
+      return {};
+    }
+    out.insert(out.end(), part.begin(), part.end());
+  }
+  return out;
+}
+
 // The binaural cycle fixture: 5 s from frame 0, then 5 s after a seek to
 // 55 s; empty on any API failure.
 std::vector<float> probe_binaural_cycle(std::uint32_t fs) {
@@ -494,6 +553,8 @@ int main(int argc, char** argv) {
       {"gamma-swell-48000", probe_swell(48000)},
       {"binaural-cycle-44100", probe_binaural_cycle(44100)},
       {"binaural-cycle-48000", probe_binaural_cycle(48000)},
+      {"gamma-bursts-44100", probe_bursts(44100)},
+      {"gamma-bursts-48000", probe_bursts(48000)},
   };
   for (const Component& c : components) {
     if (c.samples.empty()) {

@@ -79,7 +79,7 @@
       "parameter": "/gamma_pac/coupling",
       "rule": "enum",
       "value": "swell",
-      "limit": "uncoupled, smooth_swell",
+      "limit": "uncoupled, smooth_swell, bursts",
       "schema_keyword": "enum"
     },
     "gamma-coupling-phase-as-string.json": {

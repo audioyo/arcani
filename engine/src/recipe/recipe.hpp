@@ -49,13 +49,13 @@ struct ThetaReference {
 // SoftenedSquare are schema-valid only so that compile can reject them by name.
 enum class GammaCarrierWave { Sine, Triangle, SoftenedSquare };
 
-// Gamma PAC coupling (docs/signal-spec.md, Coupling). Story 2.4 adds bursts.
-enum class GammaCoupling { Uncoupled, SmoothSwell };
+// Gamma PAC coupling (docs/signal-spec.md, Coupling and Bursts).
+enum class GammaCoupling { Uncoupled, SmoothSwell, Bursts };
 
 // The schema enums of gamma_pac.carrier_wave and gamma_pac.coupling, in
 // schema order (the limit of an enum error).
 inline constexpr std::string_view kGammaCarrierWaveEnum = "sine, triangle, softened_square";
-inline constexpr std::string_view kGammaCouplingEnum = "uncoupled, smooth_swell";
+inline constexpr std::string_view kGammaCouplingEnum = "uncoupled, smooth_swell, bursts";
 
 struct GammaPac {
   double carrier_hz = 0.0;

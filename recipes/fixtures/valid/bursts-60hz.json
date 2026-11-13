@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-13",
+  "rationale": "Burst fixture (Story 2.4): 5 s. Theta reference: 450 Hz carrier amplitude-modulated at 6 Hz by the sine envelope, 75 percent AM depth. Gamma PAC layer: 250 Hz sine carrier amplitude-modulated at 60 Hz, its AM depth opening to 100 percent for 50 ms bursts (10 ms raised-cosine edges inside, a 30 ms plateau) centered on the 0 degree coupling phase of the theta reference, 0 between bursts. Both the same in both channels; together they can peak near 2.0, so the 24-bit WAV can clip. Values are placeholders, not starter defaults. A test fixture, not for listening.",
+  "length_s": 5,
+  "loudness_target_lufs": -36,
+  "theta_reference": {
+    "carrier_hz": 450,
+    "rate_hz": 6,
+    "am_depth_percent": 75,
+    "shape": "sine"
+  },
+  "gamma_pac": {
+    "carrier_hz": 250,
+    "rate_hz": 60,
+    "am_depth_percent": 100,
+    "carrier_wave": "sine",
+    "coupling": "bursts",
+    "coupling_phase_deg": 0
+  }
+}

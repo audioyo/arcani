@@ -1,7 +1,8 @@
 // Theta reference envelopes (docs/signal-spec.md, Theta reference), the
 // gamma PAC layer's sine envelope (Gamma PAC layer, AM law), which is the
-// theta sine shape at the gamma rate, the smooth swell (Coupling), and the
-// beat rate cycle offset of the binaural right ear (Rate curve).
+// theta sine shape at the gamma rate, the smooth swell (Coupling), the burst
+// gate (Bursts), and the beat rate cycle offset of the binaural right ear
+// (Rate curve).
 //
 // Four envelope shapes of a 64-bit envelope phase (one cycle = 2^64), each
 // in [0, 1] with its peak, the 0 degree point, at phase 0. Segments are
@@ -75,6 +76,31 @@ std::uint64_t rate_cycle_offset(std::uint64_t cycle_phase, double k, double c0) 
 // argument is the plan constant C. tests/cpp/test_coupling.cpp pins this
 // signature.
 double swell(std::uint64_t theta_envelope_phase, std::uint64_t coupling_phase_units) noexcept;
+
+// Burst constants (docs/signal-spec.md, Bursts, Fixed constants), in row
+// units (range rows burst-width and burst-edge, min equal to max). Neither is
+// a recipe field.
+inline constexpr double kBurstWidthMs = 50.0;  // the full width
+inline constexpr double kBurstEdgeMs = 10.0;   // each raised-cosine edge, inside the width
+
+// Hb: w = (kBurstWidthMs / 1000 / 2) * rate_hz (50.0 / 1000.0 one rounding,
+// / 2 exact, * rate_hz one rounding), then w * 2^64 (exact) rounded; half the
+// burst width in theta envelope phase units at rate_hz.
+std::uint64_t burst_half_width_units(double rate_hz) noexcept;
+
+// Wb: w = (kBurstEdgeMs / 1000) * rate_hz (one rounding each), then w * 2^64
+// (exact) rounded; one burst edge in theta envelope phase units at rate_hz.
+// Domain: the theta-rate range (Wb < Hb - Wb and Hb < 2^63 there).
+std::uint64_t burst_edge_units(double rate_hz) noexcept;
+
+// Burst gate (docs/signal-spec.md, Bursts, Burst gate): the smoothed on-off
+// segments on u = theta_envelope_phase - coupling_phase_units mod 2^64, with
+// half width Hb and edge Wb: 1.0 on the plateau, the half raised cosine on
+// each edge, 0.0 off the burst. AD-5: its only signal input is the theta
+// reference's envelope phase; the other three arguments are the plan
+// constants C, Hb, and Wb. tests/cpp/test_bursts.cpp pins this signature.
+double burst(std::uint64_t theta_envelope_phase, std::uint64_t coupling_phase_units,
+             std::uint64_t half_width_units, std::uint64_t edge_units) noexcept;
 
 // The engine envelope e of an envelope phase, by the spec's segments and
 // operation order. edge_units is W, half_on_units is H.

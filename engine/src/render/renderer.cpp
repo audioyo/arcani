@@ -1,7 +1,7 @@
 // Renderer: the stub chain with the real theta reference, gamma PAC layer, and
 // binaural layer, per sample in the spec's operation order (docs/signal-spec.md,
-// Stub chain, Theta reference, Gamma PAC layer, Coupling, Binaural layer, and
-// Rate curve, Per sample).
+// Stub chain, Theta reference, Gamma PAC layer, Coupling, Bursts, Binaural
+// layer, and Rate curve, Per sample).
 
 #include "render/renderer.hpp"
 
@@ -59,11 +59,16 @@ void Renderer::render_block(std::size_t count) noexcept {
     double gamma_sample = 0.0;
     if (i < live && gam.present) {
       // Gamma PAC layer, Per sample: the sine envelope at the gamma rate, the
-      // depth (constant when uncoupled; Coupling: scaled by the swell of the
-      // theta envelope phase, the only signal it reads), then the carrier.
+      // depth (constant when uncoupled; Coupling: scaled by the swell; Bursts:
+      // gated by the burst gate; each of the theta envelope phase, the only
+      // signal they read), then the carrier.
       const double e = core::sine_envelope(gamma_envelope_phase_);
       double a = 0.0;
-      if (gam.coupled) {
+      if (gam.coupling == recipe::GammaCoupling::Bursts) {
+        const double g = core::burst(envelope_phase_, gam.coupling_phase_units, gam.burst_half_width_units,
+                                     gam.burst_edge_units);
+        a = 1.0 - (gam.depth * g) * (1.0 - e);
+      } else if (gam.coupled) {
         const double s = core::swell(envelope_phase_, gam.coupling_phase_units);
         a = 1.0 - (gam.depth * s) * (1.0 - e);
       } else {

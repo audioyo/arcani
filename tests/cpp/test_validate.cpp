@@ -745,7 +745,9 @@ TEST_CASE("valid/ means schema-valid: the out-of-range hash fixture is rejected 
       "gamma-carrier-wave-triangle.json", "gamma-carrier-wave-softened-square.json",
       "swell-no-theta.json", "swell-theta-depth-0.json", "swell-no-coupling-phase.json",
       "uncoupled-with-coupling-phase.json", "binaural-waveform-triangle.json",
-      "binaural-cycle-below-0.json", "binaural-cycle-above-30.json"};
+      "binaural-cycle-below-0.json", "binaural-cycle-above-30.json",
+      // Story 2.4: the two compile-rejected burst fixtures (AD-5, coupling phase).
+      "bursts-no-theta.json", "bursts-no-coupling-phase.json"};
   std::set<std::string> rejected_seen;
   std::size_t compiled = 0;
   for (const auto& entry :

@@ -1,4 +1,6 @@
-// Theta reference envelopes (docs/signal-spec.md, Theta reference).
+// Theta reference envelopes (docs/signal-spec.md, Theta reference), the smooth
+// swell (Coupling), the burst gate (Bursts), and the rate cycle offset (Rate
+// curve).
 
 #include "core/envelope.hpp"
 
@@ -19,6 +21,23 @@ double raised_cosine(std::uint64_t u, std::uint64_t w) noexcept {
   const double c = sine(p + kQuarter);  // mod 2^64
   return (1.0 + c) * 0.5;
 }
+
+// Smoothed on-off segments of a distance m from the 0 degree point (Theta
+// reference, Envelope shapes): 1 for m <= h - w, the edge for h - w < m < h,
+// 0 for m >= h. The theta smoothed on-off shape and the burst gate.
+double on_off(std::uint64_t m, std::uint64_t w, std::uint64_t h) noexcept {
+  const std::uint64_t plateau_end = h - w;
+  if (m <= plateau_end) {
+    return 1.0;
+  }
+  if (m < h) {
+    return raised_cosine(m - plateau_end, w);
+  }
+  return 0.0;
+}
+
+// Distance from the 0 degree point: p, or 2^64 - p past the half cycle.
+std::uint64_t distance(std::uint64_t p) noexcept { return p < kHalf ? p : 0 - p; }
 
 // Drop edge, then the linear rise to 1 at the end of the cycle.
 double sawtooth(std::uint64_t p, std::uint64_t w) noexcept {
@@ -124,23 +143,31 @@ double swell(std::uint64_t theta_envelope_phase, std::uint64_t coupling_phase_un
   return sine_envelope(theta_envelope_phase - coupling_phase_units);  // mod 2^64
 }
 
+std::uint64_t burst_half_width_units(double rate_hz) noexcept {
+  const double half_width_s = kBurstWidthMs / 1000.0 / 2;  // one rounding, then an exact halving
+  const double w = half_width_s * rate_hz;
+  return round_half_even(w * 0x1p64);
+}
+
+std::uint64_t burst_edge_units(double rate_hz) noexcept {
+  const double e = kBurstEdgeMs / 1000.0;
+  const double w = e * rate_hz;
+  return round_half_even(w * 0x1p64);
+}
+
+double burst(std::uint64_t theta_envelope_phase, std::uint64_t coupling_phase_units,
+             std::uint64_t half_width_units, std::uint64_t edge_units) noexcept {
+  const std::uint64_t u = theta_envelope_phase - coupling_phase_units;  // mod 2^64
+  return on_off(distance(u), edge_units, half_width_units);
+}
+
 double envelope(EnvelopeShape shape, std::uint64_t phase, std::uint64_t edge_units,
                 std::uint64_t half_on_units) noexcept {
   switch (shape) {
     case EnvelopeShape::Sine:
       return sine_envelope(phase);
-    case EnvelopeShape::SmoothedOnOff: {
-      // Distance from the 0 degree point: p, or 2^64 - p past the half cycle.
-      const std::uint64_t m = phase < kHalf ? phase : 0 - phase;
-      const std::uint64_t plateau_end = half_on_units - edge_units;
-      if (m <= plateau_end) {
-        return 1.0;
-      }
-      if (m < half_on_units) {
-        return raised_cosine(m - plateau_end, edge_units);
-      }
-      return 0.0;
-    }
+    case EnvelopeShape::SmoothedOnOff:
+      return on_off(distance(phase), edge_units, half_on_units);
     case EnvelopeShape::Sawtooth:
       return sawtooth(phase, edge_units);
     case EnvelopeShape::ReverseSaw:

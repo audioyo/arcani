@@ -1,9 +1,11 @@
-"""Coupling timing tool (Story 2.3, FR-3).
+"""Coupling timing tool (Stories 2.3 and 2.4, FR-3).
 
 Measures, from the theta reference tap and the gamma PAC tap alone, how far
-each gamma swell peak lies from its coupling phase. It never reads an engine
-plan, the engine's depth, or any engine internal: only the two taps, the
-sample rate, and the recipe's theta rate, theta shape, and coupling phase.
+each gamma swell peak (smooth_swell) or burst center (bursts) lies from its
+coupling phase. It never reads an engine plan, the engine's depth, or any
+engine internal: only the two taps, the sample rate, and the recipe's theta
+rate, theta shape, and coupling phase, plus, for bursts, the recipe's gamma
+rate.
 Calibrated on Python-synthesized signals of known peak times first
 (tests/python/test_coupling_timing_tool.py, row
 `coupling-timing-calibration`); the engine verdict reads row
@@ -33,7 +35,13 @@ Calibrated on Python-synthesized signals of known peak times first
   a raised-cosine fall to 0 at the bottom of row `gamma-rate` minus the top
   of row `theta-rate`, so every gamma rate in the locked range and its swell
   side frequencies are removed). Zero phase: no delay.
-- timing_errors(gamma, theta, fs, theta_rate_hz, shape, coupling_phase_deg):
+- COUPLINGS: the couplings it times, "smooth_swell" and "bursts".
+- burst_template(t): the ideal burst gate (docs/signal-spec.md, Bursts) of a
+  time offset t in seconds from the burst center: 1 for |t| <= H - W,
+  (1 + cos(pi (|t| - (H - W)) / W)) / 2 for H - W < |t| < H, 0 beyond, with
+  H half of row `burst-width` and W row `burst-edge`, in seconds.
+- timing_errors(gamma, theta, fs, theta_rate_hz, shape, coupling_phase_deg,
+  coupling="smooth_swell", gamma_rate_hz=None):
   for each theta 0 degree time z, the expected swell peak is
   p = z + (coupling_phase_deg / 360) / theta_rate_hz. Over the window of one
   theta period centered on p (inside the trimmed span), the swell curve is
@@ -44,11 +52,24 @@ Calibrated on Python-synthesized signals of known peak times first
   below row `reference-match` read as linear full-scale amplitude (the AM
   depth tool's reuse, design log (mm)) has no swell to time: ValueError
   "no swell in gamma tap", so check() fails with that note.
+  With coupling "bursts" the same fit gives each burst's first estimate (a
+  symmetric pulse's theta-rate cosine phase is its center), and the center
+  is then refined in the same window by a least-squares fit of the depth
+  curve 1 - |analytic| to burst_template(t - tau) * (c0 + c1 cos(w_g t) +
+  c2 sin(w_g t)), w_g = 2 pi gamma_rate_hz: linear in c for a fixed tau, tau
+  by a grid over +-4 ms of the first estimate and a golden-section search.
+  The gamma envelope runs free, so a burst opens on a gamma phase that moves
+  from cycle to cycle and the depth curve is not symmetric about the center
+  unless the gate is fitted with the gamma envelope; the cosine fit alone
+  reads up to 1.65 ms off at a 40 Hz gamma rate. bursts needs a positive,
+  finite gamma_rate_hz (ValueError); a cycle whose first-estimate amplitude
+  is below the floor has no burst: ValueError "no burst in gamma tap".
 - check(name, gamma, theta, fs, theta_rate_hz, shape, coupling_phase_deg,
-  row_id=ROW): the report assertion shape (Story 1.4). measured is the
-  largest |error| in ms; pass when it is strictly below the row. A
-  non-finite input or measurement, or no full cycle, fails with a note and
-  measured None.
+  row_id=ROW, coupling="smooth_swell", gamma_rate_hz=None): the report
+  assertion shape (Story 1.4). measured is the largest |error| in ms; pass
+  when it is strictly below the row. A non-finite input or measurement, an
+  unknown coupling, or no full cycle, fails with a note and measured
+  None.
 
 NumPy and the standard library only.
 """
@@ -66,11 +87,14 @@ CALIBRATION_ROW = "coupling-timing-calibration"
 SWELL_FLOOR_ROW = "reference-match"
 TRIM_S = 0.5
 SHAPES = ("sine", "smoothed_on_off", "sawtooth", "reverse_saw")
+COUPLINGS = ("smooth_swell", "bursts")
 
 _GOLDEN = (math.sqrt(5.0) - 1.0) / 2.0
 _GRID_STEPS = 48
 _SEARCH_STEPS = 48
 _ZERO_CACHE_SIZE = 8
+_BURST_SEARCH_S = 0.004   # the burst refinement searches +-4 ms of the first estimate
+_BURST_GRID = 32
 _zero_cache: dict = {}
 
 
@@ -239,7 +263,45 @@ def swell_curve(gamma, fs) -> np.ndarray:
     return np.fft.irfft(spectrum * gain, n=y.size)
 
 
-def timing_errors(gamma, theta, fs, theta_rate_hz, shape, coupling_phase_deg) -> np.ndarray:
+def burst_template(t) -> np.ndarray:
+    half = _fixed("burst-width") / 1000.0 / 2.0   # H, seconds
+    edge = _fixed("burst-edge") / 1000.0          # W, seconds
+    m = np.abs(np.asarray(t, dtype=np.float64))
+    out = np.zeros_like(m)
+    plateau = half - edge
+    out[m <= plateau] = 1.0
+    mid = (m > plateau) & (m < half)
+    out[mid] = (1.0 + np.cos(math.pi * (m[mid] - plateau) / edge)) / 2.0
+    return out
+
+
+def _burst_sse(y, t, tau, w_g):
+    """Residual of y against burst_template(t - tau) * (c0 + c1 cos + c2 sin)."""
+    g = burst_template(t - tau)
+    basis = np.stack([g, g * np.cos(w_g * t), g * np.sin(w_g * t)], axis=1)
+    c, *_ = np.linalg.lstsq(basis, y, rcond=None)
+    r = y - basis @ c
+    return float(np.dot(r, r))
+
+
+def _burst_center(y, t, first, w_g):
+    """Refined burst center near `first` (seconds, relative to t's origin)."""
+    grid = first + np.linspace(-_BURST_SEARCH_S, _BURST_SEARCH_S, 2 * _BURST_GRID + 1)
+    step = float(grid[1] - grid[0])
+    best = float(grid[int(np.argmin([_burst_sse(y, t, x, w_g) for x in grid]))])
+    return _golden(lambda x: _burst_sse(y, t, x, w_g), best - step, best + step, _SEARCH_STEPS)
+
+
+def timing_errors(gamma, theta, fs, theta_rate_hz, shape, coupling_phase_deg,
+                  coupling="smooth_swell", gamma_rate_hz=None) -> np.ndarray:
+    if coupling not in COUPLINGS:
+        raise ValueError(f"coupling not timed: {coupling!r}")
+    w_g = None
+    if coupling == "bursts":
+        rate_g = math.nan if gamma_rate_hz is None else float(gamma_rate_hz)
+        if not (math.isfinite(rate_g) and rate_g > 0.0):
+            raise ValueError(f"bursts need a positive, finite gamma_rate_hz, got {gamma_rate_hz!r}")
+        w_g = 2.0 * math.pi * rate_g
     g = np.asarray(gamma, dtype=np.float64)
     th = np.asarray(theta, dtype=np.float64)
     if g.shape != th.shape:
@@ -252,6 +314,7 @@ def timing_errors(gamma, theta, fs, theta_rate_hz, shape, coupling_phase_deg) ->
     w = 2.0 * math.pi * rate
     offset = (float(coupling_phase_deg) / 360.0) * period
     floor = 10.0 ** (row(SWELL_FLOOR_ROW).value / 20.0)
+    depth_curve = None if w_g is None else 1.0 - envelope(g)
     errors = []
     for z in zeros:
         p = z + offset
@@ -262,13 +325,16 @@ def timing_errors(gamma, theta, fs, theta_rate_hz, shape, coupling_phase_deg) ->
         basis = np.stack([np.ones_like(t), np.cos(w * t), np.sin(w * t)], axis=1)
         c, *_ = np.linalg.lstsq(basis, curve[idx], rcond=None)
         if not math.hypot(float(c[1]), float(c[2])) >= floor:
-            raise ValueError("no swell in gamma tap")
+            raise ValueError("no swell in gamma tap" if w_g is None else "no burst in gamma tap")
         peak = math.atan2(float(c[2]), float(c[1])) / w   # cosine maximum nearest p, in [-T/2, T/2]
+        if w_g is not None:
+            peak = _burst_center(depth_curve[idx], t, peak, w_g)
         errors.append(math.remainder(peak, period))
     return np.asarray(errors, dtype=np.float64)
 
 
-def check(name, gamma, theta, fs, theta_rate_hz, shape, coupling_phase_deg, row_id=ROW) -> dict:
+def check(name, gamma, theta, fs, theta_rate_hz, shape, coupling_phase_deg, row_id=ROW,
+          coupling="smooth_swell", gamma_rate_hz=None) -> dict:
     r = row(row_id)
     result = {"name": name, "row": row_id, "threshold": r.value, "unit": r.unit,
               "measured": None, "result": "fail", "note": ""}
@@ -278,7 +344,8 @@ def check(name, gamma, theta, fs, theta_rate_hz, shape, coupling_phase_deg, row_
         result["note"] = "not finite"
         return result
     try:
-        errors = timing_errors(g, th, fs, theta_rate_hz, shape, coupling_phase_deg)
+        errors = timing_errors(g, th, fs, theta_rate_hz, shape, coupling_phase_deg,
+                               coupling=coupling, gamma_rate_hz=gamma_rate_hz)
     except ValueError as exc:
         result["note"] = str(exc)
         return result

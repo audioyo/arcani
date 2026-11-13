@@ -76,6 +76,7 @@ struct CouplingName {
 constexpr CouplingName kCouplingNames[] = {
     {"uncoupled", GammaCoupling::Uncoupled},
     {"smooth_swell", GammaCoupling::SmoothSwell},
+    {"bursts", GammaCoupling::Bursts},
 };
 
 const CouplingName* coupling_named(std::string_view s) noexcept {
