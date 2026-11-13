@@ -5,7 +5,7 @@ created: '2026-11-11'
 baseline_commit: '25e283a6145fae5fed1b8e22968324235f78e357'
 status: 'in-progress'
 route: 'dispatch'
-review_loop_iteration: 0
+review_loop_iteration: 1
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-2-context.md'
   - '{project-root}/CLAUDE.md'
@@ -22,7 +22,7 @@ context:
 Decisions (2026-11-11, build agent, under Audio's standing "settle tech forks yourselves" preference):
 - **Recipe fields:** `binaural.waveform` optional, enum `sine`, `triangle` (absent means sine). Compile rejects non-sine: parameter `/binaural/waveform`, value the text, rule `non-sine binaural not modeled`, limit `sine` (design log (o)). New optional `binaural.beat_rate_cycle` {`swing_hz`, `period_s`, `start_phase_deg`}, all required inside it. `beat_rate_hz` stays required and becomes the cycle's center. Existing fixtures and hashes stay unchanged.
 - **Rate-curve law (one law, reused by Story 2.6 unchanged):** `rate(t) = r + s * sin(2 * pi * t / P + phi0)`, `r` the center, `s` the swing, `P` the period, `phi0` the start phase (0 degrees = at the center, rising). v0.1 has only this sinusoidal cycle; no piecewise-linear curves (no v0.1 recipe needs one since design log (n)).
-- **Closed-form phase integral, engine:** the right ear phase is `phase_C[n] + U[n] mod 2^64`. `phase_C[n] = n * inc(f_L + r)` (constant increment), cycle phase `p_P[n] = P0 + n * inc(1 / P)` (`P0` by the coupling phase rule on `start_phase_deg`). `U[n]` is `K * (cos(phi0) - cos(cycle phase))` cycles in phase units, `K = s * P / (2 * pi)` once per plan, the cosines by the engine sine at `+2^62`. The cycles-to-units conversion (exact reduction mod 1, times 2^64, nearest, ties to even, mod 2^64, clamp-safe) is fixed in §rate-curve. Every value is a pure function of `n`, so seek and block-size invariance need nothing new. Without a cycle the right ear is the stub's bits exactly.
+- **Closed-form phase integral, engine:** the right ear phase is `phase_C[n] + U[n] mod 2^64`. `phase_C[n] = n * inc(f_L + r)` (constant increment), cycle phase `p_P[n] = P0 + n * inc(1 / P)` (`P0` by the coupling phase rule on `start_phase_deg`). `U[n]` is `K * (cos(phi0) - cos(cycle phase))` cycles in phase units, `K = s * P / (2 * pi)` once per plan, the cosines by `cycle_cosine` (below). The cycles-to-units conversion (exact reduction mod 1, times 2^64, nearest, ties to even, mod 2^64, clamp-safe) is fixed in §rate-curve. Every value is a pure function of `n`, so seek and block-size invariance need nothing new. Without a cycle the right ear is the stub's bits exactly.
 - **Range checks, worst case:** `r - s` and `r + s` against row `beat-rate`; `f_L + r + s` against `binaural-carrier-right`; `swing_hz >= 0` (rule `range.min`, limit `>= 0 Hz`); new rows `rate-cycle-period` and `rate-cycle-start-phase` (0 to 360 inclusive, 360 the same as 0). Order: after the existing binaural range checks, before the waveform rule.
 - **Isolation band mode** (`tests/cpp/isolation.hpp`): for a rate-curve fixture, the muted channel's energy over the band the active carrier spans (plus a guard of 2 bins) against the active channel's. Calibrated on Python-synthesized swept tones with known leakage (`tools/isolation_calibration.py`), with a doctored must-fail.
 - **Frequency tool phase mode** (`tests/assertions/frequency.py`): unwrapped analytic phase of a tap minus the closed-form integral; instantaneous rate error from its derivative, ends trimmed; fails if phase steps. Calibrated on Python-synthesized swept tones with a known schedule and a must-fail one off by 0.02 Hz.
@@ -31,6 +31,7 @@ Decisions (2026-11-11, build agent, under Audio's standing "settle tech forks yo
 - **Margin per tap:** fixed beat 1 sine; cycle right ear 2 sines (cycle cosine, carrier); output adds the bus. §binaural states each bound.
 - **Sleep start phase (Audio, 2026-11-11):** the cycle starts at 0 Hz, rising, so a session opens with no beat and it eases in: `start_phase_deg` 270 in the sine convention above. Engineering default; no study sets it (Lee et al. 2024 does not say). §rate-curve names it.
 - **Cycle period (Audio, 2026-11-11):** row `rate-cycle-period` is locked to exactly 60 s (min 60, max 60, inclusive), the only value with a source (Lee et al. 2024, design log (n)), until a study supports others. A 59.99 s or 60.01 s period is rejected with the row.
+- **Precise cycle cosine (Audio, 2026-11-12, review pass 1 row 1):** the two cosines in `U[n]` (`c0` and the per-sample cycle cosine) use a new engine function `cycle_cosine(phase)`, not the engine sine: the engine sine's folding with a longer odd polynomial, so its own error `e_c` is at most 1e-10. Then every compile-accepted cycle (swing up to the `beat-rate` worst case, 60 s period, any start phase) keeps the right ear within row `reference-match` with at least 6 dB margin; §binaural states the bound per tap. One shared function serves both `c0` and the per-sample cosine, so `U[0] = 0` holds by construction. The engine sine and every other layer are unchanged, so no existing vector, fixture byte, or pinned hash moves except the `binaural-cycle-sleep` bits. No swing row is added. The reference stays the ideal cosine.
 - **Rows and log:** design log entry (oo); `binaural-isolation-*` and `frequency-accuracy` unchanged.
 
 ## Boundaries & Constraints
@@ -74,7 +75,7 @@ Decisions (2026-11-11, build agent, under Audio's standing "settle tech forks yo
 - [x] tests (files above) -- fresh-context QA agent writes failing tests -- tests first.
 - [x] schema, field table, recipe, validator, plan, renderer, core conversion, `reference/binaural.py`, `stub_chain.py`, isolation band mode, frequency phase mode, hash probe -- implementation.
 - [ ] fixtures, hash vectors, rows, design log (oo), README, `ci/hash_expected.json` (after the full run) -- records.
-- [ ] `docs/timeline-guidebook.html`, `sprint-status.yaml` -- records.
+- [x] `docs/timeline-guidebook.html`, `sprint-status.yaml` -- records.
 
 **Acceptance Criteria:**
 - Given §binaural and §rate-curve, then they define right carrier = left carrier + beat(t), the rate-curve law and its closed-form phase integral, and the Sleep cycle with its start phase, with vectors the engine and reference each pass.
@@ -107,4 +108,27 @@ Why a closed form, not a per-sample sum of increments: each sample's phase is a 
 
 ## Spec Change Log
 
+- 2026-11-12, review pass 1 row 1 (intent_gap, resolved by Audio: "Make the math precise"): frozen block gains the precise cycle cosine decision; it replaces "the cosines by the engine sine at `+2^62`" in the closed-form decision. Known-bad state avoided: compile accepts swings whose right ear misses `reference-match` (bound -99.7 dBFS at Sleep swing, start 0; about -80 dBFS at the widest). KEEP: everything else in commits efce4f1 to ad351ac (schema, validator, plan, renderer, `cycles_to_units`, reference, isolation band mode, frequency phase mode, fixtures, probe, records) passed review and stays; the change is re-derived test first on top of them, not by reverting.
+
 ## Review Triage Log
+
+Pass 1 (2026-11-12): blind hunter (BH), edge case hunter (EC), verification gap (VG), all fresh context, on diff 25e283a..ad351ac (`_bmad-output`, the guidebook, and the generated `signal_spec_vectors.json` and `isolation_calibration.json` left out). VG found no gaps.
+
+| # | Finding | Verdict | Evidence | Route |
+|---|---------|---------|----------|-------|
+| 1 | BH, EC: compile accepts swings whose right ear is not held to `reference-match` (bound about -99.7 dBFS at Sleep swing, start 0; about -80 dBFS at the widest) | medium | true; signal spec Binaural layer, Error bound says so outright; the cycle cosine error `e_t` (5.7e-8) is scaled by `2 * pi * K`, K up to about 143; the frozen block fixes both "the cosines by the engine sine" and the swing checks, so no fix fits inside it | intent_gap (ask Audio) |
+| 2 | BH: `swing_hz` has no range row | false | frozen decision: worst-case checks bound it against `beat-rate`; a row is one option for row 1 | reject |
+| 3 | BH, EC: four hash-entry tests fail until `ci/hash_expected.json` has `binaural-cycle-*` | medium | true; the entries wait on a green four-platform full run (design log (kk)), as in Stories 2.2 and 2.3 | CI gate before merge |
+| 4 | BH: no 8-hour drift check for the cycle | false | the whole-session drift check is Story 5.1 (as 2.3 row 8) | reject |
+| 5 | BH: spec does not say the swept right carrier is a band for spacing | low | true; Story 3.1 builds the component table per shape and names rate curves; fix edits the spec | reject |
+| 6 | BH: `PHASE_STEP_CYCLES` and `kBandGuardBins` are not table rows | low | the guard of 2 bins and the step check are frozen decisions; both are tool internals, not render thresholds | reject |
+| 7 | BH: probe-embeds-fixture test matches substrings only | low | true; rare drift, fix is a new parse in the test | reject |
+| 8 | BH: `c0` and the per-sample cosine are computed in two places with two `kQuarter` constants | low | true; `U[0] = 0` relies on both matching; a shared helper is a direct change | patch |
+| 9 | BH: `cycles_to_units` and `rate_cycle_offset` live in `envelope.hpp` | low | true; Story 2.6 can move them when it reuses the law | reject |
+| 10 | BH: reference reduction is stated as [-1/2, 1/2) but `np.rint` gives [-1/2, 1/2] | low | true; text-only fix in `reference/binaural.py` (the spec text waits for row 1) | patch |
+| 11 | BH: new cycle tests hard-code `{44100, 48000}` | low | true; `test_binaural.cpp` reads row `sample-rates`; direct change | patch |
+| 12 | BH: orphaned comment line breaks in `plan.hpp` and `renderer.hpp` | low | true | patch |
+| 13 | EC: `measure_band` casts a negative `floor(hi / df)` to `size_t` | false | `hi` is the active carrier band plus a guard; carriers are compile-checked >= 0, so it is never negative | reject |
+| 14 | EC: reference `_start_units` wraps out-of-range phases | low | the reference runs only on compile-valid fixtures (2.3 row 10) | reject |
+| 15 | EC: `check_phase` raises on short records | low | loud failure on inputs never given | reject |
+| 16 | EC: design log letter (pp) against the frozen (oo) | low | true; recorded in Implementation Notes; fix edits the spec | reject |
