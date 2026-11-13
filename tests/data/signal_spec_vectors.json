@@ -20289,6 +20289,140 @@
     "inv_two_pi_hex": "0x1.45f306dc9c883p-3",
     "seek_s": "55.0"
   },
+  "cycle_cosine_coefficients": [
+    {
+      "power": 1,
+      "exact": "+1/1!",
+      "hex": "0x1.0000000000000p+0"
+    },
+    {
+      "power": 3,
+      "exact": "-1/3!",
+      "hex": "-0x1.5555555555555p-3"
+    },
+    {
+      "power": 5,
+      "exact": "+1/5!",
+      "hex": "0x1.1111111111111p-7"
+    },
+    {
+      "power": 7,
+      "exact": "-1/7!",
+      "hex": "-0x1.a01a01a01a01ap-13"
+    },
+    {
+      "power": 9,
+      "exact": "+1/9!",
+      "hex": "0x1.71de3a556c734p-19"
+    },
+    {
+      "power": 11,
+      "exact": "-1/11!",
+      "hex": "-0x1.ae64567f544e4p-26"
+    },
+    {
+      "power": 13,
+      "exact": "+1/13!",
+      "hex": "0x1.6124613a86d09p-33"
+    },
+    {
+      "power": 15,
+      "exact": "-1/15!",
+      "hex": "-0x1.ae7f3e733b81fp-41"
+    }
+  ],
+  "cycle_cosines": [
+    {
+      "label": "0",
+      "phase": "0",
+      "bits": "0x3fefffffffff2c12",
+      "ideal": "1"
+    },
+    {
+      "label": "1",
+      "phase": "1",
+      "bits": "0x3fefffffffff2c12",
+      "ideal": "1"
+    },
+    {
+      "label": "2^60",
+      "phase": "1152921504606846976",
+      "bits": "0x3fed906bcf328bae",
+      "ideal": "0.9238795325112867561281832"
+    },
+    {
+      "label": "2^61",
+      "phase": "2305843009213693952",
+      "bits": "0x3fe6a09e667f3bcc",
+      "ideal": "0.7071067811865475244008444"
+    },
+    {
+      "label": "2^62 - 1",
+      "phase": "4611686018427387903",
+      "bits": "0x3c1921fb54442d18",
+      "ideal": "3.406121580086554589335196e-19"
+    },
+    {
+      "label": "2^62",
+      "phase": "4611686018427387904",
+      "bits": "0x0000000000000000",
+      "ideal": "0"
+    },
+    {
+      "label": "2^62 + 1",
+      "phase": "4611686018427387905",
+      "bits": "0xbc1921fb54442d18",
+      "ideal": "-3.406121580086554589335196e-19"
+    },
+    {
+      "label": "3 * 2^61",
+      "phase": "6917529027641081856",
+      "bits": "0xbfe6a09e667f3bcc",
+      "ideal": "-0.7071067811865475244008444"
+    },
+    {
+      "label": "2^63 - 1",
+      "phase": "9223372036854775807",
+      "bits": "0xbfefffffffff2c12",
+      "ideal": "-1"
+    },
+    {
+      "label": "2^63",
+      "phase": "9223372036854775808",
+      "bits": "0xbfefffffffff2c12",
+      "ideal": "-1"
+    },
+    {
+      "label": "2^63 + 1",
+      "phase": "9223372036854775809",
+      "bits": "0xbfefffffffff2c12",
+      "ideal": "-1"
+    },
+    {
+      "label": "3 * 2^62",
+      "phase": "13835058055282163712",
+      "bits": "0x0000000000000000",
+      "ideal": "0"
+    },
+    {
+      "label": "7 * 2^61",
+      "phase": "16140901064495857664",
+      "bits": "0x3fe6a09e667f3bcc",
+      "ideal": "0.7071067811865475244008444"
+    },
+    {
+      "label": "2^64 - 1",
+      "phase": "18446744073709551615",
+      "bits": "0x3fefffffffff2c12",
+      "ideal": "1"
+    },
+    {
+      "label": "Sleep P0 + 1000 * inc_P at 48 kHz",
+      "phase": "13841463174752201712",
+      "bits": "0x3f61df45b4769063",
+      "ideal": "0.002181659834336756532157979"
+    }
+  ],
   "cycles_to_units": [
     {
       "label": "zero",
@@ -20472,7 +20606,7 @@
       "inc_cycle": "6971558606844",
       "swing_period_hex": "0x1.6800000000000p+6",
       "k_hex": "0x1.ca5dc1a63c1f8p+3",
-      "c0_bits": "0x3fefffffe1cbd435",
+      "c0_bits": "0x3fefffffffff2c12",
       "ideal_c0": "1"
     },
     {
@@ -20502,7 +20636,7 @@
       "inc_cycle": "6971558606844",
       "swing_period_hex": "0x1.6800000000000p+6",
       "k_hex": "0x1.ca5dc1a63c1f8p+3",
-      "c0_bits": "0xbfefffffe1cbd435",
+      "c0_bits": "0xbfefffffffff2c12",
       "ideal_c0": "-1"
     },
     {
@@ -20532,7 +20666,7 @@
       "inc_cycle": "6971558606844",
       "swing_period_hex": "0x1.6800000000000p+6",
       "k_hex": "0x1.ca5dc1a63c1f8p+3",
-      "c0_bits": "0x3fefffffe1cbd435",
+      "c0_bits": "0x3fefffffffff2c12",
       "ideal_c0": "1"
     },
     {
@@ -20547,7 +20681,7 @@
       "inc_cycle": "6405119470038",
       "swing_period_hex": "0x1.6800000000000p+6",
       "k_hex": "0x1.ca5dc1a63c1f8p+3",
-      "c0_bits": "0x3fefffffe1cbd435",
+      "c0_bits": "0x3fefffffffff2c12",
       "ideal_c0": "1"
     },
     {
@@ -20577,7 +20711,7 @@
       "inc_cycle": "6405119470038",
       "swing_period_hex": "0x1.6800000000000p+6",
       "k_hex": "0x1.ca5dc1a63c1f8p+3",
-      "c0_bits": "0xbfefffffe1cbd435",
+      "c0_bits": "0xbfefffffffff2c12",
       "ideal_c0": "-1"
     },
     {
@@ -20607,7 +20741,7 @@
       "inc_cycle": "6405119470038",
       "swing_period_hex": "0x1.6800000000000p+6",
       "k_hex": "0x1.ca5dc1a63c1f8p+3",
-      "c0_bits": "0x3fefffffe1cbd435",
+      "c0_bits": "0x3fefffffffff2c12",
       "ideal_c0": "1"
     }
   ],
@@ -22009,12 +22143,12 @@
       "phase_left": "732000",
       "phase_center": "9223372036853428448",
       "phase_cycle": "18446744073709469712",
-      "c_bits": "0x3fefffffe1cbd435",
-      "v_bits": "0xc02ca5dbff598ee5",
-      "u_units": "12471030675573407744",
-      "phase_right": "3247658638717284576",
+      "c_bits": "0x3fefffffffff2c12",
+      "v_bits": "0xc02ca5dc1a63043d",
+      "u_units": "12471015811854729216",
+      "phase_right": "3247643774998606048",
       "left_bits": "0x3d518b7ee9454fd3",
-      "right_bits": "0x3fec9ba3a5cdfe85",
+      "right_bits": "0x3fec9b9ee3ec9798",
       "ideal_left": "2.493280996623357959393364e-13",
       "ideal_right": "0.8939966636003522573494735"
     },
@@ -22039,12 +22173,12 @@
       "phase_left": "41829351641796744",
       "phase_center": "9265828828769109160",
       "phase_cycle": "6971558524940",
-      "c_bits": "0x3fefffffe1cb97d4",
-      "v_bits": "0xc02ca5dbff5958d7",
-      "u_units": "12471030676026851328",
-      "phase_right": "3290115431086408872",
+      "c_bits": "0x3feffffffffec8e2",
+      "v_bits": "0xc02ca5dc1a62ab71",
+      "u_units": "12471015812599611392",
+      "phase_right": "3290100567659168936",
       "left_bits": "0x3f8d2d95e3e2eaa0",
-      "right_bits": "0x3feccff3f80ccd8b",
+      "right_bits": "0x3feccfef5975745e",
       "ideal_left": "0.01424710370735243755639862",
       "ideal_right": "0.9003826858642881487918344"
     },
@@ -22129,12 +22263,12 @@
       "phase_left": "2196000",
       "phase_center": "9223372036850733728",
       "phase_cycle": "9223372036854530096",
-      "c_bits": "0xbfefffffe1cbd432",
-      "v_bits": "0x402ca5dbff598ee2",
-      "u_units": "5975713398136045568",
-      "phase_right": "15199085434986779296",
+      "c_bits": "0xbfefffffffff2c13",
+      "v_bits": "0x402ca5dc1a63043e",
+      "u_units": "5975728261854855168",
+      "phase_right": "15199100298705588896",
       "left_bits": "0x3d6a513e5de7f7bc",
-      "right_bits": "0xbfec9ba3a5ce1bfd",
+      "right_bits": "0xbfec9b9ee3ecb45d",
       "ideal_left": "7.479842989870073878180090e-13",
       "ideal_right": "-0.8939966636011747900246566"
     },
@@ -22159,12 +22293,12 @@
       "phase_left": "41829351643260744",
       "phase_center": "9265828828766414440",
       "phase_cycle": "9223379008413136940",
-      "c_bits": "0xbfefffffe1cb97d7",
-      "v_bits": "0x402ca5dbff5958da",
-      "u_units": "5975713397682798592",
-      "phase_right": "15241542226449213032",
+      "c_bits": "0xbfeffffffffec8e1",
+      "v_bits": "0x402ca5dc1a62ab70",
+      "u_units": "5975728261109907456",
+      "phase_right": "15241557089876321896",
       "left_bits": "0x3f8d2d95e3e74d62",
-      "right_bits": "0xbfec65cb3f4f164a",
+      "right_bits": "0xbfec65c65a710f67",
       "ideal_left": "0.01424710370785104314454619",
       "ideal_right": "-0.8874236840303576468173819"
     },
@@ -22189,12 +22323,12 @@
       "phase_left": "18404914722071170872",
       "phase_center": "9180915244934154776",
       "phase_cycle": "12297822410914127252",
-      "c_bits": "0xbfe00004500dc7ad",
-      "v_bits": "0x401ca5e3d330c15c",
-      "u_units": "2988407510581837824",
-      "phase_right": "12169322755515992600",
+      "c_bits": "0xbfe00004500dc8ef",
+      "v_bits": "0x401ca5e3d330c39d",
+      "u_units": "2988407510591291392",
+      "phase_right": "12169322755525446168",
       "left_bits": "0xbf8d2d95e3d8aeda",
-      "right_bits": "0xbfeafc74e4afa386",
+      "right_bits": "0xbfeafc74e4afe069",
       "ideal_left": "-0.01424710370618902451738760",
       "ideal_right": "-0.8433174579902082041365636"
     },
@@ -22219,12 +22353,12 @@
       "phase_left": "2684000",
       "phase_center": "9223372036849835488",
       "phase_cycle": "12297829382472734096",
-      "c_bits": "0xbfe00000000001dc",
-      "v_bits": "0x401ca5dc1a63c54c",
-      "u_units": "2987864131737157632",
-      "phase_right": "12211236168586993120",
+      "c_bits": "0xbfe000000000031d",
+      "v_bits": "0x401ca5dc1a63c78b",
+      "u_units": "2987864131746578432",
+      "phase_right": "12211236168596413920",
       "left_bits": "0x3d70153455d4de81",
-      "right_bits": "0xbfeb3a9a07223c97",
+      "right_bits": "0xbfeb3a9a072277e6",
       "ideal_left": "9.142030320952312517775665e-13",
       "ideal_right": "-0.8509035245374227253075402"
     },
@@ -22249,12 +22383,12 @@
       "phase_left": "41829351643748744",
       "phase_center": "9265828828765516200",
       "phase_cycle": "12297836354031340940",
-      "c_bits": "0xbfdffff75fe3b1b1",
-      "v_bits": "0x401ca5d4619617a0",
-      "u_units": "2987320752147529728",
-      "phase_right": "12253149580913045928",
+      "c_bits": "0xbfdffff75fe3b433",
+      "v_bits": "0x401ca5d4619619de",
+      "u_units": "2987320752156934144",
+      "phase_right": "12253149580922450344",
       "left_bits": "0x3f8d2d95e3e8c3a2",
-      "right_bits": "0xbfeb77537954acf9",
+      "right_bits": "0xbfeb77537954e6ce",
       "ideal_left": "0.01424710370801724500726204",
       "ideal_right": "-0.8583161709100066986088631"
     },
@@ -23659,12 +23793,12 @@
       "phase_left": "18446744073709167616",
       "phase_center": "9223372036854760448",
       "phase_cycle": "18446744073709523712",
-      "c_bits": "0x3fefffffe1cbd435",
-      "v_bits": "0xc02ca5dbff598ee5",
-      "u_units": "12471030675573407744",
-      "phase_right": "3247658638718616576",
+      "c_bits": "0x3fefffffffff2c12",
+      "v_bits": "0xc02ca5dc1a63043d",
+      "u_units": "12471015811854729216",
+      "phase_right": "3247643774999938048",
       "left_bits": "0xbd4268639437ef07",
-      "right_bits": "0x3fec9ba3a5ce05ac",
+      "right_bits": "0x3fec9b9ee3ec9ec1",
       "ideal_left": "-1.307950686753236962304715e-13",
       "ideal_right": "0.8939966636005555462854938"
     },
@@ -23689,12 +23823,12 @@
       "phase_left": "38430716819844232",
       "phase_center": "9262379214427292104",
       "phase_cycle": "6405119442134",
-      "c_bits": "0x3fefffffe1cba424",
-      "v_bits": "0xc02ca5dbff5963dd",
-      "u_units": "12471030675934380032",
-      "phase_right": "3286665816652120520",
+      "c_bits": "0x3feffffffffed858",
+      "v_bits": "0xc02ca5dc1a62b949",
+      "u_units": "12471015812483481600",
+      "phase_right": "3286650953201222088",
       "left_bits": "0x3f8aceb7c72b7a28",
-      "right_bits": "0x3feccbc28b556305",
+      "right_bits": "0x3feccbbde9dda58c",
       "ideal_left": "0.01308959557121365614549547",
       "ideal_right": "0.8998708317253047641278519"
     },
@@ -23779,12 +23913,12 @@
       "phase_left": "18446744073708399616",
       "phase_center": "9223372036854729728",
       "phase_cycle": "9223372036854692096",
-      "c_bits": "0xbfefffffe1cbd434",
-      "v_bits": "0x402ca5dbff598ee4",
-      "u_units": "5975713398136111104",
-      "phase_right": "15199085434990840832",
+      "c_bits": "0xbfefffffffff2c12",
+      "v_bits": "0x402ca5dc1a63043d",
+      "u_units": "5975728261854822400",
+      "phase_right": "15199100298709552128",
       "left_bits": "0xbd5b9c955e53e68b",
-      "right_bits": "0xbfec9ba3a5ce062e",
+      "right_bits": "0xbfec9b9ee3ec9f14",
       "ideal_left": "-3.923852060259710886914146e-13",
       "ideal_right": "-0.8939966636005649232165967"
     },
@@ -23809,12 +23943,12 @@
       "phase_left": "38430716819076232",
       "phase_center": "9262379214427261384",
       "phase_cycle": "9223378441974162134",
-      "c_bits": "0xbfefffffe1cba425",
-      "v_bits": "0x402ca5dbff5963de",
-      "u_units": "5975713397775204352",
-      "phase_right": "15238092612202465736",
+      "c_bits": "0xbfeffffffffed858",
+      "v_bits": "0x402ca5dc1a62b949",
+      "u_units": "5975728261226070016",
+      "phase_right": "15238107475653331400",
       "left_bits": "0x3f8aceb7c7292d29",
-      "right_bits": "0xbfec6a39cbab227b",
+      "right_bits": "0xbfec6a34e9a25733",
       "ideal_left": "0.01308959557095208841920651",
       "ideal_right": "-0.8879646840921792847901553"
     },
@@ -23839,12 +23973,12 @@
       "phase_left": "18408313356887915384",
       "phase_center": "9184364859282187832",
       "phase_cycle": "12297822977353462058",
-      "c_bits": "0xbfe00003f65977a8",
-      "v_bits": "0x401ca5e332934fd7",
-      "u_units": "2988363361063124992",
-      "phase_right": "12172728220345312824",
+      "c_bits": "0xbfe00003f65978e9",
+      "v_bits": "0x401ca5e332935216",
+      "u_units": "2988363361072545792",
+      "phase_right": "12172728220354733624",
       "left_bits": "0xbf8aceb7c730d87c",
-      "right_bits": "0xbfeb018f0208c7d9",
+      "right_bits": "0xbfeb018f02090469",
       "ideal_left": "-0.01308959557182398084016972",
       "ideal_right": "-0.8439402619866384622955363"
     },
@@ -23869,12 +24003,12 @@
       "phase_left": "18446744073708143616",
       "phase_center": "9223372036854719488",
       "phase_cycle": "12297829382472932096",
-      "c_bits": "0xbfdfffffffffff9c",
-      "v_bits": "0x401ca5dc1a63c19e",
-      "u_units": "2987864131721723904",
-      "phase_right": "12211236168576443392",
+      "c_bits": "0xbfe0000000000110",
+      "v_bits": "0x401ca5dc1a63c3df",
+      "u_units": "2987864131731177472",
+      "phase_right": "12211236168585896960",
       "left_bits": "0xbd60dfb09d3345c6",
-      "right_bits": "0xbfeb3a9a0721fa2d",
+      "right_bits": "0xbfeb3a9a072235b0",
       "ideal_left": "-4.795819184761868861783956e-13",
       "ideal_right": "-0.8509035245355352580531174"
     },
@@ -23899,12 +24033,12 @@
       "phase_left": "38430716818820232",
       "phase_center": "9262379214427251144",
       "phase_cycle": "12297835787592402134",
-      "c_bits": "0xbfdffff8134c6874",
-      "v_bits": "0x401ca5d502339d7c",
-      "u_units": "2987364901751554048",
-      "phase_right": "12249744116178805192",
+      "c_bits": "0xbfdffff8134c6af6",
+      "v_bits": "0x401ca5d502339fbb",
+      "u_units": "2987364901760974848",
+      "phase_right": "12249744116188225992",
       "left_bits": "0x3f8aceb7c72868d3",
-      "right_bits": "0xbfeb72720e946316",
+      "right_bits": "0xbfeb72720e949d21",
       "ideal_left": "0.01308959557086489917711019",
       "ideal_right": "-0.8577204024564568053291652"
     },

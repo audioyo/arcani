@@ -53,7 +53,9 @@ engine or from binary64 library calls:
   values at 25 digits: ideal cosines and sine in decimal arithmetic and the
   exact law on the binary64 depth. The bus is one binary64 addition of the
   engine theta and gamma taps; its ideal is the exact sum of the ideal taps.
-- Binaural layer and rate curve (Story 2.5): the cycles-to-units rule in
+- Binaural layer and rate curve (Story 2.5): the cycle cosine (the engine
+  sine's fold of p + 2^62 and an odd Taylor polynomial to x^15, coefficients
+  the binary64 nearest +-1/k!), the cycles-to-units rule in
   exact Fraction arithmetic, the rate cycle constants (P0 by the coupling
   phase rule, inc_P by the increment rule on 1.0 / P, K = (s * P) * the
   binary64 nearest 1 / (2 pi), checked against decimal pi), and the right
@@ -1293,6 +1295,59 @@ def inv_two_pi():
     return k
 
 
+CYCLE_COSINE_POWERS = (1, 3, 5, 7, 9, 11, 13, 15)
+# Bound on the engine cycle cosine against the ideal cosine (threshold row
+# cycle-cosine-error, -200 dBFS): 1e-10.
+E_C = 1e-10
+
+
+def cycle_cosine_coefficients():
+    rows = []
+    for k in CYCLE_COSINE_POWERS:
+        sign = -1 if (k // 2) % 2 else 1
+        value = sign * binary64(Fraction(1, math.factorial(k)))
+        rows.append({"power": k, "exact": f"{'-' if sign < 0 else '+'}1/{k}!",
+                     "hex": float.hex(value)})
+    return rows
+
+
+def cycle_cosine(phase):
+    """Spec engine cycle cosine: the engine sine's fold of phase + 2^62, then an
+    odd Taylor polynomial to x^15 in fixed Horner order, binary64."""
+    p = (phase + QUARTER) % CYCLE
+    if CYCLE // 4 < p < CYCLE // 2 + CYCLE // 4:
+        p = (CYCLE // 2 - p) % CYCLE
+    s = p - CYCLE if p >= CYCLE // 2 else p
+    x = float(s) * float.fromhex(RADIANS_PER_UNIT_HEX)
+    c = {r["power"]: float.fromhex(r["hex"]) for r in cycle_cosine_coefficients()}
+    z = x * x
+    r = c[15]
+    for k in (13, 11, 9, 7, 5, 3, 1):
+        r = r * z + c[k]
+    return r * x
+
+
+CYCLE_COSINE_PHASES = (
+    ("0", 0), ("1", 1), ("2^60", 2**60), ("2^61", 2**61), ("2^62 - 1", 2**62 - 1),
+    ("2^62", 2**62), ("2^62 + 1", 2**62 + 1), ("3 * 2^61", 3 * 2**61), ("2^63 - 1", 2**63 - 1),
+    ("2^63", 2**63), ("2^63 + 1", 2**63 + 1), ("3 * 2^62", 3 * 2**62), ("7 * 2^61", 7 * 2**61),
+    ("2^64 - 1", 2**64 - 1), ("Sleep P0 + 1000 * inc_P at 48 kHz", (3 * 2**62 + 1000 * 6405119470038) % 2**64),
+)
+
+
+def cycle_cosine_rows():
+    rows = []
+    for label, phase in CYCLE_COSINE_PHASES:
+        y = cycle_cosine(phase)
+        with localcontext() as ctx:
+            ctx.prec = PREC + 10
+            ideal = ideal_sine_decimal((phase + QUARTER) % CYCLE)
+        assert abs(Decimal(y) - ideal) <= Decimal(E_C), label
+        rows.append({"label": label, "phase": str(phase), "bits": bits(y),
+                     "ideal": format_ideal(ideal)})
+    return rows
+
+
 def cycles_to_units(v):
     """Spec cycles-to-units rule: (v mod 1) * 2^64, nearest, ties to even, mod 2^64.
 
@@ -1355,7 +1410,7 @@ class BinauralLayer:
             self.inc_cycle, self.q_cycle = increment(self.inv_period, fs)
             self.swing_period = swing * period  # one rounding
             self.k = self.swing_period * inv_two_pi()  # one rounding
-            self.c0 = engine_sine((self.p0 + QUARTER) % CYCLE)
+            self.c0 = cycle_cosine(self.p0)
         else:
             self.p0 = self.inc_cycle = 0
             self.k = 0.0
@@ -1372,7 +1427,7 @@ class BinauralLayer:
             c = v = None
             u = 0
         else:
-            c = engine_sine((pp + QUARTER) % CYCLE)
+            c = cycle_cosine(pp)
             v = self.k * (self.c0 - c)  # c0 - c, then K times it
             u, _ = cycles_to_units(v)
         pr = (pc + u) % CYCLE
@@ -1517,8 +1572,9 @@ def binaural_sample_indices(layer, frames, fs):
 
 # Engine against ideal, per sample (signal spec, Binaural layer, Error bound):
 # the engine sine error is at most E_T (the polynomial truncation plus
-# rounding), so a fixed-beat ear is within E_T of its ideal and a cycle right
-# ear within 2 pi (K (|c0 error| + E_T) + 2^-49 K + 2^-64) + E_T.
+# rounding) and the cycle cosine's at most E_C, so a fixed-beat ear is within
+# E_T of its ideal and a cycle right ear within
+# 2 pi (K (|c0 error| + E_C) + 2^-49 K + 2^-64) + E_T.
 E_T = 5.7e-8
 
 
@@ -1529,7 +1585,7 @@ def binaural_bound(layer):
         ctx.prec = PREC + 10
         c0_err = abs(Decimal(layer.c0) - ideal_sine_decimal((layer.p0 + QUARTER) % CYCLE))
     k = layer.k
-    return 2 * math.pi * (k * (float(c0_err) + E_T) + 2.0**-49 * k + 2.0**-64) + E_T
+    return 2 * math.pi * (k * (float(c0_err) + E_C) + 2.0**-49 * k + 2.0**-64) + E_T
 
 
 def binaural_sample_rows():
@@ -1709,6 +1765,8 @@ def build():
             "inv_two_pi_hex": INV_TWO_PI_HEX,
             "seek_s": dec(SEEK_S),
         },
+        "cycle_cosine_coefficients": cycle_cosine_coefficients(),
+        "cycle_cosines": cycle_cosine_rows(),
         "cycles_to_units": cycles_to_units_rows(),
         "rate_cycles": rate_cycle_rows(),
         "rate_curve": rate_curve_rows(),
@@ -1903,6 +1961,16 @@ def tables(data):
                    f"| {r['phase_rate']} | {r['phase_theta_envelope']} | `{r['s_bits']}` | `{r['e_bits']}` "
                    f"| `{r['a_bits']}` | `{r['gamma_bits']}` | `{r['theta_bits']}` | `{r['bus_bits']}` "
                    f"| {r['ideal_s']} | {r['ideal_gamma']} | {r['ideal_bus']} |")
+    out.append("")
+    out.append("| Term | Exact | Binary64 (hex float) |")
+    out.append("| --- | --- | --- |")
+    for r in data["cycle_cosine_coefficients"]:
+        out.append(f"| x^{r['power']} | {r['exact']} | `{r['hex']}` |")
+    out.append("")
+    out.append("| Cycle cosine case | Phase | Cycle cosine (binary64 bits) | Cosine ideal |")
+    out.append("| --- | --- | --- | --- |")
+    for r in data["cycle_cosines"]:
+        out.append(f"| {r['label']} | {r['phase']} | `{r['bits']}` | {r['ideal']} |")
     out.append("")
     out.append("| Case | v (hex) | f = v - trunc(v) (hex) | f * 2^64 (hex) | U |")
     out.append("| --- | --- | --- | --- | --- |")

@@ -40,7 +40,9 @@
 # kBinauralSamples (per binaural fixture, sample rate, and index: phases, the
 # cycle cosine c, v, U, the right phase, and the left and right bits;
 # has_cycle is false and every cycle column 0 without a beat_rate_cycle
-# field).
+# field). The precise cycle cosine adds kCycleCosineCoefficients (power and
+# binary64 value, Horner from the highest) and kCycleCosines (phase and the
+# engine cycle cosine bits, with the ideal cosine).
 #
 # Big integers are JSON strings and become UINT64_C literals. Hex float
 # strings become C++ hex float literals; "nan", "inf", and "-inf" become
@@ -114,6 +116,7 @@ function(arcani_generate_spec_tables out_file vectors_json)
   string(APPEND h "struct CouplingPhaseVector { double deg; double x; std::uint64_t c_units; };\n")
   string(APPEND h "struct SwellVector { double depth_percent; double deg; std::uint64_t c_units; std::uint64_t phase_theta_envelope; std::uint64_t phase_gamma_envelope; std::uint64_t s_bits; std::uint64_t e_bits; std::uint64_t a_bits; double ideal_s; double ideal_a; };\n")
   string(APPEND h "struct SwellSampleVector { const char* fixture; bool past_end; std::uint32_t fs; bool has_theta; double carrier_hz; double rate_hz; double depth_percent; double coupling_phase_deg; double length_s; std::uint64_t c_units; std::uint64_t inc_carrier; std::uint64_t inc_rate; std::uint64_t inc_theta_envelope; std::uint64_t frames; std::uint64_t n; std::uint64_t phase_carrier; std::uint64_t phase_rate; std::uint64_t phase_theta_envelope; std::uint64_t s_bits; std::uint64_t e_bits; std::uint64_t a_bits; std::uint64_t gamma_bits; std::uint64_t theta_bits; std::uint64_t bus_bits; };\n")
+  string(APPEND h "struct CycleCosineVector { const char* label; std::uint64_t phase; std::uint64_t bits; double ideal; };\n")
   string(APPEND h "struct CyclesToUnitsVector { const char* label; double v; std::uint64_t units; };\n")
   string(APPEND h "struct RateCycleVector { double swing_hz; double period_s; double start_phase_deg; double x; std::uint64_t p0; double inv_period; std::uint32_t fs; std::uint64_t inc_cycle; double swing_period; double k; std::uint64_t c0_bits; };\n")
   string(APPEND h "struct BinauralSampleVector { const char* fixture; bool past_end; std::uint32_t fs; bool has_cycle; double carrier_left_hz; double beat_rate_hz; double center_hz; double swing_hz; double period_s; double start_phase_deg; double length_s; std::uint64_t inc_left; std::uint64_t inc_center; std::uint64_t p0; std::uint64_t inc_cycle; double k; std::uint64_t frames; std::uint64_t n; std::uint64_t phase_left; std::uint64_t phase_center; std::uint64_t phase_cycle; std::uint64_t c_bits; std::uint64_t v_bits; std::uint64_t u_units; std::uint64_t phase_right; std::uint64_t left_bits; std::uint64_t right_bits; };\n\n")
@@ -617,6 +620,36 @@ function(arcani_generate_spec_tables out_file vectors_json)
   _arcani_spec_decimal(_seek "${_seek}")
   string(APPEND h "inline constexpr double kInvTwoPi = ${_inv};\n")
   string(APPEND h "inline constexpr double kSeekSeconds = ${_seek};\n\n")
+
+  string(JSON n LENGTH "${vec}" cycle_cosine_coefficients)
+  string(APPEND h "inline constexpr Coefficient kCycleCosineCoefficients[] = {\n")
+  math(EXPR last "${n} - 1")
+  foreach(i RANGE ${last})
+    string(JSON power GET "${vec}" cycle_cosine_coefficients ${i} power)
+    string(JSON hex GET "${vec}" cycle_cosine_coefficients ${i} hex)
+    _arcani_spec_hexf(hex "${hex}")
+    string(APPEND h "  {${power}, ${hex}},\n")
+  endforeach()
+  string(APPEND h "};\n\n")
+
+  string(JSON _ccs GET "${vec}" cycle_cosines)
+  string(JSON n LENGTH "${_ccs}")
+  string(APPEND h "inline constexpr CycleCosineVector kCycleCosines[] = {\n")
+  math(EXPR last "${n} - 1")
+  foreach(i RANGE ${last})
+    string(JSON label GET "${_ccs}" ${i} label)
+    string(JSON phase GET "${_ccs}" ${i} phase)
+    string(JSON b GET "${_ccs}" ${i} bits)
+    string(JSON ideal GET "${_ccs}" ${i} ideal)
+    _arcani_spec_cxx_string(label "${label}")
+    _arcani_spec_u64(phase "${phase}")
+    _arcani_spec_decimal(ideal "${ideal}")
+    if(NOT b MATCHES "^0x[0-9a-f]+$")
+      message(FATAL_ERROR "spec tables: not a hex bit pattern: '${b}'")
+    endif()
+    string(APPEND h "  {${label}, ${phase}, UINT64_C(${b}), ${ideal}},\n")
+  endforeach()
+  string(APPEND h "};\n\n")
 
   string(JSON _ctu GET "${vec}" cycles_to_units)
   string(JSON n LENGTH "${_ctu}")

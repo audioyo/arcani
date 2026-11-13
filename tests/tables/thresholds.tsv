@@ -1,5 +1,6 @@
 id	value	unit	spec_row	source	pending
 sine-error	-120	dBFS		Design log 2026-10-28 (o): engine sine at most -120 dBFS against the ideal sine; docs/signal-spec.md, Sine, Error bound	
+cycle-cosine-error	-200	dBFS		Design log 2026-11-12 (pp): decided by Audio 2026-11-12 (make the math precise): the beat rate cycle cosine at most -200 dBFS (1e-10) against the ideal cosine, so every compile-accepted cycle keeps the right ear within row reference-match; docs/signal-spec.md, Rate curve, Cycle cosine	
 sample-rates	44100 48000	Hz		Design log 2026-10-27 (j): the Core renders natively at 44.1 and 48 kHz; AD-10	
 binaural-isolation-engine	90	dB below the ear's own binaural carrier	Binaural isolation, engine output	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-4	
 binaural-isolation-master	60	dB below the ear's own binaural carrier	Binaural isolation, after master chain	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-4	

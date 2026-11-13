@@ -1630,15 +1630,15 @@ bin[c][n] = a_c * sine(phase_c[n])      engine sine (Sine); phase_R from the lin
 
 **Seek.** Seek to frame `k` sets `phase_L` to `k * inc_L mod 2^64`, `phase_C` to `k * inc_C mod 2^64`, and, with a cycle, the cycle phase to `P0 + k * inc_P mod 2^64` (Rate curve, Seek). `U` is a function of the cycle phase alone, so the right phase needs nothing else.
 
-**Reference.** The Python reference (`reference/binaural.py`, implemented from this section and Rate curve with the rules of `reference/ideal.py`, never from engine code, engine binaries, or engine output) uses the same integer phases and increments and the ideal sine (Sine) of `phase_L`; it computes `P0` by the coupling phase rule itself. Without a cycle the right ear is the ideal sine of `phase_C`. With a cycle it computes `K = swing_hz * period_s / (2 * pi)` in binary64 (Python's `math.pi`), the ideal cosines of the signed phases `P0` and `p_P[n]` (in [-2^63, 2^63)) times `2 * pi / 2^64` with NumPy, `U = K * (c0 - c[n])` in cycles, then `y = phase_C[n] / 2^64 + U` in binary64, reduced to [-1/2, 1/2) by subtracting the nearest integer, and the right ear is the NumPy sine of `2 * pi * y`. `reference/stub_chain.py` takes both ears from it.
+**Reference.** The Python reference (`reference/binaural.py`, implemented from this section and Rate curve with the rules of `reference/ideal.py`, never from engine code, engine binaries, or engine output) uses the same integer phases and increments and the ideal sine (Sine) of `phase_L`; it computes `P0` by the coupling phase rule itself. Without a cycle the right ear is the ideal sine of `phase_C`. With a cycle it computes `K = swing_hz * period_s / (2 * pi)` in binary64 (Python's `math.pi`), the ideal cosines of the signed phases `P0` and `p_P[n]` (in [-2^63, 2^63)) times `2 * pi / 2^64` with NumPy, `U = K * (c0 - c[n])` in cycles, then `y = phase_C[n] / 2^64 + U` in binary64, reduced to [-1/2, 1/2] by subtracting the nearest integer (`numpy.rint`), and the right ear is the NumPy sine of `2 * pi * y`. `reference/stub_chain.py` takes both ears from it.
 
-**Error bound.** Write `e_t` for the engine sine's own error: the truncation bound `(pi/2)^13 / 13!` of Sine, Error bound plus rounding, below 5.7e-8 (about -144.9 dBFS; measured -145.0). Row `sine-error` (`b`, -120 dBFS) is the looser ceiling the sine is tested against. The margin of each tap is stated by its count of engine sine evaluations per sample:
+**Error bound.** Write `e_t` for the engine sine's own error: the truncation bound `(pi/2)^13 / 13!` of Sine, Error bound plus rounding, below 5.7e-8 (about -144.9 dBFS; measured -145.0). Row `sine-error` (`b`, -120 dBFS) is the looser ceiling the sine is tested against. Write `e_c` for the cycle cosine's error (Rate curve, Cycle cosine), at most 1e-10 (row `cycle-cosine-error`, -200 dBFS). The margin of each tap is stated by its count of engine sine and cycle cosine evaluations per sample:
 
 - **Fixed beat, each ear: 1 sine** (the carrier). `|bin - bin_ideal| <= e_t`, under `b`.
-- **Beat rate cycle, right ear: 2 sines** (the cycle cosine and the carrier). The cycle cosine's error is scaled by `K` before it reaches the phase. With `eps_0 = |c0 - c0_ideal|` (0 at start phases 90 and 270 degrees, where `P0 + 2^62` folds to 0 and `c0 = +0.0` exactly; at most `e_t` otherwise), the right phase is within `delta = K * (eps_0 + e_t) + 2^-49 * K + 2^-64` cycles of the ideal integral (`2^-49 * K` covers the roundings of `K`, `c0 - c`, and `K * (c0 - c)`; `2^-64` the cycles-to-units rounding), and `|bin_R - bin_R_ideal| <= 2 * pi * delta + e_t`. For the Sleep cycle (`K` about 14.32, start phase 270 degrees) that is about 5.2e-6, about -105.7 dBFS. The left ear is the fixed-beat case.
+- **Beat rate cycle, right ear: 1 cycle cosine and 1 sine** (the cycle cosine and the carrier). The cycle cosine's error is scaled by `K` before it reaches the phase, which is why it is not the engine sine. With `eps_0 = |c0 - c0_ideal|` (0 at start phases 90 and 270 degrees, where `P0 + 2^62` folds to 0 and `c0 = +0.0` exactly; at most `e_c` otherwise), the right phase is within `delta = K * (eps_0 + e_c) + 2^-49 * K + 2^-64` cycles of the ideal integral (`2^-49 * K` covers the roundings of `K`, `c0 - c`, and `K * (c0 - c)`; `2^-64` the cycles-to-units rounding), and `|bin_R - bin_R_ideal| <= 2 * pi * delta + e_t`. The widest compile-accepted cycle has `K` below `15 * 60 / (2 * pi)`, about 143.3 (Rate curve, Range checks: `s <= r` and `r + s < 30`, at the 60 s period), so `2 * pi * delta` is at most about 1.8e-7 and the right ear is within about 2.4e-7 of its ideal, about -132 dBFS, at any start phase: 32 dB under row `reference-match`. For the Sleep cycle (`K` about 14.32) the bound is about -144 dBFS. The left ear is the fixed-beat case.
 - **Output.** With no other layer the output is `bin` bit for bit (`+0.0 + bin = bin`). With the theta reference or the gamma PAC layer it adds that bus's bound (Theta reference, Gamma PAC layer, Coupling, Error bound) and one rounding of the join.
 
-Every committed fixture's bound is under row `reference-match` (-100 dBFS). The cycle bound grows with `K = s * P / (2 * pi)`: at the locked 60 s period it stays under -100 dBFS while `K` is at most about 27.9 (swing up to about 2.9 Hz) at start phases 90 and 270 degrees, and about 13.9 (swing up to about 1.46 Hz) at any other start phase; at start phase 0 degrees the Sleep swing of 1.5 Hz gives about -99.7 dBFS. A recipe past those values is accepted by compile but its right ear is not held to row `reference-match`; design log 2026-11-12 (pp) records it as an open question.
+Every bound, at every compile-accepted cycle, is under row `reference-match` (-100 dBFS).
 
 **Level.** Both ears run at unit amplitude; level fields arrive in Epic 4. A binaural-only fixture peaks near 1.0 in each channel. With another layer it peaks near 2.0 and its 24-bit WAV clips by the 24-bit rounding rule; such fixtures are for tests, not for listening.
 
@@ -1659,7 +1659,7 @@ Per binaural fixture and sample rate: the left carrier, the beat rate (the cycle
 
 ### Vectors: binaural samples
 
-Per binaural fixture and sample rate at sample `n`: the left, center, and cycle phases, the engine cycle cosine `c` and `v = K * (c0 - c)` (binary64 bits; `none` without a cycle), `U` and the right phase, the left and right ears (binary64 bits, from the engine sine bits; also the join, master, and output, since no other layer is present), and their ideal values at 25 digits: the ideal sine of `phase_L`, and of `phase_C / 2^64 + U_ideal` with `U_ideal = K_ideal * (cos(2 * pi * P0 / 2^64) - cos(2 * pi * p_P[n] / 2^64))` and the exact `K_ideal = s * P / (2 * pi)`. Indices cover the start (0 and 1), both sides of the first two block boundaries (63, 64, 65, 127, 128), sample 1000, the last sample, and two samples past the end (case `past_end`: the ears are `+0.0`; the phase columns are shown only for reference); for the cycle fixture also both sides of each quarter of the first cycle (where `n * inc_P` first reaches `k * 2^62`, k = 1 to 4: center rising, maximum, center falling, minimum) and both sides of the seek point at 55 s.
+Per binaural fixture and sample rate at sample `n`: the left, center, and cycle phases, the engine cycle cosine `c` (Rate curve, Cycle cosine) and `v = K * (c0 - c)` (binary64 bits; `none` without a cycle), `U` and the right phase, the left and right ears (binary64 bits, from the engine sine and cycle cosine bits; also the join, master, and output, since no other layer is present), and their ideal values at 25 digits: the ideal sine of `phase_L`, and of `phase_C / 2^64 + U_ideal` with `U_ideal = K_ideal * (cos(2 * pi * P0 / 2^64) - cos(2 * pi * p_P[n] / 2^64))` and the exact `K_ideal = s * P / (2 * pi)`. Indices cover the start (0 and 1), both sides of the first two block boundaries (63, 64, 65, 127, 128), sample 1000, the last sample, and two samples past the end (case `past_end`: the ears are `+0.0`; the phase columns are shown only for reference); for the cycle fixture also both sides of each quarter of the first cycle (where `n * inc_P` first reaches `k * 2^62`, k = 1 to 4: center rising, maximum, center falling, minimum) and both sides of the seek point at 55 s.
 
 | Case | Fixture | fs | n | Left phase | Center phase | Cycle phase | c (binary64 bits) | v (binary64 bits) | U | Right phase | Left (binary64 bits) | Right (binary64 bits) | Left ideal | Right ideal |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1704,15 +1704,15 @@ Per binaural fixture and sample rate at sample `n`: the left, center, and cycle 
 | signal | binaural-cycle-sleep.json | 44100 | 127 | 5312327658415222488 | 5392012573291450424 | 13835943443225232900 | `0x3f33c392026b2e06` | `0xbf71b1901bd29506` | 18367059160041172896 | 5312327659623071704 | `0x3fef17d3efb1fb70` | `0x3fef17d3efa49db0` | 0.9716586829209740397767889 | 0.9716586828237219922935856 |
 | signal | binaural-cycle-sleep.json | 44100 | 128 | 5354157010056287232 | 5434469365207131136 | 13835950414783839744 | `0x3f33eb68d3fed406` | `0xbf71d53a90e22329` | 18366431719795314032 | 5354157011292893552 | `0x3feefb6e3b1e9e34` | `0x3feefb6e3b10222f` | 0.9681922164062944844810670 | 0.9681922163009062642139155 |
 | signal | binaural-cycle-sleep.json | 44100 | 1000 | 4935863493645640768 | 5563303768261608768 | 13842029613889007712 | `0x3f6373e331576be2` | `0xbfa16a3a2367a96c` | 17819304388752787968 | 4935864083304845120 | `0x3fefce1c602d6dd9` | `0x3fefce1c544ba0c6` | 0.9939100368057143065088589 | 0.9939100146736595972517919 |
-| signal | binaural-cycle-sleep.json | 44100 | 661500 | 732000 | 9223372036853428448 | 18446744073709469712 | `0x3fefffffe1cbd435` | `0xc02ca5dbff598ee5` | 12471030675573407744 | 3247658638717284576 | `0x3d518b7ee9454fd3` | `0x3fec9ba3a5cdfe85` | 2.493280996623357959393364e-13 | 0.8939966636003522573494735 |
-| signal | binaural-cycle-sleep.json | 44100 | 661501 | 41829351641796744 | 9265828828769109160 | 6971558524940 | `0x3fefffffe1cb97d4` | `0xc02ca5dbff5958d7` | 12471030676026851328 | 3290115431086408872 | `0x3f8d2d95e3e2eaa0` | `0x3feccff3f80ccd8b` | 0.01424710370735243755639862 | 0.9003826858642881487918344 |
+| signal | binaural-cycle-sleep.json | 44100 | 661500 | 732000 | 9223372036853428448 | 18446744073709469712 | `0x3fefffffffff2c12` | `0xc02ca5dc1a63043d` | 12471015811854729216 | 3247643774998606048 | `0x3d518b7ee9454fd3` | `0x3fec9b9ee3ec9798` | 2.493280996623357959393364e-13 | 0.8939966636003522573494735 |
+| signal | binaural-cycle-sleep.json | 44100 | 661501 | 41829351641796744 | 9265828828769109160 | 6971558524940 | `0x3feffffffffec8e2` | `0xc02ca5dc1a62ab71` | 12471015812599611392 | 3290100567659168936 | `0x3f8d2d95e3e2eaa0` | `0x3feccfef5975745e` | 0.01424710370735243755639862 | 0.9003826858642881487918344 |
 | signal | binaural-cycle-sleep.json | 44100 | 1323000 | 1464000 | 18446744073706856896 | 4611686018427224096 | `0x3d2f68e8099ff41b` | `0xbd6c1e9800000000` | 18446744073694808896 | 18446744073692114176 | `0x3d618b7ee9454fd3` | `0xbd9a1f2cab3617ea` | 4.986561993246715918786727e-13 | -5.939404068546449045825677e-12 |
 | signal | binaural-cycle-sleep.json | 44100 | 1323001 | 41829351642528744 | 42456791912985992 | 4611692989985830940 | `0xbec3eb68d149d536` | `0x3f01d53a8e75bc53` | 627440259872650 | 43084232172858642 | `0x3f8d2d95e3e51c01` | `0x3f8e0da83f76d35f` | 0.01424710370760174035047240 | 0.01467448657681708022879134 |
-| signal | binaural-cycle-sleep.json | 44100 | 1984500 | 2196000 | 9223372036850733728 | 9223372036854530096 | `0xbfefffffe1cbd432` | `0x402ca5dbff598ee2` | 5975713398136045568 | 15199085434986779296 | `0x3d6a513e5de7f7bc` | `0xbfec9ba3a5ce1bfd` | 7.479842989870073878180090e-13 | -0.8939966636011747900246566 |
-| signal | binaural-cycle-sleep.json | 44100 | 1984501 | 41829351643260744 | 9265828828766414440 | 9223379008413136940 | `0xbfefffffe1cb97d7` | `0x402ca5dbff5958da` | 5975713397682798592 | 15241542226449213032 | `0x3f8d2d95e3e74d62` | `0xbfec65cb3f4f164a` | 0.01424710370785104314454619 | -0.8874236840303576468173819 |
-| signal | binaural-cycle-sleep.json | 44100 | 2425499 | 18404914722071170872 | 9180915244934154776 | 12297822410914127252 | `0xbfe00004500dc7ad` | `0x401ca5e3d330c15c` | 2988407510581837824 | 12169322755515992600 | `0xbf8d2d95e3d8aeda` | `0xbfeafc74e4afa386` | -0.01424710370618902451738760 | -0.8433174579902082041365636 |
-| signal | binaural-cycle-sleep.json | 44100 | 2425500 | 2684000 | 9223372036849835488 | 12297829382472734096 | `0xbfe00000000001dc` | `0x401ca5dc1a63c54c` | 2987864131737157632 | 12211236168586993120 | `0x3d70153455d4de81` | `0xbfeb3a9a07223c97` | 9.142030320952312517775665e-13 | -0.8509035245374227253075402 |
-| signal | binaural-cycle-sleep.json | 44100 | 2425501 | 41829351643748744 | 9265828828765516200 | 12297836354031340940 | `0xbfdffff75fe3b1b1` | `0x401ca5d4619617a0` | 2987320752147529728 | 12253149580913045928 | `0x3f8d2d95e3e8c3a2` | `0xbfeb77537954acf9` | 0.01424710370801724500726204 | -0.8583161709100066986088631 |
+| signal | binaural-cycle-sleep.json | 44100 | 1984500 | 2196000 | 9223372036850733728 | 9223372036854530096 | `0xbfefffffffff2c13` | `0x402ca5dc1a63043e` | 5975728261854855168 | 15199100298705588896 | `0x3d6a513e5de7f7bc` | `0xbfec9b9ee3ecb45d` | 7.479842989870073878180090e-13 | -0.8939966636011747900246566 |
+| signal | binaural-cycle-sleep.json | 44100 | 1984501 | 41829351643260744 | 9265828828766414440 | 9223379008413136940 | `0xbfeffffffffec8e1` | `0x402ca5dc1a62ab70` | 5975728261109907456 | 15241557089876321896 | `0x3f8d2d95e3e74d62` | `0xbfec65c65a710f67` | 0.01424710370785104314454619 | -0.8874236840303576468173819 |
+| signal | binaural-cycle-sleep.json | 44100 | 2425499 | 18404914722071170872 | 9180915244934154776 | 12297822410914127252 | `0xbfe00004500dc8ef` | `0x401ca5e3d330c39d` | 2988407510591291392 | 12169322755525446168 | `0xbf8d2d95e3d8aeda` | `0xbfeafc74e4afe069` | -0.01424710370618902451738760 | -0.8433174579902082041365636 |
+| signal | binaural-cycle-sleep.json | 44100 | 2425500 | 2684000 | 9223372036849835488 | 12297829382472734096 | `0xbfe000000000031d` | `0x401ca5dc1a63c78b` | 2987864131746578432 | 12211236168596413920 | `0x3d70153455d4de81` | `0xbfeb3a9a072277e6` | 9.142030320952312517775665e-13 | -0.8509035245374227253075402 |
+| signal | binaural-cycle-sleep.json | 44100 | 2425501 | 41829351643748744 | 9265828828765516200 | 12297836354031340940 | `0xbfdffff75fe3b433` | `0x401ca5d4619619de` | 2987320752156934144 | 12253149580922450344 | `0x3f8d2d95e3e8c3a2` | `0xbfeb77537954e6ce` | 0.01424710370801724500726204 | -0.8583161709100066986088631 |
 | signal | binaural-cycle-sleep.json | 44100 | 2646000 | 2928000 | 18446744073704162176 | 13835058055281836096 | `0xbd3f68e8099ff41b` | `0x3d7c1e9800000000` | 29485440 | 24096000 | `0x3d718b7ee9454fd3` | `0x3da20c59a252d75c` | 9.973123986493431837573453e-13 | 8.207390559376561938461997e-12 |
 | signal | binaural-cycle-sleep.json | 44100 | 2646001 | 41829351643992744 | 42456791910291272 | 13835065026840442940 | `0x3ec3eb68c96f9b34` | `0xbf01d53a876e1653` | 18446116633464421686 | 41829351665161342 | `0x3f8d2d95e3e97ec4` | `0x3f8d2d95e428e93b` | 0.01424710370810034593861997 | 0.01424710371530989586086296 |
 | signal | binaural-cycle-sleep.json | 44100 | 5291999 | 18404914722074342872 | 18404287281783092024 | 13835051083722901636 | `0xbec3eb68f88cf742` | `0x3f01d53ab19bfa53` | 627440333586250 | 18404914722116678274 | `0xbf8d2d95e3cf2e34` | `0xbf8d2d95e3505aa8` | -0.01424710370510871240973451 | -0.01424710369069022321339741 |
@@ -1759,15 +1759,15 @@ Per binaural fixture and sample rate at sample `n`: the left, center, and cycle 
 | signal | binaural-cycle-sleep.json | 48000 | 127 | 4880701036168985464 | 4953911551711520312 | 13835871505454858538 | `0x3f32287af2f12a55` | `0xbf70418933ce75f9` | 18373533559103725680 | 4880701037105694376 | `0x3fefdda23dcbbfa4` | `0x3fefdda23dc7bc78` | 0.9958049275746617314896046 | 0.9958049275454677334086663 |
 | signal | binaural-cycle-sleep.json | 48000 | 128 | 4919131752989213696 | 4992918729284051968 | 13835877910574328576 | `0x3f324d151d1b9ae7` | `0xbf70624dcf5f148e` | 18372957098373723936 | 4919131753948224288 | `0x3fefd31f88a24055` | `0x3fefd31f889d8eff` | 0.9945218953682733393532355 | 0.9945218953341290477894550 |
 | signal | binaural-cycle-sleep.json | 48000 | 1000 | 1537228672809128768 | 2113689425112552768 | 13841463174752201712 | `0x3f61df45b4769063` | `0xbf9ffffe561d342b` | 17870283778697655616 | 1537229130100656768 | `0x3fdffffffffffd7b` | `0x3fe00000486b5023` | 0.4999999999999998426779831 | 0.5000001348912915528331643 |
-| signal | binaural-cycle-sleep.json | 48000 | 720000 | 18446744073709167616 | 9223372036854760448 | 18446744073709523712 | `0x3fefffffe1cbd435` | `0xc02ca5dbff598ee5` | 12471030675573407744 | 3247658638718616576 | `0xbd4268639437ef07` | `0x3fec9ba3a5ce05ac` | -1.307950686753236962304715e-13 | 0.8939966636005555462854938 |
-| signal | binaural-cycle-sleep.json | 48000 | 720001 | 38430716819844232 | 9262379214427292104 | 6405119442134 | `0x3fefffffe1cba424` | `0xc02ca5dbff5963dd` | 12471030675934380032 | 3286665816652120520 | `0x3f8aceb7c72b7a28` | `0x3feccbc28b556305` | 0.01308959557121365614549547 | 0.8998708317253047641278519 |
+| signal | binaural-cycle-sleep.json | 48000 | 720000 | 18446744073709167616 | 9223372036854760448 | 18446744073709523712 | `0x3fefffffffff2c12` | `0xc02ca5dc1a63043d` | 12471015811854729216 | 3247643774999938048 | `0xbd4268639437ef07` | `0x3fec9b9ee3ec9ec1` | -1.307950686753236962304715e-13 | 0.8939966636005555462854938 |
+| signal | binaural-cycle-sleep.json | 48000 | 720001 | 38430716819844232 | 9262379214427292104 | 6405119442134 | `0x3feffffffffed858` | `0xc02ca5dc1a62b949` | 12471015812483481600 | 3286650953201222088 | `0x3f8aceb7c72b7a28` | `0x3feccbbde9dda58c` | 0.01308959557121365614549547 | 0.8998708317253047641278519 |
 | signal | binaural-cycle-sleep.json | 48000 | 1440000 | 18446744073708783616 | 18446744073709520896 | 4611686018427332096 | `0x3d1566f005c20e66` | `0xbd53290000000000` | 18446744073704528896 | 18446744073704498176 | `0xbd5268639437ef07` | `0xbd7e47e13f56e415` | -2.615901373506473924609431e-13 | -1.721263103767259842393005e-12 |
 | signal | binaural-cycle-sleep.json | 48000 | 1440001 | 38430716819460232 | 39007177572500936 | 4611692423546802134 | `0xbec24d151e6c465e` | `0x3f00624dd08c7b96` | 576460747280243 | 39583638319781179 | `0x3f8aceb7c72a53a9` | `0x3f8b9c964dd00e69` | 0.01308959557108287228235099 | 0.01348225998845649654957823 |
-| signal | binaural-cycle-sleep.json | 48000 | 2160000 | 18446744073708399616 | 9223372036854729728 | 9223372036854692096 | `0xbfefffffe1cbd434` | `0x402ca5dbff598ee4` | 5975713398136111104 | 15199085434990840832 | `0xbd5b9c955e53e68b` | `0xbfec9ba3a5ce062e` | -3.923852060259710886914146e-13 | -0.8939966636005649232165967 |
-| signal | binaural-cycle-sleep.json | 48000 | 2160001 | 38430716819076232 | 9262379214427261384 | 9223378441974162134 | `0xbfefffffe1cba425` | `0x402ca5dbff5963de` | 5975713397775204352 | 15238092612202465736 | `0x3f8aceb7c7292d29` | `0xbfec6a39cbab227b` | 0.01308959557095208841920651 | -0.8879646840921792847901553 |
-| signal | binaural-cycle-sleep.json | 48000 | 2639999 | 18408313356887915384 | 9184364859282187832 | 12297822977353462058 | `0xbfe00003f65977a8` | `0x401ca5e332934fd7` | 2988363361063124992 | 12172728220345312824 | `0xbf8aceb7c730d87c` | `0xbfeb018f0208c7d9` | -0.01308959557182398084016972 | -0.8439402619866384622955363 |
-| signal | binaural-cycle-sleep.json | 48000 | 2640000 | 18446744073708143616 | 9223372036854719488 | 12297829382472932096 | `0xbfdfffffffffff9c` | `0x401ca5dc1a63c19e` | 2987864131721723904 | 12211236168576443392 | `0xbd60dfb09d3345c6` | `0xbfeb3a9a0721fa2d` | -4.795819184761868861783956e-13 | -0.8509035245355352580531174 |
-| signal | binaural-cycle-sleep.json | 48000 | 2640001 | 38430716818820232 | 9262379214427251144 | 12297835787592402134 | `0xbfdffff8134c6874` | `0x401ca5d502339d7c` | 2987364901751554048 | 12249744116178805192 | `0x3f8aceb7c72868d3` | `0xbfeb72720e946316` | 0.01308959557086489917711019 | -0.8577204024564568053291652 |
+| signal | binaural-cycle-sleep.json | 48000 | 2160000 | 18446744073708399616 | 9223372036854729728 | 9223372036854692096 | `0xbfefffffffff2c12` | `0x402ca5dc1a63043d` | 5975728261854822400 | 15199100298709552128 | `0xbd5b9c955e53e68b` | `0xbfec9b9ee3ec9f14` | -3.923852060259710886914146e-13 | -0.8939966636005649232165967 |
+| signal | binaural-cycle-sleep.json | 48000 | 2160001 | 38430716819076232 | 9262379214427261384 | 9223378441974162134 | `0xbfeffffffffed858` | `0x402ca5dc1a62b949` | 5975728261226070016 | 15238107475653331400 | `0x3f8aceb7c7292d29` | `0xbfec6a34e9a25733` | 0.01308959557095208841920651 | -0.8879646840921792847901553 |
+| signal | binaural-cycle-sleep.json | 48000 | 2639999 | 18408313356887915384 | 9184364859282187832 | 12297822977353462058 | `0xbfe00003f65978e9` | `0x401ca5e332935216` | 2988363361072545792 | 12172728220354733624 | `0xbf8aceb7c730d87c` | `0xbfeb018f02090469` | -0.01308959557182398084016972 | -0.8439402619866384622955363 |
+| signal | binaural-cycle-sleep.json | 48000 | 2640000 | 18446744073708143616 | 9223372036854719488 | 12297829382472932096 | `0xbfe0000000000110` | `0x401ca5dc1a63c3df` | 2987864131731177472 | 12211236168585896960 | `0xbd60dfb09d3345c6` | `0xbfeb3a9a072235b0` | -4.795819184761868861783956e-13 | -0.8509035245355352580531174 |
+| signal | binaural-cycle-sleep.json | 48000 | 2640001 | 38430716818820232 | 9262379214427251144 | 12297835787592402134 | `0xbfdffff8134c6af6` | `0x401ca5d502339fbb` | 2987364901760974848 | 12249744116188225992 | `0x3f8aceb7c72868d3` | `0xbfeb72720e949d21` | 0.01308959557086489917711019 | -0.8577204024564568053291652 |
 | signal | binaural-cycle-sleep.json | 48000 | 2880000 | 18446744073708015616 | 18446744073709490176 | 13835058055282052096 | `0xbd2566f005c20e66` | `0x3d63290000000000` | 10045440 | 9984000 | `0xbd6268639437ef07` | `0x3d8de9a1d0dae46c` | -5.231802747012947849218861e-13 | 3.400671785558416101992253e-12 |
 | signal | binaural-cycle-sleep.json | 48000 | 2880001 | 38430716818692232 | 39007177572470216 | 13835064460401522134 | `0x3ec24d151bbf685d` | `0xbf00624dce275b96` | 18446167612967294093 | 38430716830212693 | `0x3f8aceb7c72806a9` | `0x3f8aceb7c74a89fd` | 0.01308959557082130455606202 | 0.01308959557474497755846580 |
 | signal | binaural-cycle-sleep.json | 48000 | 5759999 | 18408313356886251384 | 18407736896136897080 | 13835051650162470442 | `0xbec24d152bcc9c61` | `0x3f00624ddc861b96` | 576460772393843 | 18408313356909290923 | `0xbf8aceb7c735d4a6` | `0xbf8aceb7c6f0cf10` | -0.01308959557239071091379581 | -0.01308959556454383623322037 |
@@ -1822,20 +1822,43 @@ P0    = coupling phase rule (start_phase_deg)                (Coupling, Coupling
 q_P   = 1.0 / period_s                                        binary64, one rounding
 inc_P = phase increment rule (q_P, fs)                        cycle phase increment
 K     = (swing_hz * period_s) * 0x1.45f306dc9c883p-3         two roundings; the constant is the binary64 nearest 1 / (2 pi)
-c0    = sine(P0 + 2^62 mod 2^64)                              engine sine: the cosine of the start phase
+c0    = cycle_cosine(P0)                                      the cosine of the start phase (Cycle cosine)
 ```
 
 Per sample, in this order:
 
 ```
 p_P[n]     = P0 + n * inc_P mod 2^64       cycle phase (P0 at n = 0)
-c[n]       = sine(p_P[n] + 2^62 mod 2^64)  engine sine: the cosine of the cycle phase
+c[n]       = cycle_cosine(p_P[n])          the cosine of the cycle phase (Cycle cosine)
 v[n]       = K * (c0 - c[n])               two binary64 operations: c0 - c, then K times it
 U[n]       = cycles-to-units rule (v[n])
 phase_R[n] = phase_C[n] + U[n] mod 2^64    (Binaural layer, Oscillators)
 ```
 
-At n = 0, `c[0]` is `c0` bit for bit, so `v[0] = K * +0.0 = +0.0`, `U[0] = 0`, and the right ear starts at phase 0 like the left. Every value is a pure function of `n`: two integer accumulators and one engine cosine.
+At n = 0, `c[0]` is `c0` bit for bit (one function of the same phase), so `v[0] = K * +0.0 = +0.0`, `U[0] = 0`, and the right ear starts at phase 0 like the left. Every value is a pure function of `n`: two integer accumulators and one engine cosine.
+
+**Cycle cosine.** `U` multiplies the cosine's error by `K`, up to about 143, so the cycle uses its own cosine, more exact than the engine sine (Sine, Engine sine), for both `c0` and `c[n]`. For a phase `p`:
+
+1. **Quarter turn and fold, exact integer steps.** `q = p + 2^62 mod 2^64` (the cosine of `p` is the sine of `q`), then the engine sine's step 1 on `q`: read it as a signed 64-bit integer `s`, and fold into `[-2^62, 2^62]` with `s = 2^63 - s` above 2^62 and `s = -2^63 - s` below -2^62.
+2. **Convert once.** `x = double(s) * 0x1.921fb54442d18p-62`, the engine sine's step 2.
+3. **Odd Taylor polynomial to x^15, fixed Horner order.** With the coefficients of Vectors: cycle cosine coefficients (`Dk` the binary64 nearest to `+-1/k!`, sign alternating, `+` for k = 1; `D1` to `D11` equal the engine sine's `C1` to `C11`):
+
+   ```
+   z = x * x
+   r = D15
+   r = r * z + D13
+   r = r * z + D11
+   r = r * z + D9
+   r = r * z + D7
+   r = r * z + D5
+   r = r * z + D3
+   r = r * z + D1
+   y = r * x
+   ```
+
+   Each `*` and `+` is one binary64 operation (no fused multiply-add).
+
+**Error bound.** `|cycle_cosine(p) - cos(2 * pi * p / 2^64)| <= e_c = 1e-10` (row `cycle-cosine-error`, -200 dBFS), tested at the phases of Sine, Test resolution. The truncation error of the polynomial on `[-pi/2, pi/2]` is at most `(pi/2)^17 / 17!`, about 6.1e-12 (-224 dBFS), and the roundings add about 1e-16, so the bound holds with about 24 dB to spare. At phases 2^62 and 3 * 2^62 the fold gives `s = 0` and `y = +0.0` exactly, so `c0 = +0.0` at start phases 90 and 270 degrees. The engine sine is unchanged; only the beat rate cycle uses the cycle cosine.
 
 **Cycles-to-units rule.** A value `v` in cycles (binary64) becomes phase units, `(v mod 1) * 2^64` rounded:
 
@@ -1849,9 +1872,46 @@ U = x rounded to the nearest integer, ties to even, modulo 2^64
 
 `f` is exact because it keeps only bits `v` already has. `|x| <= (1 - 2^-53) * 2^64 < 2^64`, so the rounded magnitude fits an unsigned 64-bit integer and no conversion can overflow. Rounding ties to even is symmetric, so a negative `x` gives `U = 2^64 - round(-x)` (and 0 where `round(-x)` is 0): `U` is the same point of the cycle as the exact `v mod 1`, within half a unit. Ties can happen only for `|x| < 2^52` (Vectors: cycles to units).
 
-**Frequency.** The instantaneous rate the right ear plays is `f_C + dU/dt`. The accumulators play `f_C` and `q_P` within the increment rule's frequency error (Core, Frequency error), so the center rate is off by under 1e-13 Hz and the cycle period by under 1e-11 s; the engine cosine's error in `U` (Binaural layer, Error bound) changes only as slowly as the cycle phase. So the instantaneous rate follows the schedule within row `frequency-accuracy`, and the phase is continuous: from one sample to the next `U` changes by at most `s / fs` cycles plus the rounding, with no step. The frequency tool's phase mode (`tests/assertions/frequency.py`) measures both from the right ear tap.
+**Frequency.** The instantaneous rate the right ear plays is `f_C + dU/dt`. The accumulators play `f_C` and `q_P` within the increment rule's frequency error (Core, Frequency error), so the center rate is off by under 1e-13 Hz and the cycle period by under 1e-11 s; the cycle cosine's error in `U` (Binaural layer, Error bound) changes only as slowly as the cycle phase. So the instantaneous rate follows the schedule within row `frequency-accuracy`, and the phase is continuous: from one sample to the next `U` changes by at most `s / fs` cycles plus the rounding, with no step. The frequency tool's phase mode (`tests/assertions/frequency.py`) measures both from the right ear tap.
 
 **Seek.** Seek to frame `k` sets the cycle phase to `P0 + k * inc_P mod 2^64` and the center phase to `k * inc_C mod 2^64`; `U` needs nothing else, so seek is one step for any `k` and the block size cannot change a sample.
+
+### Vectors: cycle cosine coefficients
+
+`Dk`, the binary64 nearest to `+-1/k!`, as hex floats. `D1` to `D11` equal the engine sine's coefficients.
+
+| Term | Exact | Binary64 (hex float) |
+| --- | --- | --- |
+| x^1 | +1/1! | `0x1.0000000000000p+0` |
+| x^3 | -1/3! | `-0x1.5555555555555p-3` |
+| x^5 | +1/5! | `0x1.1111111111111p-7` |
+| x^7 | -1/7! | `-0x1.a01a01a01a01ap-13` |
+| x^9 | +1/9! | `0x1.71de3a556c734p-19` |
+| x^11 | -1/11! | `-0x1.ae64567f544e4p-26` |
+| x^13 | +1/13! | `0x1.6124613a86d09p-33` |
+| x^15 | -1/15! | `-0x1.ae7f3e733b81fp-41` |
+
+### Vectors: cycle cosine
+
+The engine cycle cosine (binary64 bits) at the quadrant edges and their neighbours, at eighths of a cycle, and at the Sleep cycle phase of sample 1000 at 48 kHz, with the ideal cosine at 25 digits.
+
+| Cycle cosine case | Phase | Cycle cosine (binary64 bits) | Cosine ideal |
+| --- | --- | --- | --- |
+| 0 | 0 | `0x3fefffffffff2c12` | 1 |
+| 1 | 1 | `0x3fefffffffff2c12` | 1 |
+| 2^60 | 1152921504606846976 | `0x3fed906bcf328bae` | 0.9238795325112867561281832 |
+| 2^61 | 2305843009213693952 | `0x3fe6a09e667f3bcc` | 0.7071067811865475244008444 |
+| 2^62 - 1 | 4611686018427387903 | `0x3c1921fb54442d18` | 3.406121580086554589335196e-19 |
+| 2^62 | 4611686018427387904 | `0x0000000000000000` | 0 |
+| 2^62 + 1 | 4611686018427387905 | `0xbc1921fb54442d18` | -3.406121580086554589335196e-19 |
+| 3 * 2^61 | 6917529027641081856 | `0xbfe6a09e667f3bcc` | -0.7071067811865475244008444 |
+| 2^63 - 1 | 9223372036854775807 | `0xbfefffffffff2c12` | -1 |
+| 2^63 | 9223372036854775808 | `0xbfefffffffff2c12` | -1 |
+| 2^63 + 1 | 9223372036854775809 | `0xbfefffffffff2c12` | -1 |
+| 3 * 2^62 | 13835058055282163712 | `0x0000000000000000` | 0 |
+| 7 * 2^61 | 16140901064495857664 | `0x3fe6a09e667f3bcc` | 0.7071067811865475244008444 |
+| 2^64 - 1 | 18446744073709551615 | `0x3fefffffffff2c12` | 1 |
+| Sleep P0 + 1000 * inc_P at 48 kHz | 13841463174752201712 | `0x3f61df45b4769063` | 0.002181659834336756532157979 |
 
 ### Vectors: cycles to units
 
@@ -1886,20 +1946,20 @@ The cycles-to-units rule. `v`, `f`, and `f * 2^64` are hex floats (`none` where 
 
 ### Vectors: rate cycle
 
-The once-per-plan constants of the Sleep swing and period (1.5 Hz, 60 s) at start phases 0, 90, 180, 270, and 360 degrees at both sample rates: `x = deg / 360` and `P0` (Coupling, Coupling phase rule), `1 / P` and its `q` and `inc_P` (Core, Phase increment rule), `s * P` and `K`, and the engine `c0` (binary64 bits) with its ideal value. At 90 and 270 degrees `c0` is exactly `+0.0`.
+The once-per-plan constants of the Sleep swing and period (1.5 Hz, 60 s) at start phases 0, 90, 180, 270, and 360 degrees at both sample rates: `x = deg / 360` and `P0` (Coupling, Coupling phase rule), `1 / P` and its `q` and `inc_P` (Core, Phase increment rule), `s * P` and `K`, and the engine `c0` (the cycle cosine of `P0`, binary64 bits) with its ideal value. At 90 and 270 degrees `c0` is exactly `+0.0`.
 
 | Swing (hex) | Period (hex) | Start phase (hex) | x = deg / 360 (hex) | P0 | 1 / P (hex) | fs | q (hex) | inc_P | s * P (hex) | K (hex) | c0 (binary64 bits) | c0 ideal |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `0x1.8000000000000p+0` | `0x1.e000000000000p+5` | `0x0.0p+0` | `0x0.0p+0` | 0 | `0x1.1111111111111p-6` | 44100 | `0x1.95cc518dff07fp+42` | 6971558606844 | `0x1.6800000000000p+6` | `0x1.ca5dc1a63c1f8p+3` | `0x3fefffffe1cbd435` | 1 |
+| `0x1.8000000000000p+0` | `0x1.e000000000000p+5` | `0x0.0p+0` | `0x0.0p+0` | 0 | `0x1.1111111111111p-6` | 44100 | `0x1.95cc518dff07fp+42` | 6971558606844 | `0x1.6800000000000p+6` | `0x1.ca5dc1a63c1f8p+3` | `0x3fefffffffff2c12` | 1 |
 | `0x1.8000000000000p+0` | `0x1.e000000000000p+5` | `0x1.6800000000000p+6` | `0x1.0000000000000p-2` | 4611686018427387904 | `0x1.1111111111111p-6` | 44100 | `0x1.95cc518dff07fp+42` | 6971558606844 | `0x1.6800000000000p+6` | `0x1.ca5dc1a63c1f8p+3` | `0x0000000000000000` | 0 |
-| `0x1.8000000000000p+0` | `0x1.e000000000000p+5` | `0x1.6800000000000p+7` | `0x1.0000000000000p-1` | 9223372036854775808 | `0x1.1111111111111p-6` | 44100 | `0x1.95cc518dff07fp+42` | 6971558606844 | `0x1.6800000000000p+6` | `0x1.ca5dc1a63c1f8p+3` | `0xbfefffffe1cbd435` | -1 |
+| `0x1.8000000000000p+0` | `0x1.e000000000000p+5` | `0x1.6800000000000p+7` | `0x1.0000000000000p-1` | 9223372036854775808 | `0x1.1111111111111p-6` | 44100 | `0x1.95cc518dff07fp+42` | 6971558606844 | `0x1.6800000000000p+6` | `0x1.ca5dc1a63c1f8p+3` | `0xbfefffffffff2c12` | -1 |
 | `0x1.8000000000000p+0` | `0x1.e000000000000p+5` | `0x1.0e00000000000p+8` | `0x1.8000000000000p-1` | 13835058055282163712 | `0x1.1111111111111p-6` | 44100 | `0x1.95cc518dff07fp+42` | 6971558606844 | `0x1.6800000000000p+6` | `0x1.ca5dc1a63c1f8p+3` | `0x0000000000000000` | 0 |
-| `0x1.8000000000000p+0` | `0x1.e000000000000p+5` | `0x1.6800000000000p+8` | `0x1.0000000000000p+0` | 0 | `0x1.1111111111111p-6` | 44100 | `0x1.95cc518dff07fp+42` | 6971558606844 | `0x1.6800000000000p+6` | `0x1.ca5dc1a63c1f8p+3` | `0x3fefffffe1cbd435` | 1 |
-| `0x1.8000000000000p+0` | `0x1.e000000000000p+5` | `0x0.0p+0` | `0x0.0p+0` | 0 | `0x1.1111111111111p-6` | 48000 | `0x1.74d3b7ba75828p+42` | 6405119470038 | `0x1.6800000000000p+6` | `0x1.ca5dc1a63c1f8p+3` | `0x3fefffffe1cbd435` | 1 |
+| `0x1.8000000000000p+0` | `0x1.e000000000000p+5` | `0x1.6800000000000p+8` | `0x1.0000000000000p+0` | 0 | `0x1.1111111111111p-6` | 44100 | `0x1.95cc518dff07fp+42` | 6971558606844 | `0x1.6800000000000p+6` | `0x1.ca5dc1a63c1f8p+3` | `0x3fefffffffff2c12` | 1 |
+| `0x1.8000000000000p+0` | `0x1.e000000000000p+5` | `0x0.0p+0` | `0x0.0p+0` | 0 | `0x1.1111111111111p-6` | 48000 | `0x1.74d3b7ba75828p+42` | 6405119470038 | `0x1.6800000000000p+6` | `0x1.ca5dc1a63c1f8p+3` | `0x3fefffffffff2c12` | 1 |
 | `0x1.8000000000000p+0` | `0x1.e000000000000p+5` | `0x1.6800000000000p+6` | `0x1.0000000000000p-2` | 4611686018427387904 | `0x1.1111111111111p-6` | 48000 | `0x1.74d3b7ba75828p+42` | 6405119470038 | `0x1.6800000000000p+6` | `0x1.ca5dc1a63c1f8p+3` | `0x0000000000000000` | 0 |
-| `0x1.8000000000000p+0` | `0x1.e000000000000p+5` | `0x1.6800000000000p+7` | `0x1.0000000000000p-1` | 9223372036854775808 | `0x1.1111111111111p-6` | 48000 | `0x1.74d3b7ba75828p+42` | 6405119470038 | `0x1.6800000000000p+6` | `0x1.ca5dc1a63c1f8p+3` | `0xbfefffffe1cbd435` | -1 |
+| `0x1.8000000000000p+0` | `0x1.e000000000000p+5` | `0x1.6800000000000p+7` | `0x1.0000000000000p-1` | 9223372036854775808 | `0x1.1111111111111p-6` | 48000 | `0x1.74d3b7ba75828p+42` | 6405119470038 | `0x1.6800000000000p+6` | `0x1.ca5dc1a63c1f8p+3` | `0xbfefffffffff2c12` | -1 |
 | `0x1.8000000000000p+0` | `0x1.e000000000000p+5` | `0x1.0e00000000000p+8` | `0x1.8000000000000p-1` | 13835058055282163712 | `0x1.1111111111111p-6` | 48000 | `0x1.74d3b7ba75828p+42` | 6405119470038 | `0x1.6800000000000p+6` | `0x1.ca5dc1a63c1f8p+3` | `0x0000000000000000` | 0 |
-| `0x1.8000000000000p+0` | `0x1.e000000000000p+5` | `0x1.6800000000000p+8` | `0x1.0000000000000p+0` | 0 | `0x1.1111111111111p-6` | 48000 | `0x1.74d3b7ba75828p+42` | 6405119470038 | `0x1.6800000000000p+6` | `0x1.ca5dc1a63c1f8p+3` | `0x3fefffffe1cbd435` | 1 |
+| `0x1.8000000000000p+0` | `0x1.e000000000000p+5` | `0x1.6800000000000p+8` | `0x1.0000000000000p+0` | 0 | `0x1.1111111111111p-6` | 48000 | `0x1.74d3b7ba75828p+42` | 6405119470038 | `0x1.6800000000000p+6` | `0x1.ca5dc1a63c1f8p+3` | `0x3fefffffffff2c12` | 1 |
 
 ### Vectors: rate curve
 
