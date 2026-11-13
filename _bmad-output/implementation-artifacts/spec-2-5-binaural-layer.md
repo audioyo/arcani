@@ -3,7 +3,7 @@ title: 'Story 2.5: Binaural layer'
 type: 'feature'
 created: '2026-11-11'
 baseline_commit: '25e283a6145fae5fed1b8e22968324235f78e357'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 1
 context:
