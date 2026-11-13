@@ -5,8 +5,7 @@
 // request length. Every sample is a pure function of the plan and its sample
 // index: each oscillator phase (the theta and gamma envelope phases included)
 // at frame n is n * inc mod 2^64 (the beat rate cycle phase P0 + n * inc_P),
-// so
-// seek sets it directly and reads no earlier output. render() and seek()
+// so seek sets it directly and reads no earlier output. render() and seek()
 // never allocate, throw, or do I/O; the constructor holds every buffer.
 
 #ifndef ARCANI_RENDER_RENDERER_HPP

@@ -133,6 +133,7 @@
 #if __has_include("validate/validate.hpp") && defined(ARC_ERROR_FIELD_BYTES)
 
 #include "api_helpers.hpp"
+#include "spec_helpers.hpp"
 #include "recipe/field_table.hpp"
 #include "tables.hpp"
 #include "validate/validate.hpp"
@@ -176,6 +177,7 @@ inline const std::string modeled_binaural_waveforms(kModeledBinauralWaveforms);
 }  // namespace arcani::validate_probe
 
 namespace api = arcani::test::api;
+namespace spec = arcani::test::spec;
 namespace recipe = arcani::recipe;
 namespace tables = arcani::test::tables;
 namespace validate = arcani::validate;
@@ -1725,7 +1727,7 @@ TEST_CASE("binaural: a beat rate cycle recipe compiles in both modes at both rat
     v.theta = theta;
     const std::string text = make_recipe(v);
     for (const arc_mode mode : kModes) {
-      for (const std::uint32_t fs : {44100u, 48000u}) {
+      for (const std::uint32_t fs : spec::sample_rates()) {
         INFO("theta " << theta << ", mode " << mode << ", fs " << fs);
         CHECK(api::compile_ok(text, api::options(mode, fs)) != nullptr);
       }
@@ -1820,7 +1822,7 @@ TEST_CASE("binaural: worst-case rates are rejected with the row, parameter the s
   {
     // No plan at either sample rate.
     Values v = with_cycle("1.51");
-    for (const std::uint32_t fs : {44100u, 48000u}) {
+    for (const std::uint32_t fs : spec::sample_rates()) {
       const api::Compiled c = api::compile(make_recipe(v), api::options(ARC_MODE_MEASURE, fs));
       CHECK(c.status == ARC_ERR_REJECTED);
       CHECK(c.plan == nullptr);
@@ -1854,7 +1856,7 @@ TEST_CASE("binaural: period and start phase are checked against their rows", "[v
 }
 
 TEST_CASE("binaural: start phase 0 and 360 compile and render byte-identically", "[validate][binaural]") {
-  for (const std::uint32_t fs : {44100u, 48000u}) {
+  for (const std::uint32_t fs : spec::sample_rates()) {
     INFO("fs " << fs);
     Values zero = with_cycle("1.5", "60", "0");
     Values full = with_cycle("1.5", "60", "360");
@@ -1873,14 +1875,14 @@ TEST_CASE("binaural: waveform sine and absent compile and render the same bits; 
     sine.binaural_waveform = "\"sine\"";
     expect_plan(sine);
     expect_plan(absent);
-    for (const std::uint32_t fs : {44100u, 48000u}) {
+    for (const std::uint32_t fs : spec::sample_rates()) {
       INFO("cycle " << cycle << ", fs " << fs);
       CHECK(render_hash(make_recipe(sine), fs) == render_hash(make_recipe(absent), fs));
     }
     Values triangle = absent;
     triangle.binaural_waveform = "\"triangle\"";
     expect_rejected(triangle, kWantTriangle);
-    for (const std::uint32_t fs : {44100u, 48000u}) {
+    for (const std::uint32_t fs : spec::sample_rates()) {
       const api::Compiled c = api::compile(make_recipe(triangle), api::options(ARC_MODE_MEASURE, fs));
       CHECK(c.status == ARC_ERR_REJECTED);
       CHECK(c.plan == nullptr);
@@ -1948,7 +1950,7 @@ TEST_CASE("binaural: the schema-valid compile-rejected binaural fixtures name th
   for (const auto& c : cases) {
     const std::string text = api::valid(c.name);
     for (const arc_mode mode : kModes) {
-      for (const std::uint32_t fs : {44100u, 48000u}) {
+      for (const std::uint32_t fs : spec::sample_rates()) {
         INFO(c.name << ", mode " << mode << ", fs " << fs);
         const api::Compiled r = api::compile(text, api::options(mode, fs));
         INFO(api::describe(r.error));
@@ -1968,7 +1970,7 @@ TEST_CASE("binaural: every accepted binaural fixture compiles at both rates", "[
   for (const char* name : {"binaural-beat-0.json", "binaural-beat-6.json", "binaural-beat-29.json",
                            "binaural-cycle-sleep.json"}) {
     for (const arc_mode mode : kModes) {
-      for (const std::uint32_t fs : {44100u, 48000u}) {
+      for (const std::uint32_t fs : spec::sample_rates()) {
         INFO(name << ", mode " << mode << ", fs " << fs);
         const api::Compiled c = api::compile(api::valid(name), api::options(mode, fs));
         INFO(api::describe(c.error));

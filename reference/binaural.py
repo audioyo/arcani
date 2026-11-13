@@ -22,7 +22,7 @@ reference/ideal.py's ideal sine), never the engine's approximation.
   carrier_left_hz; f_C = carrier_left_hz + beat_rate_hz (one binary64
   addition), phase_C[n] = n * inc_C mod 2^64. Without a cycle the right ear
   is ideal_sine(phase_C); with one, y = phase_C / 2^64 + U in binary64,
-  reduced to [-1/2, 1/2) by subtracting the nearest integer, and the right
+  reduced to [-1/2, 1/2] by subtracting the nearest integer (np.rint), and the right
   ear is sin(2 pi y).
 
 NumPy, the standard library, and reference/ only.

@@ -201,7 +201,7 @@ std::size_t seek_differences(const api::PlanPtr& plan, std::uint64_t k, std::uin
 }  // namespace
 
 TEST_CASE("seek: the beat rate cycle fixture sought to 55 s equals the continuous render", "[seek][binaural]") {
-  for (const std::uint32_t fs : {44100u, 48000u}) {
+  for (const std::uint32_t fs : spec::sample_rates()) {
     INFO(kCycleFixture << " at " << fs);
     auto plan = api::compile_ok(api::valid(kCycleFixture), api::options(ARC_MODE_MEASURE, fs));
     const std::uint64_t frames = arc_plan_frame_count(plan.get());
