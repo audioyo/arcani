@@ -593,3 +593,21 @@ def test_engine_rejects_the_missing_period_fixture(tapdump, tmp_path):
     assert result.returncode == 1, (result.stdout, result.stderr)
     text = result.stdout + result.stderr
     assert "required" in text and "/binaural/beat_rate_cycle/period_s" in text, text
+
+
+# ------------------------------------------------------------ clicks
+
+
+def clicks():
+    return importlib.import_module("assertions.clicks")
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_engine_sleep_cycle_passes_the_click_test(fs, tapdump, tmp_path):
+    # The beat rate cycle moves the right ear's phase every sample; the click
+    # tool (row click-level after the row click-highpass high-pass) finds no
+    # discontinuity in either ear of the engine output.
+    _, arrays = dump_arrays(tapdump, FIXTURES_VALID / "binaural-cycle-sleep.json", fs, tmp_path / "dump", 0)
+    for c, ear in ((0, "left"), (1, "right")):
+        result = clicks().check(f"binaural-cycle-sleep {fs} {ear}", channel(arrays["output"], c), fs)
+        assert result["result"] == "pass", result
