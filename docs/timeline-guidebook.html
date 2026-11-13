@@ -274,7 +274,7 @@
    Update after every completed section plus commit and/or push.
    ===================================================================== */
 
-var LAST_UPDATED = "2026-11-12";
+var LAST_UPDATED = "2026-11-13";
 var CURRENT = "2.4";   // story id being worked on
 var NEXT    = "2.6";   // story id that comes next
 
@@ -513,14 +513,17 @@ var EPICS = [
       ["x","Sweeping binaural beat rate and phase leaves every gamma peak time unchanged to the sample"],
       ["x","Each ear's tap and the output match the reference"]
     ] },
-  { id:"2.4", title:"Gamma coupled, 50 ms bursts", status:"backlog",
+  { id:"2.4", title:"Gamma coupled, 50 ms bursts", status:"in-progress",
     plain:"Gamma as 50 ms bursts centered on the coupling phase, depth-gated with soft edges, with no clicks.",
-    steps:S7(), acs:[
-      [" ","signal-spec bursts section: 50 ms full width, 10 ms raised-cosine edges, carrier continuous, worked vectors"],
-      [" ","Spectrum tool calibrated on multi-tone signals; a moved line must-fail is caught"],
-      [" ","Burst spectra at 40, 45, 60 Hz reproduce the burst-edge-taper research run figures; rectangular burst must-fail fails"],
-      [" ","Each burst center within 2 ms of its coupling phase"],
-      [" ","No click above -60 dBFS at burst edges; matches the reference"]
+    spec:["spec-2-4-gamma-coupled-50-ms-bursts.md"],
+    steps:[true,true,true,false,false,false,false],
+    stepNotes:["06283a0: spec 2026-11-13, spectrum rows, research figure match, and spec size decided by Audio; 4d3a96f: signal spec Bursts section with 5 vector tables (36 in all); ffdf1ae: interfaces and the burst timing deviation (pending Audio)","67a7089: fresh-context QA agent's failing tests; 29 of 324 C++ cases and about 160 pytest cases red","f1033cd: bursts coupling and rules, engine burst gate, reference gate, spectrum tool and rows spectrum-frequency and spectrum-level, burst-center timing, 5 fixtures, gamma-bursts probe components; 4/4 ctest entries, 2,527 pytest pass, 4 hash-entry tests wait for the full run; reference match -137.0 dBFS worst; design log (qq)","","","",""],
+    acs:[
+      ["x","signal-spec bursts section: 50 ms full width, 10 ms raised-cosine edges, carrier continuous, worked vectors"],
+      ["x","Spectrum tool calibrated on multi-tone signals; a moved line must-fail is caught"],
+      ["x","Burst spectra at 40, 45, 60 Hz reproduce the burst-edge-taper research run figures; rectangular burst must-fail fails"],
+      ["x","Each burst center within 2 ms of its coupling phase"],
+      ["x","No click above -60 dBFS at burst edges; matches the reference"]
     ] },
   { id:"2.6", title:"Rate curves on theta and gamma rates", status:"backlog",
     plain:"The theta and gamma rates follow recipe rate curves using the same law as the binaural beat.",
@@ -721,6 +724,7 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-13","f1033cd","2.4","Spec (06283a0), signal spec Bursts and vectors (4d3a96f), QA agent failing tests (67a7089), implementation (f1033cd): 4/4 ctest entries, 2,527 pytest pass, 4 hash-entry tests wait for the four-platform full run; burst timing refinement waits on Audio; not pushed"],
   ["2026-11-13","3659e45","2.5","PR #15 merged into main after fast and full checks on 81034f9 were green (10 checks, linux-x64 included); sprint-status.yaml set to done"],
   ["2026-11-12","aa423b8","2.5","Confirming full run 43363235457 green on all four platforms (gate, windows-x64, windows-arm64, macos-arm64, android-arm64, contract-mustfail, hash-compare, verdict); every pinned hash matches, binaural-cycle-* included; spec done; PR next, waiting for Audio"],
   ["2026-11-12","3139b1c","2.5","Review pass 2: five low findings patched (cb26837, db34bb7, 8e13d5a), the rest rejected or carried; local run 4/4 ctest, 2,276 pytest pass, 4 hash-entry tests waiting; pushed; full run 43361258254 red only on the missing binaural-cycle entries; android-arm64 and windows-x64 CI probes equal the dev PC probe; binaural-cycle-44100 and -48000 pinned in ci/hash_expected.json; the next full run must confirm all four platforms"],
