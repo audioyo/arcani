@@ -46,6 +46,18 @@ shift. Must-fail: a shift past the calibration row fails the calibration
 check; a shift past row `coupling-timing` fails it; a constant-depth
 (uncoupled) gamma and a swell at the wrong phase fail it; non-finite and
 too-short inputs fail.
+
+Story 2.4 adds `coupling="bursts"` (contract at the bursts section below):
+calibrated on Python-synthesized free-running bursts (the gamma envelope is
+not restarted at a burst) of known centers within row
+`coupling-timing-calibration`, across the four theta shapes, coupling phases
+0, 90, 180, and 270 degrees, 25 and 100 percent depth, both sample rates,
+and gamma rates 40, 45, and 60 Hz. Must-fail: a doctored 3 ms shift fails
+row `coupling-timing`; a constant-depth gamma fails with note "no burst in
+gamma tap"; bursts without the gamma rate fail. Besides the two taps, fs,
+the theta rate, the shape, and the coupling phase, bursts read the recipe's
+gamma rate, a recipe value like the theta rate; still no plan, depth, or
+engine internal.
 """
 
 import ast
@@ -173,12 +185,18 @@ def test_tool_signatures_take_only_the_taps_and_the_named_settings():
     assert list(inspect.signature(mod.zero_degree_times).parameters) == [
         "theta", "fs", "theta_rate_hz", "shape"]
     assert list(inspect.signature(mod.swell_curve).parameters) == ["gamma", "fs"]
-    assert list(inspect.signature(mod.timing_errors).parameters) == [
-        "gamma", "theta", "fs", "theta_rate_hz", "shape", "coupling_phase_deg"]
+    # Story 2.4 adds the keyword parameters coupling and gamma_rate_hz.
+    params = inspect.signature(mod.timing_errors).parameters
+    assert list(params) == [
+        "gamma", "theta", "fs", "theta_rate_hz", "shape", "coupling_phase_deg", "coupling", "gamma_rate_hz"]
+    assert params["coupling"].default == "smooth_swell"
+    assert params["gamma_rate_hz"].default is None
     params = inspect.signature(mod.check).parameters
     assert list(params) == ["name", "gamma", "theta", "fs", "theta_rate_hz", "shape",
-                            "coupling_phase_deg", "row_id"]
+                            "coupling_phase_deg", "row_id", "coupling", "gamma_rate_hz"]
     assert params["row_id"].default == mod.ROW
+    assert params["coupling"].default == "smooth_swell"
+    assert params["gamma_rate_hz"].default is None
 
 
 FORBIDDEN_MODULES = {"json", "pickle", "subprocess", "ctypes", "importlib", "os", "pathlib", "io",
@@ -485,3 +503,260 @@ def test_calibration_at_the_theta_and_gamma_rate_edges(fs, depth, theta_edge, ga
         assert np.max(np.abs(got)) < calibration_s(), (theta_rate, gamma_rate, phase, got)
         result = mod.check("edge", gamma, theta, fs, theta_rate, "sine", phase, row_id=mod.CALIBRATION_ROW)
         assert result["result"] == "pass", result
+
+
+# ======================================================= bursts (Story 2.4)
+#
+# Contract additions (Story 2.4 spec, Implementation Notes, and its recorded
+# deviation): `COUPLINGS = ("smooth_swell", "bursts")`; `timing_errors` and
+# `check` take the keyword parameters `coupling="smooth_swell"` and
+# `gamma_rate_hz=None`. With `coupling="bursts"` the tool reads the burst
+# center of each theta cycle: the swell fit as the first estimate, refined
+# by a least-squares fit of g(t - tau) * (c0 + c1 cos(w t) + c2 sin(w t)),
+# w = 2 pi gamma_rate_hz, with g the ideal burst gate of rows `burst-width`
+# and `burst-edge` (`burst_template(t)`, t the offset from the burst center
+# in seconds). bursts needs the recipe's gamma_rate_hz (ValueError from
+# timing_errors, a failed check with a note); a gamma tap with no burst fails
+# with note "no burst in gamma tap"; an unknown coupling is a ValueError.
+# Smooth swell results are unchanged.
+#
+# The harness bursts run free: the gamma envelope is one clock, never
+# restarted at a burst (signal spec, Bursts), so at 40 Hz each burst opens
+# on another gamma envelope phase.
+
+BURST_GAMMA_RATES_HZ = (40.0, 45.0, 60.0)
+BURST_HALF_S = 0.025   # harness gate only; the engine's width is row burst-width
+BURST_EDGE_S = 0.010   # harness gate only; the engine's edge is row burst-edge
+
+
+def harness_gate(offset_s):
+    """The burst gate of a time offset from the burst center, made here: 1 on the plateau, 0 off."""
+    m = np.abs(offset_s)
+    plateau = BURST_HALF_S - BURST_EDGE_S
+    out = np.where(m <= plateau, 1.0, 0.0)
+    edge = (m > plateau) & (m < BURST_HALF_S)
+    out[edge] = 0.5 + 0.5 * np.cos(np.pi * (m[edge] - plateau) / BURST_EDGE_S)
+    return out
+
+
+def burst_tap(fs, depth, phase_deg, gamma_rate_hz=40.0, zero_s=0.0, shift_s=0.0, seconds=SECONDS,
+              coupled=True):
+    """250 Hz sine carrier amplitude-modulated at the gamma rate, the AM depth gated by 50 ms bursts.
+
+    Burst centers at zero_s + phase_deg / 360 / 6 + shift_s + k / 6; the gamma
+    envelope runs free from t = 0. Uncoupled: the depth is `depth` throughout.
+    """
+    t = times(fs, seconds)
+    center = zero_s + phase_deg / 360.0 / THETA_RATE_HZ + shift_s
+    period = 1.0 / THETA_RATE_HZ
+    offset = np.mod(t - center + period / 2.0, period) - period / 2.0   # nearest burst center
+    g = harness_gate(offset) if coupled else np.ones_like(t)
+    e = 0.5 + 0.5 * np.cos(2.0 * np.pi * gamma_rate_hz * t)
+    a = 1.0 - (depth * g) * (1.0 - e)
+    return a * np.sin(2.0 * np.pi * GAMMA_CARRIER_HZ * t)
+
+
+def burst_errors_of(fs, shape, depth, phase_deg, gamma_rate_hz=40.0, zero_s=0.0, shift_s=0.0,
+                    theta_zero_s=None):
+    theta = theta_tap(fs, shape, zero_s if theta_zero_s is None else theta_zero_s)
+    gamma = burst_tap(fs, depth, phase_deg, gamma_rate_hz, zero_s, shift_s)
+    got = ct().timing_errors(gamma, theta, fs, THETA_RATE_HZ, shape, phase_deg, coupling="bursts",
+                             gamma_rate_hz=gamma_rate_hz)
+    assert isinstance(got, np.ndarray) and got.dtype == np.float64 and got.ndim == 1, got
+    return got
+
+
+def burst_check(name, gamma, theta, fs, shape, phase_deg, gamma_rate_hz=40.0, **kw):
+    return ct().check(name, gamma, theta, fs, THETA_RATE_HZ, shape, phase_deg, coupling="bursts",
+                      gamma_rate_hz=gamma_rate_hz, **kw)
+
+
+def test_burst_couplings_and_rows():
+    mod = ct()
+    assert tuple(mod.COUPLINGS) == ("smooth_swell", "bursts")
+    for row_id in ("burst-width", "burst-edge"):
+        r = table_row(row_id)
+        assert r.kind == "ranges" and r.unit == "ms" and r.min == r.max, r
+        # Story 2.4 asserts both rows, so neither is pending any more.
+        assert r.pending == "", f"row {row_id} is still pending on {r.pending}"
+
+
+def test_burst_template_is_the_ideal_gate_of_the_rows():
+    mod = ct()
+    assert list(inspect.signature(mod.burst_template).parameters) == ["t"]
+    half = table_row("burst-width").min / 1000.0 / 2.0
+    edge = table_row("burst-edge").min / 1000.0
+    t = np.linspace(-0.08, 0.08, 16001)
+    got = mod.burst_template(t)
+    assert isinstance(got, np.ndarray) and got.shape == t.shape and got.dtype == np.float64
+    m = np.abs(t)
+    want = np.where(m <= half - edge, 1.0, 0.0)
+    mid = (m > half - edge) & (m < half)
+    want[mid] = 0.5 + 0.5 * np.cos(np.pi * (m[mid] - (half - edge)) / edge)
+    assert np.max(np.abs(got - want)) <= 1e-12
+    assert float(mod.burst_template(np.array([0.0]))[0]) == 1.0
+    assert float(mod.burst_template(np.array([half]))[0]) == 0.0
+    assert abs(float(mod.burst_template(np.array([half - edge / 2.0]))[0]) - 0.5) <= 1e-12
+    # Symmetric about the center.
+    assert np.array_equal(mod.burst_template(t), mod.burst_template(-t))
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+@pytest.mark.parametrize("shape", SHAPES)
+@pytest.mark.parametrize("gamma_rate_hz", BURST_GAMMA_RATES_HZ)
+def test_burst_centers_read_within_calibration(fs, shape, gamma_rate_hz):
+    mod = ct()
+    for phase_deg in PHASES_DEG:
+        for depth in DEPTHS:
+            where = (fs, shape, gamma_rate_hz, phase_deg, depth)
+            got = burst_errors_of(fs, shape, depth, phase_deg, gamma_rate_hz)
+            assert full_cycles() - 2 <= got.size <= full_cycles() + 1, (where, got.size)
+            assert np.max(np.abs(got)) < calibration_s(), (where, got)
+    # The verdict on the calibration row, for one setting per case.
+    result = burst_check("calibration", burst_tap(fs, 0.25, 270.0, gamma_rate_hz), theta_tap(fs, shape), fs,
+                         shape, 270.0, gamma_rate_hz, row_id=mod.CALIBRATION_ROW)
+    assert result["result"] == "pass", (fs, shape, gamma_rate_hz, result)
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+@pytest.mark.parametrize("shape", SHAPES)
+@pytest.mark.parametrize("shift_s", (0.0001, 0.0015, -0.0015))
+def test_known_burst_shift_is_measured_within_calibration(fs, shape, shift_s):
+    # Positive means the burst center is late.
+    for phase_deg in (0.0, 270.0):
+        for depth in DEPTHS:
+            got = burst_errors_of(fs, shape, depth, phase_deg, 40.0, shift_s=shift_s)
+            assert got.size >= full_cycles() - 2
+            assert np.max(np.abs(got - shift_s)) < calibration_s(), (fs, shape, phase_deg, depth, shift_s, got)
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_burst_zero_degree_point_comes_from_the_theta_tap(fs):
+    for shape in SHAPES:
+        together = burst_errors_of(fs, shape, 1.0, 90.0, 40.0, zero_s=0.0515)
+        assert np.max(np.abs(together)) < calibration_s(), (shape, together)
+        theta_late = burst_errors_of(fs, shape, 1.0, 90.0, 40.0, zero_s=0.0, theta_zero_s=0.0015)
+        assert np.max(np.abs(theta_late + 0.0015)) < calibration_s(), (shape, theta_late)
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+@pytest.mark.parametrize("depth", DEPTHS)
+def test_doctored_3_ms_burst_shift_fails_the_timing_row(fs, depth):
+    # Must-fail made here: every burst 3 ms late (row coupling-timing is 2 ms).
+    mod = ct()
+    for shape in SHAPES:
+        for gamma_rate_hz in BURST_GAMMA_RATES_HZ:
+            on_time = burst_check("on time", burst_tap(fs, depth, 90.0, gamma_rate_hz), theta_tap(fs, shape),
+                                  fs, shape, 90.0, gamma_rate_hz)
+            assert on_time["result"] == "pass", (shape, gamma_rate_hz, on_time)
+            assert on_time["row"] == mod.ROW and on_time["threshold"] == table_row("coupling-timing").value
+            for shift in (0.003, -0.003):
+                moved = burst_check("3 ms", burst_tap(fs, depth, 90.0, gamma_rate_hz, shift_s=shift),
+                                    theta_tap(fs, shape), fs, shape, 90.0, gamma_rate_hz)
+                assert moved["result"] == "fail", (shape, gamma_rate_hz, shift, moved)
+                assert abs(moved["measured"] - 3.0) < table_row("coupling-timing-calibration").value, moved
+            inside = burst_check("1 ms", burst_tap(fs, depth, 90.0, gamma_rate_hz, shift_s=0.5 * timing_s()),
+                                 theta_tap(fs, shape), fs, shape, 90.0, gamma_rate_hz)
+            assert inside["result"] == "pass", (shape, gamma_rate_hz, inside)
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_burst_shift_past_the_calibration_row_fails_the_calibration_check(fs):
+    mod = ct()
+    shift = 2.0 * calibration_s()
+    for shape in SHAPES:
+        result = burst_check("moved", burst_tap(fs, 1.0, 180.0, 40.0, shift_s=shift), theta_tap(fs, shape),
+                             fs, shape, 180.0, 40.0, row_id=mod.CALIBRATION_ROW)
+        assert result["result"] == "fail", result
+        assert abs(result["measured"] / 1000.0 - shift) < calibration_s(), result
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+@pytest.mark.parametrize("depth", DEPTHS)
+def test_constant_depth_gamma_fails_with_no_burst(fs, depth):
+    # Must-fail: an uncoupled gamma (constant AM depth) has no burst to time.
+    for shape in SHAPES:
+        for gamma_rate_hz in BURST_GAMMA_RATES_HZ:
+            gamma = burst_tap(fs, depth, 0.0, gamma_rate_hz, coupled=False)
+            result = burst_check("uncoupled", gamma, theta_tap(fs, shape), fs, shape, 0.0, gamma_rate_hz)
+            assert result["result"] == "fail", (shape, gamma_rate_hz, result)
+            assert result["note"] == "no burst in gamma tap", (shape, gamma_rate_hz, result)
+            assert result["measured"] is None, result
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_depth_0_burst_gamma_fails_with_no_burst(fs):
+    for phase in PHASES_DEG:
+        gamma = burst_tap(fs, 0.0, phase)
+        result = burst_check("depth 0", gamma, theta_tap(fs, "sine"), fs, "sine", phase)
+        assert result["result"] == "fail" and result["note"] == "no burst in gamma tap", (phase, result)
+        assert result["measured"] is None
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_bursts_at_the_wrong_phase_fail(fs):
+    for shape in SHAPES:
+        for made, judged in ((90.0, 0.0), (180.0, 0.0), (0.0, 270.0), (270.0, 255.0)):
+            gamma = burst_tap(fs, 1.0, made)
+            result = burst_check("wrong phase", gamma, theta_tap(fs, shape), fs, shape, judged)
+            assert result["result"] == "fail", (shape, made, judged, result)
+
+
+def test_bursts_need_the_gamma_rate():
+    mod = ct()
+    fs = SAMPLE_RATES[0]
+    gamma = burst_tap(fs, 1.0, 0.0)
+    theta = theta_tap(fs, "sine")
+    with pytest.raises(ValueError):
+        mod.timing_errors(gamma, theta, fs, THETA_RATE_HZ, "sine", 0.0, coupling="bursts")
+    result = mod.check("no gamma rate", gamma, theta, fs, THETA_RATE_HZ, "sine", 0.0, coupling="bursts")
+    assert result["result"] == "fail", result
+    assert result["measured"] is None and result["note"], result
+    for bad in (0.0, -40.0, math.nan, math.inf):
+        result = mod.check("bad gamma rate", gamma, theta, fs, THETA_RATE_HZ, "sine", 0.0, coupling="bursts",
+                           gamma_rate_hz=bad)
+        assert result["result"] == "fail" and result["measured"] is None, (bad, result)
+
+
+def test_an_unknown_coupling_is_refused():
+    mod = ct()
+    fs = SAMPLE_RATES[0]
+    gamma = burst_tap(fs, 1.0, 0.0)
+    theta = theta_tap(fs, "sine")
+    for coupling in ("uncoupled", "burst", "Bursts", "swell"):
+        with pytest.raises(ValueError):
+            mod.timing_errors(gamma, theta, fs, THETA_RATE_HZ, "sine", 0.0, coupling=coupling, gamma_rate_hz=40.0)
+        result = mod.check("unknown", gamma, theta, fs, THETA_RATE_HZ, "sine", 0.0, coupling=coupling,
+                           gamma_rate_hz=40.0)
+        assert result["result"] == "fail" and result["measured"] is None and result["note"], (coupling, result)
+
+
+def test_burst_non_finite_and_short_inputs_fail():
+    mod = ct()
+    fs = SAMPLE_RATES[-1]
+    for bad in (math.nan, math.inf):
+        gamma = burst_tap(fs, 1.0, 0.0)
+        gamma[fs + 3] = bad
+        result = burst_check("bad", gamma, theta_tap(fs, "sine"), fs, "sine", 0.0)
+        assert result["result"] == "fail" and result["note"] == "not finite" and result["measured"] is None
+    gamma = burst_tap(fs, 1.0, 0.0, seconds=1.0)
+    result = burst_check("short", gamma, theta_tap(fs, "sine", seconds=1.0), fs, "sine", 0.0)
+    assert result["result"] == "fail" and result["measured"] is None, result
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_smooth_swell_results_are_unchanged_by_the_burst_parameters(fs):
+    # The default, coupling "smooth_swell", and a gamma rate given or not: the
+    # same swell errors to the bit.
+    mod = ct()
+    for shape in ("sine", "sawtooth"):
+        gamma = gamma_tap(fs, 1.0, 90.0, shift_s=0.0007)
+        theta = theta_tap(fs, shape)
+        base = mod.timing_errors(gamma, theta, fs, THETA_RATE_HZ, shape, 90.0)
+        named = mod.timing_errors(gamma, theta, fs, THETA_RATE_HZ, shape, 90.0, coupling="smooth_swell")
+        with_rate = mod.timing_errors(gamma, theta, fs, THETA_RATE_HZ, shape, 90.0, coupling="smooth_swell",
+                                      gamma_rate_hz=GAMMA_RATE_HZ)
+        assert np.array_equal(base.view(np.uint64), named.view(np.uint64)), shape
+        assert np.array_equal(base.view(np.uint64), with_rate.view(np.uint64)), shape
+        assert mod.check("a", gamma, theta, fs, THETA_RATE_HZ, shape, 90.0) == \
+            mod.check("a", gamma, theta, fs, THETA_RATE_HZ, shape, 90.0, coupling="smooth_swell")
