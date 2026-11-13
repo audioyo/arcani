@@ -91,3 +91,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-3-gamma-coupled-smooth-swell.md`
   summary: Decide whether the carrier rule for coupled gamma checks the gamma carrier against the gamma rate alone (today) or against the gamma rate plus the theta rate, its highest modulation component with a smooth swell (a 240 Hz carrier at 60 Hz gamma and 6 Hz theta would then fail, limit 264 Hz).
   evidence: Unverified, would be medium. Story 2.3 review pass 1 row 5: no doc defines "modulation rate" for a carrier with two nested modulations; settle with Audio and the research library before Story 3.1's component model.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-4-gamma-coupled-50-ms-bursts.md`
+  summary: Independent review and a listening note for the free-running gamma envelope inside bursts before design log (qq) locks.
+  evidence: Story 2.4 review row 13 (medium). With a free-running gamma envelope each burst opens on a different gamma phase (240 degrees per theta cycle at 40 Hz; at 45 Hz alternate bursts center on a gamma trough), unlike the research run, which restarted the AM per burst. Audio approved it in the frozen spec, but rule 4 asks for an independent review of signal defaults, and burst-to-burst variation has not been listened to; settle in the Story 3.3 listening preview or Phase 0.
