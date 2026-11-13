@@ -1805,7 +1805,7 @@ rate(t) = r + s * sin(2 * pi * t / P + phi0)
 
 A cycle field that is not a number, a missing one, or an unknown one is a schema fault (rules `type`, `required`, `unknown_property`).
 
-**Sleep cycle.** `r = 1.5`, `s = 1.5`, `P = 60`, `phi0 = 270` degrees: the beat rate cycles over 0 to 3 Hz every 60 s (Lee et al. 2024, design log 2026-10-27 (n)) and starts at 0 Hz, rising, so a session opens with no beat and the beat eases in. The start phase is an engineering default chosen by Audio on 2026-11-11; no study sets it (Lee et al. 2024 does not say). The Sleep starter recipe itself is not part of this story.
+**Sleep cycle.** `r = 1.5`, `s = 1.5`, `P = 60`, `phi0 = 270` degrees: the beat rate cycles over 0 to 3 Hz every 60 s (Lee et al. 2024, design log 2026-10-27 (n)) and starts at 0 Hz, rising, so a session opens with no beat and the beat eases in. The sinusoidal shape of the law and the start phase are engineering defaults: Lee et al. 2024 does not state the waveform of the change (design log 2026-10-27 (n)), and no study sets the start phase (chosen by Audio on 2026-11-11). The Sleep starter recipe itself is not part of this story.
 
 **Phase integral.** The beat phase is the integral of the rate, in cycles:
 
@@ -1835,7 +1835,7 @@ U[n]       = cycles-to-units rule (v[n])
 phase_R[n] = phase_C[n] + U[n] mod 2^64    (Binaural layer, Oscillators)
 ```
 
-At n = 0, `c[0]` is `c0` bit for bit (one function of the same phase), so `v[0] = K * +0.0 = +0.0`, `U[0] = 0`, and the right ear starts at phase 0 like the left. Every value is a pure function of `n`: two integer accumulators and one engine cosine.
+At n = 0, `c[0]` is `c0` bit for bit (one function of the same phase), so `v[0] = K * +0.0 = +0.0`, `U[0] = 0`, and the right ear starts at phase 0 like the left. Every value is a pure function of `n`: two integer accumulators and one `cycle_cosine` (Cycle cosine).
 
 **Cycle cosine.** `U` multiplies the cosine's error by `K`, up to about 143, so the cycle uses its own cosine, more exact than the engine sine (Sine, Engine sine), for both `c0` and `c[n]`. For a phase `p`:
 

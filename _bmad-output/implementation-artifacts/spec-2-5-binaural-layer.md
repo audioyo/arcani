@@ -3,7 +3,7 @@ title: 'Story 2.5: Binaural layer'
 type: 'feature'
 created: '2026-11-11'
 baseline_commit: '25e283a6145fae5fed1b8e22968324235f78e357'
-status: 'in-progress'
+status: 'in-review'
 route: 'dispatch'
 review_loop_iteration: 1
 context:
@@ -134,3 +134,25 @@ Pass 1 (2026-11-12): blind hunter (BH), edge case hunter (EC), verification gap 
 | 14 | EC: reference `_start_units` wraps out-of-range phases | low | the reference runs only on compile-valid fixtures (2.3 row 10) | reject |
 | 15 | EC: `check_phase` raises on short records | low | loud failure on inputs never given | reject |
 | 16 | EC: design log letter (pp) against the frozen (oo) | low | true; recorded in Implementation Notes; fix edits the spec | reject |
+
+Pass 2 (2026-11-12): BH, EC, VG, all fresh context, on diff 25e283a..7709611 (same exclusions). VG found no gaps.
+
+| # | Finding | Verdict | Evidence | Route |
+|---|---------|---------|----------|-------|
+| 1 | BH: design log (pp) Rate curve bullet still gives `U[n]` with `sine(p_P[n] + 2^62)` | low | true; `docs/design-log.md:85`; the engine and spec use `cycle_cosine` | patch |
+| 2 | BH: Rate curve, Engine says "one engine cosine" | low | true; `docs/signal-spec.md:1838` reads as the engine sine | patch |
+| 3 | BH: the sinusoidal shape is not labelled an engineering default | low | true; design log (n) says the sinusoid shape is an engineering default and Lee et al. do not state the waveform; the spec's Sleep cycle labels only the start phase | patch |
+| 4 | BH: widest-cycle match tested at start phases 0 and 90 only, bound claimed for any phase | low | true; `eps_0` is nonzero off the quadrants; parameter addition | patch (test) |
+| 5 | BH: no click check on a cycle render | low | true; CLAUDE.md lists clicks for every render; the phase mode catches steps above 1e-4 cycles but the click tool never runs on `binaural-cycle-sleep` | patch (test) |
+| 6 | BH: four hash-entry tests committed failing | medium | carried: pass 1 row 3 | CI gate before merge |
+| 7 | BH: no 8-hour drift test for the cycle | false | carried: pass 1 row 4 | reject |
+| 8 | BH: new tool constants not table rows | low | carried: pass 1 row 6 | reject |
+| 9 | BH: spacing ignores the swept right carrier | low | carried: pass 1 row 5 | reject |
+| 10 | BH: band calibration uses 0.5 s sweeps, judges a 60 s sweep | low | the band energy ratio reads total in-band energy, independent of sweep rate; the 0.1 % crosstalk must-fail on the real fixture fails as required | reject |
+| 11 | BH: design log summary "Sleep ... steady 2 Hz delta" conflicts with the cycle | false | the 2 Hz is Sleep's theta reference rate (design log (n)); the cycle is the binaural beat rate | reject |
+| 12 | BH: `cycle-cosine-error` missing from `thresholds-and-ranges.md` | low | true; `sine-error` is likewise engine-internal and absent there (precedent); the row is in `thresholds.tsv` | reject |
+| 13 | BH: AD-5 sweep covers 5 s of the cycle | low | gamma reads no binaural value (structural test); the gamma tap is byte-identical across seven settings | reject |
+| 14 | BH, EC: reference `_start_units` skips the out-of-range clause | low | carried: pass 1 row 14 | reject |
+| 15 | EC: `measure_band` negative or infinite band | false | carried: pass 1 row 13; bands come from compile-checked carriers | reject |
+| 16 | EC: reference `period_s` 0 or non-finite | low | the reference runs only on compile-valid fixtures (row `rate-cycle-period` locks 60 s) | reject |
+| 17 | EC: hash probe destroys a null renderer | false | `arc_renderer_destroy` checks `renderer != nullptr` (`engine/src/api/api.cpp:286`) | reject |
