@@ -5,9 +5,9 @@
 // naming parameter, value, rule, and limit. The plan holds everything the
 // renderer needs (session length, theta reference carrier and envelope
 // increments, depth, and edge lengths, gamma PAC carrier and envelope
-// increments and depth, binaural oscillator increments and amplitudes), so
-// render does no lookup and has no test branch: a muted ear is increment 0
-// and amplitude 0.0 in the plan.
+// increments and depth, binaural increments and amplitudes, and the beat
+// rate cycle constants), so render does no lookup and has no test branch: a
+// muted ear is increment 0 and amplitude 0.0 in the plan.
 //
 // The stage order is fixed and is not a recipe field. Every stage writes
 // channel c only from channel c of its inputs; the master chain limiter alone
@@ -96,10 +96,21 @@ struct GammaOscillator {
   std::uint64_t coupling_phase_units = 0;  // C, coupling phase rule (coupled only)
 };
 
-// Binaural oscillators of one ear pair: unmodulated sines, phase 0 at n = 0.
+// Binaural layer (docs/signal-spec.md, Binaural layer and Rate curve): a pure
+// sine per ear, both phases 0 at n = 0. The left ear plays carrier_left_hz;
+// the right ear plays f_C = carrier_left_hz + beat_rate_hz and, with a beat
+// rate cycle, adds U[n] = rate_cycle_offset(p_P[n], cycle_k, cycle_c0) to
+// its phase, p_P[n] = cycle_start + n * cycle_increment mod 2^64. Without a
+// cycle, or with the right ear muted, cycle is false and the right phase is
+// n * increment[1] mod 2^64, the stub's bits.
 struct BinauralEars {
-  std::array<std::uint64_t, 2> increment{0, 0};  // left, right
+  std::array<std::uint64_t, 2> increment{0, 0};  // inc_L, inc_C
   std::array<double, 2> amplitude{0.0, 0.0};     // 1.0, or 0.0 when absent or muted
+  bool cycle = false;                  // beat_rate_cycle present and the right ear not muted
+  std::uint64_t cycle_start = 0;       // P0, coupling phase rule (start_phase_deg)
+  std::uint64_t cycle_increment = 0;   // inc_P, phase increment rule (1.0 / period_s, fs)
+  double cycle_k = 0.0;                // K = (swing_hz * period_s) * kInvTwoPi
+  double cycle_c0 = 0.0;               // c0 = cycle_cosine(P0)
 };
 
 struct Plan {

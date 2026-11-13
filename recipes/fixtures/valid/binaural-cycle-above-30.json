@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-12",
+  "rationale": "Binaural fixture (Story 2.5), schema-valid and rejected at compile: a beat rate cycle with center 15 Hz and swing 15 Hz reaches 30 Hz, at the exclusive top of row beat-rate. 100 Hz in the left ear, 60 s period, start phase 270 degrees, 5 s. Values are placeholders, not starter defaults. A test fixture, not for listening.",
+  "length_s": 5,
+  "loudness_target_lufs": -36,
+  "binaural": {
+    "carrier_left_hz": 100,
+    "beat_rate_hz": 15,
+    "beat_rate_cycle": {
+      "swing_hz": 15,
+      "period_s": 60,
+      "start_phase_deg": 270
+    }
+  }
+}

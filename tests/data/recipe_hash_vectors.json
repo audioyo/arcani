@@ -1,5 +1,12 @@
 {
+  "binaural-beat-0.json": "59119ebaa1532149353b7b9f4514b27134aadb1b3d058b25250a35d9a013e243",
+  "binaural-beat-29.json": "b29989934cefa5554f11ba67b5fdc01be8c3f25832f2954b39c406d66065c699",
+  "binaural-beat-6.json": "7ce2723ded11e44aef4fbd198c3964fa07d56e9406ffe38c48f4476818eb3a8c",
+  "binaural-cycle-above-30.json": "e3cb206c843445da99a1d12f3b1a175e25690e1b585ad9ac051e840195359595",
+  "binaural-cycle-below-0.json": "ebbd7d7eccaccd6d965e1d3132bd5b42d962da275bb882987d4e4537b2cad259",
+  "binaural-cycle-sleep.json": "4000f530933fe86e0b6c41b912a3631fdefeec04605876b43b2cb2c3a9a08ccd",
   "binaural-only.json": "14d4e907199abe31b69d8e870f49b476b5ad750d0c6610f7c50e65b60ceb8c4c",
+  "binaural-waveform-triangle.json": "e6570eaeba165b2590c17dfe959d53e0192f4730495958d7fd9177b7a760182f",
   "both-layers-beat-rate-changed.json": "bbfb71a815da2335dabfa8189baded0a0a00f149db65e3f0d56802e9ddf77153",
   "both-layers-binaural-carrier-left-changed.json": "5ac3435b58f5e1c553f29d021013d92318b201751f1714651f478b6f76c7a0b7",
   "both-layers-engine-version-changed.json": "22ddd284a3ed6af88677b95a495dbf55ac477b8afaae69a29eea695b78ccae20",

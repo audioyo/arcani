@@ -1,6 +1,16 @@
 {
-  "source": "probe-arith: tools/probe_reference.py, NumPy float32 reference, each operation rounded separately. sine-* and stub-chain-*: the arcani-hashprobe output, byte-identical on all four AD-9 platforms in full run 42236304155; stub-chain-blocks-* equal stub-chain-* (block-size invariance). Design log 2026-11-06 (kk). theta-envelopes-*: the windows-x64 dev PC probe, equal to the android-arm64 probe of full run 42339879874 (the desktop probes did not run there because these entries were missing); confirmed on all four platforms by the next full run. Design log 2026-11-06 (ll) gamma-uncoupled-*: the windows-x64 dev PC probe, equal to the android-arm64 probe and the windows-x64 and windows-arm64 CI probes of full run 42797229080 (the run was red only on these missing entries); confirmed on all four platforms by the next full run. Design log 2026-11-07 (mm) gamma-swell-*: the windows-x64 dev PC probe, equal to the android-arm64 probe and the windows-x64 CI probe of full run 43141633184 (the run was red only on these missing entries); confirmed on all four platforms by the next full run. Design log 2026-11-10 (nn)",
+  "source": "probe-arith: tools/probe_reference.py, NumPy float32 reference, each operation rounded separately. sine-* and stub-chain-*: the arcani-hashprobe output, byte-identical on all four AD-9 platforms in full run 42236304155; stub-chain-blocks-* equal stub-chain-* (block-size invariance). Design log 2026-11-06 (kk). theta-envelopes-*: the windows-x64 dev PC probe, equal to the android-arm64 probe of full run 42339879874 (the desktop probes did not run there because these entries were missing); confirmed on all four platforms by the next full run. Design log 2026-11-06 (ll) gamma-uncoupled-*: the windows-x64 dev PC probe, equal to the android-arm64 probe and the windows-x64 and windows-arm64 CI probes of full run 42797229080 (the run was red only on these missing entries); confirmed on all four platforms by the next full run. Design log 2026-11-07 (mm) gamma-swell-*: the windows-x64 dev PC probe, equal to the android-arm64 probe and the windows-x64 CI probe of full run 43141633184 (the run was red only on these missing entries); confirmed on all four platforms by the next full run. Design log 2026-11-10 (nn) binaural-cycle-*: the windows-x64 dev PC probe, equal to the android-arm64 probe and the windows-x64 CI probe of full run 43361258254 (the run was red only on these missing entries); confirmed on all four platforms by the next full run. Design log 2026-11-12 (pp)",
   "components": {
+    "binaural-cycle-44100": {
+      "samples": 882000,
+      "sha256": "4dd8ed19500d44ab981e215b5c95c91b317e523a0ff771270952224fb0a64ce2",
+      "scope": "engine"
+    },
+    "binaural-cycle-48000": {
+      "samples": 960000,
+      "sha256": "45f8e9b489c7a36f8944e6b1775149d7633c6cec067cc78a348c6ac6020f6fff",
+      "scope": "engine"
+    },
     "gamma-swell-44100": {
       "samples": 1764000,
       "sha256": "f22122ee2f6de4f13b6bfc19eae6dfb9a4ecedac2adfb282f0fdec674738e8ed",

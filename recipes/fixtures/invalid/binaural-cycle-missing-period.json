@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-12",
+  "rationale": "Invalid fixture (Story 2.5): binaural.beat_rate_cycle has no period_s (rule required). Values are placeholders.",
+  "length_s": 5,
+  "loudness_target_lufs": -36,
+  "binaural": {
+    "carrier_left_hz": 100,
+    "beat_rate_hz": 1.5,
+    "beat_rate_cycle": {
+      "swing_hz": 1.5,
+      "start_phase_deg": 270
+    }
+  }
+}

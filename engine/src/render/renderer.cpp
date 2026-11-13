@@ -1,10 +1,12 @@
-// Renderer: the stub chain with the real theta reference and gamma PAC layer,
-// per sample in the spec's operation order (docs/signal-spec.md, Stub chain,
-// Theta reference, Gamma PAC layer, and Coupling, Per sample).
+// Renderer: the stub chain with the real theta reference, gamma PAC layer, and
+// binaural layer, per sample in the spec's operation order (docs/signal-spec.md,
+// Stub chain, Theta reference, Gamma PAC layer, Coupling, Binaural layer, and
+// Rate curve, Per sample).
 
 #include "render/renderer.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <initializer_list>
 #include <limits>
@@ -24,7 +26,8 @@ void copy_out(double* dest, const double* block, std::size_t count) noexcept {
 
 }  // namespace
 
-Renderer::Renderer(const plan::Plan& plan) noexcept : plan_(plan) {}
+Renderer::Renderer(const plan::Plan& plan) noexcept
+    : plan_(plan), cycle_phase_(plan.binaural.cycle_start) {}
 
 void Renderer::seek(std::uint64_t frame) noexcept {
   position_ = frame;
@@ -35,6 +38,7 @@ void Renderer::seek(std::uint64_t frame) noexcept {
   for (std::size_t c = 0; c < 2; ++c) {
     phase_[c] = frame * plan_.binaural.increment[c];  // mod 2^64 (unsigned wraparound)
   }
+  cycle_phase_ = plan_.binaural.cycle_start + frame * plan_.binaural.cycle_increment;  // mod 2^64
 }
 
 void Renderer::render_block(std::size_t count) noexcept {
@@ -67,13 +71,21 @@ void Renderer::render_block(std::size_t count) noexcept {
       }
       gamma_sample = a * core::sine(gamma_phase_);
     }
+    // Binaural layer: the right ear's phase is phase_C + U mod 2^64 (Rate
+    // curve, Engine); U reads only the beat rate cycle phase. Without a
+    // cycle U is 0 and the right phase is the stub's.
+    std::uint64_t right_offset = 0;
+    if (i < live && ears.cycle) {
+      right_offset = core::rate_cycle_offset(cycle_phase_, ears.cycle_k, ears.cycle_c0);
+    }
+    const std::array<std::uint64_t, 2> ear_phase{phase_[0], phase_[1] + right_offset};  // mod 2^64
     for (std::size_t c = 0; c < 2; ++c) {
       const std::size_t k = 2 * i + c;
       if (i < live) {
         const double theta = theta_sample;                       // theta reference, same in both channels
         const double gamma = gamma_sample;                       // gamma PAC layer, same in both channels
         const double bus = theta + gamma;                        // stereo bus, within channel c
-        const double bin = ears.amplitude[c] * core::sine(phase_[c]);  // binaural oscillator of ear c
+        const double bin = ears.amplitude[c] * core::sine(ear_phase[c]);  // binaural ear c, a pure sine
         const double join = bus + bin;                           // binaural join, ear c to channel c only
         const double master = join * 1.0;                        // per-channel gain (stored gain is Epic 4)
         theta_[k] = theta;
@@ -94,6 +106,7 @@ void Renderer::render_block(std::size_t count) noexcept {
     envelope_phase_ += osc.envelope_increment;
     gamma_phase_ += gam.increment;
     gamma_envelope_phase_ += gam.envelope_increment;
+    cycle_phase_ += ears.cycle_increment;
   }
 }
 

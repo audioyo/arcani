@@ -66,9 +66,27 @@ struct GammaPac {
   std::optional<double> coupling_phase_deg;  // degrees; absent when the field is absent
 };
 
+// Binaural waveform (docs/signal-spec.md, Binaural layer). Triangle is
+// schema-valid only so that compile can reject it by name.
+enum class BinauralWaveform { Sine, Triangle };
+
+// The schema enum of binaural.waveform, in schema order (the limit of an enum
+// error).
+inline constexpr std::string_view kBinauralWaveformEnum = "sine, triangle";
+
+// Beat rate cycle (docs/signal-spec.md, Rate curve): the beat rate is
+// beat_rate_hz + swing_hz * sin(2 pi t / period_s + start_phase_deg).
+struct BeatRateCycle {
+  double swing_hz = 0.0;
+  double period_s = 0.0;
+  double start_phase_deg = 0.0;
+};
+
 struct Binaural {
   double carrier_left_hz = 0.0;
-  double beat_rate_hz = 0.0;
+  double beat_rate_hz = 0.0;                  // the cycle's center with a beat rate cycle
+  std::optional<BeatRateCycle> beat_rate_cycle;  // absent when the field is absent
+  BinauralWaveform waveform = BinauralWaveform::Sine;  // absent means sine
 };
 
 struct Recipe {

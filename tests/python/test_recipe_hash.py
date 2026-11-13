@@ -87,6 +87,14 @@ SWELL_FIXTURES = ["swell-sine-0deg-100pct.json", "swell-sawtooth-90deg-25pct.jso
                   "swell-smoothed-on-off-180deg-100pct.json", "swell-reverse-saw-270deg-25pct.json",
                   "swell-gamma-depth-0-no-theta.json", "swell-no-theta.json", "swell-theta-depth-0.json",
                   "swell-no-coupling-phase.json", "uncoupled-with-coupling-phase.json"]
+# Story 2.5: the beat rate cycle and the waveform are in the hash too.
+# Checked against the cycle fixture, since no earlier fixture has them.
+BINAURAL_BASE = "binaural-cycle-sleep.json"
+BINAURAL_IN_HASH = ["/binaural/beat_rate_cycle/swing_hz", "/binaural/beat_rate_cycle/period_s",
+                    "/binaural/beat_rate_cycle/start_phase_deg", "/binaural/waveform"]
+BINAURAL_FIXTURES = ["binaural-beat-0.json", "binaural-beat-6.json", "binaural-beat-29.json",
+                     "binaural-cycle-sleep.json", "binaural-waveform-triangle.json",
+                     "binaural-cycle-below-0.json", "binaural-cycle-above-30.json"]
 
 
 def load_tool():
@@ -222,8 +230,10 @@ def test_excluded_and_in_hash_lists_cover_every_leaf_tag():
     tool = load_tool()
     tags = tool.load_tags(tool.load_schema())
     assert sorted(p for p, t in tags.items() if t == "hash-excluded") == sorted(HASH_EXCLUDED)
-    leaves = {p for p in tags if p not in ("/theta_reference", "/gamma_pac", "/binaural")}
-    assert leaves == set(HASH_EXCLUDED) | set(IN_HASH) | set(GAMMA_IN_HASH) | set(SWELL_IN_HASH)
+    leaves = {p for p in tags if p not in ("/theta_reference", "/gamma_pac", "/binaural",
+                                           "/binaural/beat_rate_cycle")}
+    assert leaves == (set(HASH_EXCLUDED) | set(IN_HASH) | set(GAMMA_IN_HASH) | set(SWELL_IN_HASH)
+                      | set(BINAURAL_IN_HASH))
 
 
 @pytest.mark.parametrize("pointer", GAMMA_IN_HASH)
@@ -263,6 +273,31 @@ def test_swell_fixtures_have_distinct_hashes_from_each_other_and_the_gamma_fixtu
     for name in SWELL_FIXTURES + GAMMA_FIXTURES:
         path = VALID / name
         assert path.is_file(), f"missing fixture {path}"
+        hashes[name] = tool.hash_bytes(path.read_bytes())
+    assert len(set(hashes.values())) == len(hashes), hashes
+
+
+@pytest.mark.parametrize("pointer", BINAURAL_IN_HASH)
+def test_every_binaural_cycle_and_waveform_field_changes_the_hash(pointer):
+    tool = load_tool()
+    path = VALID / BINAURAL_BASE
+    assert path.is_file(), f"missing fixture {path} (Story 2.5)"
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if pointer == "/binaural/waveform":
+        # Absent means sine in the engine, but the recipe text differs, so the hash does.
+        assert "waveform" not in value["binaural"]
+        assert tool.hash_value(put(value, pointer, "sine")) != tool.hash_value(value)
+        assert tool.hash_value(put(value, pointer, "triangle")) != tool.hash_value(put(value, pointer, "sine"))
+        return
+    assert tool.hash_value(put(value, pointer, changed(get(value, pointer)))) != tool.hash_value(value)
+
+
+def test_binaural_fixtures_have_distinct_hashes():
+    tool = load_tool()
+    hashes = {}
+    for name in BINAURAL_FIXTURES + ["binaural-only.json"]:
+        path = VALID / name
+        assert path.is_file(), f"missing fixture {path} (Story 2.5)"
         hashes[name] = tool.hash_bytes(path.read_bytes())
     assert len(set(hashes.values())) == len(hashes), hashes
 

@@ -274,7 +274,7 @@
    Update after every completed section plus commit and/or push.
    ===================================================================== */
 
-var LAST_UPDATED = "2026-11-11";
+var LAST_UPDATED = "2026-11-12";
 var CURRENT = "2.5";   // story id being worked on
 var NEXT    = "2.4";   // story id that comes next
 
@@ -500,15 +500,18 @@ var EPICS = [
       ["x","Coupled gamma without a theta reference, or at zero theta depth, is rejected"],
       ["x","Matches the reference; gamma carrier plays continuously"]
     ] },
-  { id:"2.5", title:"Binaural layer", status:"backlog",
+  { id:"2.5", title:"Binaural layer", status:"review",
     plain:"Two pure sines, one per ear, whose beat rate can follow a rate curve, joining after every other stage.",
-    steps:S7(), acs:[
-      [" ","signal-spec binaural and rate-curve sections: right = left + beat(t), closed-form phase integral, worked vectors"],
-      [" ","Carriers below 1000 Hz and beat 0 to below 30 Hz range-checked; non-sine waveform rejected (binaural.waveform)"],
-      [" ","Isolation at least 90 dB / 60 dB at several beat rates including 0 Hz and a 0 to 3 Hz cycle"],
-      [" ","Instantaneous rate within 0.01 Hz of the schedule with continuous phase"],
-      [" ","Sweeping binaural beat rate and phase leaves every gamma peak time unchanged to the sample"],
-      [" ","Each ear's tap and the output match the reference"]
+    spec:["spec-2-5-binaural-layer.md"],
+    steps:[true,true,true,true,true,false,false],
+    stepNotes:["5911af2: spec 2026-11-11, fields, rate-curve law, tool modes, and fixtures settled by the build agent under Audio's standing preference; Sleep start phase 270 degrees and the 60 s period row decided by Audio; efce4f1: signal spec binaural layer and rate curve sections with 5 vector tables (29 in all); 1f328bb: precise cycle cosine section and row cycle-cosine-error (31 tables)", "19e5dad: fresh-context QA agent's failing tests; 42 of 286 C++ cases and 78 pytest cases (plus 8 errors) red; b12ab60: precise cycle cosine tests, 14 C++ and 10 pytest cases red", "65f8337: beat_rate_cycle and waveform fields, worst-case cycle checks and non-sine binaural rule, closed-form right ear phase, reference/binaural.py, isolation band mode, frequency phase mode, 8 fixtures, binaural-cycle probe components; 168f83b: one precise cycle cosine for c0 and c[n]; 4/4 ctest entries, 2,265 pytest pass, 4 hash-entry tests wait for the full run; widest cycle -145.0 dBFS; design log (pp)", "6b7dd81: review pass 1 by three fresh-context reviewers; row 1 (compile accepted swings outside reference-match) resolved by Audio with the precise cycle cosine; rows 8, 10 to 12 patched (b84d50a, 168f83b); 11 rows rejected; hash entries wait for the full run", "", "", ""],
+    acs:[
+      ["x","signal-spec binaural and rate-curve sections: right = left + beat(t), closed-form phase integral, worked vectors"],
+      ["x","Carriers below 1000 Hz and beat 0 to below 30 Hz range-checked; non-sine waveform rejected (binaural.waveform)"],
+      ["x","Isolation at least 90 dB / 60 dB at several beat rates including 0 Hz and a 0 to 3 Hz cycle"],
+      ["x","Instantaneous rate within 0.01 Hz of the schedule with continuous phase"],
+      ["x","Sweeping binaural beat rate and phase leaves every gamma peak time unchanged to the sample"],
+      ["x","Each ear's tap and the output match the reference"]
     ] },
   { id:"2.4", title:"Gamma coupled, 50 ms bursts", status:"backlog",
     plain:"Gamma as 50 ms bursts centered on the coupling phase, depth-gated with soft edges, with no clicks.",
@@ -718,6 +721,11 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-12","aa423b8","2.5","Confirming full run 43363235457 green on all four platforms (gate, windows-x64, windows-arm64, macos-arm64, android-arm64, contract-mustfail, hash-compare, verdict); every pinned hash matches, binaural-cycle-* included; spec done; PR next, waiting for Audio"],
+  ["2026-11-12","3139b1c","2.5","Review pass 2: five low findings patched (cb26837, db34bb7, 8e13d5a), the rest rejected or carried; local run 4/4 ctest, 2,276 pytest pass, 4 hash-entry tests waiting; pushed; full run 43361258254 red only on the missing binaural-cycle entries; android-arm64 and windows-x64 CI probes equal the dev PC probe; binaural-cycle-44100 and -48000 pinned in ci/hash_expected.json; the next full run must confirm all four platforms"],
+  ["2026-11-12","168f83b","2.5","Review pass 1 (6b7dd81); Audio: make the math precise. Review rows 10 to 12 patched (b84d50a); signal spec cycle cosine and row cycle-cosine-error (1f328bb); QA agent's failing tests (b12ab60, 14 C++ and 10 pytest red); implementation (168f83b): one shared cycle cosine; 4/4 ctest entries, 2,265 pytest pass, 4 hash-entry tests wait for the four-platform full run; widest cycle right ear -145.0 dBFS; sprint-status.yaml review; not pushed"],
+  ["2026-11-12","65f8337","2.5","Failing tests committed by the QA agent (19e5dad; 42 C++ and 78 pytest cases red, 8 errors); implementation committed (65f8337): 4/4 ctest entries, 2,256 pytest pass, 4 hash-entry tests wait for the four-platform full run; reference match -105.9 dBFS worst (Sleep cycle), rate error 8.4e-5 Hz; design log (pp); not pushed"],
+  ["2026-11-12","efce4f1","2.5","Story spec committed (5911af2); signal spec binaural layer and rate curve sections and vectors committed (beat rate cycle law, closed-form phase integral, cycles-to-units rule, worst-case range checks, margin per tap); 29 vector tables; sprint-status.yaml in-progress; not pushed"],
   ["2026-11-11","12f9243","2.3","PR #14 merged into main (admin merge, records-only head commit skipped CI); sprint-status.yaml set to done"],
   ["2026-11-11","b072d0c","2.3","PR #14 green: 11 checks on fast and full tier, all four platforms; hash compare equal on 13 components including gamma-swell-*; windows-x64 full 13.0 of 20 min; not merged"],
   ["2026-11-11","ce20c06","2.3","PR #14 opened; its full run passed every test but ran over the wall-time budget on the desktop jobs; timing tool cache (byte-identical, suite 827 to 487 s on the dev PC) brought macOS and windows-arm64 within budget; full windows-x64 budget raised 10 to 20 min (measured 14.0), design log (oo)"],

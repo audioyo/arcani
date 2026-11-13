@@ -1,6 +1,7 @@
 // Theta reference envelopes (docs/signal-spec.md, Theta reference), the
 // gamma PAC layer's sine envelope (Gamma PAC layer, AM law), which is the
-// theta sine shape at the gamma rate, and the smooth swell (Coupling).
+// theta sine shape at the gamma rate, the smooth swell (Coupling), and the
+// beat rate cycle offset of the binaural right ear (Rate curve).
 //
 // Four envelope shapes of a 64-bit envelope phase (one cycle = 2^64), each
 // in [0, 1] with its peak, the 0 degree point, at phase 0. Segments are
@@ -43,6 +44,29 @@ double sine_envelope(std::uint64_t phase) noexcept;
 // even, mod 2^64. Domain: the coupling-phase range, so x in [0, 1]; x = 1
 // (360 degrees) gives 0. Anything outside [0, 1), NaN included, gives 0.
 std::uint64_t coupling_phase_units(double coupling_phase_deg) noexcept;
+
+// The binary64 nearest to 1 / (2 pi) (docs/signal-spec.md, Rate curve,
+// Engine): K = (swing_hz * period_s) * kInvTwoPi.
+inline constexpr double kInvTwoPi = 0x1.45f306dc9c883p-3;
+
+// Cycles-to-units rule (docs/signal-spec.md, Rate curve): (v mod 1) * 2^64,
+// rounded to the nearest integer, ties to even, mod 2^64. The fraction
+// v - trunc(v) is exact; NaN, infinities, and |v| >= 2^52 (an integer) give 0.
+std::uint64_t cycles_to_units(double v) noexcept;
+
+// Cycle cosine (docs/signal-spec.md, Rate curve, Cycle cosine): the cosine of
+// a 64-bit phase, more exact than the engine sine because U scales its error
+// by K: the engine sine's exact fold of phase + 2^62, its one conversion, and
+// an odd Taylor polynomial to x^15 in fixed Horner order. Within 1e-10 of
+// cos(2 pi phase / 2^64) (row cycle-cosine-error); exactly +0.0 at 2^62 and
+// 3 * 2^62. The one function for both c0 and the per-sample cosine.
+double cycle_cosine(std::uint64_t phase) noexcept;
+
+// Rate curve offset U (docs/signal-spec.md, Rate curve, Engine):
+// cycles_to_units(k * (c0 - cycle_cosine(cycle_phase))). Its only signal
+// input is the beat rate cycle phase; k (K) and c0 (cycle_cosine of P0) are
+// plan constants.
+std::uint64_t rate_cycle_offset(std::uint64_t cycle_phase, double k, double c0) noexcept;
 
 // Smooth swell (docs/signal-spec.md, Coupling, Swell law): one raised cosine
 // per theta cycle, sine_envelope(theta_envelope_phase - coupling_phase_units

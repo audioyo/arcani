@@ -1,11 +1,12 @@
 id	value	unit	spec_row	source	pending
 sine-error	-120	dBFS		Design log 2026-10-28 (o): engine sine at most -120 dBFS against the ideal sine; docs/signal-spec.md, Sine, Error bound	
+cycle-cosine-error	-200	dBFS		Design log 2026-11-12 (pp): decided by Audio 2026-11-12 (make the math precise): the beat rate cycle cosine at most -200 dBFS (1e-10) against the ideal cosine, so every compile-accepted cycle keeps the right ear within row reference-match; docs/signal-spec.md, Rate curve, Cycle cosine	
 sample-rates	44100 48000	Hz		Design log 2026-10-27 (j): the Core renders natively at 44.1 and 48 kHz; AD-10	
 binaural-isolation-engine	90	dB below the ear's own binaural carrier	Binaural isolation, engine output	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-4	
 binaural-isolation-master	60	dB below the ear's own binaural carrier	Binaural isolation, after master chain	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-4	
 coupling-timing	2	ms	Coupling timing	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-3	
 coupling-timing-calibration	0.2	ms		Design log 2026-11-10 (nn): decided by Audio 2026-11-10: the coupling timing tool reads Python-synthesized swell signals of known peak times within a tenth of row coupling-timing before it judges the engine, the frequency tool's rule (design log 2026-11-06 (ll))	
-coupling-independence	0	samples of gamma peak time change	Coupling independence	thresholds-and-ranges.md, Test thresholds; AD-5	2-5-binaural-layer
+coupling-independence	0	samples of gamma peak time change	Coupling independence	thresholds-and-ranges.md, Test thresholds; AD-5	
 envelope-shape	0	envelope samples failing the reference match	Envelope shape	thresholds-and-ranges.md, Test thresholds; FR-13	
 carrier-rule	4	times the modulation rate	Carrier rule	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-9	
 spacing-rule	50	Hz	Spacing rule	thresholds-and-ranges.md, Test thresholds; design log 2026-10-27 (e), (i); AD-20	3-2-spacing-rule-per-ear-whole-session

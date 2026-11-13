@@ -4,8 +4,8 @@
 // Renders in internal blocks of kBlockFrames frames, buffered to any host
 // request length. Every sample is a pure function of the plan and its sample
 // index: each oscillator phase (the theta and gamma envelope phases included)
-// at frame n is n * inc mod 2^64, so
-// seek sets it directly and reads no earlier output. render() and seek()
+// at frame n is n * inc mod 2^64 (the beat rate cycle phase P0 + n * inc_P),
+// so seek sets it directly and reads no earlier output. render() and seek()
 // never allocate, throw, or do I/O; the constructor holds every buffer.
 
 #ifndef ARCANI_RENDER_RENDERER_HPP
@@ -55,7 +55,8 @@ class Renderer {
   std::uint64_t envelope_phase_ = 0;  // theta envelope phase
   std::uint64_t gamma_phase_ = 0;     // gamma carrier phase
   std::uint64_t gamma_envelope_phase_ = 0;  // gamma envelope phase
-  std::array<std::uint64_t, 2> phase_{0, 0};
+  std::array<std::uint64_t, 2> phase_{0, 0};  // phase_L, phase_C (binaural)
+  std::uint64_t cycle_phase_ = 0;              // beat rate cycle phase p_P (P0 at n = 0)
   Block theta_{};
   Block gamma_{};
   Block bus_{};

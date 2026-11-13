@@ -87,6 +87,25 @@ const CouplingName* coupling_named(std::string_view s) noexcept {
   return nullptr;
 }
 
+// binaural.waveform: the schema enum members, in schema order.
+struct WaveformName {
+  std::string_view name;
+  BinauralWaveform waveform;
+};
+constexpr WaveformName kWaveformNames[] = {
+    {"sine", BinauralWaveform::Sine},
+    {"triangle", BinauralWaveform::Triangle},
+};
+
+const WaveformName* waveform_named(std::string_view s) noexcept {
+  for (const auto& entry : kWaveformNames) {
+    if (entry.name == s) {
+      return &entry;
+    }
+  }
+  return nullptr;
+}
+
 // Seed bounds: 0 to 2^53 - 1, the largest integer a JSON number holds exactly.
 constexpr double kSeedMax = 9007199254740991.0;
 constexpr std::string_view kSeedMaxText = "9007199254740991";
@@ -248,6 +267,9 @@ std::optional<Error> check_value(const Field& f, const Value& v) {
   if (f.path == "/gamma_pac/coupling" && coupling_named(v.string()) == nullptr) {
     return make_error(pointer, v.string(), "enum", kGammaCouplingEnum);
   }
+  if (f.path == "/binaural/waveform" && waveform_named(v.string()) == nullptr) {
+    return make_error(pointer, v.string(), "enum", kBinauralWaveformEnum);
+  }
   if (f.path == "/loudness_hash" && !hash_ok(v.string())) {
     return make_error(pointer, v.string(), "pattern", kLoudnessHashPattern);
   }
@@ -388,7 +410,17 @@ ParseResult parse(std::string_view utf8) {
     r.gamma_pac = g;
   }
   if (const Value* bin = root.find("binaural")) {
-    r.binaural = Binaural{number_at(*bin, "carrier_left_hz"), number_at(*bin, "beat_rate_hz")};
+    Binaural b;
+    b.carrier_left_hz = number_at(*bin, "carrier_left_hz");
+    b.beat_rate_hz = number_at(*bin, "beat_rate_hz");
+    if (const Value* cycle = bin->find("beat_rate_cycle")) {
+      b.beat_rate_cycle = BeatRateCycle{number_at(*cycle, "swing_hz"), number_at(*cycle, "period_s"),
+                                        number_at(*cycle, "start_phase_deg")};
+    }
+    if (bin->find("waveform") != nullptr) {
+      b.waveform = waveform_named(string_at(*bin, "waveform"))->waveform;  // checked: an enum member
+    }
+    r.binaural = b;
   }
   r.hash = crypto::sha256_hex(json::canonicalize(strip_hash_excluded(root, "")));
   result.recipe = std::move(r);

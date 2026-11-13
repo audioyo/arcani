@@ -31,10 +31,14 @@ constexpr RangeRow kRows[] = {
     {"binaural-carrier", 0.0, 1000.0, true, "Hz"},
     {"beat-rate", 0.0, 30.0, true, "Hz"},
     {"binaural-carrier-right", 0.0, 1030.0, true, "Hz"},
+    {"rate-cycle-period", 60.0, 60.0, false, "s"},
+    {"rate-cycle-start-phase", 0.0, 360.0, false, "degrees"},
 };
 
 constexpr std::string_view kRightCarrierRow = "binaural-carrier-right";
+constexpr std::string_view kBeatRateRow = "beat-rate";
 constexpr std::string_view kBeatRatePath = "/binaural/beat_rate_hz";
+constexpr std::string_view kSwingPath = "/binaural/beat_rate_cycle/swing_hz";
 
 // Index of a row in kRows, or std::size(kRows) when absent.
 constexpr std::size_t row_index(std::string_view id) noexcept {
@@ -49,6 +53,7 @@ constexpr std::size_t row_index(std::string_view id) noexcept {
 // Every row the field table can name must be in kRows.
 static_assert(row_index("session-length") < std::size(kRows));
 static_assert(row_index(kRightCarrierRow) < std::size(kRows));
+static_assert(row_index(kBeatRateRow) < std::size(kRows));
 
 // A range-governed field's value lookup. known is false for a path the
 // validator has no mapping for; value is empty when the field's layer is
@@ -119,6 +124,18 @@ Lookup field_value(const recipe::Recipe& r, std::string_view path) {
     }
     return {true, std::nullopt};
   }
+  if (path == "/binaural/beat_rate_cycle/period_s") {
+    if (r.binaural && r.binaural->beat_rate_cycle) {
+      return {true, r.binaural->beat_rate_cycle->period_s};
+    }
+    return {true, std::nullopt};
+  }
+  if (path == "/binaural/beat_rate_cycle/start_phase_deg") {
+    if (r.binaural && r.binaural->beat_rate_cycle) {
+      return {true, r.binaural->beat_rate_cycle->start_phase_deg};
+    }
+    return {true, std::nullopt};
+  }
   return {false, std::nullopt};
 }
 
@@ -155,12 +172,46 @@ std::optional<recipe::Error> check_row(std::string_view parameter, double value,
   return std::nullopt;
 }
 
+// Worst case of a beat rate cycle (docs/signal-spec.md, Rate curve, Range
+// checks), in order: the swing itself, the lowest and highest rate against
+// beat-rate, then the highest right carrier against binaural-carrier-right.
+// Each sum is the one binary64 rounding the spec names.
+std::optional<recipe::Error> check_cycle_worst_case(const recipe::Binaural& b) {
+  const recipe::BeatRateCycle& cycle = *b.beat_rate_cycle;
+  const double swing = cycle.swing_hz;
+  if (!(swing >= 0.0)) {
+    return recipe::Error{std::string(kSwingPath), json::format_number(swing), "range.min", ">= 0 Hz"};
+  }
+  const std::size_t beat = row_index(kBeatRateRow);
+  const double lowest = b.beat_rate_hz - swing;
+  if (auto e = check_row(kSwingPath, lowest, beat, 1.0, kRows[beat].unit)) {
+    return e;
+  }
+  const double highest = b.beat_rate_hz + swing;
+  if (auto e = check_row(kSwingPath, highest, beat, 1.0, kRows[beat].unit)) {
+    return e;
+  }
+  const double center = b.carrier_left_hz + b.beat_rate_hz;  // f_C, as compile sums it
+  const double right = center + swing;
+  const std::size_t j = row_index(kRightCarrierRow);
+  return check_row(kSwingPath, right, j, 1.0, kRows[j].unit);
+}
+
 }  // namespace
 
 std::span<const RangeRow> range_rows() noexcept { return kRows; }
 
 std::optional<recipe::Error> check_ranges(const recipe::Recipe& r) {
   for (const recipe::Field& f : recipe::fields()) {
+    if (f.path == kSwingPath) {
+      // No range row of its own: the worst-case checks bound it.
+      if (r.binaural && r.binaural->beat_rate_cycle) {
+        if (auto e = check_cycle_worst_case(*r.binaural)) {
+          return e;
+        }
+      }
+      continue;
+    }
     if (f.range_row.empty()) {
       continue;
     }
@@ -242,6 +293,10 @@ std::optional<recipe::Error> check_rules(const recipe::Recipe& r) {
       return recipe::Error{"/gamma_pac/coupling_phase_deg", json::format_number(*gamma.coupling_phase_deg),
                            std::string(kPhaseNeedsCoupledRule), std::string(kPhaseNeedsCoupledLimit)};
     }
+  }
+  if (r.binaural && r.binaural->waveform == recipe::BinauralWaveform::Triangle) {
+    return recipe::Error{"/binaural/waveform", "triangle", std::string(kNonSineBinauralRule),
+                         std::string(kModeledBinauralWaveforms)};
   }
   return std::nullopt;
 }
