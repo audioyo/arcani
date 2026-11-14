@@ -16,8 +16,9 @@
 // (carrier_left_hz + beat_rate_hz) + swing_hz against binaural-carrier-right,
 // each reported on swing_hz with the derived value; period_s and
 // start_phase_deg follow against their rows. (Story 2.6) Likewise at
-// /theta_reference/rate_cycle/swing_hz and /gamma_pac/rate_cycle/swing_hz,
-// each the last field of its layer: swing_hz >= 0 (rule range.min, limit
+// /theta_reference/rate_cycle/swing_hz and /gamma_pac/rate_cycle/swing_hz:
+// the worst-case checks run when the walk reaches swing_hz, after that
+// layer's own fields and before period_s and start_phase_deg: swing_hz >= 0 (rule range.min, limit
 // ">= 0 Hz"), then rate_hz - swing_hz and rate_hz + swing_hz against
 // theta-rate or gamma-rate, reported on swing_hz with the derived value;
 // period_s and start_phase_deg follow against their rows. The first failure

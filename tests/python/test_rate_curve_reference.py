@@ -895,3 +895,76 @@ def test_engine_rejects_the_missing_start_phase_fixture(tapdump, tmp_path):
     assert result.returncode == 1, (result.stdout, result.stderr)
     text = result.stdout + result.stderr
     assert "required" in text and "/theta_reference/rate_cycle/start_phase_deg" in text, text
+
+
+# ------------------------------------------ harness cycles, engine vs reference
+#
+# Recipes built here (never fixtures): the hard-edged theta shapes and start
+# phases the fixtures do not cover, and bursts on a curved theta with a
+# curved gamma. 10 s each, both rates; taps and output within row
+# reference-match.
+
+HARNESS_LENGTH_S = 10
+
+
+def harness_recipe(theta, gamma=None):
+    r = {"schema_version": "1.0", "engine_version": "0.0.1", "seed": 42, "author": "Arcani test harness",
+         "date": "2026-11-14", "rationale": "Story 2.6 harness recipe, not a fixture.",
+         "length_s": HARNESS_LENGTH_S, "loudness_target_lufs": -36, "theta_reference": theta}
+    if gamma is not None:
+        r["gamma_pac"] = gamma
+    return r
+
+
+def harness_cycle(swing, start):
+    return {"swing_hz": swing, "period_s": 60, "start_phase_deg": start}
+
+
+HARNESS_CASES = {
+    f"{shape}-{start}deg": harness_recipe(
+        {"carrier_hz": 450, "rate_hz": 3.5, "am_depth_percent": 75, "shape": shape,
+         "rate_cycle": harness_cycle(2.5, start)})
+    for shape in ("sawtooth", "reverse_saw") for start in (90, 270)
+}
+HARNESS_CASES["bursts-curved-theta-and-gamma-270deg"] = harness_recipe(
+    {"carrier_hz": 450, "rate_hz": 4, "am_depth_percent": 75, "shape": "sine",
+     "rate_cycle": harness_cycle(2, 270)},
+    {"carrier_hz": 250, "rate_hz": 45, "am_depth_percent": 100, "carrier_wave": "sine", "coupling": "bursts",
+     "coupling_phase_deg": 0, "rate_cycle": harness_cycle(15, 270)})
+
+
+@pytest.mark.parametrize("case", sorted(HARNESS_CASES))
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_engine_harness_cycles_match_the_reference(case, fs, tapdump, tmp_path):
+    path = tmp_path / f"{case}.json"
+    path.write_text(json.dumps(HARNESS_CASES[case], indent=2) + "\n", encoding="utf-8")
+    frames = ideal().seconds_to_samples(float(HARNESS_LENGTH_S), fs)
+    _, eng = dump_arrays(tapdump, path, fs, tmp_path / "dump", 0)
+    ref = stub_chain().render(path, fs, frames=frames)
+    mod = rm()
+    keys = ["theta", "bus", "output"] + (["gamma"] if "gamma_pac" in HARNESS_CASES[case] else [])
+    results = []
+    for key in keys:
+        assert eng[key].size == 2 * frames, (case, fs, key, eng[key].size)
+        results += mod.match_stereo(f"{case} {fs} {key}", eng[key], ref[key])
+    failed = [r for r in results if r["result"] != "pass"]
+    assert not failed, failed
+
+
+# ------------------------------------------------------------ clicks
+
+
+def clicks():
+    return importlib.import_module("assertions.clicks")
+
+
+@pytest.mark.parametrize("fixture", ("theta-cycle-smoothed-on-off.json", "bursts-theta-cycle.json"))
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_engine_curved_render_passes_the_click_test(fixture, fs, tapdump, tmp_path):
+    # A curved theta moves the hard edges and the burst gate along the curve;
+    # the click tool (row click-level after the row click-highpass high-pass)
+    # finds no discontinuity in either channel of the engine output.
+    _, arrays = dump_arrays(tapdump, FIXTURES_VALID / fixture, fs, tmp_path / "dump", 0)
+    for c in (0, 1):
+        result = clicks().check(f"{fixture} {fs} channel {c}", channel(arrays["output"], c), fs)
+        assert result["result"] == "pass", result
