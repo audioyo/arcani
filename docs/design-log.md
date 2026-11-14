@@ -79,6 +79,14 @@ Sources point to `docs/research-library.md`, a research run under `_bmad-output/
 
 ## Entries
 
+### 2026-11-13 (rr): Burst timing fit speedup and the gamma-bursts probe pin (S2.4)
+
+- **Cause:** full run 43525414721 (PR #16) was red only on the missing `gamma-bursts-*` entries and on wall time: Python tests took about 23 min on windows-x64 and windows-arm64 (about 9 min in full run 43363235457), and macos-arm64 hit its 20 min timeout. About 91 percent of the Story 2.4 test time was the burst-center refinement of entry (qq), which solved about 127,000 least-squares fits over whole theta-cycle windows.
+- **Speedup first (rule of entry (oo)):** `tests/assertions/coupling_timing.py` fits each burst only over the burst span (template nonzero) plus one sample each side, adds the rest of the window as its y^2, solves the three-term fit by its normal equations, and computes the gamma-rate cosine and sine once per burst. Same model, same grid and golden-section search; no threshold, range, or search setting changed. Over 192 cases (both sample rates, four shapes, gamma 40, 45, 60 Hz, two depths, two phases, 0 and 3 ms shifts) the burst errors equal the previous fit within 6.4e-9 ms (row `coupling-timing` 2 ms). Dev PC: the Story 2.4 test files 1081 to 395 s.
+- **Pin:** `gamma-bursts-44100` (sha256 9ef50541...) and `gamma-bursts-48000` (sha256 7125f31b...), scope engine: the windows-x64 dev PC probe, equal to the android-arm64 probe and the windows-x64 CI probe of full run 43525414721; the next full run confirms all four platforms.
+- **Source:** full runs 43525414721 and 43363235457; dev PC profile of `test_doctored_3_ms_burst_shift_fails_the_timing_row`.
+- **Status:** proposed.
+
 ### 2026-11-13 (qq): Gamma PAC layer, 50 ms bursts, the spectrum tool, and burst-center timing (S2.4)
 
 - **Burst gate:** `docs/signal-spec.md`, Bursts. With `coupling` `bursts` the gamma AM depth is `d * g`: `g` is the smoothed on-off segment rule of the theta reference applied to `u = p_E - C mod 2^64`, with half width `Hb` (25 ms of theta envelope phase, `w = (50.0 / 1000.0 / 2) * rate_hz`, then `* 2^64`, nearest, ties to even) and edge `Wb` (10 ms, `w = (10.0 / 1000.0) * rate_hz`). So the 50 ms is the full width, each edge a 10 ms raised cosine inside it, a 30 ms plateau, centered on the coupling phase (entry (o)). `Wb < Hb - Wb` and `Hb < 2^63` over the whole theta-rate range. Depth law as the swell: `a = 1.0 - (d * g) * (1.0 - e)`. Off the burst `a = 1.0` exactly (the unmodulated carrier); on the plateau `a` is the uncoupled law bit for bit. The carrier always plays. The engine gate is `core::burst(theta_envelope_phase, C, Hb, Wb)`; a compile-time test pins its type (AD-5).

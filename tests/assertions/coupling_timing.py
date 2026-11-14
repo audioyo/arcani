@@ -275,21 +275,36 @@ def burst_template(t) -> np.ndarray:
     return out
 
 
-def _burst_sse(y, t, tau, w_g):
-    """Residual of y against burst_template(t - tau) * (c0 + c1 cos + c2 sin)."""
-    g = burst_template(t - tau)
-    basis = np.stack([g, g * np.cos(w_g * t), g * np.sin(w_g * t)], axis=1)
-    c, *_ = np.linalg.lstsq(basis, y, rcond=None)
-    r = y - basis @ c
-    return float(np.dot(r, r))
+def _burst_sse(y, t, tau, cos_g, sin_g, y2_total):
+    """Residual of y against burst_template(t - tau) * (c0 + c1 cos + c2 sin).
+
+    The template is 0 beyond its half width, so only the burst span (plus one
+    sample each side) enters the fit; the rest of the window adds its y^2. The
+    three-term fit is solved by its normal equations.
+    """
+    half = _fixed("burst-width") / 1000.0 / 2.0
+    lo = max(int(np.searchsorted(t, tau - half, side="left")) - 1, 0)
+    hi = min(int(np.searchsorted(t, tau + half, side="right")) + 1, t.size)
+    ys = y[lo:hi]
+    g = burst_template(t[lo:hi] - tau)
+    basis = np.stack([g, g * cos_g[lo:hi], g * sin_g[lo:hi]])
+    c = np.linalg.solve(basis @ basis.T, basis @ ys)
+    r = ys - c @ basis
+    return float(r @ r) + (y2_total - float(ys @ ys))
 
 
 def _burst_center(y, t, first, w_g):
     """Refined burst center near `first` (seconds, relative to t's origin)."""
+    cos_g, sin_g = np.cos(w_g * t), np.sin(w_g * t)
+    y2_total = float(np.dot(y, y))
+
+    def cost(x):
+        return _burst_sse(y, t, x, cos_g, sin_g, y2_total)
+
     grid = first + np.linspace(-_BURST_SEARCH_S, _BURST_SEARCH_S, 2 * _BURST_GRID + 1)
     step = float(grid[1] - grid[0])
-    best = float(grid[int(np.argmin([_burst_sse(y, t, x, w_g) for x in grid]))])
-    return _golden(lambda x: _burst_sse(y, t, x, w_g), best - step, best + step, _SEARCH_STEPS)
+    best = float(grid[int(np.argmin([cost(x) for x in grid]))])
+    return _golden(cost, best - step, best + step, _SEARCH_STEPS)
 
 
 def timing_errors(gamma, theta, fs, theta_rate_hz, shape, coupling_phase_deg,
