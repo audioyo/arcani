@@ -274,9 +274,9 @@
    Update after every completed section plus commit and/or push.
    ===================================================================== */
 
-var LAST_UPDATED = "2026-11-13";
-var CURRENT = "2.4";   // story id being worked on
-var NEXT    = "2.6";   // story id that comes next
+var LAST_UPDATED = "2026-11-14";
+var CURRENT = "2.6";   // story id being worked on
+var NEXT    = "2.7";   // story id that comes next
 
 // Workflow step names, used by every story unless it lists its own "stepNames".
 var STEP_NAMES = [
@@ -513,11 +513,11 @@ var EPICS = [
       ["x","Sweeping binaural beat rate and phase leaves every gamma peak time unchanged to the sample"],
       ["x","Each ear's tap and the output match the reference"]
     ] },
-  { id:"2.4", title:"Gamma coupled, 50 ms bursts", status:"review",
+  { id:"2.4", title:"Gamma coupled, 50 ms bursts", status:"done",
     plain:"Gamma as 50 ms bursts centered on the coupling phase, depth-gated with soft edges, with no clicks.",
     spec:["spec-2-4-gamma-coupled-50-ms-bursts.md"],
-    steps:[true,true,true,true,true,false,false],
-    stepNotes:["06283a0: spec 2026-11-13, spectrum rows, research figure match, and spec size decided by Audio; 4d3a96f: signal spec Bursts section with 5 vector tables (36 in all); ffdf1ae: interfaces and the burst timing deviation (pending Audio)","67a7089: fresh-context QA agent's failing tests; 29 of 324 C++ cases and about 160 pytest cases red","f1033cd: bursts coupling and rules, engine burst gate, reference gate, spectrum tool and rows spectrum-frequency and spectrum-level, burst-center timing, 5 fixtures, gamma-bursts probe components; 4/4 ctest entries, 2,527 pytest pass, 4 hash-entry tests wait for the full run; reference match -137.0 dBFS worst; design log (qq)","Review pass 1: 3 reviewers, 20 findings; 8 patched in b0cc811, 1 deferred (independent review and listening note on the free-running gamma envelope in bursts), 10 rejected, 1 CI gate; burst timing refinement accepted by Audio; local run 4/4 ctest, 2,531 pytest pass, 4 hash-entry tests wait for the full run","Pushed; PR #16 opened. Full run 43525414721 red only on the missing gamma-bursts entries and wall time; f22f29f: burst-center fit speedup (same results within 6.4e-9 ms) and gamma-bursts hashes pinned; 3317484: windows-arm64, macos-arm64, and fast linux-x64 budgets raised by Audio; full run 43546492371 and fast run 43546488139 green, hashes equal on all four platforms; design log (rr); rerun on 52aa789 over only on windows-x64 wall time (20.9 of 20 min, runner variance on the same code), both windows-x64 budgets raised to 25 min by Audio","",""],
+    steps:[true,true,true,true,true,true,true],
+    stepNotes:["06283a0: spec 2026-11-13, spectrum rows, research figure match, and spec size decided by Audio; 4d3a96f: signal spec Bursts section with 5 vector tables (36 in all); ffdf1ae: interfaces and the burst timing deviation (pending Audio)","67a7089: fresh-context QA agent's failing tests; 29 of 324 C++ cases and about 160 pytest cases red","f1033cd: bursts coupling and rules, engine burst gate, reference gate, spectrum tool and rows spectrum-frequency and spectrum-level, burst-center timing, 5 fixtures, gamma-bursts probe components; 4/4 ctest entries, 2,527 pytest pass, 4 hash-entry tests wait for the full run; reference match -137.0 dBFS worst; design log (qq)","Review pass 1: 3 reviewers, 20 findings; 8 patched in b0cc811, 1 deferred (independent review and listening note on the free-running gamma envelope in bursts), 10 rejected, 1 CI gate; burst timing refinement accepted by Audio; local run 4/4 ctest, 2,531 pytest pass, 4 hash-entry tests wait for the full run","Pushed; PR #16 opened. Full run 43525414721 red only on the missing gamma-bursts entries and wall time; f22f29f: burst-center fit speedup (same results within 6.4e-9 ms) and gamma-bursts hashes pinned; 3317484: windows-arm64, macos-arm64, and fast linux-x64 budgets raised by Audio; full run 43546492371 and fast run 43546488139 green, hashes equal on all four platforms; design log (rr); rerun on 52aa789 over only on windows-x64 wall time (20.9 of 20 min, runner variance on the same code), both windows-x64 budgets raised to 25 min by Audio; fast and full green on 9e065df, every job within budget","ce2a49e: PR #16 merged into main, 2026-11-14, on Audio's go-ahead after all required checks reported green","sprint-status.yaml set to done"],
     acs:[
       ["x","signal-spec bursts section: 50 ms full width, 10 ms raised-cosine edges, carrier continuous, worked vectors"],
       ["x","Spectrum tool calibrated on multi-tone signals; a moved line must-fail is caught"],
@@ -724,6 +724,7 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-14","ce2a49e","2.4","PR #16 merged into main after fast and full checks on 9e065df were green, every job within budget; sprint-status.yaml set to done; deferred: listening check on burst-to-burst variation (Story 3.3 or Phase 0)"],
   ["2026-11-13","8b2561e","2.4","Rerun on 52aa789 red only on windows-x64 wall time: 20.9 of 20 min in both tiers on the same code that took 13.5 and 16.5 min (runner variance, every test passed); Audio raised fast and full windows-x64 budgets to 25 min; design log (rr)"],
   ["2026-11-13","3317484","2.4","Pushed; PR #16 opened. Full run 43525414721 red only on the missing gamma-bursts entries and wall time; burst-center fit sped up (f22f29f, same results within 6.4e-9 ms, Story 2.4 tests 1081 to 395 s on the dev PC) and gamma-bursts hashes pinned; three CI budgets raised by Audio (3317484); full run 43546492371 and fast run 43546488139 green on every job, gamma-bursts hashes equal on all four platforms; design log (rr); PR waits for Audio to merge"],
   ["2026-11-13","b0cc811","2.4","Review pass 1: 8 findings patched (b0cc811), 1 deferred, 10 rejected; burst timing refinement accepted by Audio; local run 4/4 ctest, 2,531 pytest pass, 4 hash-entry tests wait for the four-platform full run; story moved to review; not pushed"],
