@@ -125,6 +125,22 @@
 // rule validate::kNonSineBinauralRule ("non-sine binaural not modeled"),
 // limit validate::kModeledBinauralWaveforms ("sine"). Both constants are read
 // through the lookup probe.
+//
+// Story 2.4 (gamma PAC layer, coupled 50 ms bursts): the coupling enum is
+// ["uncoupled", "smooth_swell", "bursts"] (enum limit "uncoupled,
+// smooth_swell, bursts"). bursts takes coupling_phase_deg as smooth_swell
+// does, and the three coupling rules run in the same place and order with
+// the value and limit naming the coupling the recipe gives:
+//   1. bursts with gamma am_depth_percent > 0 and no theta_reference, or
+//      theta am_depth_percent 0: parameter /gamma_pac/coupling, value
+//      bursts, rule and limit as for smooth_swell. Gamma depth 0 passes.
+//   2. bursts without coupling_phase_deg: parameter
+//      /gamma_pac/coupling_phase_deg, value "absent", rule as for
+//      smooth_swell, limit validate::kBurstsNeedsPhaseLimit ("present with
+//      coupling bursts").
+//   3. unchanged: only uncoupled with coupling_phase_deg is rejected.
+// Every smooth_swell message keeps its text. kBurstsNeedsPhaseLimit is read
+// through the lookup probe.
 
 #include <arcani/arcani.h>
 
@@ -161,6 +177,7 @@ inline constexpr std::string_view kCoupledNeedsPhaseRule = "(missing)";
 inline constexpr std::string_view kCoupledNeedsPhaseLimit = "(missing)";
 inline constexpr std::string_view kPhaseNeedsCoupledRule = "(missing)";
 inline constexpr std::string_view kPhaseNeedsCoupledLimit = "(missing)";
+inline constexpr std::string_view kBurstsNeedsPhaseLimit = "(missing)";  // Story 2.4
 inline constexpr std::string_view kNonSineBinauralRule = "(missing)";
 inline constexpr std::string_view kModeledBinauralWaveforms = "(missing)";
 
@@ -172,6 +189,7 @@ inline const std::string coupled_needs_phase_rule(kCoupledNeedsPhaseRule);
 inline const std::string coupled_needs_phase_limit(kCoupledNeedsPhaseLimit);
 inline const std::string phase_needs_coupled_rule(kPhaseNeedsCoupledRule);
 inline const std::string phase_needs_coupled_limit(kPhaseNeedsCoupledLimit);
+inline const std::string bursts_needs_phase_limit(kBurstsNeedsPhaseLimit);
 inline const std::string non_sine_binaural_rule(kNonSineBinauralRule);
 inline const std::string modeled_binaural_waveforms(kModeledBinauralWaveforms);
 }  // namespace arcani::validate_probe
@@ -727,7 +745,9 @@ TEST_CASE("valid/ means schema-valid: the out-of-range hash fixture is rejected 
       "gamma-carrier-wave-triangle.json", "gamma-carrier-wave-softened-square.json",
       "swell-no-theta.json", "swell-theta-depth-0.json", "swell-no-coupling-phase.json",
       "uncoupled-with-coupling-phase.json", "binaural-waveform-triangle.json",
-      "binaural-cycle-below-0.json", "binaural-cycle-above-30.json"};
+      "binaural-cycle-below-0.json", "binaural-cycle-above-30.json",
+      // Story 2.4: the two compile-rejected burst fixtures (AD-5, coupling phase).
+      "bursts-no-theta.json", "bursts-no-coupling-phase.json"};
   std::set<std::string> rejected_seen;
   std::size_t compiled = 0;
   for (const auto& entry :
@@ -1158,11 +1178,11 @@ TEST_CASE("gamma: carrier wave and coupling text outside the schema enum is a sc
     v.gamma_carrier_wave = std::string("\"") + text + "\"";
     expect_rejected(v, {"/gamma_pac/carrier_wave", text, "enum", "sine, triangle, softened_square"});
   }
-  // Story 2.3: smooth_swell joins the enum; bursts arrives in Story 2.4.
-  for (const char* text : {"swell", "smooth-swell", "Smooth_swell", "bursts", "Uncoupled", ""}) {
+  // Story 2.3: smooth_swell joins the enum; Story 2.4 adds bursts.
+  for (const char* text : {"swell", "smooth-swell", "Smooth_swell", "Bursts", "burst", "Uncoupled", ""}) {
     Values v = with_gamma();
     v.gamma_coupling = std::string("\"") + text + "\"";
-    expect_rejected(v, {"/gamma_pac/coupling", text, "enum", "uncoupled, smooth_swell"});
+    expect_rejected(v, {"/gamma_pac/coupling", text, "enum", "uncoupled, smooth_swell, bursts"});
   }
   for (const bool wave : {true, false}) {
     Values v = with_gamma();
@@ -1634,6 +1654,225 @@ TEST_CASE("coupling: check order, ranges then the theta and gamma rules then the
   {
     // A valid swell recipe without the gain: final.required, as before.
     Values v = with_swell();
+    v.gain = false;
+    const api::Compiled c = api::compile(make_recipe(v), api::options(ARC_MODE_FINAL, 48000));
+    REQUIRE(api::all_written(c.error));
+    CHECK(c.status == ARC_ERR_REJECTED);
+    CHECK(std::string(c.error.rule) == "final.required");
+  }
+}
+
+// ------------------------------------------- coupled 50 ms bursts (Story 2.4)
+
+namespace {
+
+const char* const kBurstsNeedsPhaseLimitText = "present with coupling bursts";
+
+// with_swell, coupled by 50 ms bursts instead.
+Values with_bursts(const std::string& phase = "90") {
+  Values v = with_gamma();
+  v.gamma_coupling = "\"bursts\"";
+  v.gamma_coupling_phase_deg = phase;
+  return v;
+}
+
+const Want kWantBurstsNeedsTheta{"/gamma_pac/coupling", "bursts", kNeedsTheta, kNeedsThetaLimit};
+const Want kWantBurstsNeedsPhase{"/gamma_pac/coupling_phase_deg", "absent", kNeedsPhase,
+                                 kBurstsNeedsPhaseLimitText};
+
+}  // namespace
+
+TEST_CASE("bursts: the phase limit constant holds the spec text; the others keep theirs",
+          "[validate][bursts]") {
+  CHECK(vprobe::bursts_needs_phase_limit == kBurstsNeedsPhaseLimitText);
+  CHECK(vprobe::coupled_needs_theta_rule == kNeedsTheta);
+  CHECK(vprobe::coupled_needs_theta_limit == kNeedsThetaLimit);
+  CHECK(vprobe::coupled_needs_phase_rule == kNeedsPhase);
+  CHECK(vprobe::coupled_needs_phase_limit == kNeedsPhaseLimit);
+  CHECK(vprobe::phase_needs_coupled_rule == kPhaseNeedsCoupled);
+  CHECK(vprobe::phase_needs_coupled_limit == kPhaseNeedsCoupledLimitText);
+}
+
+TEST_CASE("bursts: a burst recipe compiles in both modes at both rates", "[validate][bursts]") {
+  for (const bool binaural : {true, false}) {
+    for (const char* rate : {"30", "40", "45", "60"}) {
+      Values v = with_bursts();
+      v.binaural = binaural;
+      v.gamma_rate_hz = rate;
+      const std::string text = make_recipe(v);
+      for (const arc_mode mode : kModes) {
+        for (const std::uint32_t fs : {44100u, 48000u}) {
+          INFO("binaural " << binaural << ", gamma rate " << rate << ", mode " << mode << ", fs " << fs);
+          CHECK(api::compile_ok(text, api::options(mode, fs)) != nullptr);
+        }
+      }
+    }
+  }
+}
+
+TEST_CASE("bursts: phase edges compile; just outside a phase edge is rejected with its row",
+          "[validate][bursts]") {
+  for (const char* phase : {"0", "359.99", "360", "359.99999999999994", "0.01", "180"}) {
+    INFO("coupling phase " << phase);
+    expect_plan(with_bursts(phase));
+  }
+  const Want cases[] = {
+      {"/gamma_pac/coupling_phase_deg", "-0.01", "range.min", ">= 0 degrees (row coupling-phase)"},
+      {"/gamma_pac/coupling_phase_deg", "360.01", "range.max", "<= 360 degrees (row coupling-phase)"},
+  };
+  for (const auto& c : cases) {
+    expect_rejected(with_bursts(c.value), c);
+  }
+}
+
+TEST_CASE("bursts: AD-5, coupled gamma needs a theta reference with AM depth",
+          "[validate][bursts][ad5]") {
+  {
+    Values v = with_bursts();  // no theta reference
+    v.theta = false;
+    expect_rejected(v, kWantBurstsNeedsTheta);
+  }
+  {
+    Values v = with_bursts();  // theta AM depth 0
+    v.theta_am_depth_percent = "0";
+    expect_rejected(v, kWantBurstsNeedsTheta);
+  }
+  for (const char* depth : {"100", "0.01", "5e-324"}) {
+    Values v = with_bursts();  // any gamma depth above 0
+    v.theta = false;
+    v.gamma_am_depth_percent = depth;
+    expect_rejected(v, kWantBurstsNeedsTheta);
+  }
+  {
+    Values v = with_bursts();  // the smallest theta depth above 0 passes
+    v.theta_am_depth_percent = "5e-324";
+    expect_plan(v);
+  }
+  {
+    Values v = with_bursts();  // gamma depth 0 without a theta reference passes
+    v.theta = false;
+    v.gamma_am_depth_percent = "0";
+    expect_plan(v);
+  }
+  {
+    Values v = with_bursts();  // gamma depth 0 with theta depth 0 passes
+    v.theta_am_depth_percent = "0";
+    v.gamma_am_depth_percent = "0";
+    expect_plan(v);
+  }
+  {
+    Values v = with_bursts();  // no plan at either sample rate
+    v.theta = false;
+    for (const std::uint32_t fs : {44100u, 48000u}) {
+      const api::Compiled c = api::compile(make_recipe(v), api::options(ARC_MODE_MEASURE, fs));
+      CHECK(c.status == ARC_ERR_REJECTED);
+      CHECK(c.plan == nullptr);
+    }
+  }
+}
+
+TEST_CASE("bursts: bursts need a coupling phase; every smooth swell message keeps its text",
+          "[validate][bursts]") {
+  expect_rejected(with_bursts(""), kWantBurstsNeedsPhase);
+  {
+    Values v = with_bursts("");  // gamma depth 0 still needs the phase
+    v.gamma_am_depth_percent = "0";
+    v.theta = false;
+    expect_rejected(v, kWantBurstsNeedsPhase);
+  }
+  // The smooth swell rules name smooth_swell, as in Story 2.3.
+  expect_rejected(with_swell(""), kWantNeedsPhase);
+  {
+    Values v = with_swell();
+    v.theta = false;
+    expect_rejected(v, kWantNeedsTheta);
+  }
+  {
+    Values v = with_gamma();  // only uncoupled with a phase is rejected
+    v.gamma_coupling_phase_deg = "90";
+    expect_rejected(v, {"/gamma_pac/coupling_phase_deg", "90", kPhaseNeedsCoupled,
+                        kPhaseNeedsCoupledLimitText});
+  }
+}
+
+TEST_CASE("bursts: the schema-valid compile-rejected burst fixtures name their rule",
+          "[validate][bursts]") {
+  struct Case {
+    const char* name;
+    Want want;
+  };
+  const Case cases[] = {
+      {"bursts-no-theta.json", kWantBurstsNeedsTheta},
+      {"bursts-no-coupling-phase.json", kWantBurstsNeedsPhase},
+  };
+  for (const auto& c : cases) {
+    const std::string text = api::valid(c.name);
+    for (const arc_mode mode : kModes) {
+      for (const std::uint32_t fs : {44100u, 48000u}) {
+        INFO(c.name << ", mode " << mode << ", fs " << fs);
+        const api::Compiled r = api::compile(text, api::options(mode, fs));
+        INFO(api::describe(r.error));
+        CHECK(r.status == ARC_ERR_REJECTED);
+        CHECK(r.plan == nullptr);
+        REQUIRE(api::all_written(r.error));
+        CHECK(std::string(r.error.parameter) == c.want.parameter);
+        CHECK(std::string(r.error.value) == c.want.value);
+        CHECK(std::string(r.error.rule) == c.want.rule);
+        CHECK(std::string(r.error.limit) == c.want.limit);
+      }
+    }
+  }
+}
+
+TEST_CASE("bursts: every accepted burst fixture compiles at both rates", "[validate][bursts]") {
+  for (const char* name : {"bursts-40hz.json", "bursts-45hz.json", "bursts-60hz.json"}) {
+    for (const std::uint32_t fs : {44100u, 48000u}) {
+      INFO(name << ", fs " << fs);
+      CHECK(api::compile_ok(api::valid(name), api::options(ARC_MODE_MEASURE, fs)) != nullptr);
+    }
+  }
+}
+
+TEST_CASE("bursts: check order, ranges then the theta and gamma rules then the coupling rules",
+          "[validate][bursts][order]") {
+  {
+    Values v = with_bursts("361");  // a phase range fault wins over AD-5
+    v.theta = false;
+    expect_rejected(v, {"/gamma_pac/coupling_phase_deg", "361", "range.max",
+                        "<= 360 degrees (row coupling-phase)"});
+  }
+  {
+    Values v = with_bursts();  // the gamma carrier rule wins over AD-5
+    v.theta = false;
+    v.gamma_carrier_hz = "200";
+    v.gamma_rate_hz = "60";
+    expect_rejected(v, {"/gamma_pac/carrier_hz", "200", "carrier_rule",
+                        ">= 240 Hz (4 x 60 Hz, row carrier-rule)"});
+  }
+  {
+    Values v = with_bursts("");  // the carrier wave rule wins over AD-5 and the phase rule
+    v.theta = false;
+    v.gamma_carrier_wave = "\"triangle\"";
+    expect_rejected(v, {"/gamma_pac/carrier_wave", "triangle", kNonSine, "sine"});
+  }
+  {
+    Values v = with_bursts("");  // AD-5 wins over the phase rule
+    v.theta = false;
+    expect_rejected(v, kWantBurstsNeedsTheta);
+  }
+  {
+    // Each coupling rule comes before final.required.
+    Values a = with_bursts();
+    a.gain = false;
+    a.theta = false;
+    expect_rejected(a, kWantBurstsNeedsTheta, {ARC_MODE_FINAL});
+    Values b = with_bursts("");
+    b.gain = false;
+    expect_rejected(b, kWantBurstsNeedsPhase, {ARC_MODE_FINAL});
+  }
+  {
+    // A valid burst recipe without the gain: final.required.
+    Values v = with_bursts();
     v.gain = false;
     const api::Compiled c = api::compile(make_recipe(v), api::options(ARC_MODE_FINAL, 48000));
     REQUIRE(api::all_written(c.error));

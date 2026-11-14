@@ -1,17 +1,17 @@
 {
   "allowance_minutes_per_month": 2000,
   "public_repo": true,
-  "source": "Design log 2026-11-02 (aa). Fast budgets from fast run 41578714584 (both jobs about 3 min) with headroom; full budgets from full run 41609300056 (design log (aa)): about 3x the measured time, rounded up to 5 min. Multipliers: GitHub Actions minute multipliers (Linux 1, Windows 2, macOS 10), arm64 runners taken at their x64 multiplier. Allowance: GitHub Free plan included minutes for private repos. Full windows-x64 raised 10 to 20 min after the Story 2.3 suite growth (full run 43152501724 measured 14.0 min after the timing tool speedup), design log 2026-11-11 (oo).",
+  "source": "Design log 2026-11-02 (aa). Fast budgets from fast run 41578714584 (both jobs about 3 min) with headroom; full budgets from full run 41609300056 (design log (aa)): about 3x the measured time, rounded up to 5 min. Multipliers: GitHub Actions minute multipliers (Linux 1, Windows 2, macOS 10), arm64 runners taken at their x64 multiplier. Allowance: GitHub Free plan included minutes for private repos. Full windows-x64 raised 10 to 20 min after the Story 2.3 suite growth (full run 43152501724 measured 14.0 min after the timing tool speedup), design log 2026-11-11 (oo). Full windows-arm64 15 to 25 min, full macos-arm64 10 to 15 min, and fast linux-x64 15 to 20 min after the Story 2.4 suite growth (full run 43537811837 measured 19.6 and 11.4 min, fast run 43537804508 measured 15.2 min, after the burst fit speedup), design log 2026-11-13 (rr). Fast and full windows-x64 20 to 25 min after runner variance: the same code took 13.5 and 20.9 min (full runs 43546492371, 43548441817) and 16.5 and 20.9 min (fast runs 43546488139, 43548435968), design log 2026-11-13 (rr).",
   "tiers": {
     "fast": {
-      "linux-x64": {"budget_minutes": 15, "runner": "ubuntu-24.04", "multiplier": 1, "runs_per_month": 120},
-      "windows-x64": {"budget_minutes": 20, "runner": "windows-2025", "multiplier": 2, "runs_per_month": 120}
+      "linux-x64": {"budget_minutes": 20, "runner": "ubuntu-24.04", "multiplier": 1, "runs_per_month": 120},
+      "windows-x64": {"budget_minutes": 25, "runner": "windows-2025", "multiplier": 2, "runs_per_month": 120}
     },
     "full": {
       "gate": {"budget_minutes": 5, "runner": "ubuntu-24.04", "multiplier": 1, "runs_per_month": 45},
-      "windows-x64": {"budget_minutes": 20, "runner": "windows-2025", "multiplier": 2, "runs_per_month": 45},
-      "windows-arm64": {"budget_minutes": 15, "runner": "windows-11-arm", "multiplier": 2, "runs_per_month": 45},
-      "macos-arm64": {"budget_minutes": 10, "runner": "macos-15", "multiplier": 10, "runs_per_month": 45},
+      "windows-x64": {"budget_minutes": 25, "runner": "windows-2025", "multiplier": 2, "runs_per_month": 45},
+      "windows-arm64": {"budget_minutes": 25, "runner": "windows-11-arm", "multiplier": 2, "runs_per_month": 45},
+      "macos-arm64": {"budget_minutes": 15, "runner": "macos-15", "multiplier": 10, "runs_per_month": 45},
       "android-build": {"budget_minutes": 5, "runner": "ubuntu-24.04", "multiplier": 1, "runs_per_month": 45},
       "android-arm64": {"budget_minutes": 5, "runner": "ubuntu-24.04-arm", "multiplier": 1, "runs_per_month": 45},
       "contract-mustfail": {"budget_minutes": 10, "runner": "ubuntu-24.04-arm", "multiplier": 1, "runs_per_month": 45},

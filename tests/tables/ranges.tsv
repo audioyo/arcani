@@ -8,8 +8,8 @@ gamma-rate	30	60	inclusive	Hz	Gamma rate	thresholds-and-ranges.md, Locked ranges
 gamma-carrier	200	500	inclusive	Hz	Gamma PAC carrier	thresholds-and-ranges.md, Locked ranges; engineering default; design log 2026-10-27 (g); the carrier rule (threshold row carrier-rule) raises the floor	
 coupling-phase	0	360	inclusive	degrees	Coupling phase	thresholds-and-ranges.md, Locked ranges; design log 2026-10-27 (b); design log 2026-11-10 (nn)	
 coupling-depth	0	100	inclusive	percent	Coupling depth	thresholds-and-ranges.md, Locked ranges; Ross et al. 2003; design log 2026-10-27 (h)	
-burst-width	50	50	inclusive	ms	Burst width	thresholds-and-ranges.md, Locked ranges; fixed full width; Alekseichuk et al. 2016; design log 2026-10-27 (h), 2026-10-28 (o)	2-4-gamma-coupled-50-ms-bursts
-burst-edge	10	10	inclusive	ms	Burst width	thresholds-and-ranges.md, Locked ranges; raised-cosine edges inside the full width; design log 2026-10-28 (o)	2-4-gamma-coupled-50-ms-bursts
+burst-width	50	50	inclusive	ms	Burst width	thresholds-and-ranges.md, Locked ranges; fixed full width; Alekseichuk et al. 2016; design log 2026-10-27 (h), 2026-10-28 (o); docs/signal-spec.md, Bursts; design log 2026-11-13 (qq)	
+burst-edge	10	10	inclusive	ms	Burst width	thresholds-and-ranges.md, Locked ranges; raised-cosine edges inside the full width; design log 2026-10-28 (o); docs/signal-spec.md, Bursts; design log 2026-11-13 (qq)	
 binaural-carrier	0	1000	exclusive	Hz	Binaural carriers	thresholds-and-ranges.md, Locked ranges; Licklider et al. 1950, cited by Lopez-Caballero and Escera 2017; below 1000 Hz, no lower limit set, so the floor is 0 Hz	
 binaural-carrier-right	0	1030	exclusive	Hz		Derived: binaural-carrier max plus beat-rate max (the right ear carrier is the left carrier plus the beat rate)	
 beat-rate	0	30	exclusive	Hz	Binaural beat rate	thresholds-and-ranges.md, Locked ranges; design log 2026-10-27 (f)	

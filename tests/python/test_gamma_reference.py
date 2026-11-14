@@ -13,9 +13,10 @@ sys.path; implemented from the signal spec, not from reference/theta.py
 code; it renders ideal functions, never the engine polynomial):
 
 - `CARRIER_WAVES == ("sine",)`: the carrier waves the spec models.
-- `COUPLINGS == ("uncoupled", "smooth_swell")`: the couplings the spec models
-  (Story 2.2 modeled "uncoupled"; Story 2.3 adds "smooth_swell", tested in
-  tests/python/test_coupling_reference.py).
+- `COUPLINGS == ("uncoupled", "smooth_swell", "bursts")`: the couplings the
+  spec models (Story 2.2 modeled "uncoupled"; Story 2.3 adds "smooth_swell",
+  tested in tests/python/test_coupling_reference.py; Story 2.4 adds "bursts",
+  tested in tests/python/test_bursts_reference.py).
 - `envelope(phase)`: the ideal gamma envelope e = (1 + cos(2 pi p / 2^64)) / 2
   of an envelope phase, the cosine of the signed phase in binary64 with
   NumPy; phase an int (returns a float) or a uint64 ndarray (returns a
@@ -254,11 +255,11 @@ def test_gamma_enum_fixtures_are_invalid_with_expected_errors():
 def test_reference_constants(vectors):
     mod = gamma()
     assert tuple(mod.CARRIER_WAVES) == ("sine",)
-    # Story 2.3 adds smooth_swell (signal spec, Coupling).
-    assert tuple(mod.COUPLINGS) == ("uncoupled", "smooth_swell")
+    # Story 2.3 adds smooth_swell (signal spec, Coupling); Story 2.4 adds bursts (Bursts).
+    assert tuple(mod.COUPLINGS) == ("uncoupled", "smooth_swell", "bursts")
     c = vectors["gamma_constants"]
     assert tuple(mod.CARRIER_WAVES) == tuple(c["modeled_carrier_waves"])
-    assert tuple(mod.COUPLINGS) == tuple(vectors["coupling_constants"]["couplings"])
+    assert tuple(mod.COUPLINGS) == tuple(vectors["burst_constants"]["couplings"])
 
 
 def test_reference_envelope_is_within_1e_15_of_every_vector(vectors):
@@ -338,8 +339,8 @@ def test_reference_render_at_depth_0_is_the_unmodulated_carrier():
 
 @pytest.mark.parametrize("wave, coupling", [
     ("triangle", "uncoupled"), ("softened_square", "uncoupled"), ("square", "uncoupled"),
-    # smooth_swell without coupling_phase_deg is not a modeled recipe either
-    # (Story 2.3: render raises ValueError for it).
+    # smooth_swell or bursts without coupling_phase_deg is not a modeled
+    # recipe either (Stories 2.3 and 2.4: render raises ValueError for it).
     ("sine", "smooth_swell"), ("sine", "bursts"), ("sine", "swell"),
 ])
 def test_reference_rejects_what_the_spec_does_not_model(wave, coupling):

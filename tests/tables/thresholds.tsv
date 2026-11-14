@@ -29,4 +29,6 @@ gain-ramp-min	10	ms	Gain ramps	thresholds-and-ranges.md, Test thresholds; Plan T
 limiter-idle	0	samples with gain reduction	Limiter idle	thresholds-and-ranges.md, Test thresholds; AD-4; design log 2026-10-27 (k), 2026-10-28 (p)	4-5-limiter-idle
 loudness-tolerance	1	LU	Loudness	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-5	4-1-loudness-meter
 true-peak	-1	dBTP	True peak	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-5	4-3-true-peak
+spectrum-frequency	0.05	Hz	Spectrum lines	thresholds-and-ranges.md, Test thresholds; design log 2026-11-13 (qq): decided by Audio 2026-11-13: the spectrum tool finds every known line of a Python-synthesized multi-tone signal within 0.05 Hz; Story 3.1 uses the same row	
+spectrum-level	0.5	dB	Spectrum lines	thresholds-and-ranges.md, Test thresholds; design log 2026-11-13 (qq): decided by Audio 2026-11-13: the spectrum tool reads every known line's level re the strongest line within 0.5 dB; Story 3.1 uses the same row	
 render-speed	20	times real time	Render speed	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-11	

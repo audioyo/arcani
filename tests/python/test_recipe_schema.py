@@ -34,6 +34,8 @@ Contract with recipes/recipe.schema.json (JSON Schema draft 2020-12):
   It is a setting of the gamma depth (where in the theta cycle the swell
   peaks), not a coupling target; phase text fails the schema with the `type`
   keyword. Its locked range (row coupling-phase) lives in the tables.
+- Story 2.4: the `coupling` enum is exactly ["uncoupled", "smooth_swell",
+  "bursts"]; bursts takes `coupling_phase_deg` as smooth_swell does.
 - Story 2.5: `binaural` gains, in this order after `beat_rate_hz`, the
   optional `beat_rate_cycle` (an object, additionalProperties false, that
   requires `swing_hz`, `period_s`, and `start_phase_deg`, each a number) and
@@ -317,7 +319,7 @@ def test_theta_shape_enum_accepts_custom_and_rejects_other_text():
 GAMMA_REQUIRED = ["carrier_hz", "rate_hz", "am_depth_percent", "carrier_wave", "coupling"]
 GAMMA_PROPERTIES = GAMMA_REQUIRED + ["coupling_phase_deg"]  # Story 2.3: optional, after coupling
 GAMMA_CARRIER_WAVE_ENUM = ["sine", "triangle", "softened_square"]
-GAMMA_COUPLING_ENUM = ["uncoupled", "smooth_swell"]  # Story 2.3 adds smooth_swell
+GAMMA_COUPLING_ENUM = ["uncoupled", "smooth_swell", "bursts"]  # Story 2.3 adds smooth_swell, 2.4 bursts
 
 
 def gamma_recipe(carrier_wave="sine", coupling="uncoupled"):
@@ -378,7 +380,7 @@ def test_gamma_enums_accept_their_members_and_reject_other_text():
         assert {e.validator for e in errors} == {"enum"}, (wave, [e.message for e in errors])
     for coupling in GAMMA_COUPLING_ENUM:
         assert not list(validator.iter_errors(gamma_recipe(coupling=coupling))), coupling
-    for coupling in ("swell", "Uncoupled", "", "smooth-swell", "Smooth_swell", "bursts"):
+    for coupling in ("swell", "Uncoupled", "", "smooth-swell", "Smooth_swell", "Bursts", "burst"):
         errors = list(validator.iter_errors(gamma_recipe(coupling=coupling)))
         assert errors, coupling
         assert {e.validator for e in errors} == {"enum"}, (coupling, [e.message for e in errors])

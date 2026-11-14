@@ -10,7 +10,8 @@ threshold or range is written here as a literal.
 Contract with reference/gamma.py (NumPy, the standard library, and
 reference/ only):
 
-- `COUPLINGS == ("uncoupled", "smooth_swell")`.
+- `COUPLINGS == ("uncoupled", "smooth_swell", "bursts")` (Story 2.4 adds
+  bursts, tested in tests/python/test_bursts_reference.py).
 - `coupling_phase_units(deg) -> int`: the coupling phase rule, x = deg /
   360.0 (one rounding), x * 2^64 (exact), the nearest integer with ties to
   even, modulo 2^64; Python ints.
@@ -292,8 +293,10 @@ def test_phase_as_text_fixture_is_invalid_with_its_expected_error():
 
 def test_reference_couplings(vectors):
     mod = gamma()
-    assert tuple(mod.COUPLINGS) == ("uncoupled", "smooth_swell")
-    assert tuple(mod.COUPLINGS) == tuple(vectors["coupling_constants"]["couplings"])
+    assert tuple(mod.COUPLINGS) == ("uncoupled", "smooth_swell", "bursts")
+    assert tuple(mod.COUPLINGS) == tuple(vectors["burst_constants"]["couplings"])
+    # The Story 2.3 record keeps its two couplings.
+    assert tuple(vectors["coupling_constants"]["couplings"]) == ("uncoupled", "smooth_swell")
 
 
 def test_reference_coupling_phase_rule_matches_every_vector(vectors):
@@ -383,7 +386,8 @@ def test_reference_swell_needs_a_coupling_phase():
     t = dict(THETA, shape="sine")
     with pytest.raises(ValueError):
         gamma().render(g, SAMPLE_RATES[0], 64, theta_reference=t)
-    for coupling in ("bursts", "swell", "Smooth_swell"):
+    # Story 2.4 models bursts (tests/python/test_bursts_reference.py).
+    for coupling in ("burst", "swell", "Smooth_swell"):
         with pytest.raises(ValueError):
             gamma().render(dict(g, coupling=coupling, coupling_phase_deg=90), SAMPLE_RATES[0], 64,
                            theta_reference=t)

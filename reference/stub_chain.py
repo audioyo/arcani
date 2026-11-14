@@ -28,7 +28,8 @@ envelope shape and depth) when the recipe has `theta_reference`, else +0.0;
 the gamma tap from reference/gamma.py (docs/signal-spec.md, Gamma PAC layer:
 a sine carrier amplitude-modulated at the gamma rate, its depth constant
 when uncoupled; Coupling: with smooth_swell its depth follows the theta
-reference envelope phase, so the recipe's theta_reference is passed in)
+reference envelope phase; Bursts: with bursts the burst gate of that phase
+scales it; so the recipe's theta_reference is passed in)
 when the recipe has `gamma_pac`, else +0.0; and both ears from
 reference/binaural.py (docs/signal-spec.md, Binaural layer and Rate curve:
 a pure sine per ear, the right carrier the left carrier plus the beat rate,

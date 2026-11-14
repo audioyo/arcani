@@ -26,6 +26,14 @@ equal across all seven: the allowed change, in samples, is row
 here: a gamma tap with one swell shifted by one sample is caught by both the
 byte comparison and the peak-time comparison.
 
+Story 2.4 adds a burst fixture to the sweep: the same recipes with the gamma
+AM depth gated by 50 ms bursts (coupling bursts, 100 percent, coupling phase
+0 degrees, gamma 40 Hz). Its gamma tap is byte-identical across all seven
+binaural settings and its burst centers (coupling timing tool,
+coupling="bursts" with the recipe's gamma rate) are equal within row
+`coupling-independence`; a whole burst shifted by one sample in the harness
+is caught.
+
 The dump tests skip only when cmake is not on PATH, or when Windows
 application control blocks the binary (OSError winerror 4551 or 1260).
 """
@@ -249,5 +257,100 @@ def test_one_swell_shifted_by_a_sample_is_caught(sweep, fs):
     assert not np.array_equal(doctored.view(np.uint64), gamma_left.view(np.uint64))
     want = peak_times(gamma_left, theta_left, fs)
     got = peak_times(doctored, theta_left, fs)
+    change = float(np.max(np.abs(got - want))) * fs
+    assert change > allowed, (fs, change, allowed)
+
+
+# ------------------------------------------------------------- burst fixture (Story 2.4)
+
+BURST_GAMMA = dict(GAMMA, coupling="bursts")
+
+
+def burst_recipe(binaural):
+    recipe = ad5_recipe(binaural)
+    recipe["gamma_pac"] = dict(BURST_GAMMA)
+    return recipe
+
+
+def burst_centers(gamma_left, theta_left, fs):
+    """Every burst center time in seconds: the theta 0 degree times, the coupling phase, and the tool's error."""
+    tool = ct()
+    rate = float(THETA["rate_hz"])
+    zeros = tool.zero_degree_times(theta_left, fs, rate, THETA["shape"])
+    errors = tool.timing_errors(gamma_left, theta_left, fs, rate, THETA["shape"], COUPLING_PHASE_DEG,
+                                coupling="bursts", gamma_rate_hz=float(BURST_GAMMA["rate_hz"]))
+    assert zeros.size == errors.size and zeros.size > 0, (zeros.size, errors.size)
+    return zeros + (COUPLING_PHASE_DEG / 360.0) / rate + errors
+
+
+def test_the_burst_sweep_recipes_are_schema_valid():
+    import jsonschema
+
+    schema = json.loads((REPO_ROOT / "recipes" / "recipe.schema.json").read_text(encoding="utf-8"))
+    validator = jsonschema.Draft202012Validator(schema)
+    for name, b in SETTINGS.items():
+        errors = list(validator.iter_errors(burst_recipe(b)))
+        assert not errors, (name, [e.message for e in errors])
+
+
+@pytest.fixture(scope="module")
+def burst_sweep(tapdump, tmp_path_factory):
+    """fs -> setting -> {"gamma", "theta", "join"} engine taps of the burst recipes."""
+    root = tmp_path_factory.mktemp("ad5-bursts")
+    out = {}
+    for fs in SAMPLE_RATES:
+        out[fs] = {}
+        for name, b in SETTINGS.items():
+            path = root / f"ad5-bursts-{name}.json"
+            path.write_text(json.dumps(burst_recipe(b), indent=2), encoding="utf-8")
+            out[fs][name] = dump(tapdump, path, fs, root / f"dump-{name}-{fs}")
+    return out
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_burst_gamma_tap_is_byte_identical_across_every_binaural_setting(burst_sweep, sweep, fs):
+    base = burst_sweep[fs][BASE]["gamma"]
+    assert base.size == 2 * LENGTH_S * fs
+    # The bursts really differ from the swell.
+    assert not np.array_equal(base.view(np.uint64), sweep[fs][BASE]["gamma"].view(np.uint64))
+    for name, taps in burst_sweep[fs].items():
+        assert np.array_equal(taps["gamma"].view(np.uint64), base.view(np.uint64)), (fs, name)
+        assert np.array_equal(taps["theta"].view(np.uint64),
+                              burst_sweep[fs][BASE]["theta"].view(np.uint64)), (fs, name)
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_burst_centers_are_equal_across_every_binaural_setting(burst_sweep, fs):
+    allowed = independence_samples()
+    base = burst_sweep[fs][BASE]
+    want = burst_centers(channel(base["gamma"], 0), channel(base["theta"], 0), fs)
+    timing = ct().check("ad5 bursts base", channel(base["gamma"], 0), channel(base["theta"], 0), fs,
+                        float(THETA["rate_hz"]), THETA["shape"], COUPLING_PHASE_DEG, coupling="bursts",
+                        gamma_rate_hz=float(BURST_GAMMA["rate_hz"]))
+    assert timing["result"] == "pass", timing
+    for name, taps in burst_sweep[fs].items():
+        for c in (0, 1):
+            got = burst_centers(channel(taps["gamma"], c), channel(taps["theta"], c), fs)
+            assert got.shape == want.shape, (fs, name, c)
+            change = float(np.max(np.abs(got - want))) * fs
+            assert change <= allowed, (fs, name, c, change, allowed)
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_one_burst_shifted_by_a_sample_is_caught(burst_sweep, fs):
+    # Must-fail made here: one whole theta cycle around a burst center in the
+    # middle of the render is replaced by itself one sample later, so that
+    # burst moves by one sample.
+    allowed = independence_samples()
+    base = burst_sweep[fs][BASE]
+    gamma_left = channel(base["gamma"], 0)
+    theta_left = channel(base["theta"], 0)
+    period = int(round(fs / THETA["rate_hz"]))
+    start = gamma_left.size // 2 + period // 2   # between two burst centers
+    doctored = gamma_left.copy()
+    doctored[start:start + period] = gamma_left[start - 1:start + period - 1]
+    assert not np.array_equal(doctored.view(np.uint64), gamma_left.view(np.uint64))
+    want = burst_centers(gamma_left, theta_left, fs)
+    got = burst_centers(doctored, theta_left, fs)
     change = float(np.max(np.abs(got - want))) * fs
     assert change > allowed, (fs, change, allowed)

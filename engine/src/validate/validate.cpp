@@ -277,17 +277,18 @@ std::optional<recipe::Error> check_rules(const recipe::Recipe& r) {
       return recipe::Error{"/gamma_pac/carrier_wave", "softened_square",
                            std::string(kNonSineCarrierRule), std::string(kModeledGammaCarrierWaves)};
     }
-    const bool coupled = gamma.coupling == recipe::GammaCoupling::SmoothSwell;
+    const bool bursts = gamma.coupling == recipe::GammaCoupling::Bursts;
+    const bool coupled = bursts || gamma.coupling == recipe::GammaCoupling::SmoothSwell;
     // AD-5: coupled gamma with depth reads the theta reference phase, so the
     // theta reference must exist and carry AM depth. Depth 0 scales nothing.
     if (coupled && gamma.am_depth_percent > 0.0 &&
         !(r.theta_reference && r.theta_reference->am_depth_percent > 0.0)) {
-      return recipe::Error{"/gamma_pac/coupling", "smooth_swell", std::string(kCoupledNeedsThetaRule),
-                           std::string(kCoupledNeedsThetaLimit)};
+      return recipe::Error{"/gamma_pac/coupling", bursts ? "bursts" : "smooth_swell",
+                           std::string(kCoupledNeedsThetaRule), std::string(kCoupledNeedsThetaLimit)};
     }
     if (coupled && !gamma.coupling_phase_deg) {
       return recipe::Error{"/gamma_pac/coupling_phase_deg", "absent", std::string(kCoupledNeedsPhaseRule),
-                           std::string(kCoupledNeedsPhaseLimit)};
+                           std::string(bursts ? kBurstsNeedsPhaseLimit : kCoupledNeedsPhaseLimit)};
     }
     if (!coupled && gamma.coupling_phase_deg) {
       return recipe::Error{"/gamma_pac/coupling_phase_deg", json::format_number(*gamma.coupling_phase_deg),

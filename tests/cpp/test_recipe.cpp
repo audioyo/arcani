@@ -74,6 +74,13 @@
 // required, range row coupling-phase, scale 1) right after /gamma_pac/coupling.
 // Phase text is rule "type" at /gamma_pac/coupling_phase_deg.
 //
+// Story 2.4 (gamma PAC layer, coupled 50 ms bursts), recipe/recipe.hpp:
+//   enum class GammaCoupling { Uncoupled, SmoothSwell, Bursts };
+//   inline constexpr std::string_view kGammaCouplingEnum = "uncoupled, smooth_swell, bursts";
+// bursts parses like smooth_swell, with or without coupling_phase_deg
+// (compile decides). Bursts is read through a requires-expression, so the
+// suite builds before it exists.
+//
 // Story 2.5 (binaural layer and rate curve), recipe/recipe.hpp:
 //   enum class BinauralWaveform { Sine, Triangle };
 //   inline constexpr std::string_view kBinauralWaveformEnum = "sine, triangle";
@@ -690,11 +697,12 @@ TEST_CASE("engine parse names text outside the gamma enums", "[recipe][gamma]") 
   const Case cases[] = {
       {"square", "uncoupled", "/gamma_pac/carrier_wave", "square", "sine, triangle, softened_square"},
       {"Sine", "uncoupled", "/gamma_pac/carrier_wave", "Sine", "sine, triangle, softened_square"},
-      // Story 2.3: smooth_swell joins the coupling enum.
-      {"sine", "swell", "/gamma_pac/coupling", "swell", "uncoupled, smooth_swell"},
-      {"sine", "bursts", "/gamma_pac/coupling", "bursts", "uncoupled, smooth_swell"},
-      {"sine", "Smooth_swell", "/gamma_pac/coupling", "Smooth_swell", "uncoupled, smooth_swell"},
-      {"sine", "", "/gamma_pac/coupling", "", "uncoupled, smooth_swell"},
+      // Story 2.3: smooth_swell joins the coupling enum; Story 2.4 adds bursts.
+      {"sine", "swell", "/gamma_pac/coupling", "swell", "uncoupled, smooth_swell, bursts"},
+      {"sine", "Bursts", "/gamma_pac/coupling", "Bursts", "uncoupled, smooth_swell, bursts"},
+      {"sine", "burst", "/gamma_pac/coupling", "burst", "uncoupled, smooth_swell, bursts"},
+      {"sine", "Smooth_swell", "/gamma_pac/coupling", "Smooth_swell", "uncoupled, smooth_swell, bursts"},
+      {"sine", "", "/gamma_pac/coupling", "", "uncoupled, smooth_swell, bursts"},
   };
   for (const auto& c : cases) {
     INFO(c.wave << " / " << c.coupling);
@@ -753,8 +761,9 @@ void check_swell(const R& rec, bool smooth, std::optional<double> phase) {
 
 }  // namespace
 
-TEST_CASE("the coupling enum constant names both couplings in schema order", "[recipe][gamma][coupling]") {
-  CHECK(recipe::kGammaCouplingEnum == "uncoupled, smooth_swell");
+TEST_CASE("the coupling enum constant names every coupling in schema order", "[recipe][gamma][coupling]") {
+  // Story 2.4 adds bursts.
+  CHECK(recipe::kGammaCouplingEnum == "uncoupled, smooth_swell, bursts");
 }
 
 TEST_CASE("engine parse stage fills the coupling and the coupling phase", "[recipe][gamma][coupling]") {
@@ -778,6 +787,58 @@ TEST_CASE("engine parse stage fills the coupling and the coupling phase", "[reci
     REQUIRE(r.recipe.has_value());
     check_swell(*r.recipe, c.smooth, c.want);
   }
+}
+
+namespace {
+
+template <class E>
+concept HasBursts = requires { E::Bursts; };
+
+template <class R>
+void check_bursts(const R& rec, std::optional<double> phase) {
+  REQUIRE(rec.gamma_pac.has_value());
+  const auto& g = *rec.gamma_pac;
+  using Coupling = std::remove_cvref_t<decltype(g.coupling)>;
+  if constexpr (HasBursts<Coupling>) {
+    CHECK(g.coupling == Coupling::Bursts);
+  } else {
+    FAIL("not implemented: recipe::GammaCoupling has no Bursts (Story 2.4)");
+  }
+  REQUIRE(g.coupling_phase_deg.has_value() == phase.has_value());
+  if (phase.has_value()) {
+    CHECK(*g.coupling_phase_deg == *phase);
+  }
+}
+
+}  // namespace
+
+TEST_CASE("engine parse stage fills the bursts coupling and its phase", "[recipe][gamma][coupling][bursts]") {
+  struct Case {
+    std::string phase;
+    std::optional<double> want;
+  };
+  // Compile, not parse, rejects bursts without a phase
+  // (tests/cpp/test_validate.cpp), so parse accepts both.
+  const Case cases[] = {{"0", 0.0}, {"90", 90.0}, {"360", 360.0}, {"359.99", 359.99}, {"", std::nullopt}};
+  for (const auto& c : cases) {
+    INFO("bursts / '" << c.phase << "'");
+    const auto r = recipe::parse(swell_text("bursts", c.phase));
+    INFO(r.error.rule << " " << r.error.parameter << " " << r.error.value << " " << r.error.limit);
+    REQUIRE(r.recipe.has_value());
+    check_bursts(*r.recipe, c.want);
+  }
+  // The burst fixtures parse with coupling bursts at 0 degrees.
+  for (const char* name : {"bursts-40hz.json", "bursts-45hz.json", "bursts-60hz.json"}) {
+    INFO(name);
+    const auto r = recipe::parse(fixture("valid", name));
+    REQUIRE(r.recipe.has_value());
+    check_bursts(*r.recipe, 0.0);
+    REQUIRE(r.recipe->theta_reference.has_value());
+  }
+  // A smooth swell still parses as SmoothSwell.
+  const auto swell = recipe::parse(swell_text("smooth_swell", "90"));
+  REQUIRE(swell.recipe.has_value());
+  check_swell(*swell.recipe, true, 90.0);
 }
 
 TEST_CASE("engine parse names coupling phase text a type fault", "[recipe][gamma][coupling]") {

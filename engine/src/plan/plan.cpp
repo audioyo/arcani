@@ -114,19 +114,28 @@ CompileResult compile(std::string_view utf8, Mode mode, std::uint32_t sample_rat
   // Gamma PAC layer: the carrier at gamma_pac.carrier_hz, amplitude-modulated
   // at rate_hz by the sine envelope, both phases 0 at n = 0, the same value in
   // both channels; uncoupled with a constant depth, smooth_swell with the depth
-  // scaled by the swell of the theta envelope phase about C. check_rules() has
-  // rejected a non-sine carrier, coupled gamma with depth but no theta
-  // reference depth, and a missing or stray coupling phase. The mute option
-  // never touches it.
+  // scaled by the swell of the theta envelope phase about C, bursts with the
+  // depth gated by the burst gate of the theta envelope phase about C (Hb and
+  // Wb at the theta rate). check_rules() has rejected a non-sine carrier,
+  // coupled gamma with depth but no theta reference depth, and a missing or
+  // stray coupling phase. The mute option never touches it.
   if (rec.gamma_pac) {
     const recipe::GammaPac& g = *rec.gamma_pac;
     p.gamma.present = true;
     p.gamma.increment = core::phase_increment(g.carrier_hz, sample_rate);
     p.gamma.envelope_increment = core::phase_increment(g.rate_hz, sample_rate);
     p.gamma.depth = g.am_depth_percent / 100.0;
-    if (g.coupling == recipe::GammaCoupling::SmoothSwell) {
+    p.gamma.coupling = g.coupling;
+    if (g.coupling != recipe::GammaCoupling::Uncoupled) {
       p.gamma.coupled = true;
       p.gamma.coupling_phase_units = core::coupling_phase_units(*g.coupling_phase_deg);  // checked: present
+    }
+    if (g.coupling == recipe::GammaCoupling::Bursts) {
+      // Without a theta reference (gamma depth 0 only, check_rules()) both
+      // stay 0 and the gate scales nothing.
+      const double theta_rate = rec.theta_reference ? rec.theta_reference->rate_hz : 0.0;
+      p.gamma.burst_half_width_units = core::burst_half_width_units(theta_rate);
+      p.gamma.burst_edge_units = core::burst_edge_units(theta_rate);
     }
   }
 
