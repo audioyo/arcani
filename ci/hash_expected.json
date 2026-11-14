@@ -1,5 +1,5 @@
 {
-  "source": "probe-arith: tools/probe_reference.py, NumPy float32 reference, each operation rounded separately. sine-* and stub-chain-*: the arcani-hashprobe output, byte-identical on all four AD-9 platforms in full run 42236304155; stub-chain-blocks-* equal stub-chain-* (block-size invariance). Design log 2026-11-06 (kk). theta-envelopes-*: the windows-x64 dev PC probe, equal to the android-arm64 probe of full run 42339879874 (the desktop probes did not run there because these entries were missing); confirmed on all four platforms by the next full run. Design log 2026-11-06 (ll) gamma-uncoupled-*: the windows-x64 dev PC probe, equal to the android-arm64 probe and the windows-x64 and windows-arm64 CI probes of full run 42797229080 (the run was red only on these missing entries); confirmed on all four platforms by the next full run. Design log 2026-11-07 (mm) gamma-swell-*: the windows-x64 dev PC probe, equal to the android-arm64 probe and the windows-x64 CI probe of full run 43141633184 (the run was red only on these missing entries); confirmed on all four platforms by the next full run. Design log 2026-11-10 (nn) binaural-cycle-*: the windows-x64 dev PC probe, equal to the android-arm64 probe and the windows-x64 CI probe of full run 43361258254 (the run was red only on these missing entries); confirmed on all four platforms by the next full run. Design log 2026-11-12 (pp) gamma-bursts-*: the windows-x64 dev PC probe, equal to the android-arm64 probe and the windows-x64 CI probe of full run 43525414721 (the run was red only on these missing entries and the wall-time budgets); confirmed on all four platforms by the next full run. Design log 2026-11-13 (qq)",
+  "source": "probe-arith: tools/probe_reference.py, NumPy float32 reference, each operation rounded separately. sine-* and stub-chain-*: the arcani-hashprobe output, byte-identical on all four AD-9 platforms in full run 42236304155; stub-chain-blocks-* equal stub-chain-* (block-size invariance). Design log 2026-11-06 (kk). theta-envelopes-*: the windows-x64 dev PC probe, equal to the android-arm64 probe of full run 42339879874 (the desktop probes did not run there because these entries were missing); confirmed on all four platforms by the next full run. Design log 2026-11-06 (ll) gamma-uncoupled-*: the windows-x64 dev PC probe, equal to the android-arm64 probe and the windows-x64 and windows-arm64 CI probes of full run 42797229080 (the run was red only on these missing entries); confirmed on all four platforms by the next full run. Design log 2026-11-07 (mm) gamma-swell-*: the windows-x64 dev PC probe, equal to the android-arm64 probe and the windows-x64 CI probe of full run 43141633184 (the run was red only on these missing entries); confirmed on all four platforms by the next full run. Design log 2026-11-10 (nn) binaural-cycle-*: the windows-x64 dev PC probe, equal to the android-arm64 probe and the windows-x64 CI probe of full run 43361258254 (the run was red only on these missing entries); confirmed on all four platforms by the next full run. Design log 2026-11-12 (pp) gamma-bursts-*: the windows-x64 dev PC probe, equal to the android-arm64 probe and the windows-x64 CI probe of full run 43525414721 (the run was red only on these missing entries and the wall-time budgets); confirmed on all four platforms by the next full run. Design log 2026-11-13 (qq) rate-curves-*: the windows-x64 dev PC probe, equal to the android-arm64 probe and the windows-x64 CI probe of full run 43638339501 (the run was red only on these missing entries and the wall-time budgets); confirmed on all four platforms by the next full run. Design log 2026-11-14 (ss)",
   "components": {
     "binaural-cycle-44100": {
       "samples": 882000,
@@ -45,6 +45,16 @@
       "samples": 4096,
       "sha256": "933f0602ecebcc0f413be5f2737d4a57fcf18cfb9f045665c8d483fc9d8bb8fc",
       "scope": "probe"
+    },
+    "rate-curves-44100": {
+      "samples": 1764000,
+      "sha256": "3df589ce1770cbfa6dafb9d5b24524572c3c4fe17a10d6ab62aea26824320ac5",
+      "scope": "engine"
+    },
+    "rate-curves-48000": {
+      "samples": 1920000,
+      "sha256": "61385061c73a31e91cbb533b5c8724b06b08daadfaece47d175e6aefb206fa7f",
+      "scope": "engine"
     },
     "sine-44100": {
       "samples": 132300,
