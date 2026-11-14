@@ -57,7 +57,7 @@ Sources point to `docs/research-library.md`, a research run under `_bmad-output/
 | Later-phase dependency floors | miniaudio 0.11.26 or later 0.11.x; Flutter 3.47.8 or later 3.47.x (security fixes) | locked | 2026-11-04 (ee) |
 | Full-tier toolchain pins | Apple clang 17.0.0.17000013 (Xcode 16.4); Android NDK r30 (clang 21.0.0, API level 21); arm64 LLVM, CMake, Ninja assets | locked | 2026-11-02 (aa); 2026-11-04 (ee) |
 | Cross-platform hash compare | exact against `windows-x64` and `ci/hash_expected.json`; tolerance only per cited (platform, component) entry in `ci/hash_tolerance.json`, bound -100 dBFS (strictly below), and only when the entry shows the cause lies outside the AD-9 rules and has a rule-4 review | locked | 2026-11-02 (aa); 2026-10-27 (j); 2026-11-04 (ee) |
-| CI wall-time budgets and schedule | `ci/wall_time_budget.json`; timeout twice the budget; nightly 03:00 UTC, skipped when main is unchanged; full-tier windows-x64 20 min | proposed | 2026-11-02 (aa); 2026-11-11 (oo) |
+| CI wall-time budgets and schedule | `ci/wall_time_budget.json`; timeout twice the budget; nightly 03:00 UTC, skipped when main is unchanged; full-tier windows-x64 20 min; full windows-arm64 25 min, full macos-arm64 15 min, fast linux-x64 20 min | proposed | 2026-11-02 (aa); 2026-11-11 (oo); 2026-11-13 (rr) |
 | Phase increment and seconds-to-samples rules | 64-bit accumulator; `inc` = round-half-even of binary64 `f*2^64/fs`; `n` = round-half-even of binary64 `t*fs`; out of domain gives 0 | proposed | 2026-11-03 (bb) |
 | Engine sine | integer fold, odd Taylor to x^11, fixed Horner order; measured -145.0 dBFS against the ideal (bound -120) | proposed | 2026-11-03 (bb); 2026-10-28 (o) |
 | Probe sine components | `sine-44100`, `sine-48000`: 1, 450, 1000 Hz carriers, unmodulated, 1 s each; byte-identical on all four AD-9 platforms (full run 41648370470) | proposed | 2026-11-03 (bb) |
@@ -79,12 +79,16 @@ Sources point to `docs/research-library.md`, a research run under `_bmad-output/
 
 ## Entries
 
-### 2026-11-13 (rr): Burst timing fit speedup and the gamma-bursts probe pin (S2.4)
+### 2026-11-13 (rr): Burst timing fit speedup, the gamma-bursts probe pin, and three CI budgets (S2.4)
 
 - **Cause:** full run 43525414721 (PR #16) was red only on the missing `gamma-bursts-*` entries and on wall time: Python tests took about 23 min on windows-x64 and windows-arm64 (about 9 min in full run 43363235457), and macos-arm64 hit its 20 min timeout. About 91 percent of the Story 2.4 test time was the burst-center refinement of entry (qq), which solved about 127,000 least-squares fits over whole theta-cycle windows.
 - **Speedup first (rule of entry (oo)):** `tests/assertions/coupling_timing.py` fits each burst only over the burst span (template nonzero) plus one sample each side, adds the rest of the window as its y^2, solves the three-term fit by its normal equations, and computes the gamma-rate cosine and sine once per burst. Same model, same grid and golden-section search; no threshold, range, or search setting changed. Over 192 cases (both sample rates, four shapes, gamma 40, 45, 60 Hz, two depths, two phases, 0 and 3 ms shifts) the burst errors equal the previous fit within 6.4e-9 ms (row `coupling-timing` 2 ms). Dev PC: the Story 2.4 test files 1081 to 395 s.
 - **Pin:** `gamma-bursts-44100` (sha256 9ef50541...) and `gamma-bursts-48000` (sha256 7125f31b...), scope engine: the windows-x64 dev PC probe, equal to the android-arm64 probe and the windows-x64 CI probe of full run 43525414721; the next full run confirms all four platforms.
-- **Source:** full runs 43525414721 and 43363235457; dev PC profile of `test_doctored_3_ms_burst_shift_fails_the_timing_row`.
+- **Measured after the speedup (full run 43537811837, fast run 43537804508):** every test passed on every job and the `gamma-bursts-*` hashes were equal on all four platforms. windows-x64 16.9 of 20 min within budget; over budget: full windows-arm64 19.6 of 15, full macos-arm64 11.4 of 10, fast linux-x64 15.2 of 15. Fast windows-x64 16.3 of 20 within budget.
+- **Budget change:** full windows-arm64 15 to 25 min, full macos-arm64 10 to 15 min, fast linux-x64 15 to 20 min (each about 1.3 x the measured time, rounded up to 5, the tighter rule of entry (oo)); job `timeout-minutes` twice the budget (entry (aa)): 30 to 50, 20 to 30, 30 to 40. Every other budget is unchanged.
+- **Cost:** 0 billed minutes (public repo, GitHub-hosted runners free; spending limit $0, entry (aa)). If the repo went private: 3,750 more billed-equivalent minutes a month at full budget (`tools/check_wall_time.py --estimate` 15,825 to 19,575), mostly macOS (45 runs x 5 min x multiplier 10).
+- **Source:** full runs 43525414721, 43537811837, and 43363235457; fast run 43537804508; dev PC profile of `test_doctored_3_ms_burst_shift_fails_the_timing_row`; `tools/check_wall_time.py --estimate`.
+- **Decided by:** Audio (raise the three budgets after the speedup, 2026-11-13).
 - **Status:** proposed.
 
 ### 2026-11-13 (qq): Gamma PAC layer, 50 ms bursts, the spectrum tool, and burst-center timing (S2.4)

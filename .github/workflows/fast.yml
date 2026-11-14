@@ -23,7 +23,7 @@ jobs:
   linux-x64:
     name: linux-x64
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - name: Record job start
         shell: bash

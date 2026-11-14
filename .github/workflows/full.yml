@@ -201,7 +201,7 @@ jobs:
     needs: gate
     if: needs.gate.outputs.run == 'true'
     runs-on: windows-11-arm
-    timeout-minutes: 30
+    timeout-minutes: 50
     defaults:
       run:
         shell: pwsh
@@ -317,7 +317,7 @@ jobs:
     needs: gate
     if: needs.gate.outputs.run == 'true'
     runs-on: macos-15
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       ARCANI_PLATFORM: macos-arm64
     steps:
