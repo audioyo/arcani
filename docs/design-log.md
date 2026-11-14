@@ -57,7 +57,7 @@ Sources point to `docs/research-library.md`, a research run under `_bmad-output/
 | Later-phase dependency floors | miniaudio 0.11.26 or later 0.11.x; Flutter 3.47.8 or later 3.47.x (security fixes) | locked | 2026-11-04 (ee) |
 | Full-tier toolchain pins | Apple clang 17.0.0.17000013 (Xcode 16.4); Android NDK r30 (clang 21.0.0, API level 21); arm64 LLVM, CMake, Ninja assets | locked | 2026-11-02 (aa); 2026-11-04 (ee) |
 | Cross-platform hash compare | exact against `windows-x64` and `ci/hash_expected.json`; tolerance only per cited (platform, component) entry in `ci/hash_tolerance.json`, bound -100 dBFS (strictly below), and only when the entry shows the cause lies outside the AD-9 rules and has a rule-4 review | locked | 2026-11-02 (aa); 2026-10-27 (j); 2026-11-04 (ee) |
-| CI wall-time budgets and schedule | `ci/wall_time_budget.json`; timeout twice the budget; nightly 03:00 UTC, skipped when main is unchanged; fast and full windows-x64 25 min; full windows-arm64 25 min, full macos-arm64 15 min, fast linux-x64 20 min | proposed | 2026-11-02 (aa); 2026-11-11 (oo); 2026-11-13 (rr) |
+| CI wall-time budgets and schedule | `ci/wall_time_budget.json`; timeout twice the budget; nightly 03:00 UTC, skipped when main is unchanged; fast windows-x64 45 min, full windows-x64 35 min; full windows-arm64 40 min, full macos-arm64 30 min, fast linux-x64 20 min | proposed | 2026-11-02 (aa); 2026-11-11 (oo); 2026-11-13 (rr); 2026-11-14 (tt) |
 | Phase increment and seconds-to-samples rules | 64-bit accumulator; `inc` = round-half-even of binary64 `f*2^64/fs`; `n` = round-half-even of binary64 `t*fs`; out of domain gives 0 | proposed | 2026-11-03 (bb) |
 | Engine sine | integer fold, odd Taylor to x^11, fixed Horner order; measured -145.0 dBFS against the ideal (bound -120) | proposed | 2026-11-03 (bb); 2026-10-28 (o) |
 | Probe sine components | `sine-44100`, `sine-48000`: 1, 450, 1000 Hz carriers, unmodulated, 1 s each; byte-identical on all four AD-9 platforms (full run 41648370470) | proposed | 2026-11-03 (bb) |
@@ -80,6 +80,16 @@ Sources point to `docs/research-library.md`, a research run under `_bmad-output/
 | All other test thresholds | see `tests/tables/thresholds.tsv` and project plan, Test thresholds (provisional) | provisional | project plan |
 
 ## Entries
+
+### 2026-11-14 (tt): Four CI budgets after the Story 2.6 suite growth (S2.6)
+
+- **Cause:** fast run 43638334526 and full run 43638339501 (PR #17) were red only on the missing `rate-curves-*` entries (pinned in 62564d4) and on wall time; every other test passed on every job. The Story 2.6 tests render 120 s rate-curve fixtures through the engine and the reference and time them with the envelope phase and rate-curve timing modes (dev PC: full pytest 25.0 min, was about 15 min).
+- **Measured:** fast windows-x64 34.1 of 25 min (Python tests 26.3 min); full windows-x64 26.6 of 25, full windows-arm64 30.3 of 25, full macos-arm64 20.1 of 15. Fast linux-x64 18.3 of 20 min, within budget.
+- **Budget change:** fast windows-x64 25 to 45 min, full windows-x64 25 to 35 min, full windows-arm64 25 to 40 min, full macos-arm64 15 to 30 min (each about 1.3 x the measured time, rounded up to 5, the rule of entries (oo) and (rr)); job `timeout-minutes` twice the budget (entry (aa)): 50 to 90, 50 to 70, 50 to 80, 30 to 60. Every other budget is unchanged. No speedup first: Audio chose to raise the budgets (option A) over profiling the new tests (option B).
+- **Cost:** 0 billed minutes (public repo, GitHub-hosted runners free; spending limit $0, entry (aa)). If the repo went private: 13,800 more billed-equivalent minutes a month at full budget (`tools/check_wall_time.py --estimate` 21,225 to 35,025, against the 2,000 minute allowance).
+- **Source:** fast run 43638334526; full run 43638339501; `tools/check_wall_time.py --estimate`.
+- **Decided by:** Audio (2026-11-14, option A).
+- **Status:** proposed.
 
 ### 2026-11-14 (ss): Rate curves on the theta and gamma rates, and the envelope phase and rate-curve timing modes (S2.6)
 

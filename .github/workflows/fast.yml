@@ -126,7 +126,7 @@ jobs:
   windows-x64:
     name: windows-x64
     runs-on: windows-2025
-    timeout-minutes: 50
+    timeout-minutes: 90
     defaults:
       run:
         shell: pwsh
