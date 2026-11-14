@@ -3,7 +3,7 @@ title: 'Story 2.6: Rate curves on theta and gamma rates'
 type: 'feature'
 created: '2026-11-13'
 baseline_commit: '512e251a120a301d63935da266a4ded19f8128ba'
-status: 'in-progress'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 context:
@@ -81,7 +81,7 @@ Decisions (2026-11-13, build agent, under Audio's standing "settle tech forks yo
 - [x] tests (files above) -- a fresh-context QA agent writes the failing tests, covering the I/O matrix -- tests first.
 - [x] schema, field table, recipe, validator, plan, renderer, `core/rate_cycle`, `reference/rate_curve.py`, `theta.py`, `gamma.py`, the two tool modes, hash probe -- implementation.
 - [ ] fixtures, hash vectors, rows text, design log (ss), README, `ci/hash_expected.json` (after the full run) -- records.
-- [ ] `docs/timeline-guidebook.html`, `sprint-status.yaml` -- records.
+- [x] `docs/timeline-guidebook.html`, `sprint-status.yaml` -- records.
 
 **Acceptance Criteria:**
 - Given §rate-curve after this story, when the theta or gamma rate has a cycle, then the engine and the reference use the Story 2.5 law, integral, cycle cosine, and cycles-to-units rule unchanged, and no new formula enters the spec.
@@ -130,3 +130,29 @@ Why the reference builds integer phases: the theta segments and the burst segmen
 ## Spec Change Log
 
 ## Review Triage Log
+
+Pass 1 (2026-11-14): blind hunter (BH), edge case hunter (EC), and verification gap (VG), each in a fresh context, on diff 512e251..3875008. `_bmad-output`, the guidebook, and the generated `signal_spec_vectors.json` and `recipe_hash_vectors.json` were left out. VG found no gaps.
+
+| # | Finding | Verdict | Evidence | Route |
+|---|---------|---------|----------|-------|
+| 1 | BH: rows `burst-width`, `burst-edge`, and `theta-edge` still read as fixed times with a theta curve | low | true; `tests/tables/ranges.tsv` lines 6, 11, 12 name no center-rate meaning; the fix is a source text edit | patch |
+| 2 | BH: worst-case burst and edge lengths never stated (3.5 +- 2.5 Hz gives bursts of about 29 to 175 ms and edges of about 5.8 to 35 ms) | low | true; the fix edits this build's spec; surfaced to Audio at presentation | reject |
+| 3 | BH: committed with 4 failing hash-entry tests | low | true; same CI gate as Stories 2.2 to 2.5 (design log (kk)); pins wait on the four-platform full run | CI gate before merge |
+| 4 | BH: design log (ss) says "twelve valid fixtures"; the diff adds 11 | low | true; `docs/design-log.md:95` | patch |
+| 5 | BH: spacing rule not carried forward for swept side frequencies | false | epics.md Story 3.1 and 3.2 already require frequency intervals for rate curves (lines 762, 783); the fixtures sit 134 Hz or more apart | reject |
+| 6 | BH: engine-vs-reference match only at start phase 0 | low | true; every curved fixture starts at 0 degrees (`test_rate_curve_reference.py:773`); 90 and 270 degrees take the `c0 = +0.0` path | patch (test) |
+| 7 | BH: curved sawtooth and reverse saw have no reference check | low | true; only the zero-swing equality covers them (`test_rate_curve_reference.py:645`) | patch (test) |
+| 8 | BH: frequency envelope mode cannot measure smoothed on-off or coupled curved gamma | low | true; the spec limits the mode to sine theta and uncoupled gamma; the reference match covers the rest; extending the tool adds complexity | reject |
+| 9 | BH: coupling timing rate-curve mode not calibrated at the widest cycle | low | true; the tool judges only 4 +- 2 Hz fixtures, where it is calibrated | reject |
+| 10 | BH: no pipeline check of curved gamma with bursts | low | true; one C++ case only; the reference match is a parameter addition | patch (test) |
+| 11 | BH: no click check on curved renders | low | true; CLAUDE.md lists clicks for every render; Story 2.5 pass 2 row 5 precedent; curved edges shrink to about 5.8 ms | patch (test) |
+| 12 | BH: no invalid gamma `rate_cycle` schema fixture | low | true; the C++ inline cases cover it; rarely met | reject |
+| 13 | BH: duplicated swing, lo, and hi computation and four `field_value` branches | low | true; developer-only and small; a helper is a refactor | reject |
+| 14 | EC: `_cycle_key` raises KeyError on a malformed cycle | low | loud failure on inputs the tests never give | reject |
+| 15 | EC: bursts timing mode assumes a constant gamma rate | low | no judged fixture has curved gamma with bursts timing; the guard adds a parameter | reject |
+| 16 | EC: `_burst_sse_phase` can raise LinAlgError | low | loud failure on windows never reached | reject |
+| 17 | EC: `check_envelope_phase` raises on short records | low | loud failure on inputs never given | reject |
+| 18 | EC: a constant envelope gives a meaningless phase | low | the mode is documented for modulated taps only; inputs never given | reject |
+| 19 | EC: `_time_at` Newton non-convergence is silent | low | smooth monotone `Phi` converges in a few steps; the guard adds a branch | reject |
+| 20 | EC: `validate.hpp:20` says swing_hz is "the last field of its layer" | low | true; `field_table.cpp` lists `period_s` and `start_phase_deg` after it | patch |
+| 21 | EC: expected peak taken from the fitted zero, not integer k | false | the same convention as the constant-rate path (`p = z + share / rate`); timing is gamma against the measured theta | reject |
