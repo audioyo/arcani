@@ -290,8 +290,10 @@ def test_spec_tables_equal_json(vectors):
     # samples), bursts (5: burst constants, burst gate, burst amplitude,
     # burst fixtures, burst samples), binaural layer and rate curve (7: cycle
     # cosine coefficients, cycle cosine, cycles to units, rate cycle, rate
-    # curve, binaural fixtures, binaural samples), 24-bit rounding (1).
-    assert len(generated) == 36, generated
+    # curve, binaural fixtures, binaural samples), rate curves on the theta
+    # and gamma rates (2: theta and gamma rate cycles, theta and gamma rate
+    # curve samples), 24-bit rounding (1).
+    assert len(generated) == 38, generated
     assert len(in_doc) == len(generated), [b[0] for b in in_doc]
     assert not problems, "\n".join(problems)
 
