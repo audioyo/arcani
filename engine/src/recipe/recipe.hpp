@@ -38,11 +38,21 @@ enum class ThetaShape { Sine, SmoothedOnOff, Sawtooth, ReverseSaw, Custom };
 inline constexpr std::string_view kThetaShapeEnum =
     "sine, smoothed_on_off, sawtooth, reverse_saw, custom";
 
+// Rate cycle (docs/signal-spec.md, Rate curve): a rate r becomes
+// r + swing_hz * sin(2 pi t / period_s + start_phase_deg). The binaural beat
+// rate (Story 2.5) and the theta and gamma rates (Story 2.6) use it.
+struct RateCycle {
+  double swing_hz = 0.0;
+  double period_s = 0.0;
+  double start_phase_deg = 0.0;
+};
+
 struct ThetaReference {
   double carrier_hz = 0.0;
-  double rate_hz = 0.0;
+  double rate_hz = 0.0;  // the cycle's center with a rate cycle
   double am_depth_percent = 0.0;
   ThetaShape shape = ThetaShape::Sine;
+  std::optional<RateCycle> rate_cycle;  // Story 2.6; absent when the field is absent
 };
 
 // Gamma PAC carrier wave (docs/signal-spec.md, Gamma PAC layer). Triangle and
@@ -59,11 +69,12 @@ inline constexpr std::string_view kGammaCouplingEnum = "uncoupled, smooth_swell,
 
 struct GammaPac {
   double carrier_hz = 0.0;
-  double rate_hz = 0.0;
+  double rate_hz = 0.0;  // the cycle's center with a rate cycle
   double am_depth_percent = 0.0;
   GammaCarrierWave carrier_wave = GammaCarrierWave::Sine;
   GammaCoupling coupling = GammaCoupling::Uncoupled;
   std::optional<double> coupling_phase_deg;  // degrees; absent when the field is absent
+  std::optional<RateCycle> rate_cycle;       // Story 2.6; absent when the field is absent
 };
 
 // Binaural waveform (docs/signal-spec.md, Binaural layer). Triangle is
@@ -74,18 +85,10 @@ enum class BinauralWaveform { Sine, Triangle };
 // error).
 inline constexpr std::string_view kBinauralWaveformEnum = "sine, triangle";
 
-// Beat rate cycle (docs/signal-spec.md, Rate curve): the beat rate is
-// beat_rate_hz + swing_hz * sin(2 pi t / period_s + start_phase_deg).
-struct BeatRateCycle {
-  double swing_hz = 0.0;
-  double period_s = 0.0;
-  double start_phase_deg = 0.0;
-};
-
 struct Binaural {
   double carrier_left_hz = 0.0;
   double beat_rate_hz = 0.0;                  // the cycle's center with a beat rate cycle
-  std::optional<BeatRateCycle> beat_rate_cycle;  // absent when the field is absent
+  std::optional<RateCycle> beat_rate_cycle;  // absent when the field is absent
   BinauralWaveform waveform = BinauralWaveform::Sine;  // absent means sine
 };
 

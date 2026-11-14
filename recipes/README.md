@@ -17,10 +17,14 @@ Each numeric field names its range row in the engine field table (`engine/src/re
 | `theta_reference.carrier_hz` | `theta-carrier` | 100 to 500 Hz, inclusive |
 | `theta_reference.rate_hz` | `theta-rate` | 1 to 6 Hz, inclusive |
 | `theta_reference.am_depth_percent` | `theta-depth` | 0 to 100 percent, inclusive |
+| `theta_reference.rate_cycle.period_s` | `rate-cycle-period` | exactly 60 s |
+| `theta_reference.rate_cycle.start_phase_deg` | `rate-cycle-start-phase` | 0 to 360 degrees, inclusive (360 is the same point as 0) |
 | `gamma_pac.carrier_hz` | `gamma-carrier` | 200 to 500 Hz, inclusive |
 | `gamma_pac.rate_hz` | `gamma-rate` | 30 to 60 Hz, inclusive |
 | `gamma_pac.am_depth_percent` | `coupling-depth` | 0 to 100 percent, inclusive |
 | `gamma_pac.coupling_phase_deg` | `coupling-phase` | 0 to 360 degrees, inclusive (360 is the same point as 0) |
+| `gamma_pac.rate_cycle.period_s` | `rate-cycle-period` | exactly 60 s |
+| `gamma_pac.rate_cycle.start_phase_deg` | `rate-cycle-start-phase` | 0 to 360 degrees, inclusive (360 is the same point as 0) |
 | `binaural.carrier_left_hz` | `binaural-carrier` | 0 Hz up to, not including, 1000 Hz |
 | `binaural.beat_rate_hz` | `beat-rate` | 0 Hz up to, not including, 30 Hz |
 | right carrier (`carrier_left_hz + beat_rate_hz`, derived) | `binaural-carrier-right` | 0 Hz up to, not including, 1030 Hz; reported on `binaural.beat_rate_hz` |
@@ -28,6 +32,8 @@ Each numeric field names its range row in the engine field table (`engine/src/re
 | `binaural.beat_rate_cycle.start_phase_deg` | `rate-cycle-start-phase` | 0 to 360 degrees, inclusive (360 is the same point as 0) |
 
 `seed` is bounded by the schema. `loudness_gain_db` is written by the measure pass, not authored, and has no range row (Story 4.2 checks it). A range fault is rule `range.min` or `range.max`, with the value and a limit that names the bound and the row, for example `>= 100 Hz (row theta-carrier)`. Absent layers are not checked. After the ranges, the carrier rule (threshold row `carrier-rule`) checks `theta_reference.carrier_hz` against 4 times `theta_reference.rate_hz` (rule `carrier_rule`; every in-range pair passes), and `theta_reference.shape` `custom` is rejected with rule `shape not modeled in the signal spec`, limit `sine, smoothed_on_off, sawtooth, reverse_saw`. Any other shape text is a schema fault (rule `enum`). Then the carrier rule checks `gamma_pac.carrier_hz` against 4 times `gamma_pac.rate_hz` (rule `carrier_rule`; not every in-range pair passes: a 60 Hz rate needs at least 240 Hz), and `gamma_pac.carrier_wave` `triangle` or `softened_square` is rejected with rule `non-sine carrier not modeled`, limit `sine`. Any other carrier wave or coupling text is a schema fault (rule `enum`). Then the coupling rules (docs/signal-spec.md, Coupling and Bursts): `smooth_swell` or `bursts` with gamma depth above 0 and no theta reference, or theta depth 0, is rejected on `/gamma_pac/coupling` (value the coupling) with rule `coupled gamma needs a theta reference with AM depth`; `smooth_swell` or `bursts` without `coupling_phase_deg` is rule `coupled gamma needs a coupling phase` (limit `present with coupling smooth_swell` or `present with coupling bursts`); `uncoupled` with `coupling_phase_deg` is rule `coupling phase needs coupled gamma`.
+
+A theta or gamma rate cycle (Story 2.6, docs/signal-spec.md, Rate curve) is checked right after its layer's own fields, at its worst case, reported on `theta_reference.rate_cycle.swing_hz` or `gamma_pac.rate_cycle.swing_hz` with the derived value: `swing_hz` at least 0 (rule `range.min`, limit `>= 0 Hz`), then `rate_hz - swing_hz` and `rate_hz + swing_hz` against `theta-rate` or `gamma-rate`; then `period_s` and `start_phase_deg` against their rows. The carrier rule then judges that layer's carrier against `rate_hz + swing_hz`, the highest rate. Only the envelope rate follows a cycle, never a carrier.
 
 A beat rate cycle (docs/signal-spec.md, Rate curve) is checked at its worst case, all reported on `binaural.beat_rate_cycle.swing_hz` with the derived value: `swing_hz` at least 0 (rule `range.min`, limit `>= 0 Hz`), `beat_rate_hz - swing_hz` and `beat_rate_hz + swing_hz` against `beat-rate`, and `(carrier_left_hz + beat_rate_hz) + swing_hz` against `binaural-carrier-right`; then `period_s` and `start_phase_deg` against their rows. Last, `binaural.waveform` `triangle` is rejected with rule `non-sine binaural not modeled`, limit `sine`; any other waveform text is a schema fault (rule `enum`).
 
@@ -48,6 +54,7 @@ A beat rate cycle (docs/signal-spec.md, Rate curve) is checked at its worst case
 | `theta_reference.rate_hz` | number, Hz | yes, in its layer | loudness-relevant |
 | `theta_reference.am_depth_percent` | number, percent | yes, in its layer | loudness-relevant |
 | `theta_reference.shape` | string, one of `sine`, `smoothed_on_off`, `sawtooth`, `reverse_saw`, `custom` | yes, in its layer | loudness-relevant |
+| `theta_reference.rate_cycle` | object: the theta rate is `rate_hz + swing_hz * sin(2 pi t / period_s + start_phase_deg)`; members `swing_hz`, `period_s`, `start_phase_deg`, each required in it, as for `binaural.beat_rate_cycle` | no | loudness-relevant |
 | `gamma_pac` | object | no | loudness-relevant |
 | `gamma_pac.carrier_hz` | number, Hz | yes, in its layer | loudness-relevant |
 | `gamma_pac.rate_hz` | number, Hz | yes, in its layer | loudness-relevant |
@@ -55,6 +62,7 @@ A beat rate cycle (docs/signal-spec.md, Rate curve) is checked at its worst case
 | `gamma_pac.carrier_wave` | string, one of `sine`, `triangle`, `softened_square` | yes, in its layer | loudness-relevant |
 | `gamma_pac.coupling` | string, `uncoupled`, `smooth_swell`, or `bursts` | yes, in its layer | loudness-relevant |
 | `gamma_pac.coupling_phase_deg` | number, degrees | with `smooth_swell` or `bursts` only (compile rule) | loudness-relevant |
+| `gamma_pac.rate_cycle` | object: the gamma rate is `rate_hz + swing_hz * sin(2 pi t / period_s + start_phase_deg)`; members as for `theta_reference.rate_cycle` | no | loudness-relevant |
 | `binaural` | object | no | loudness-relevant |
 | `binaural.carrier_left_hz` | number, Hz | yes, in its layer | loudness-relevant |
 | `binaural.beat_rate_hz` | number, Hz; with a cycle, its center | yes, in its layer | loudness-relevant |
@@ -91,4 +99,4 @@ uv run python tools/recipe_hash.py --write-vectors   # refresh tests/data/recipe
 
 ## Fixtures
 
-`fixtures/valid/` and `fixtures/invalid/` are shared by the Python and C++ tests; the folder is the expected schema verdict. `valid/` means schema-valid: a valid fixture can still be out of a locked range and rejected at compile (`both-layers-loudness-target-changed.json`, -36.5 LUFS-I, is one; so are the gamma fixtures rejected by the carrier rule and the non-sine carrier rule, and `swell-no-theta.json`, `swell-theta-depth-0.json`, `swell-no-coupling-phase.json`, `uncoupled-with-coupling-phase.json`, `bursts-no-theta.json`, and `bursts-no-coupling-phase.json`, rejected by the coupling rules, and `binaural-waveform-triangle.json`, `binaural-cycle-below-0.json`, and `binaural-cycle-above-30.json`, rejected by the waveform rule and the beat rate cycle worst case). `fixtures/invalid-expected.json` names the expected error for each invalid fixture. Fixture values are placeholders, not starter defaults.
+`fixtures/valid/` and `fixtures/invalid/` are shared by the Python and C++ tests; the folder is the expected schema verdict. `valid/` means schema-valid: a valid fixture can still be out of a locked range and rejected at compile (`both-layers-loudness-target-changed.json`, -36.5 LUFS-I, is one; so are the gamma fixtures rejected by the carrier rule and the non-sine carrier rule, and `swell-no-theta.json`, `swell-theta-depth-0.json`, `swell-no-coupling-phase.json`, `uncoupled-with-coupling-phase.json`, `bursts-no-theta.json`, and `bursts-no-coupling-phase.json`, rejected by the coupling rules, and `binaural-waveform-triangle.json`, `binaural-cycle-below-0.json`, and `binaural-cycle-above-30.json`, rejected by the waveform rule and the beat rate cycle worst case, and `theta-cycle-below-1.json`, `theta-cycle-above-6.json`, `gamma-cycle-below-30.json`, `gamma-cycle-above-60.json`, and `gamma-cycle-carrier-rule.json`, rejected by the theta and gamma rate cycle worst case and the carrier rule at the highest rate). `fixtures/invalid-expected.json` names the expected error for each invalid fixture. Fixture values are placeholders, not starter defaults.

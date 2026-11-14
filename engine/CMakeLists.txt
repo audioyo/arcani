@@ -12,6 +12,7 @@ set(_arcani_engine_sources
   src/api/api.cpp
   src/core/envelope.cpp
   src/core/phase.cpp
+  src/core/rate_cycle.cpp
   src/core/sine.cpp
   src/crypto/sha256.cpp
   src/json/canonical.cpp

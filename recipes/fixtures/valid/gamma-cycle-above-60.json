@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-14",
+  "rationale": "Rate curve fixture (Story 2.6), schema-valid and rejected at compile: a gamma rate cycle with center 50 Hz and swing 10.01 Hz reaches 60.01 Hz, above row gamma-rate. 250 Hz sine carrier, 100 percent depth, uncoupled, 60 s period, start phase 0 degrees, 5 s. Values are placeholders, not starter defaults. A test fixture, not for listening.",
+  "length_s": 5,
+  "loudness_target_lufs": -36,
+  "gamma_pac": {
+    "carrier_hz": 250,
+    "rate_hz": 50,
+    "am_depth_percent": 100,
+    "carrier_wave": "sine",
+    "coupling": "uncoupled",
+    "rate_cycle": {
+      "swing_hz": 10.01,
+      "period_s": 60,
+      "start_phase_deg": 0
+    }
+  }
+}

@@ -1,4 +1,4 @@
-"""Coupling timing tool (Stories 2.3 and 2.4, FR-3).
+"""Coupling timing tool (Stories 2.3, 2.4, and 2.6, FR-3).
 
 Measures, from the theta reference tap and the gamma PAC tap alone, how far
 each gamma swell peak (smooth_swell) or burst center (bursts) lies from its
@@ -64,8 +64,24 @@ Calibrated on Python-synthesized signals of known peak times first
   reads up to 1.65 ms off at a 40 Hz gamma rate. bursts needs a positive,
   finite gamma_rate_hz (ValueError); a cycle whose first-estimate amplitude
   is below the floor has no burst: ValueError "no burst in gamma tap".
+- Rate-curve mode (Story 2.6): zero_degree_times, timing_errors, and check
+  take cycle=None, the recipe's theta_reference.rate_cycle mapping
+  (swing_hz, period_s, start_phase_deg), with theta_rate_hz its center. The
+  theta phase is then the ideal integral Phi(t) (frequency.curve_phase).
+  Each 0 degree point is predicted where Phi reaches an integer and refined
+  by the template fit alpha + beta * shape_template(shape, Phi(t) -
+  Phi(tau), theta_rate_hz) over one local period 1 / rate(t) (the edge
+  length is a fixed share of the cycle at the center rate). The expected
+  peak p is where Phi reaches Phi(tau) + coupling_phase_deg / 360. The swell
+  curve is fitted by c0 + c1 cos(2 pi (Phi(t) - Phi(p))) + c2 sin(...) over
+  one local period, and its peak phase is turned into a time through Phi.
+  The burst refinement fits burst_template((Phi(t) - Phi(tau)) /
+  theta_rate_hz) * (c0 + c1 cos(w_g t) + c2 sin(w_g t)): Hb and Wb are fixed
+  shares of the theta cycle at the center rate, so a burst is shorter where
+  theta is faster. The gamma rate stays constant. Errors are seconds,
+  wrapped by the local period. Without a cycle every result is unchanged.
 - check(name, gamma, theta, fs, theta_rate_hz, shape, coupling_phase_deg,
-  row_id=ROW, coupling="smooth_swell", gamma_rate_hz=None): the report
+  row_id=ROW, coupling="smooth_swell", gamma_rate_hz=None, cycle=None): the report
   assertion shape (Story 1.4). measured is the largest |error| in ms; pass
   when it is strictly below the row. A non-finite input or measurement, an
   unknown coupling, or no full cycle, fails with a note and measured
@@ -81,6 +97,7 @@ import math
 import numpy as np
 
 from . import row
+from .frequency import curve_phase
 
 ROW = "coupling-timing"
 CALIBRATION_ROW = "coupling-timing-calibration"
@@ -194,18 +211,31 @@ def _window(fs, center, period, lo, hi):
     return np.arange(first, last + 1)
 
 
-def zero_degree_times(theta, fs, theta_rate_hz, shape) -> np.ndarray:
+def _cycle_key(cycle):
+    if cycle is None:
+        return None
+    return (float(cycle["swing_hz"]), float(cycle["period_s"]), float(cycle["start_phase_deg"]))
+
+
+def zero_degree_times(theta, fs, theta_rate_hz, shape, cycle=None) -> np.ndarray:
     rate = float(theta_rate_hz)
     if not (math.isfinite(rate) and rate > 0.0):
         raise ValueError(f"theta_rate_hz must be positive and finite, got {theta_rate_hz!r}")
     if shape not in SHAPES:
         raise ValueError(f"shape not modeled in the signal spec: {shape!r}")
+    ckey = _cycle_key(cycle)
+    if ckey is not None and not (math.isfinite(ckey[0]) and 0.0 <= ckey[0] < rate
+                                 and math.isfinite(ckey[1]) and ckey[1] > 0.0 and math.isfinite(ckey[2])):
+        raise ValueError(f"rate cycle not usable: {cycle!r}")
     a = np.ascontiguousarray(theta, dtype=np.float64)
     key = (a.tobytes(), a.shape, float(fs), rate, shape,
-           _fixed("theta-on-share"), _fixed("theta-edge"))
+           _fixed("theta-on-share"), _fixed("theta-edge"), ckey)
     hit = _zero_cache.pop(key, None)
     if hit is None:
-        hit = _zero_degree_times(a, fs, rate, shape)
+        if ckey is None:
+            hit = _zero_degree_times(a, fs, rate, shape)
+        else:
+            hit = _zero_degree_times_curve(a, fs, rate, shape, cycle)
         while len(_zero_cache) >= _ZERO_CACHE_SIZE:
             del _zero_cache[next(iter(_zero_cache))]
     _zero_cache[key] = hit   # newest last; the oldest is dropped first
@@ -247,6 +277,132 @@ def _zero_degree_times(theta, fs, rate, shape) -> np.ndarray:
         times.append(found)
         tau = found + period
     return np.asarray(times, dtype=np.float64)
+
+
+# ------------------------------------------------- rate-curve mode helpers
+
+
+def _local_rate(t, rate, cycle):
+    """Instantaneous theta rate of the rate curve law at time t (seconds)."""
+    s = float(cycle["swing_hz"])
+    period = float(cycle["period_s"])
+    phi0 = math.radians(float(cycle["start_phase_deg"]))
+    return rate + s * math.sin(2.0 * math.pi * t / period + phi0)
+
+
+def _time_at(target, guess, rate, cycle):
+    """The time where the ideal phase integral reaches target cycles (Newton)."""
+    t = float(guess)
+    for _ in range(50):
+        f = float(curve_phase(t, rate, cycle)) - target
+        step = f / _local_rate(t, rate, cycle)
+        t -= step
+        if abs(step) < 1e-12:
+            break
+    return t
+
+
+def _zero_degree_times_curve(theta, fs, rate, shape, cycle) -> np.ndarray:
+    env = envelope(theta)
+    lo, hi = _trim_bounds(env.size, fs)
+    t_all = np.arange(env.size, dtype=np.float64) / float(fs)
+    phi_all = curve_phase(t_all, rate, cycle)
+    times = []
+    k = int(math.ceil(float(phi_all[lo])))
+    guess = t_all[lo]
+    while True:
+        z = _time_at(float(k), guess, rate, cycle)
+        guess = z
+        k += 1
+        period = 1.0 / _local_rate(z, rate, cycle)
+        idx = _window(fs, z, period, lo, hi)
+        if idx is None:
+            if z * fs >= hi:
+                break
+            continue
+        e, ph = env[idx], phi_all[idx]
+
+        def cost(x, e=e, ph=ph):
+            return _fit_phase_template(e, ph, shape, rate, float(curve_phase(x, rate, cycle)))[0]
+
+        step = period / (_GRID_STEPS * 4)
+        local = z + np.arange(-8, 9) * step  # the prediction is close: +-1/24 of a period
+        best = float(local[int(np.argmin([cost(x) for x in local]))])
+        times.append(_golden(cost, best - step, best + step, _SEARCH_STEPS))
+    return np.asarray(times, dtype=np.float64)
+
+
+def _fit_phase_template(env, phi, shape, rate, phi_tau):
+    """Least-squares residual of alpha + beta * template(phi - phi_tau)."""
+    g = shape_template(shape, phi - phi_tau, rate)
+    gm = g - g.mean()
+    em = env - env.mean()
+    denom = float(np.dot(gm, gm))
+    beta = float(np.dot(gm, em)) / denom if denom > 0.0 else 0.0
+    if not beta > 0.0:
+        return 2.0 * float(np.dot(em, em)) + 1.0, beta
+    r = em - beta * gm
+    return float(np.dot(r, r)), beta
+
+
+def _burst_sse_phase(y, u, cos_g, sin_g, y2_total):
+    """_burst_sse with the template argument u (seconds at the center rate) given."""
+    half = _fixed("burst-width") / 1000.0 / 2.0
+    lo = max(int(np.searchsorted(u, -half, side="left")) - 1, 0)
+    hi = min(int(np.searchsorted(u, half, side="right")) + 1, u.size)
+    ys = y[lo:hi]
+    g = burst_template(u[lo:hi])
+    basis = np.stack([g, g * cos_g[lo:hi], g * sin_g[lo:hi]])
+    c = np.linalg.solve(basis @ basis.T, basis @ ys)
+    r = ys - c @ basis
+    return float(r @ r) + (y2_total - float(ys @ ys))
+
+
+def _burst_center_curve(y, t, phi, first, w_g, p, rate, cycle):
+    """Refined burst center near `first` (seconds relative to p) on the curve."""
+    cos_g, sin_g = np.cos(w_g * t), np.sin(w_g * t)
+    y2_total = float(np.dot(y, y))
+
+    def cost(x):
+        phi_tau = float(curve_phase(p + x, rate, cycle))
+        return _burst_sse_phase(y, (phi - phi_tau) / rate, cos_g, sin_g, y2_total)
+
+    grid = first + np.linspace(-_BURST_SEARCH_S, _BURST_SEARCH_S, 2 * _BURST_GRID + 1)
+    step = float(grid[1] - grid[0])
+    best = float(grid[int(np.argmin([cost(x) for x in grid]))])
+    return _golden(cost, best - step, best + step, _SEARCH_STEPS)
+
+
+def _timing_errors_curve(g, th, fs, rate, shape, coupling_phase_deg, w_g, cycle):
+    zeros = zero_degree_times(th, fs, rate, shape, cycle)
+    curve = swell_curve(g, fs)
+    lo, hi = _trim_bounds(curve.size, fs)
+    t_all = np.arange(curve.size, dtype=np.float64) / float(fs)
+    phi_all = curve_phase(t_all, rate, cycle)
+    share = float(coupling_phase_deg) / 360.0
+    floor = 10.0 ** (row(SWELL_FLOOR_ROW).value / 20.0)
+    depth_curve = None if w_g is None else 1.0 - envelope(g)
+    errors = []
+    for z in zeros:
+        target = float(curve_phase(z, rate, cycle)) + share
+        p = _time_at(target, z + share / _local_rate(z, rate, cycle), rate, cycle)
+        period = 1.0 / _local_rate(p, rate, cycle)
+        idx = _window(fs, p, period, lo, hi)
+        if idx is None:
+            continue
+        dphi = phi_all[idx] - target
+        basis = np.stack([np.ones_like(dphi), np.cos(2.0 * math.pi * dphi),
+                          np.sin(2.0 * math.pi * dphi)], axis=1)
+        c, *_ = np.linalg.lstsq(basis, curve[idx], rcond=None)
+        if not math.hypot(float(c[1]), float(c[2])) >= floor:
+            raise ValueError("no swell in gamma tap" if w_g is None else "no burst in gamma tap")
+        delta = math.atan2(float(c[2]), float(c[1])) / (2.0 * math.pi)   # cycles, in [-1/2, 1/2]
+        peak = _time_at(target + delta, p + delta * period, rate, cycle) - p
+        if w_g is not None:
+            t = t_all[idx] - p
+            peak = _burst_center_curve(depth_curve[idx], t, phi_all[idx], peak, w_g, p, rate, cycle)
+        errors.append(math.remainder(peak, period))
+    return np.asarray(errors, dtype=np.float64)
 
 
 def swell_curve(gamma, fs) -> np.ndarray:
@@ -308,7 +464,7 @@ def _burst_center(y, t, first, w_g):
 
 
 def timing_errors(gamma, theta, fs, theta_rate_hz, shape, coupling_phase_deg,
-                  coupling="smooth_swell", gamma_rate_hz=None) -> np.ndarray:
+                  coupling="smooth_swell", gamma_rate_hz=None, cycle=None) -> np.ndarray:
     if coupling not in COUPLINGS:
         raise ValueError(f"coupling not timed: {coupling!r}")
     w_g = None
@@ -322,6 +478,8 @@ def timing_errors(gamma, theta, fs, theta_rate_hz, shape, coupling_phase_deg,
     if g.shape != th.shape:
         raise ValueError(f"gamma and theta taps differ in shape: {g.shape} and {th.shape}")
     rate = float(theta_rate_hz)
+    if cycle is not None:
+        return _timing_errors_curve(g, th, fs, rate, shape, coupling_phase_deg, w_g, cycle)
     zeros = zero_degree_times(th, fs, rate, shape)
     curve = swell_curve(g, fs)
     lo, hi = _trim_bounds(curve.size, fs)
@@ -349,7 +507,7 @@ def timing_errors(gamma, theta, fs, theta_rate_hz, shape, coupling_phase_deg,
 
 
 def check(name, gamma, theta, fs, theta_rate_hz, shape, coupling_phase_deg, row_id=ROW,
-          coupling="smooth_swell", gamma_rate_hz=None) -> dict:
+          coupling="smooth_swell", gamma_rate_hz=None, cycle=None) -> dict:
     r = row(row_id)
     result = {"name": name, "row": row_id, "threshold": r.value, "unit": r.unit,
               "measured": None, "result": "fail", "note": ""}
@@ -360,7 +518,7 @@ def check(name, gamma, theta, fs, theta_rate_hz, shape, coupling_phase_deg, row_
         return result
     try:
         errors = timing_errors(g, th, fs, theta_rate_hz, shape, coupling_phase_deg,
-                               coupling=coupling, gamma_rate_hz=gamma_rate_hz)
+                               coupling=coupling, gamma_rate_hz=gamma_rate_hz, cycle=cycle)
     except ValueError as exc:
         result["note"] = str(exc)
         return result

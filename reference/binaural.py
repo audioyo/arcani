@@ -8,7 +8,8 @@ reference/ideal.py's ideal sine), never the engine's approximation.
 - WAVEFORMS: the binaural waveforms the spec models ("sine" only). The
   schema also accepts "triangle", which compile rejects; render raises
   ValueError for it and for any other text. An absent waveform is sine.
-- cycle_constants(cycle, fs): (P0, inc_P, K) of a beat_rate_cycle object:
+- cycle_constants(cycle, fs): (P0, inc_P, K) of a beat_rate_cycle object,
+  from reference/rate_curve.py (Story 2.6 moved the cycle helpers there):
   P0 by the coupling phase rule on start_phase_deg (x = deg / 360.0, one
   binary64 division, x * 2^64 exact, rounded to the nearest integer, ties to
   even, mod 2^64), inc_P = ideal.phase_increment(1.0 / period_s, fs), and
@@ -32,12 +33,9 @@ import math
 
 import numpy as np
 
-from . import ideal
+from . import ideal, rate_curve
 
 WAVEFORMS = ("sine",)
-
-_CYCLE = 2**64
-_RADIANS_PER_UNIT = 2.0 * math.pi / 2.0**64
 
 
 def _check(binaural):
@@ -46,38 +44,14 @@ def _check(binaural):
         raise ValueError(f"non-sine binaural not modeled: {wave!r}")
 
 
-def _start_units(deg):
-    x = float(deg) / 360.0
-    return int(round(x * 2.0**64)) % _CYCLE  # x * 2^64 is exact; round() ties to even
-
-
 def cycle_constants(cycle, fs):
-    """(P0, inc_P, K) of a beat_rate_cycle object at sample rate fs."""
-    p0 = _start_units(cycle["start_phase_deg"])
-    period = float(cycle["period_s"])
-    inc_p = ideal.phase_increment(1.0 / period, fs)
-    k = float(cycle["swing_hz"]) * period / (2.0 * math.pi)
-    return p0, inc_p, k
-
-
-def _cosine(phases):
-    s = np.ascontiguousarray(phases, dtype=np.uint64).view(np.int64).astype(np.float64)
-    return np.cos(s * _RADIANS_PER_UNIT)
+    """(P0, inc_P, K) of a beat_rate_cycle object at sample rate fs (reference/rate_curve.py)."""
+    return rate_curve.cycle_constants(cycle, fs)
 
 
 def beat_offset_cycles(binaural, fs, frames):
     """Ideal U[n] in cycles for n in [0, frames); zeros without a cycle."""
-    frames = int(frames)
-    if frames < 0:
-        raise ValueError(f"frames must be >= 0, got {frames}")
-    cycle = binaural.get("beat_rate_cycle")
-    if cycle is None:
-        return np.zeros(frames, dtype=np.float64)
-    p0, inc_p, k = cycle_constants(cycle, fs)
-    n = np.arange(frames, dtype=np.uint64)
-    phase_p = np.uint64(p0) + n * np.uint64(inc_p)  # wraps modulo 2^64
-    c0 = float(_cosine(np.array([p0], dtype=np.uint64))[0])
-    return k * (c0 - _cosine(phase_p))
+    return rate_curve.offset_cycles(binaural.get("beat_rate_cycle"), fs, frames)
 
 
 def render(binaural, fs, frames):

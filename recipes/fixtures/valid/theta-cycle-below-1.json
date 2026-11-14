@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-14",
+  "rationale": "Rate curve fixture (Story 2.6), schema-valid and rejected at compile: a theta rate cycle with center 2 Hz and swing 1.01 Hz reaches 0.99 Hz, below row theta-rate. 450 Hz carrier, sine envelope, 75 percent depth, 60 s period, start phase 0 degrees, 5 s. Values are placeholders, not starter defaults. A test fixture, not for listening.",
+  "length_s": 5,
+  "loudness_target_lufs": -36,
+  "theta_reference": {
+    "carrier_hz": 450,
+    "rate_hz": 2,
+    "am_depth_percent": 75,
+    "shape": "sine",
+    "rate_cycle": {
+      "swing_hz": 1.01,
+      "period_s": 60,
+      "start_phase_deg": 0
+    }
+  }
+}

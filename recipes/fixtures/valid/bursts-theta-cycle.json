@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-14",
+  "rationale": "Rate curve fixture (Story 2.6): 120 s. Theta reference: a 450 Hz carrier amplitude-modulated by the sine envelope at a theta rate that cycles over 2 to 6 Hz every 60 s (center 4 Hz, swing 2 Hz, start phase 0 degrees), 75 percent AM depth. Gamma PAC layer: a 250 Hz sine carrier amplitude-modulated at 40 Hz, its AM depth opening to 100 percent for bursts centered on the 0 degree coupling phase of the curved theta reference (50 ms with 10 ms raised-cosine edges at the 4 Hz center, fixed shares of the theta cycle), 0 between bursts. Both the same in both channels; together they can peak near 2.0, so the 24-bit WAV can clip. Values are placeholders, not starter defaults. A test fixture, not for listening.",
+  "length_s": 120,
+  "loudness_target_lufs": -36,
+  "theta_reference": {
+    "carrier_hz": 450,
+    "rate_hz": 4,
+    "am_depth_percent": 75,
+    "shape": "sine",
+    "rate_cycle": {
+      "swing_hz": 2,
+      "period_s": 60,
+      "start_phase_deg": 0
+    }
+  },
+  "gamma_pac": {
+    "carrier_hz": 250,
+    "rate_hz": 40,
+    "am_depth_percent": 100,
+    "carrier_wave": "sine",
+    "coupling": "bursts",
+    "coupling_phase_deg": 0
+  }
+}

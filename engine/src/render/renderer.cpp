@@ -12,6 +12,7 @@
 #include <limits>
 
 #include "core/envelope.hpp"
+#include "core/rate_cycle.hpp"
 #include "core/sine.hpp"
 
 namespace arcani::render {
@@ -27,7 +28,10 @@ void copy_out(double* dest, const double* block, std::size_t count) noexcept {
 }  // namespace
 
 Renderer::Renderer(const plan::Plan& plan) noexcept
-    : plan_(plan), cycle_phase_(plan.binaural.cycle_start) {}
+    : plan_(plan),
+      cycle_phase_(plan.binaural.cycle_start),
+      theta_cycle_phase_(plan.theta.cycle_start),
+      gamma_cycle_phase_(plan.gamma.cycle_start) {}
 
 void Renderer::seek(std::uint64_t frame) noexcept {
   position_ = frame;
@@ -39,6 +43,8 @@ void Renderer::seek(std::uint64_t frame) noexcept {
     phase_[c] = frame * plan_.binaural.increment[c];  // mod 2^64 (unsigned wraparound)
   }
   cycle_phase_ = plan_.binaural.cycle_start + frame * plan_.binaural.cycle_increment;  // mod 2^64
+  theta_cycle_phase_ = plan_.theta.cycle_start + frame * plan_.theta.cycle_increment;  // mod 2^64
+  gamma_cycle_phase_ = plan_.gamma.cycle_start + frame * plan_.gamma.cycle_increment;  // mod 2^64
 }
 
 void Renderer::render_block(std::size_t count) noexcept {
@@ -49,10 +55,22 @@ void Renderer::render_block(std::size_t count) noexcept {
   const auto& osc = plan_.theta;
   const auto& gam = plan_.gamma;
   for (std::size_t i = 0; i < count; ++i) {
+    // Rate curve (Story 2.6): a curved envelope phase is the accumulator plus
+    // U of its own rate cycle; without a cycle U is 0 and the phase is the
+    // accumulator's. The theta envelope, the swell, and the burst gate all
+    // read the curved theta envelope phase.
+    std::uint64_t theta_envelope = envelope_phase_;
+    std::uint64_t gamma_envelope = gamma_envelope_phase_;
+    if (i < live && osc.cycle) {
+      theta_envelope += core::rate_cycle_offset(theta_cycle_phase_, osc.cycle_k, osc.cycle_c0);  // mod 2^64
+    }
+    if (i < live && gam.cycle) {
+      gamma_envelope += core::rate_cycle_offset(gamma_cycle_phase_, gam.cycle_k, gam.cycle_c0);  // mod 2^64
+    }
     double theta_sample = 0.0;
     if (i < live && osc.present) {
       // Theta reference, Per sample: depth law, then the carrier.
-      const double e = core::envelope(osc.shape, envelope_phase_, osc.edge_units, osc.half_on_units);
+      const double e = core::envelope(osc.shape, theta_envelope, osc.edge_units, osc.half_on_units);
       const double a = 1.0 - osc.depth * (1.0 - e);
       theta_sample = a * core::sine(theta_phase_);
     }
@@ -62,14 +80,14 @@ void Renderer::render_block(std::size_t count) noexcept {
       // depth (constant when uncoupled; Coupling: scaled by the swell; Bursts:
       // gated by the burst gate; each of the theta envelope phase, the only
       // signal they read), then the carrier.
-      const double e = core::sine_envelope(gamma_envelope_phase_);
+      const double e = core::sine_envelope(gamma_envelope);
       double a = 0.0;
       if (gam.coupling == recipe::GammaCoupling::Bursts) {
-        const double g = core::burst(envelope_phase_, gam.coupling_phase_units, gam.burst_half_width_units,
+        const double g = core::burst(theta_envelope, gam.coupling_phase_units, gam.burst_half_width_units,
                                      gam.burst_edge_units);
         a = 1.0 - (gam.depth * g) * (1.0 - e);
       } else if (gam.coupled) {
-        const double s = core::swell(envelope_phase_, gam.coupling_phase_units);
+        const double s = core::swell(theta_envelope, gam.coupling_phase_units);
         a = 1.0 - (gam.depth * s) * (1.0 - e);
       } else {
         a = 1.0 - gam.depth * (1.0 - e);
@@ -112,6 +130,8 @@ void Renderer::render_block(std::size_t count) noexcept {
     gamma_phase_ += gam.increment;
     gamma_envelope_phase_ += gam.envelope_increment;
     cycle_phase_ += ears.cycle_increment;
+    theta_cycle_phase_ += osc.cycle_increment;
+    gamma_cycle_phase_ += gam.cycle_increment;
   }
 }
 

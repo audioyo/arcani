@@ -32,6 +32,13 @@ constexpr Field kFields[] = {
     // One of the schema enum members (recipe::kThetaShapeEnum); custom is
     // schema-valid and rejected at compile.
     {"/theta_reference/shape", String, LoudnessRelevant, true, "", 1.0},
+    // Story 2.6 (docs/signal-spec.md, Rate curve). swing_hz has no row: the
+    // worst-case checks (swing >= 0, rate_hz -/+ swing_hz against theta-rate)
+    // run when the validator reaches it (validate/validate.hpp).
+    {"/theta_reference/rate_cycle", Object, LoudnessRelevant, false, "", 1.0},
+    {"/theta_reference/rate_cycle/swing_hz", Number, LoudnessRelevant, true, "", 1.0},
+    {"/theta_reference/rate_cycle/period_s", Number, LoudnessRelevant, true, "rate-cycle-period", 1.0},
+    {"/theta_reference/rate_cycle/start_phase_deg", Number, LoudnessRelevant, true, "rate-cycle-start-phase", 1.0},
     // Story 2.2, uncoupled only. The carrier rule (carrier_hz >= 4 x rate_hz)
     // and the carrier wave rule run after every range check; see
     // validate/validate.hpp.
@@ -48,6 +55,13 @@ constexpr Field kFields[] = {
     // rejected with uncoupled; both rules run after every range check
     // (validate/validate.hpp).
     {"/gamma_pac/coupling_phase_deg", Number, LoudnessRelevant, false, "coupling-phase", 1.0},
+    // Story 2.6 (docs/signal-spec.md, Rate curve). swing_hz has no row: the
+    // worst-case checks (swing >= 0, rate_hz -/+ swing_hz against gamma-rate)
+    // run when the validator reaches it (validate/validate.hpp).
+    {"/gamma_pac/rate_cycle", Object, LoudnessRelevant, false, "", 1.0},
+    {"/gamma_pac/rate_cycle/swing_hz", Number, LoudnessRelevant, true, "", 1.0},
+    {"/gamma_pac/rate_cycle/period_s", Number, LoudnessRelevant, true, "rate-cycle-period", 1.0},
+    {"/gamma_pac/rate_cycle/start_phase_deg", Number, LoudnessRelevant, true, "rate-cycle-start-phase", 1.0},
     {"/binaural", Object, LoudnessRelevant, false, "", 1.0},
     {"/binaural/carrier_left_hz", Number, LoudnessRelevant, true, "binaural-carrier", 1.0},
     // The derived right carrier (carrier_left_hz + beat_rate_hz, row

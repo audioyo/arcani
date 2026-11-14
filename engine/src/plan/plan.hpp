@@ -74,8 +74,17 @@ struct ThetaOscillator {
   std::uint64_t envelope_increment = 0;  // envelope: phase increment rule (rate_hz, fs)
   double depth = 0.0;                    // d = am_depth_percent / 100.0
   core::EnvelopeShape shape = core::EnvelopeShape::Sine;
-  std::uint64_t edge_units = 0;     // W at rate_hz
+  std::uint64_t edge_units = 0;     // W at rate_hz (the center rate with a rate cycle)
   std::uint64_t half_on_units = 0;  // H
+  // Story 2.6 (Rate curve): with theta_reference.rate_cycle the envelope
+  // phase is n * envelope_increment + rate_cycle_offset(p_P[n], cycle_k,
+  // cycle_c0) mod 2^64, p_P[n] = cycle_start + n * cycle_increment mod 2^64.
+  // Without one, cycle is false and every field below is 0.
+  bool cycle = false;
+  std::uint64_t cycle_start = 0;      // P0, coupling phase rule (start_phase_deg)
+  std::uint64_t cycle_increment = 0;  // inc_P, phase increment rule (1.0 / period_s, fs)
+  double cycle_k = 0.0;               // K = (swing_hz * period_s) * kInvTwoPi
+  double cycle_c0 = 0.0;              // c0 = cycle_cosine(P0)
 };
 
 // Gamma PAC layer (docs/signal-spec.md, Gamma PAC layer, Coupling, and
@@ -100,6 +109,14 @@ struct GammaOscillator {
   std::uint64_t coupling_phase_units = 0;    // C, coupling phase rule (coupled only)
   std::uint64_t burst_half_width_units = 0;  // Hb at the theta rate (bursts only)
   std::uint64_t burst_edge_units = 0;        // Wb at the theta rate (bursts only)
+  // Story 2.6 (Rate curve): with gamma_pac.rate_cycle the gamma envelope
+  // phase is n * envelope_increment + rate_cycle_offset(p_P[n], cycle_k,
+  // cycle_c0) mod 2^64. Without one, cycle is false and every field below is 0.
+  bool cycle = false;
+  std::uint64_t cycle_start = 0;      // P0
+  std::uint64_t cycle_increment = 0;  // inc_P
+  double cycle_k = 0.0;               // K
+  double cycle_c0 = 0.0;              // c0
 };
 
 // Binaural layer (docs/signal-spec.md, Binaural layer and Rate curve): a pure

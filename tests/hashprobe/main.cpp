@@ -121,6 +121,19 @@
 // carries both the closed-form phase and seek to every platform.
 // tests/python/test_probe_binaural.py checks each part against
 // reference/binaural.py.
+//
+// Components rate-curves-44100 and rate-curves-48000 (Story 2.6): the
+// fixtures recipes/fixtures/valid/gamma-cycle-swell-theta-cycle.json and
+// bursts-theta-cycle.json (docs/signal-spec.md, Vectors: theta and gamma rate
+// cycles), in that order. Each has a theta reference whose rate cycles over
+// 2 to 6 Hz every 60 s (450 Hz carrier, sine envelope, 75 percent depth); the
+// first adds a 250 Hz gamma layer whose rate cycles over 30 to 60 Hz with a
+// smooth swell at 0 degrees, the second a 250 Hz gamma layer at 40 Hz with
+// bursts at 0 degrees; 120 s. Embedded (kRateCurveRecipes) with the
+// fixtures' values, each compiled in measure mode, 5 s rendered from frame 0
+// and, after arc_seek to frame seconds_to_samples(55, fs), 5 s more,
+// interleaved stereo float32, fixture after fixture.
+// tests/python/test_probe_rate_curves.py checks each part.
 
 #include <arcani/arcani.h>
 
@@ -364,6 +377,71 @@ constexpr char kBinauralCycleRecipe[] = R"({
 constexpr double kBinauralPartSeconds = 5.0;
 constexpr double kBinauralSeekSeconds = 55.0;
 
+constexpr char kRateCurveSwellRecipe[] = R"({
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani hash probe",
+  "date": "2026-11-14",
+  "rationale": "Hash probe rate-curves component (Story 2.6): gamma-cycle-swell-theta-cycle.json.",
+  "length_s": 120,
+  "loudness_target_lufs": -36,
+  "theta_reference": {
+    "carrier_hz": 450,
+    "rate_hz": 4,
+    "am_depth_percent": 75,
+    "shape": "sine",
+    "rate_cycle": {
+      "swing_hz": 2,
+      "period_s": 60,
+      "start_phase_deg": 0
+    }
+  },
+  "gamma_pac": {
+    "carrier_hz": 250,
+    "rate_hz": 45,
+    "am_depth_percent": 100,
+    "carrier_wave": "sine",
+    "coupling": "smooth_swell",
+    "coupling_phase_deg": 0,
+    "rate_cycle": {
+      "swing_hz": 15,
+      "period_s": 60,
+      "start_phase_deg": 0
+    }
+  }
+})";
+
+constexpr char kRateCurveBurstsRecipe[] = R"({
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani hash probe",
+  "date": "2026-11-14",
+  "rationale": "Hash probe rate-curves component (Story 2.6): bursts-theta-cycle.json.",
+  "length_s": 120,
+  "loudness_target_lufs": -36,
+  "theta_reference": {
+    "carrier_hz": 450,
+    "rate_hz": 4,
+    "am_depth_percent": 75,
+    "shape": "sine",
+    "rate_cycle": {
+      "swing_hz": 2,
+      "period_s": 60,
+      "start_phase_deg": 0
+    }
+  },
+  "gamma_pac": {
+    "carrier_hz": 250,
+    "rate_hz": 40,
+    "am_depth_percent": 100,
+    "carrier_wave": "sine",
+    "coupling": "bursts",
+    "coupling_phase_deg": 0
+  }
+})";
+
 // Empty on any API failure (main reports it). With cycle_block_sizes false the
 // whole recipe renders in one call; with it true, in calls cycling through
 // kBlockSizes.
@@ -468,10 +546,9 @@ std::vector<float> probe_bursts(std::uint32_t fs) {
   return out;
 }
 
-// The binaural cycle fixture: 5 s from frame 0, then 5 s after a seek to
-// 55 s; empty on any API failure.
-std::vector<float> probe_binaural_cycle(std::uint32_t fs) {
-  const std::string recipe(kBinauralCycleRecipe, sizeof kBinauralCycleRecipe - 1);
+// One recipe: 5 s from frame 0, then 5 s after a seek to 55 s; empty on any
+// API failure.
+std::vector<float> render_with_seek(const std::string& recipe, std::uint32_t fs) {
   arc_compile_options options;
   std::memset(&options, 0, sizeof options);
   options.mode = ARC_MODE_MEASURE;
@@ -501,6 +578,25 @@ std::vector<float> probe_binaural_cycle(std::uint32_t fs) {
   std::vector<float> out(stereo.size());
   for (std::size_t i = 0; i < stereo.size(); ++i) {
     out[i] = static_cast<float>(stereo[i]);
+  }
+  return out;
+}
+
+// The binaural cycle fixture: 5 s from frame 0, then 5 s after a seek to 55 s.
+std::vector<float> probe_binaural_cycle(std::uint32_t fs) {
+  return render_with_seek(std::string(kBinauralCycleRecipe, sizeof kBinauralCycleRecipe - 1), fs);
+}
+
+// The two rate-curve fixtures in turn, each with the seek; empty if any one fails.
+std::vector<float> probe_rate_curves(std::uint32_t fs) {
+  std::vector<float> out;
+  for (const std::string& recipe : {std::string(kRateCurveSwellRecipe, sizeof kRateCurveSwellRecipe - 1),
+                                   std::string(kRateCurveBurstsRecipe, sizeof kRateCurveBurstsRecipe - 1)}) {
+    const std::vector<float> part = render_with_seek(recipe, fs);
+    if (part.empty()) {
+      return {};
+    }
+    out.insert(out.end(), part.begin(), part.end());
   }
   return out;
 }
@@ -555,6 +651,8 @@ int main(int argc, char** argv) {
       {"binaural-cycle-48000", probe_binaural_cycle(48000)},
       {"gamma-bursts-44100", probe_bursts(44100)},
       {"gamma-bursts-48000", probe_bursts(48000)},
+      {"rate-curves-44100", probe_rate_curves(44100)},
+      {"rate-curves-48000", probe_rate_curves(48000)},
   };
   for (const Component& c : components) {
     if (c.samples.empty()) {
