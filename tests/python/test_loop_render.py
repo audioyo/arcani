@@ -506,11 +506,13 @@ def run_dump(exe, args, timeout=300):
     return result
 
 
-def engine_window(exe, fixture, fs, start, frames, out_dir):
-    """The six dump files of a --window render, as interleaved stereo arrays by tap key."""
+def engine_window(exe, fixture, fs, start, frames, out_dir, row_fixture=None):
+    """The six dump files of a --window render, as interleaved stereo arrays by tap key.
+    row_fixture names the loop fixture whose frame vectors hold the session end (a harness
+    copy of a fixture gives the original's name)."""
     out_dir.mkdir(parents=True, exist_ok=True)
     result = run_dump(exe, [FIXTURES_VALID / fixture, fs, out_dir, "--window", start, frames])
-    n = int(frame_row(fixture, fs)["end_frame"])
+    n = int(frame_row(row_fixture or fixture, fs)["end_frame"])
     assert f"arcani-tapdump: frames {n} start {start} total {frames}" in result.stdout, result.stdout
     arrays = {}
     for name in DUMP_FILES:
@@ -666,3 +668,45 @@ def test_must_fail_a_doctored_seam_fails_the_checks(fs, tapdump, tmp_path):
     g = recipe["gamma_pac"]
     gm = gamma_phase_check(channel(step["gamma"], 0), fs, start, float(g["rate_hz"]), g.get("rate_cycle"), split)
     assert not gm["pass"], gm
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_must_fail_a_replay_from_the_opening_end_at_a_seam(fs, tapdump, tmp_path):
+    """Doctored in the harness, never in the engine: from seam 1 on, the samples of the
+    render that starts at the opening end O (sample replay, or every phase restarted per pass).
+
+    On the swell loop fixture every rate (450 Hz and 250 Hz carriers, 40 Hz gamma rate,
+    4 +- 2 Hz theta rate over 60 s) completes whole cycles in the 120 s body, so the replay
+    equals the continuous render within row reference-match: there it is no defect and no
+    check can see it. The must-fail runs on a harness copy whose carriers are 450.004 Hz and
+    250.004 Hz (0.48 of a carrier cycle left over per body), where a replay is a phase reset."""
+    recipe = load_recipe(FULL_FIXTURE)
+    label, start, frames, split = windows(FULL_FIXTURE, fs)[1]
+    assert label == "seam 1"
+    o = ref("stub_chain").loop_frames(recipe, fs)["opening_end_frame"]
+    seam = start + split
+
+    def replayed(eng_seam, eng_open):
+        return {key: np.concatenate([eng_seam[key][:2 * split], eng_open[key][:2 * (frames - split)]])
+                for key, _ in TAP_KEYS}
+
+    # The swell fixture itself: the replay is the continuous render, within reference-match.
+    eng = engine_window(tapdump, FULL_FIXTURE, fs, start, frames, tmp_path / "seam")
+    eng_o = engine_window(tapdump, FULL_FIXTURE, fs, o, frames - split, tmp_path / "open")
+    assert not match_failures(replayed(eng, eng_o), eng), "a replay on whole-cycle rates differs"
+
+    # The harness copy with off-cycle carriers: the replay is caught.
+    variant = json.loads(json.dumps(recipe))
+    variant["theta_reference"]["carrier_hz"] = 450.004
+    variant["gamma_pac"]["carrier_hz"] = 250.004
+    path = tmp_path / "loop-swell-off-cycle-carriers.json"
+    path.write_text(json.dumps(variant, indent=2), encoding="utf-8")
+    eng = engine_window(tapdump, path, fs, start, frames, tmp_path / "v-seam", FULL_FIXTURE)
+    eng_o = engine_window(tapdump, path, fs, o, frames - split, tmp_path / "v-open", FULL_FIXTURE)
+    assert clicks_pass(eng["output"], fs)[0], "the undoctored variant window clicks"
+    refw = ref("stub_chain").render(path, fs, start=start, frames=frames)
+    assert not match_failures(eng, refw)
+    replay = replayed(eng, eng_o)
+    assert seam == o + int(ref("stub_chain").loop_frames(variant, fs)["body_frames"])
+    assert not clicks_pass(replay["output"], fs)[0], "the replay passed the click tool"
+    assert match_failures(replay, refw, keys=("output",)), "the replay passed the reference match"
