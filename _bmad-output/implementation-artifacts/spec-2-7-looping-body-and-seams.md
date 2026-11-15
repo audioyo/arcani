@@ -3,7 +3,7 @@ title: 'Story 2.7: Looping body and seams'
 type: 'feature'
 created: '2026-11-14'
 baseline_commit: '38e99957fd3a76dba1eea948bcf72456572ceaee'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 context:

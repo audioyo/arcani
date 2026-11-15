@@ -537,11 +537,11 @@ var EPICS = [
       ["x","Coupling timing within 2 ms along a theta rate curve"],
       ["x","Matches the reference"]
     ] },
-  { id:"2.7", title:"Looping body and seams", status:"in-progress",
+  { id:"2.7", title:"Looping body and seams", status:"review",
     plain:"Looping recipes play an opening once and repeat the body seamlessly until the max run time.",
     spec:["spec-2-7-looping-body-and-seams.md"],
-    steps:[true,true,true,false,false,false,false],
-    stepNotes:["3699d0c: spec 2026-11-14, no opening glide, mode names the cap, and hard stop at the cap decided by Audio; 0b4cdd8: signal spec Loop section with 3 new vector tables (41 in all)","5aa1873: fresh-context QA agent's failing tests (finished and committed by the build agent after the QA agent hit a usage limit); C++ did not build against the old engine, 41 Python cases failed and 48 errored","fea1d47: loop field, check_loop, plan loop frames, arc_plan_loop, report loop block, reference frame windows, tap dump window and output-only modes, loop probe components, 20 fixtures; 4/4 ctest entries, 2,829 pytest pass, 4 hash-entry tests wait for the full run; design log (uu)"],
+    steps:[true,true,true,true,false,false,false],
+    stepNotes:["3699d0c: spec 2026-11-14, no opening glide, mode names the cap, and hard stop at the cap decided by Audio; 0b4cdd8: signal spec Loop section with 3 new vector tables (41 in all)","5aa1873: fresh-context QA agent's failing tests (finished and committed by the build agent after the QA agent hit a usage limit); C++ did not build against the old engine, 41 Python cases failed and 48 errored","fea1d47: loop field, check_loop, plan loop frames, arc_plan_loop, report loop block, reference frame windows, tap dump window and output-only modes, loop probe components, 20 fixtures; 4/4 ctest entries, 2,829 pytest pass, 4 hash-entry tests wait for the full run; design log (uu)","257c970: review pass 1 (blind hunter, edge case hunter, verification gap; 16 findings, 2 patched, 12 rejected, 2 CI gate); 78e01a8: replay-from-the-opening must-fail on a detuned copy (the swell fixture holds whole carrier cycles per body, so a replay is not a defect there); spec encoding repaired; 4/4 ctest entries, 2,831 pytest pass, 4 hash-entry tests wait for the full run; CI cost above the spec estimate raised with Audio"],
     acs:[
       ["x","signal-spec loop section: body length for continuous phase at the seam, ending at max run time"],
       ["x","Looping recipe without a max run time, or with one out of range, is rejected"],
@@ -730,6 +730,7 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-15","257c970","2.7","Review pass 1 done: 16 findings, 2 patched (78e01a8 replay must-fail, spec encoding), 12 rejected, 2 CI gate; 2,831 pytest pass, 4 hash-entry tests wait for the full run; sprint-status.yaml set to review"],
   ["2026-11-15","fea1d47","2.7","Spec (3699d0c), signal spec Loop section and vectors (0b4cdd8), failing tests (5aa1873), and implementation (fea1d47) committed; 4/4 ctest entries, 2,829 pytest pass, 4 hash-entry tests wait for the four-platform full run; not pushed"],
   ["2026-11-14","092eb46","2.6","PR #17 merged into main after fast and full checks on 75faa94 were green, every job within budget; sprint-status.yaml set to done; QA worktree removed; next: Story 2.7"],
   ["2026-11-14","efbfc43","2.6","PR #17 opened; full run 43638339501 red only on the missing rate-curves entries and wall time; hashes pinned (62564d4); Audio raised six CI budgets (ab2facf, efbfc43; design log (tt), 0 billed minutes on the public repo); fast run 43656941898 and full run 43656946457 green on every job within budget, rate-curves hashes equal on all four platforms; PR waits for Audio to merge"],
