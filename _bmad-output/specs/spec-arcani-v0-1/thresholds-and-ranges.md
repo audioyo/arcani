@@ -40,10 +40,10 @@ The repo's threshold table and locked-range table (spine Conventions) are built 
 | Gamma PAC carrier | 200 to 500 Hz; carrier rule raises the floor to 4 times the gamma rate | Engineering default; design log (g) |
 | Coupling phase | 0 to 360 degrees, or uncoupled (default 0 degrees, proposed) | Design log (b) |
 | Coupling depth | 0 to 100 percent | Ross et al. 2003; design log (h) |
-| Burst width | 50 ms full width, fixed; 10 ms raised-cosine edges inside it, depth-gated | Alekseichuk et al. 2016; design log (h), (o) |
+| Burst width | 50 ms full width, fixed; 10 ms raised-cosine edges inside it, depth-gated | Alekseichuk et al. 2016; design log (h), (o); with a theta rate cycle both lengths hold at the center theta rate, 2026-11-14 (ss) |
 | Binaural carriers | Below 1000 Hz | Licklider et al. 1950, cited by Lopez-Caballero and Escera 2017 |
 | Binaural beat rate | 0 to below 30 Hz | Design log (f) |
-| Binaural beat rate cycle | Optional sinusoidal cycle of the beat rate: period exactly 60 s; start phase 0 to 360 degrees; the whole cycle stays inside the binaural beat rate range | Lee et al. 2024 (0 to 3 Hz every 60 s); design log (n), 2026-11-12 (pp) |
+| Rate cycle | Optional sinusoidal cycle of the binaural beat rate, the theta rate, or the gamma rate: period exactly 60 s; start phase 0 to 360 degrees; the whole cycle stays inside that rate's range | Lee et al. 2024 (0 to 3 Hz every 60 s); design log (n), 2026-11-12 (pp), 2026-11-14 (ss) |
 | Session length | Up to 8 h | Engineering default, the longest length the drift test proves; Phase 0 sets the hearing-safety value; design log 2026-11-01 (u) |
 | Looping max run time | Required on every looping recipe; v0.1 starters: Focus 45 min, Learn 20 min | Engineering default, top of each mode's length range (listening-modes.md); design log (m); Phase 0 sets the WHO-ITU-based value |
 | Loudness levels | Tones -36 LUFS-I, master -16 LUFS-I; every tones-only v0.1 starter targets -36 LUFS-I | Engineering defaults; design log (g), (m) |

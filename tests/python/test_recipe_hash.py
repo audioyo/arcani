@@ -95,6 +95,26 @@ BINAURAL_IN_HASH = ["/binaural/beat_rate_cycle/swing_hz", "/binaural/beat_rate_c
 BINAURAL_FIXTURES = ["binaural-beat-0.json", "binaural-beat-6.json", "binaural-beat-29.json",
                      "binaural-cycle-sleep.json", "binaural-waveform-triangle.json",
                      "binaural-cycle-below-0.json", "binaural-cycle-above-30.json"]
+# Story 2.6: the theta and gamma rate cycles are in the hash too. Checked
+# against the fixture that curves both layers.
+RATE_CYCLE_BASE = "gamma-cycle-swell-theta-cycle.json"
+RATE_CYCLE_IN_HASH = ["/theta_reference/rate_cycle/swing_hz", "/theta_reference/rate_cycle/period_s",
+                      "/theta_reference/rate_cycle/start_phase_deg", "/gamma_pac/rate_cycle/swing_hz",
+                      "/gamma_pac/rate_cycle/period_s", "/gamma_pac/rate_cycle/start_phase_deg"]
+RATE_CYCLE_FIXTURES = ["theta-cycle-sine.json", "theta-cycle-smoothed-on-off.json", "gamma-cycle-uncoupled.json",
+                       "swell-theta-cycle.json", "bursts-theta-cycle.json", "gamma-cycle-swell-theta-cycle.json",
+                       "theta-cycle-below-1.json", "theta-cycle-above-6.json", "gamma-cycle-below-30.json",
+                       "gamma-cycle-above-60.json", "gamma-cycle-carrier-rule.json"]
+# Hashes committed before Story 2.6 (tests/data/recipe_hash_vectors.json at
+# the story's baseline): a recipe without a rate_cycle keeps its hash.
+PINNED_HASHES = {
+    "both-layers.json": "fd3e0508393b78386fa9a6f62e6b6282ca0e268648661eececa4fac3430a8a4c",
+    "binaural-cycle-sleep.json": "4000f530933fe86e0b6c41b912a3631fdefeec04605876b43b2cb2c3a9a08ccd",
+    "bursts-40hz.json": "aea05ab7cdb13eb5c50fd646fc52c54cef3427360732ba7171302acbbbbacf00",
+    "swell-sine-0deg-100pct.json": "0be4174c011e80bff161296afc12759a05b26f6725d7126aa47b61c9c963df91",
+    "theta-sine-6hz.json": "04ed6231e6adf1a9d7c142b3db9f1544470dc3ae6a5deaddd2d00317d022b454",
+    "gamma-uncoupled-40hz-25pct.json": "a6f794f64b5747da245f3fc302153b4b03b0ace6ab5d4d1c6a805ae952f2acc4",
+}
 
 
 def load_tool():
@@ -231,9 +251,10 @@ def test_excluded_and_in_hash_lists_cover_every_leaf_tag():
     tags = tool.load_tags(tool.load_schema())
     assert sorted(p for p, t in tags.items() if t == "hash-excluded") == sorted(HASH_EXCLUDED)
     leaves = {p for p in tags if p not in ("/theta_reference", "/gamma_pac", "/binaural",
-                                           "/binaural/beat_rate_cycle")}
+                                           "/binaural/beat_rate_cycle", "/theta_reference/rate_cycle",
+                                           "/gamma_pac/rate_cycle")}
     assert leaves == (set(HASH_EXCLUDED) | set(IN_HASH) | set(GAMMA_IN_HASH) | set(SWELL_IN_HASH)
-                      | set(BINAURAL_IN_HASH))
+                      | set(BINAURAL_IN_HASH) | set(RATE_CYCLE_IN_HASH))
 
 
 @pytest.mark.parametrize("pointer", GAMMA_IN_HASH)
@@ -300,6 +321,36 @@ def test_binaural_fixtures_have_distinct_hashes():
         assert path.is_file(), f"missing fixture {path} (Story 2.5)"
         hashes[name] = tool.hash_bytes(path.read_bytes())
     assert len(set(hashes.values())) == len(hashes), hashes
+
+
+@pytest.mark.parametrize("pointer", RATE_CYCLE_IN_HASH)
+def test_every_theta_and_gamma_rate_cycle_field_changes_the_hash(pointer):
+    tool = load_tool()
+    path = VALID / RATE_CYCLE_BASE
+    assert path.is_file(), f"missing fixture {path} (Story 2.6)"
+    value = json.loads(path.read_text(encoding="utf-8"))
+    assert tool.hash_value(put(value, pointer, changed(get(value, pointer)))) != tool.hash_value(value)
+    # Dropping the whole rate_cycle changes it too.
+    cycle = pointer.rsplit("/", 1)[0]
+    assert tool.hash_value(drop(value, cycle)) != tool.hash_value(value)
+
+
+def test_rate_cycle_fixtures_have_distinct_hashes_from_each_other_and_earlier_fixtures():
+    tool = load_tool()
+    hashes = {}
+    for name in RATE_CYCLE_FIXTURES + SWELL_FIXTURES + GAMMA_FIXTURES + ["bursts-40hz.json", "theta-sine-6hz.json"]:
+        path = VALID / name
+        assert path.is_file(), f"missing fixture {path}"
+        hashes[name] = tool.hash_bytes(path.read_bytes())
+    assert len(set(hashes.values())) == len(hashes), hashes
+
+
+def test_recipes_without_a_rate_cycle_keep_their_hashes():
+    tool = load_tool()
+    vectors = json.loads(VECTORS.read_text(encoding="utf-8"))
+    for name, want in PINNED_HASHES.items():
+        assert tool.hash_bytes(fixture(name)) == want, name
+        assert vectors.get(name) == want, name
 
 
 def test_tool_uses_only_the_standard_library():

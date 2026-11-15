@@ -8,6 +8,7 @@
 
 #include "core/envelope.hpp"
 #include "core/phase.hpp"
+#include "core/rate_cycle.hpp"
 #include "validate/validate.hpp"
 
 namespace arcani::plan {
@@ -26,6 +27,17 @@ CompileResult fail(std::string parameter, std::string value, std::string rule, s
   CompileResult r;
   r.error = {std::move(parameter), std::move(value), std::move(rule), std::move(limit)};
   return r;
+}
+
+// The once-per-plan constants of a rate cycle (docs/signal-spec.md, Rate
+// curve, Engine), written to the layer's cycle fields.
+template <typename Layer>
+void set_cycle(Layer& layer, const recipe::RateCycle& cycle, std::uint32_t sample_rate) {
+  layer.cycle = true;
+  layer.cycle_start = core::coupling_phase_units(cycle.start_phase_deg);
+  layer.cycle_increment = core::phase_increment(1.0 / cycle.period_s, sample_rate);
+  layer.cycle_k = (cycle.swing_hz * cycle.period_s) * core::kInvTwoPi;
+  layer.cycle_c0 = core::cycle_cosine(layer.cycle_start);  // the per-sample function
 }
 
 core::EnvelopeShape envelope_shape(recipe::ThetaShape s) noexcept {
@@ -109,6 +121,9 @@ CompileResult compile(std::string_view utf8, Mode mode, std::uint32_t sample_rat
     p.theta.shape = envelope_shape(t.shape);
     p.theta.edge_units = core::theta_edge_units(t.rate_hz);
     p.theta.half_on_units = core::theta_half_on_units();
+    if (t.rate_cycle) {
+      set_cycle(p.theta, *t.rate_cycle, sample_rate);  // W stays at the center rate_hz
+    }
   }
 
   // Gamma PAC layer: the carrier at gamma_pac.carrier_hz, amplitude-modulated
@@ -135,7 +150,10 @@ CompileResult compile(std::string_view utf8, Mode mode, std::uint32_t sample_rat
       // stay 0 and the gate scales nothing.
       const double theta_rate = rec.theta_reference ? rec.theta_reference->rate_hz : 0.0;
       p.gamma.burst_half_width_units = core::burst_half_width_units(theta_rate);
-      p.gamma.burst_edge_units = core::burst_edge_units(theta_rate);
+      p.gamma.burst_edge_units = core::burst_edge_units(theta_rate);  // Hb and Wb at the center rate
+    }
+    if (g.rate_cycle) {
+      set_cycle(p.gamma, *g.rate_cycle, sample_rate);
     }
   }
 
@@ -152,12 +170,7 @@ CompileResult compile(std::string_view utf8, Mode mode, std::uint32_t sample_rat
                             core::phase_increment(f_center, sample_rate)};
     p.binaural.amplitude = {1.0, 1.0};
     if (b.beat_rate_cycle) {
-      const recipe::BeatRateCycle& cycle = *b.beat_rate_cycle;
-      p.binaural.cycle = true;
-      p.binaural.cycle_start = core::coupling_phase_units(cycle.start_phase_deg);
-      p.binaural.cycle_increment = core::phase_increment(1.0 / cycle.period_s, sample_rate);
-      p.binaural.cycle_k = (cycle.swing_hz * cycle.period_s) * core::kInvTwoPi;
-      p.binaural.cycle_c0 = core::cycle_cosine(p.binaural.cycle_start);  // the per-sample function
+      set_cycle(p.binaural, *b.beat_rate_cycle, sample_rate);
     }
   }
   if (mute != MuteEar::None) {

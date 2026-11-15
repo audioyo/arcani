@@ -126,6 +126,26 @@
 // limit validate::kModeledBinauralWaveforms ("sine"). Both constants are read
 // through the lookup probe.
 //
+// Story 2.6 (rate curves on the theta and gamma rates): theta_reference and
+// gamma_pac each gain the optional rate_cycle {swing_hz, period_s,
+// start_phase_deg} (all three required inside it), the last member of its
+// layer. With a rate_cycle, right after that layer's own range checks and in
+// this order (first failure wins), all on parameter
+// /<layer>/rate_cycle/swing_hz unless named, <row> theta-rate or gamma-rate:
+//   1. swing_hz >= 0: value the swing, rule range.min, limit ">= 0 Hz";
+//   2. r - s (binary64) against <row>: rule range.min, limit for example
+//      ">= 1 Hz (row theta-rate)", value the shortest round-trip text of r - s;
+//   3. r + s against <row>: rule range.max, limit for example
+//      "<= 60 Hz (row gamma-rate)";
+//   4. period_s against row rate-cycle-period (parameter
+//      /<layer>/rate_cycle/period_s);
+//   5. start_phase_deg against row rate-cycle-start-phase (parameter
+//      /<layer>/rate_cycle/start_phase_deg).
+// The layers keep field order: theta, gamma, binaural. The carrier rule then
+// judges each curved carrier against r + s: a 200 Hz gamma carrier with a
+// 45 +- 10 Hz cycle fails with value 200, limit
+// ">= 220 Hz (4 x 55 Hz, row carrier-rule)", though 45 Hz passes.
+//
 // Story 2.4 (gamma PAC layer, coupled 50 ms bursts): the coupling enum is
 // ["uncoupled", "smooth_swell", "bursts"] (enum limit "uncoupled,
 // smooth_swell, bursts"). bursts takes coupling_phase_deg as smooth_swell
@@ -317,6 +337,11 @@ struct Values {
   // beat_rate_cycle value, for example cycle_text("1.5", "60", "270").
   std::string binaural_cycle;
   std::string binaural_waveform;
+  // Story 2.6. Empty omits the field (the default, so every earlier case
+  // keeps its recipe); written as given, the whole rate_cycle value, the last
+  // member of its layer (after shape, after coupling_phase_deg).
+  std::string theta_cycle;
+  std::string gamma_cycle;
   bool theta = true;
   bool gamma = false;
   bool binaural = true;
@@ -351,6 +376,7 @@ std::string make_recipe(const Values& v) {
     add("rate_hz", v.theta_rate_hz);
     add("am_depth_percent", v.theta_am_depth_percent);
     add("shape", v.theta_shape);
+    add("rate_cycle", v.theta_cycle);
     s += ",\n  \"theta_reference\": {" + body + "\n  }";
   }
   if (v.gamma) {
@@ -368,6 +394,7 @@ std::string make_recipe(const Values& v) {
     add("carrier_wave", v.gamma_carrier_wave);
     add("coupling", v.gamma_coupling);
     add("coupling_phase_deg", v.gamma_coupling_phase_deg);
+    add("rate_cycle", v.gamma_cycle);
     s += ",\n  \"gamma_pac\": {" + body + "\n  }";
   }
   if (v.binaural) {
@@ -747,7 +774,10 @@ TEST_CASE("valid/ means schema-valid: the out-of-range hash fixture is rejected 
       "uncoupled-with-coupling-phase.json", "binaural-waveform-triangle.json",
       "binaural-cycle-below-0.json", "binaural-cycle-above-30.json",
       // Story 2.4: the two compile-rejected burst fixtures (AD-5, coupling phase).
-      "bursts-no-theta.json", "bursts-no-coupling-phase.json"};
+      "bursts-no-theta.json", "bursts-no-coupling-phase.json",
+      // Story 2.6: four worst-case rates and one carrier rule on r + s.
+      "theta-cycle-below-1.json", "theta-cycle-above-6.json", "gamma-cycle-below-30.json",
+      "gamma-cycle-above-60.json", "gamma-cycle-carrier-rule.json"};
   std::set<std::string> rejected_seen;
   std::size_t compiled = 0;
   for (const auto& entry :
@@ -2322,6 +2352,420 @@ TEST_CASE("binaural: check order, existing binaural checks then the cycle checks
   {
     // A valid cycle recipe without the gain: final.required, as before.
     Values v = with_cycle();
+    v.gain = false;
+    const api::Compiled c = api::compile(make_recipe(v), api::options(ARC_MODE_FINAL, 48000));
+    REQUIRE(api::all_written(c.error));
+    CHECK(c.status == ARC_ERR_REJECTED);
+    CHECK(std::string(c.error.rule) == "final.required");
+  }
+}
+
+// ------------------------------------------- rate curves on theta and gamma (Story 2.6)
+
+namespace {
+
+const char* const kThetaSwing = "/theta_reference/rate_cycle/swing_hz";
+const char* const kThetaPeriod = "/theta_reference/rate_cycle/period_s";
+const char* const kThetaStart = "/theta_reference/rate_cycle/start_phase_deg";
+const char* const kGammaSwing = "/gamma_pac/rate_cycle/swing_hz";
+const char* const kGammaPeriod = "/gamma_pac/rate_cycle/period_s";
+const char* const kGammaStart = "/gamma_pac/rate_cycle/start_phase_deg";
+
+// The base recipe (300 Hz theta carrier, 75 percent sine envelope, the
+// binaural layer) with the theta rate cycling around `center`.
+Values with_theta_cycle(const std::string& center = "3.5", const std::string& swing = "2.5",
+                        const std::string& period = "60", const std::string& phase = "0") {
+  Values v;
+  v.theta_rate_hz = center;
+  v.theta_cycle = cycle_text(swing, period, phase);
+  return v;
+}
+
+// The base gamma recipe (250 Hz sine carrier, 25 percent, uncoupled) with the
+// gamma rate cycling around `center`.
+Values with_gamma_cycle(const std::string& center = "45", const std::string& swing = "15",
+                        const std::string& period = "60", const std::string& phase = "0") {
+  Values v = with_gamma();
+  v.gamma_rate_hz = center;
+  v.gamma_cycle = cycle_text(swing, period, phase);
+  return v;
+}
+
+// The worst-case value text is the shortest round-trip text of the binary64
+// r - s or r + s: proved here, so a wrong literal fails before the engine runs.
+void require_sum_text(const std::string& text, double r, double s, bool minus) {
+  volatile double a = r;
+  volatile double b = s;
+  const double x = minus ? a - b : a + b;
+  require_text_is(text, x);
+}
+
+const Want kWantGammaCarrierRule{"/gamma_pac/carrier_hz", "200", "carrier_rule",
+                                 ">= 220 Hz (4 x 55 Hz, row carrier-rule)"};
+
+}  // namespace
+
+TEST_CASE("rate curves: theta and gamma rate cycles compile in both modes at both rates", "[validate][rate-curves]") {
+  struct Case {
+    Values v;
+    const char* what;
+  };
+  Values both = with_gamma_cycle();
+  both.theta_rate_hz = "4";
+  both.theta_cycle = cycle_text("2", "60", "0");
+  Values all = both;
+  all.beat_rate_hz = "1.5";
+  all.binaural_cycle = cycle_text("1.5", "60", "270");
+  Values swell = with_gamma_cycle();
+  swell.gamma_coupling = "\"smooth_swell\"";
+  swell.gamma_coupling_phase_deg = "0";
+  swell.theta_rate_hz = "4";
+  swell.theta_cycle = cycle_text("2", "60", "0");
+  Values bursts = swell;
+  bursts.gamma_coupling = "\"bursts\"";
+  bursts.gamma_cycle.clear();
+  bursts.gamma_rate_hz = "40";
+  const Case cases[] = {
+      {with_theta_cycle(), "theta 3.5 +- 2.5 Hz"},
+      {with_theta_cycle("4", "2"), "theta 4 +- 2 Hz"},
+      {with_theta_cycle("2", "1"), "theta r - s exactly 1 Hz"},
+      {with_theta_cycle("3.5", "0"), "theta swing 0"},
+      {with_theta_cycle("3.5", "2.5", "60", "360"), "theta start 360"},
+      {with_theta_cycle("3.5", "2.5", "60", "359.99"), "theta start 359.99"},
+      {with_gamma_cycle(), "gamma 45 +- 15 Hz"},
+      {with_gamma_cycle("40", "10"), "gamma r - s exactly 30 Hz"},
+      {with_gamma_cycle("50", "10", "60", "270"), "gamma r + s exactly 60 Hz"},
+      {with_gamma_cycle("45", "0"), "gamma swing 0"},
+      {both, "both curved"},
+      {all, "theta, gamma, and beat rate curved"},
+      {swell, "swell, both curved"},
+      {bursts, "bursts over a curved theta"},
+  };
+  for (const auto& c : cases) {
+    const std::string text = make_recipe(c.v);
+    for (const arc_mode mode : kModes) {
+      for (const std::uint32_t fs : spec::sample_rates()) {
+        INFO(c.what << ", mode " << mode << ", fs " << fs);
+        CHECK(api::compile_ok(text, api::options(mode, fs)) != nullptr);
+      }
+    }
+  }
+  {
+    // The theta carrier rule on r + s holds at the bottom of row
+    // theta-carrier over the widest theta cycle (100 Hz >= 4 x 6 Hz).
+    Values v = with_theta_cycle();
+    v.theta_carrier_hz = "100";
+    expect_plan(v);
+  }
+}
+
+TEST_CASE("rate curves: theta and gamma worst-case rates are rejected with the row, parameter the swing",
+          "[validate][rate-curves]") {
+  require_sum_text("0.99", 2.0, 1.01, true);
+  require_sum_text("6.01", 4.0, 2.01, false);
+  require_sum_text("0.8999999999999999", 3.5, 2.6, true);
+  require_sum_text("29.990000000000002", 40.0, 10.01, true);
+  require_sum_text("60.01", 50.0, 10.01, false);
+  struct Case {
+    Values v;
+    Want want;
+  };
+  const Case cases[] = {
+      {with_theta_cycle("3.5", "-0.5"), {kThetaSwing, "-0.5", "range.min", ">= 0 Hz"}},
+      {with_theta_cycle("3.5", "-5e-324"), {kThetaSwing, "-5e-324", "range.min", ">= 0 Hz"}},
+      {with_theta_cycle("2", "1.01"), {kThetaSwing, "0.99", "range.min", ">= 1 Hz (row theta-rate)"}},
+      {with_theta_cycle("4", "2.01"), {kThetaSwing, "6.01", "range.max", "<= 6 Hz (row theta-rate)"}},
+      {with_theta_cycle("3.5", "2.6"),
+       {kThetaSwing, "0.8999999999999999", "range.min", ">= 1 Hz (row theta-rate)"}},
+      {with_theta_cycle("5", "1.5"), {kThetaSwing, "6.5", "range.max", "<= 6 Hz (row theta-rate)"}},
+      {with_gamma_cycle("45", "-1"), {kGammaSwing, "-1", "range.min", ">= 0 Hz"}},
+      {with_gamma_cycle("40", "10.01"),
+       {kGammaSwing, "29.990000000000002", "range.min", ">= 30 Hz (row gamma-rate)"}},
+      {with_gamma_cycle("50", "10.01"), {kGammaSwing, "60.01", "range.max", "<= 60 Hz (row gamma-rate)"}},
+      {with_gamma_cycle("45", "20"), {kGammaSwing, "25", "range.min", ">= 30 Hz (row gamma-rate)"}},
+  };
+  for (const auto& c : cases) {
+    expect_rejected(c.v, c.want);
+  }
+  // No plan at either sample rate.
+  for (const Values& v : {with_theta_cycle("2", "1.01"), with_gamma_cycle("50", "10.01")}) {
+    for (const std::uint32_t fs : spec::sample_rates()) {
+      const api::Compiled c = api::compile(make_recipe(v), api::options(ARC_MODE_MEASURE, fs));
+      CHECK(c.status == ARC_ERR_REJECTED);
+      CHECK(c.plan == nullptr);
+    }
+  }
+}
+
+TEST_CASE("rate curves: theta and gamma period and start phase are checked against their rows",
+          "[validate][rate-curves]") {
+  struct Case {
+    const char* layer;  // "theta" or "gamma"
+    const char* period;
+    const char* phase;
+    Want want;
+  };
+  const Case cases[] = {
+      {"theta", "59.99", "0", {kThetaPeriod, "59.99", "range.min", ">= 60 s (row rate-cycle-period)"}},
+      {"theta", "60.01", "0", {kThetaPeriod, "60.01", "range.max", "<= 60 s (row rate-cycle-period)"}},
+      {"theta", "60", "-0.01", {kThetaStart, "-0.01", "range.min", ">= 0 degrees (row rate-cycle-start-phase)"}},
+      {"theta", "60", "360.01", {kThetaStart, "360.01", "range.max", "<= 360 degrees (row rate-cycle-start-phase)"}},
+      {"gamma", "59.99", "0", {kGammaPeriod, "59.99", "range.min", ">= 60 s (row rate-cycle-period)"}},
+      {"gamma", "60.01", "0", {kGammaPeriod, "60.01", "range.max", "<= 60 s (row rate-cycle-period)"}},
+      {"gamma", "60", "-0.01", {kGammaStart, "-0.01", "range.min", ">= 0 degrees (row rate-cycle-start-phase)"}},
+      {"gamma", "60", "360.01", {kGammaStart, "360.01", "range.max", "<= 360 degrees (row rate-cycle-start-phase)"}},
+  };
+  for (const auto& c : cases) {
+    const Values v = std::string(c.layer) == "theta" ? with_theta_cycle("3.5", "2.5", c.period, c.phase)
+                                                     : with_gamma_cycle("45", "15", c.period, c.phase);
+    expect_rejected(v, c.want);
+  }
+}
+
+TEST_CASE("rate curves: the gamma carrier rule judges the carrier against r + s", "[validate][rate-curves][carrier]") {
+  {
+    // 200 Hz passes the 45 Hz center (4 x 45 = 180) but not the maximum 55 Hz.
+    Values center = with_gamma();
+    center.gamma_carrier_hz = "200";
+    center.gamma_rate_hz = "45";
+    expect_plan(center);
+    Values v = with_gamma_cycle("45", "10");
+    v.gamma_carrier_hz = "200";
+    expect_rejected(v, kWantGammaCarrierRule);
+  }
+  {
+    // Exactly 4 x 55 Hz passes; the next double below fails.
+    Values v = with_gamma_cycle("45", "10");
+    v.gamma_carrier_hz = "220";
+    expect_plan(v);
+    require_text_is("219.99999999999997", below(220.0));
+    v.gamma_carrier_hz = "219.99999999999997";
+    expect_rejected(v, {"/gamma_pac/carrier_hz", "219.99999999999997", "carrier_rule",
+                        ">= 220 Hz (4 x 55 Hz, row carrier-rule)"});
+  }
+  {
+    // The widest gamma cycle at the 250 Hz carrier: 4 x 60 = 240 passes.
+    expect_plan(with_gamma_cycle("45", "15"));
+  }
+}
+
+TEST_CASE("rate curves: the schema-valid compile-rejected rate-curve fixtures name their rule",
+          "[validate][rate-curves]") {
+  struct Case {
+    const char* name;
+    Want want;
+  };
+  const Case cases[] = {
+      {"theta-cycle-below-1.json", {kThetaSwing, "0.99", "range.min", ">= 1 Hz (row theta-rate)"}},
+      {"theta-cycle-above-6.json", {kThetaSwing, "6.01", "range.max", "<= 6 Hz (row theta-rate)"}},
+      {"gamma-cycle-below-30.json",
+       {kGammaSwing, "29.990000000000002", "range.min", ">= 30 Hz (row gamma-rate)"}},
+      {"gamma-cycle-above-60.json", {kGammaSwing, "60.01", "range.max", "<= 60 Hz (row gamma-rate)"}},
+      {"gamma-cycle-carrier-rule.json", kWantGammaCarrierRule},
+  };
+  for (const auto& c : cases) {
+    const std::string text = api::valid(c.name);
+    for (const arc_mode mode : kModes) {
+      for (const std::uint32_t fs : spec::sample_rates()) {
+        INFO(c.name << ", mode " << mode << ", fs " << fs);
+        const api::Compiled r = api::compile(text, api::options(mode, fs));
+        INFO(api::describe(r.error));
+        CHECK(r.status == ARC_ERR_REJECTED);
+        CHECK(r.plan == nullptr);
+        REQUIRE(api::all_written(r.error));
+        CHECK(std::string(r.error.parameter) == c.want.parameter);
+        CHECK(std::string(r.error.value) == c.want.value);
+        CHECK(std::string(r.error.rule) == c.want.rule);
+        CHECK(std::string(r.error.limit) == c.want.limit);
+      }
+    }
+  }
+}
+
+TEST_CASE("rate curves: every accepted rate-curve fixture compiles at both rates", "[validate][rate-curves]") {
+  for (const char* name : {"theta-cycle-sine.json", "theta-cycle-smoothed-on-off.json", "gamma-cycle-uncoupled.json",
+                           "swell-theta-cycle.json", "bursts-theta-cycle.json",
+                           "gamma-cycle-swell-theta-cycle.json"}) {
+    for (const arc_mode mode : kModes) {
+      for (const std::uint32_t fs : spec::sample_rates()) {
+        INFO(name << ", mode " << mode << ", fs " << fs);
+        const api::Compiled c = api::compile(api::valid(name), api::options(mode, fs));
+        INFO(api::describe(c.error));
+        // Measure mode compiles; final mode needs the stored gain, which
+        // these fixtures leave to Epic 4, so only final.required may stop it.
+        if (mode == ARC_MODE_MEASURE) {
+          CHECK(c.status == ARC_OK);
+        } else if (c.status != ARC_OK) {
+          REQUIRE(api::all_written(c.error));
+          CHECK(std::string(c.error.rule) == "final.required");
+        }
+      }
+    }
+  }
+}
+
+TEST_CASE("rate curves: rate_cycle faults are schema faults", "[validate][rate-curves]") {
+  struct Case {
+    std::string cycle;
+    const char* member;  // the parameter after /<layer>/rate_cycle
+    const char* rule;
+  };
+  const Case cases[] = {
+      {"{\"swing_hz\": 2.5, \"start_phase_deg\": 0}", "/period_s", "required"},
+      {"{\"period_s\": 60, \"start_phase_deg\": 0}", "/swing_hz", "required"},
+      {"{\"swing_hz\": 2.5, \"period_s\": 60}", "/start_phase_deg", "required"},
+      {cycle_text("\"2.5\"", "60", "0"), "/swing_hz", "type"},
+      {cycle_text("2.5", "true", "0"), "/period_s", "type"},
+      {cycle_text("2.5", "60", "null"), "/start_phase_deg", "type"},
+      {"{\"swing_hz\": 2.5, \"period_s\": 60, \"start_phase_deg\": 0, \"shape\": \"sine\"}", "/shape",
+       "unknown_property"},
+      {"[2.5, 60, 0]", "", "type"},
+  };
+  for (const char* layer : {"theta_reference", "gamma_pac"}) {
+    for (const auto& c : cases) {
+      Values v = std::string(layer) == "theta_reference" ? with_theta_cycle() : with_gamma_cycle();
+      (std::string(layer) == "theta_reference" ? v.theta_cycle : v.gamma_cycle) = c.cycle;
+      const api::Compiled r = api::compile(make_recipe(v), api::options(ARC_MODE_MEASURE, 48000));
+      INFO(layer << ": " << c.cycle << ": " << api::describe(r.error));
+      REQUIRE(api::all_written(r.error));
+      CHECK(r.status == ARC_ERR_REJECTED);
+      CHECK(r.plan == nullptr);
+      CHECK(std::string(r.error.parameter) == std::string("/") + layer + "/rate_cycle" + c.member);
+      CHECK(std::string(r.error.rule) == c.rule);
+    }
+  }
+}
+
+TEST_CASE("rate curves: check order, each layer's fields then its cycle; theta, gamma, binaural; then the rules",
+          "[validate][rate-curves][order]") {
+  {
+    Values v = with_theta_cycle("7", "-1");  // the theta rate range check comes first
+    expect_rejected(v, {"/theta_reference/rate_hz", "7", "range.max", "<= 6 Hz (row theta-rate)"});
+  }
+  {
+    Values v = with_theta_cycle("3.5", "-1");  // the theta depth is a theta field, before the cycle
+    v.theta_am_depth_percent = "101";
+    expect_rejected(v, {"/theta_reference/am_depth_percent", "101", "range.max", "<= 100 percent (row theta-depth)"});
+  }
+  {
+    Values v = with_theta_cycle("3.5", "-1", "59", "400");  // swing first
+    expect_rejected(v, {kThetaSwing, "-1", "range.min", ">= 0 Hz"});
+  }
+  {
+    Values v = with_theta_cycle("2", "1.01", "59", "400");  // the lowest rate before the period
+    expect_rejected(v, {kThetaSwing, "0.99", "range.min", ">= 1 Hz (row theta-rate)"});
+  }
+  {
+    Values v = with_theta_cycle("4", "2.01", "59", "400");  // the highest rate before the period
+    expect_rejected(v, {kThetaSwing, "6.01", "range.max", "<= 6 Hz (row theta-rate)"});
+  }
+  {
+    Values v = with_theta_cycle("3.5", "2.5", "59", "400");  // the period before the start phase
+    expect_rejected(v, {kThetaPeriod, "59", "range.min", ">= 60 s (row rate-cycle-period)"});
+  }
+  {
+    Values v = with_theta_cycle("3.5", "2.5", "60", "400");
+    expect_rejected(v, {kThetaStart, "400", "range.max", "<= 360 degrees (row rate-cycle-start-phase)"});
+  }
+  {
+    // The theta cycle comes before every gamma field.
+    Values v = with_gamma_cycle("50", "10.01");
+    v.gamma_am_depth_percent = "101";
+    v.theta_rate_hz = "2";
+    v.theta_cycle = cycle_text("1.01", "60", "0");
+    expect_rejected(v, {kThetaSwing, "0.99", "range.min", ">= 1 Hz (row theta-rate)"});
+  }
+  {
+    Values v = with_gamma_cycle("50", "10.01");  // a gamma field before the gamma cycle
+    v.gamma_am_depth_percent = "101";
+    expect_rejected(v, {"/gamma_pac/am_depth_percent", "101", "range.max", "<= 100 percent (row coupling-depth)"});
+  }
+  {
+    Values v = with_gamma_cycle("50", "10.01");  // the coupling phase is a gamma field too
+    v.gamma_coupling = "\"smooth_swell\"";
+    v.gamma_coupling_phase_deg = "-0.01";
+    expect_rejected(v, {"/gamma_pac/coupling_phase_deg", "-0.01", "range.min", ">= 0 degrees (row coupling-phase)"});
+  }
+  {
+    Values v = with_gamma_cycle("45", "-1", "59", "400");  // gamma swing first
+    expect_rejected(v, {kGammaSwing, "-1", "range.min", ">= 0 Hz"});
+  }
+  {
+    Values v = with_gamma_cycle("40", "10.01", "59", "400");
+    expect_rejected(v, {kGammaSwing, "29.990000000000002", "range.min", ">= 30 Hz (row gamma-rate)"});
+  }
+  {
+    Values v = with_gamma_cycle("45", "15", "59", "400");
+    expect_rejected(v, {kGammaPeriod, "59", "range.min", ">= 60 s (row rate-cycle-period)"});
+  }
+  {
+    // The gamma cycle comes before the binaural fields and the beat rate cycle.
+    Values v = with_gamma_cycle("50", "10.01");
+    v.carrier_left_hz = "1000";
+    v.beat_rate_hz = "1.5";
+    v.binaural_cycle = cycle_text("1.51", "60", "270");
+    expect_rejected(v, {kGammaSwing, "60.01", "range.max", "<= 60 Hz (row gamma-rate)"});
+  }
+  {
+    // The theta cycle comes before the beat rate cycle.
+    Values v = with_theta_cycle("2", "1.01");
+    v.beat_rate_hz = "1.5";
+    v.binaural_cycle = cycle_text("1.51", "60", "270");
+    expect_rejected(v, {kThetaSwing, "0.99", "range.min", ">= 1 Hz (row theta-rate)"});
+  }
+  {
+    // Every range check, binaural included, comes before the carrier rule on r + s.
+    Values v = with_gamma_cycle("45", "10");
+    v.gamma_carrier_hz = "200";
+    v.carrier_left_hz = "1000";
+    expect_rejected(v, {"/binaural/carrier_left_hz", "1000", "range.max", "< 1000 Hz (row binaural-carrier)"});
+  }
+  {
+    // A gamma cycle range fault wins over the carrier rule it would also break.
+    Values v = with_gamma_cycle("50", "10.01");
+    v.gamma_carrier_hz = "200";
+    expect_rejected(v, {kGammaSwing, "60.01", "range.max", "<= 60 Hz (row gamma-rate)"});
+  }
+  {
+    Values v = with_theta_cycle("2", "1.01");  // a theta cycle range fault wins over the theta shape rule
+    v.theta_shape = "\"custom\"";
+    expect_rejected(v, {kThetaSwing, "0.99", "range.min", ">= 1 Hz (row theta-rate)"});
+  }
+  {
+    Values v = with_gamma_cycle("40", "10.01");  // a gamma cycle range fault wins over the carrier wave rule
+    v.gamma_carrier_wave = "\"triangle\"";
+    expect_rejected(v, {kGammaSwing, "29.990000000000002", "range.min", ">= 30 Hz (row gamma-rate)"});
+  }
+  {
+    // The theta shape rule comes before the gamma carrier rule (compile order).
+    Values v = with_gamma_cycle("45", "10");
+    v.gamma_carrier_hz = "200";
+    v.theta_shape = "\"custom\"";
+    expect_rejected(v, {"/theta_reference/shape", "custom", "shape not modeled in the signal spec",
+                        "sine, smoothed_on_off, sawtooth, reverse_saw"});
+  }
+  {
+    // The gamma carrier rule on r + s comes before the carrier wave rule.
+    Values v = with_gamma_cycle("45", "10");
+    v.gamma_carrier_hz = "200";
+    v.gamma_carrier_wave = "\"triangle\"";
+    expect_rejected(v, kWantGammaCarrierRule);
+  }
+  {
+    // The cycle checks and the carrier rule come before final.required.
+    Values a = with_theta_cycle("2", "1.01");
+    a.gain = false;
+    expect_rejected(a, {kThetaSwing, "0.99", "range.min", ">= 1 Hz (row theta-rate)"}, {ARC_MODE_FINAL});
+    Values b = with_gamma_cycle("45", "10");
+    b.gamma_carrier_hz = "200";
+    b.gain = false;
+    expect_rejected(b, kWantGammaCarrierRule, {ARC_MODE_FINAL});
+  }
+  {
+    // A valid curved recipe without the gain: final.required, as before.
+    Values v = with_gamma_cycle();
+    v.theta_rate_hz = "4";
+    v.theta_cycle = cycle_text("2", "60", "0");
     v.gain = false;
     const api::Compiled c = api::compile(make_recipe(v), api::options(ARC_MODE_FINAL, 48000));
     REQUIRE(api::all_written(c.error));

@@ -3,8 +3,9 @@
 //
 // Renders in internal blocks of kBlockFrames frames, buffered to any host
 // request length. Every sample is a pure function of the plan and its sample
-// index: each oscillator phase (the theta and gamma envelope phases included)
-// at frame n is n * inc mod 2^64 (the beat rate cycle phase P0 + n * inc_P),
+// index: each oscillator phase (the theta and gamma envelope accumulators
+// included) at frame n is n * inc mod 2^64 (each rate cycle phase
+// P0 + n * inc_P, and a curved envelope phase adds its closed-form U),
 // so seek sets it directly and reads no earlier output. render() and seek()
 // never allocate, throw, or do I/O; the constructor holds every buffer.
 
@@ -57,6 +58,8 @@ class Renderer {
   std::uint64_t gamma_envelope_phase_ = 0;  // gamma envelope phase
   std::array<std::uint64_t, 2> phase_{0, 0};  // phase_L, phase_C (binaural)
   std::uint64_t cycle_phase_ = 0;              // beat rate cycle phase p_P (P0 at n = 0)
+  std::uint64_t theta_cycle_phase_ = 0;        // theta rate cycle phase (Story 2.6)
+  std::uint64_t gamma_cycle_phase_ = 0;        // gamma rate cycle phase (Story 2.6)
   Block theta_{};
   Block gamma_{};
   Block bus_{};

@@ -182,21 +182,27 @@ def test_tool_constants_and_rows():
 
 def test_tool_signatures_take_only_the_taps_and_the_named_settings():
     mod = ct()
-    assert list(inspect.signature(mod.zero_degree_times).parameters) == [
-        "theta", "fs", "theta_rate_hz", "shape"]
+    # Story 2.6 adds the keyword parameter cycle (the recipe's
+    # theta_reference.rate_cycle, None for a constant theta rate).
+    params = inspect.signature(mod.zero_degree_times).parameters
+    assert list(params) == ["theta", "fs", "theta_rate_hz", "shape", "cycle"]
+    assert params["cycle"].default is None
     assert list(inspect.signature(mod.swell_curve).parameters) == ["gamma", "fs"]
     # Story 2.4 adds the keyword parameters coupling and gamma_rate_hz.
     params = inspect.signature(mod.timing_errors).parameters
     assert list(params) == [
-        "gamma", "theta", "fs", "theta_rate_hz", "shape", "coupling_phase_deg", "coupling", "gamma_rate_hz"]
+        "gamma", "theta", "fs", "theta_rate_hz", "shape", "coupling_phase_deg", "coupling", "gamma_rate_hz",
+        "cycle"]
     assert params["coupling"].default == "smooth_swell"
     assert params["gamma_rate_hz"].default is None
+    assert params["cycle"].default is None
     params = inspect.signature(mod.check).parameters
     assert list(params) == ["name", "gamma", "theta", "fs", "theta_rate_hz", "shape",
-                            "coupling_phase_deg", "row_id", "coupling", "gamma_rate_hz"]
+                            "coupling_phase_deg", "row_id", "coupling", "gamma_rate_hz", "cycle"]
     assert params["row_id"].default == mod.ROW
     assert params["coupling"].default == "smooth_swell"
     assert params["gamma_rate_hz"].default is None
+    assert params["cycle"].default is None
 
 
 FORBIDDEN_MODULES = {"json", "pickle", "subprocess", "ctypes", "importlib", "os", "pathlib", "io",
@@ -760,3 +766,313 @@ def test_smooth_swell_results_are_unchanged_by_the_burst_parameters(fs):
         assert np.array_equal(base.view(np.uint64), with_rate.view(np.uint64)), shape
         assert mod.check("a", gamma, theta, fs, THETA_RATE_HZ, shape, 90.0) == \
             mod.check("a", gamma, theta, fs, THETA_RATE_HZ, shape, 90.0, coupling="smooth_swell")
+
+
+# ------------------------------------------------- rate-curve mode (Story 2.6)
+#
+# Contract (spec Implementation Notes): zero_degree_times, timing_errors, and
+# check take an optional `cycle`, the recipe's theta_reference.rate_cycle
+# mapping (swing_hz, period_s, start_phase_deg), with theta_rate_hz its center.
+# With a cycle the theta phase is frequency.curve_phase, Phi(t) = r t +
+# K (cos(phi0) - cos(2 pi t / P + phi0)), K = s P / (2 pi): each 0 degree
+# point is predicted where Phi reaches an integer and refined by the template
+# fit of shape_template(shape, Phi(t) - Phi(tau), theta_rate_hz) over one local
+# period; the expected peak is where Phi reaches Phi(tau) + coupling_phase_deg
+# / 360; the swell fit is c0 + c1 cos(2 pi (Phi(t) - Phi(p))) + c2 sin(...) over
+# one local period, its peak phase turned to time through Phi; the burst
+# refinement uses burst_template((Phi(t) - Phi(tau)) / theta_rate_hz), since Hb
+# and Wb are fixed shares of the theta cycle at the center rate. Errors are
+# seconds; without a cycle every result is what it was, bit for bit.
+#
+# Calibration: Python-synthesized curved swell and burst signals made here in
+# closed form, 20 s at both rates, a 450 Hz carrier amplitude-modulated by the
+# sine or smoothed on-off envelope (75 percent) along the theta curve, and a
+# 250 Hz carrier amplitude-modulated at 40 Hz whose depth swells, or opens in
+# bursts, at known times: where Phi reaches k + C / 360. Every peak or burst
+# center reads within row coupling-timing-calibration; a known shift reads as
+# itself; a 3 ms shift fails row coupling-timing; the constant-rate mode
+# cannot time a curved signal.
+
+CURVE_SECONDS = 20.0
+CURVE_SHAPES = ("sine", "smoothed_on_off")
+# (center, swing, start phase degrees), 60 s period: the Story 2.6 theta cycles.
+THETA_CURVES = ((4.0, 2.0, 0.0), (3.5, 2.5, 270.0), (3.5, 2.5, 0.0))
+CURVE_PERIOD_S = 60.0
+
+
+def theta_cycle(swing, start):
+    return {"swing_hz": swing, "period_s": CURVE_PERIOD_S, "start_phase_deg": start}
+
+
+def curve_cycles(t, center, swing, start):
+    """Phi(t) in cycles, made here from the closed form (not the tool's curve_phase)."""
+    phi0 = math.radians(start)
+    k = swing * CURVE_PERIOD_S / (2.0 * math.pi)
+    return center * t + k * (math.cos(phi0) - np.cos(2.0 * math.pi * t / CURVE_PERIOD_S + phi0))
+
+
+def curve_rate(t, center, swing, start):
+    return center + swing * np.sin(2.0 * np.pi * t / CURVE_PERIOD_S + math.radians(start))
+
+
+def curve_time(phi, center, swing, start):
+    """The time where Phi reaches each value of `phi` (Newton steps; Phi is strictly increasing)."""
+    phi = np.asarray(phi, dtype=np.float64)
+    t = phi / center
+    for _ in range(30):
+        t = t - (curve_cycles(t, center, swing, start) - phi) / curve_rate(t, center, swing, start)
+    return t
+
+
+def curved_theta_tap(fs, shape, curve, seconds=CURVE_SECONDS, zero_shift_s=0.0):
+    """450 Hz carrier amplitude-modulated by `shape` along the theta curve; 0 degree points where Phi is an integer."""
+    center, swing, start = curve
+    t = times(fs, seconds)
+    phi = curve_cycles(t - zero_shift_s, center, swing, start)
+    e = harness_envelope(shape, phi, center)   # edges are fixed shares of the cycle at the center rate
+    a = 1.0 - THETA_DEPTH * (1.0 - e)
+    return a * np.sin(2.0 * np.pi * THETA_CARRIER_HZ * t)
+
+
+def curved_swell_tap(fs, depth, phase_deg, curve, shift_s=0.0, seconds=CURVE_SECONDS):
+    """250 Hz carrier amplitude-modulated at 40 Hz; the depth swells to `depth` where Phi(t - shift) = k + C / 360."""
+    center, swing, start = curve
+    t = times(fs, seconds)
+    phi = curve_cycles(t - shift_s, center, swing, start)
+    s = 0.5 + 0.5 * np.cos(2.0 * np.pi * (phi - phase_deg / 360.0))
+    e = 0.5 + 0.5 * np.cos(2.0 * np.pi * GAMMA_RATE_HZ * t)
+    a = 1.0 - (depth * s) * (1.0 - e)
+    return a * np.sin(2.0 * np.pi * GAMMA_CARRIER_HZ * t)
+
+
+def curved_burst_tap(fs, depth, phase_deg, curve, shift_s=0.0, seconds=CURVE_SECONDS, gamma_rate_hz=40.0):
+    """250 Hz carrier at the gamma rate, the depth gated by bursts centered where Phi(t - shift) = k + C / 360.
+
+    The gate is a fixed share of the theta cycle at the center rate: in phase,
+    the gate of the time offset (Phi(t) - k - C / 360) / center.
+    """
+    center, swing, start = curve
+    t = times(fs, seconds)
+    u = curve_cycles(t - shift_s, center, swing, start) - phase_deg / 360.0
+    u = u - np.rint(u)
+    g = harness_gate(u / center)
+    e = 0.5 + 0.5 * np.cos(2.0 * np.pi * gamma_rate_hz * t)
+    a = 1.0 - (depth * g) * (1.0 - e)
+    return a * np.sin(2.0 * np.pi * GAMMA_CARRIER_HZ * t)
+
+
+def curve_full_cycles(curve, seconds=CURVE_SECONDS):
+    center, swing, start = curve
+    span = curve_cycles(np.array([seconds - 0.5]), center, swing, start) - \
+        curve_cycles(np.array([0.5]), center, swing, start)
+    return int(span[0])
+
+
+@pytest.fixture(scope="module")
+def curved_theta():
+    cache = {}
+
+    def get(fs, shape, curve):
+        key = (fs, shape, curve)
+        if key not in cache:
+            cache[key] = curved_theta_tap(fs, shape, curve)
+        return cache[key]
+
+    return get
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+@pytest.mark.parametrize("shape", CURVE_SHAPES)
+@pytest.mark.parametrize("curve", THETA_CURVES)
+def test_rate_curve_zero_degree_times_read_within_calibration(fs, shape, curve, curved_theta):
+    mod = ct()
+    center, swing, start = curve
+    got = mod.zero_degree_times(curved_theta(fs, shape, curve), fs, center, shape, cycle=theta_cycle(swing, start))
+    assert isinstance(got, np.ndarray) and got.dtype == np.float64 and got.ndim == 1
+    assert got.size >= curve_full_cycles(curve) - 2, got.size
+    assert np.all(got >= mod.TRIM_S) and np.all(got <= CURVE_SECONDS - mod.TRIM_S), got
+    k = np.round(curve_cycles(got, center, swing, start))
+    assert np.all(np.diff(k) == 1), k
+    want = curve_time(k, center, swing, start)
+    assert np.max(np.abs(got - want)) < calibration_s(), (fs, shape, curve, np.max(np.abs(got - want)))
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+@pytest.mark.parametrize("shape", CURVE_SHAPES)
+@pytest.mark.parametrize("curve", THETA_CURVES[:2])
+def test_rate_curve_swell_peaks_read_within_calibration(fs, shape, curve, curved_theta):
+    mod = ct()
+    center, swing, start = curve
+    cycle = theta_cycle(swing, start)
+    theta = curved_theta(fs, shape, curve)
+    for phase_deg in (0.0, 90.0, 270.0):
+        for depth in DEPTHS:
+            where = (fs, shape, curve, phase_deg, depth)
+            gamma = curved_swell_tap(fs, depth, phase_deg, curve)
+            got = mod.timing_errors(gamma, theta, fs, center, shape, phase_deg, cycle=cycle)
+            assert isinstance(got, np.ndarray) and got.dtype == np.float64 and got.ndim == 1, where
+            assert got.size >= curve_full_cycles(curve) - 3, (where, got.size)
+            assert np.max(np.abs(got)) < calibration_s(), (where, got)
+    result = mod.check("calibration", curved_swell_tap(fs, 0.25, 90.0, curve), theta, fs, center, shape, 90.0,
+                       row_id=mod.CALIBRATION_ROW, cycle=cycle)
+    assert result["result"] == "pass", result
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+@pytest.mark.parametrize("shift_s", (0.0001, 0.0015, -0.0015))
+def test_rate_curve_known_shift_is_measured_within_calibration(fs, shift_s, curved_theta):
+    mod = ct()
+    curve = THETA_CURVES[0]
+    center, swing, start = curve
+    theta = curved_theta(fs, "sine", curve)
+    for phase_deg in (0.0, 270.0):
+        gamma = curved_swell_tap(fs, 1.0, phase_deg, curve, shift_s=shift_s)
+        got = mod.timing_errors(gamma, theta, fs, center, "sine", phase_deg, cycle=theta_cycle(swing, start))
+        assert np.max(np.abs(got - shift_s)) < calibration_s(), (fs, shift_s, phase_deg, got)
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_rate_curve_zero_degree_point_comes_from_the_theta_tap(fs):
+    # Theta moved alone by 1.5 ms: every swell reads early by that much.
+    mod = ct()
+    curve = THETA_CURVES[0]
+    center, swing, start = curve
+    theta = curved_theta_tap(fs, "sine", curve, zero_shift_s=0.0015)
+    gamma = curved_swell_tap(fs, 1.0, 90.0, curve)
+    got = mod.timing_errors(gamma, theta, fs, center, "sine", 90.0, cycle=theta_cycle(swing, start))
+    assert np.max(np.abs(got + 0.0015)) < calibration_s(), got
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+@pytest.mark.parametrize("depth", DEPTHS)
+def test_rate_curve_doctored_3_ms_swell_shift_fails_the_timing_row(fs, depth, curved_theta):
+    # Must-fail made here: every swell peak 3 ms late (row coupling-timing is 2 ms).
+    mod = ct()
+    for curve in THETA_CURVES[:2]:
+        center, swing, start = curve
+        cycle = theta_cycle(swing, start)
+        for shape in CURVE_SHAPES:
+            theta = curved_theta(fs, shape, curve)
+            on_time = mod.check("on time", curved_swell_tap(fs, depth, 90.0, curve), theta, fs, center, shape, 90.0,
+                                cycle=cycle)
+            assert on_time["result"] == "pass", (curve, shape, on_time)
+            assert on_time["row"] == mod.ROW and on_time["threshold"] == table_row("coupling-timing").value
+            for shift in (0.003, -0.003):
+                moved = mod.check("3 ms", curved_swell_tap(fs, depth, 90.0, curve, shift_s=shift), theta, fs, center,
+                                  shape, 90.0, cycle=cycle)
+                assert moved["result"] == "fail", (curve, shape, shift, moved)
+                assert abs(moved["measured"] - 3.0) < table_row("coupling-timing-calibration").value, moved
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+@pytest.mark.parametrize("shape", CURVE_SHAPES)
+def test_rate_curve_burst_centers_read_within_calibration(fs, shape, curved_theta):
+    mod = ct()
+    for curve in THETA_CURVES[:2]:
+        center, swing, start = curve
+        cycle = theta_cycle(swing, start)
+        theta = curved_theta(fs, shape, curve)
+        for phase_deg in (0.0, 90.0, 270.0):
+            for depth in DEPTHS:
+                where = (fs, shape, curve, phase_deg, depth)
+                gamma = curved_burst_tap(fs, depth, phase_deg, curve)
+                got = mod.timing_errors(gamma, theta, fs, center, shape, phase_deg, coupling="bursts",
+                                        gamma_rate_hz=GAMMA_RATE_HZ, cycle=cycle)
+                assert got.size >= curve_full_cycles(curve) - 3, (where, got.size)
+                assert np.max(np.abs(got)) < calibration_s(), (where, got)
+        result = mod.check("calibration", curved_burst_tap(fs, 0.25, 270.0, curve), theta, fs, center, shape, 270.0,
+                           row_id=mod.CALIBRATION_ROW, coupling="bursts", gamma_rate_hz=GAMMA_RATE_HZ, cycle=cycle)
+        assert result["result"] == "pass", (curve, result)
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_rate_curve_doctored_3_ms_burst_shift_fails_the_timing_row(fs, curved_theta):
+    mod = ct()
+    curve = THETA_CURVES[0]
+    center, swing, start = curve
+    cycle = theta_cycle(swing, start)
+    for shape in CURVE_SHAPES:
+        theta = curved_theta(fs, shape, curve)
+        on_time = mod.check("on time", curved_burst_tap(fs, 1.0, 0.0, curve), theta, fs, center, shape, 0.0,
+                            coupling="bursts", gamma_rate_hz=GAMMA_RATE_HZ, cycle=cycle)
+        assert on_time["result"] == "pass", (shape, on_time)
+        for shift in (0.003, -0.003):
+            moved = mod.check("3 ms", curved_burst_tap(fs, 1.0, 0.0, curve, shift_s=shift), theta, fs, center, shape,
+                              0.0, coupling="bursts", gamma_rate_hz=GAMMA_RATE_HZ, cycle=cycle)
+            assert moved["result"] == "fail", (shape, shift, moved)
+            assert abs(moved["measured"] - 3.0) < table_row("coupling-timing-calibration").value, moved
+        known = mod.timing_errors(curved_burst_tap(fs, 1.0, 0.0, curve, shift_s=0.0015), theta, fs, center, shape,
+                                  0.0, coupling="bursts", gamma_rate_hz=GAMMA_RATE_HZ, cycle=cycle)
+        assert np.max(np.abs(known - 0.0015)) < calibration_s(), (shape, known)
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_constant_rate_mode_cannot_time_a_curved_signal(fs, curved_theta):
+    # Must-fail: the curved swell and bursts judged at the constant center rate.
+    mod = ct()
+    curve = THETA_CURVES[0]
+    center, _, _ = curve
+    theta = curved_theta(fs, "sine", curve)
+    swell = mod.check("no cycle", curved_swell_tap(fs, 1.0, 90.0, curve), theta, fs, center, "sine", 90.0)
+    assert swell["result"] == "fail", swell
+    bursts = mod.check("no cycle", curved_burst_tap(fs, 1.0, 90.0, curve), theta, fs, center, "sine", 90.0,
+                       coupling="bursts", gamma_rate_hz=GAMMA_RATE_HZ)
+    assert bursts["result"] == "fail", bursts
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_rate_curve_mode_with_the_wrong_cycle_fails(fs, curved_theta):
+    mod = ct()
+    curve = THETA_CURVES[0]
+    center, swing, start = curve
+    theta = curved_theta(fs, "sine", curve)
+    gamma = curved_swell_tap(fs, 1.0, 90.0, curve)
+    wrong = mod.check("wrong start phase", gamma, theta, fs, center, "sine", 90.0, cycle=theta_cycle(swing, 90.0))
+    assert wrong["result"] == "fail", wrong
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_constant_rate_results_are_unchanged_by_the_cycle_parameter(fs):
+    # cycle=None and no cycle give the same results to the bit, for both couplings.
+    mod = ct()
+    for shape in ("sine", "sawtooth"):
+        theta = theta_tap(fs, shape)
+        gamma = gamma_tap(fs, 1.0, 90.0, shift_s=0.0007)
+        base = mod.timing_errors(gamma, theta, fs, THETA_RATE_HZ, shape, 90.0)
+        none = mod.timing_errors(gamma, theta, fs, THETA_RATE_HZ, shape, 90.0, cycle=None)
+        assert np.array_equal(base.view(np.uint64), none.view(np.uint64)), shape
+        zeros = mod.zero_degree_times(theta, fs, THETA_RATE_HZ, shape)
+        zeros_none = mod.zero_degree_times(theta, fs, THETA_RATE_HZ, shape, cycle=None)
+        assert np.array_equal(zeros.view(np.uint64), zeros_none.view(np.uint64)), shape
+        bursts = burst_tap(fs, 1.0, 90.0, shift_s=0.0007)
+        b0 = mod.timing_errors(bursts, theta, fs, THETA_RATE_HZ, shape, 90.0, coupling="bursts",
+                               gamma_rate_hz=GAMMA_RATE_HZ)
+        b1 = mod.timing_errors(bursts, theta, fs, THETA_RATE_HZ, shape, 90.0, coupling="bursts",
+                               gamma_rate_hz=GAMMA_RATE_HZ, cycle=None)
+        assert np.array_equal(b0.view(np.uint64), b1.view(np.uint64)), shape
+        assert mod.check("a", gamma, theta, fs, THETA_RATE_HZ, shape, 90.0) == \
+            mod.check("a", gamma, theta, fs, THETA_RATE_HZ, shape, 90.0, cycle=None)
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_zero_swing_cycle_reads_like_the_constant_rate(fs):
+    mod = ct()
+    theta = theta_tap(fs, "sine")
+    gamma = gamma_tap(fs, 1.0, 90.0, shift_s=0.0007)
+    base = mod.timing_errors(gamma, theta, fs, THETA_RATE_HZ, "sine", 90.0)
+    flat = mod.timing_errors(gamma, theta, fs, THETA_RATE_HZ, "sine", 90.0, cycle=theta_cycle(0.0, 270.0))
+    assert base.shape == flat.shape
+    assert np.max(np.abs(base - flat)) < calibration_s(), (base, flat)
+
+
+def test_rate_curve_mode_non_finite_input_fails():
+    mod = ct()
+    fs = SAMPLE_RATES[0]
+    curve = THETA_CURVES[0]
+    center, swing, start = curve
+    theta = curved_theta_tap(fs, "sine", curve, seconds=5.0)
+    for bad in (math.nan, math.inf):
+        gamma = curved_swell_tap(fs, 1.0, 0.0, curve, seconds=5.0)
+        gamma[fs + 3] = bad
+        result = mod.check("bad", gamma, theta, fs, center, "sine", 0.0, cycle=theta_cycle(swing, start))
+        assert result["result"] == "fail" and result["note"] == "not finite" and result["measured"] is None

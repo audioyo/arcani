@@ -525,14 +525,17 @@ var EPICS = [
       ["x","Each burst center within 2 ms of its coupling phase"],
       ["x","No click above -60 dBFS at burst edges; matches the reference"]
     ] },
-  { id:"2.6", title:"Rate curves on theta and gamma rates", status:"backlog",
+  { id:"2.6", title:"Rate curves on theta and gamma rates", status:"review",
     plain:"The theta and gamma rates follow recipe rate curves using the same law as the binaural beat.",
-    steps:S7(), acs:[
-      [" ","Same rate-curve law as 2.5; no new formula"],
-      [" ","Worst case over the whole curve is range-checked and carrier-rule-checked; must-fail curve rejected"],
-      [" ","Instantaneous rate within 0.01 Hz with continuous phase"],
-      [" ","Coupling timing within 2 ms along a theta rate curve"],
-      [" ","Matches the reference"]
+    spec:["spec-2-6-rate-curves-on-theta-and-gamma-rates.md"],
+    steps:[true,true,true,true,true,false,false],
+    stepNotes:["a256046: spec 2026-11-13, burst and edge lengths and the cycle period decided by Audio 2026-11-14; ffb404f: signal spec rate curve on the theta and gamma rates with 2 new vector tables (38 in all)","0e525e9: fresh-context QA agent's failing tests; C++ did not compile against the old engine, 59 of 184 Python cases in the reference, probe, and record files red","d44f5a0: rate_cycle fields, worst-case checks, curved envelope phases, core/rate_cycle, reference/rate_curve.py, envelope phase and rate-curve timing modes, 12 fixtures, rate-curves probe components; 4/4 ctest entries, 2,706 pytest pass, 4 hash-entry tests wait for the full run; design log (ss)","d3b0b8a: review pass 1 (blind hunter, edge case hunter, verification gap; 21 findings, 5 patched, 15 rejected, 1 CI gate): center-rate note on theta-edge, burst-width, burst-edge; harness reference match at start phases 90 and 270, sawtooth, reverse saw, curved gamma with bursts; click check on curved renders; 4/4 ctest entries, 2,720 pytest pass, 4 hash-entry tests wait for the full run","62564d4: rate-curves hashes pinned from full run 43638339501; ab2facf and efbfc43: six CI budgets raised by Audio (design log (tt)); fast run 43656941898 and full run 43656946457 green on every job within budget, rate-curves hashes equal on all four platforms","",""],
+    acs:[
+      ["x","Same rate-curve law as 2.5; no new formula"],
+      ["x","Worst case over the whole curve is range-checked and carrier-rule-checked; must-fail curve rejected"],
+      ["x","Instantaneous rate within 0.01 Hz with continuous phase"],
+      ["x","Coupling timing within 2 ms along a theta rate curve"],
+      ["x","Matches the reference"]
     ] },
   { id:"2.7", title:"Looping body and seams", status:"backlog",
     plain:"Looping recipes play an opening once and repeat the body seamlessly until the max run time.",
@@ -724,6 +727,9 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-14","efbfc43","2.6","PR #17 opened; full run 43638339501 red only on the missing rate-curves entries and wall time; hashes pinned (62564d4); Audio raised six CI budgets (ab2facf, efbfc43; design log (tt), 0 billed minutes on the public repo); fast run 43656941898 and full run 43656946457 green on every job within budget, rate-curves hashes equal on all four platforms; PR waits for Audio to merge"],
+  ["2026-11-14","d3b0b8a","2.6","Review pass 1: 21 findings, 5 patched in d3b0b8a (center-rate row notes, design log count, validator comment, harness reference match at more start phases and shapes and curved gamma with bursts, click check on curved renders), 15 rejected, 1 CI gate (hash pins); 4/4 ctest entries, 2,720 pytest pass, 4 hash-entry tests wait for the four-platform full run; story in review; not pushed"],
+  ["2026-11-14","d44f5a0","2.6","Spec a256046 and signal spec ffb404f; failing tests 0e525e9 (fresh-context QA agent); implementation d44f5a0: theta and gamma rate curves, 4/4 ctest entries, 2,706 pytest pass, 4 hash-entry tests wait for the four-platform full run; design log (ss); not pushed, review pass not yet run"],
   ["2026-11-14","ce2a49e","2.4","PR #16 merged into main after fast and full checks on 9e065df were green, every job within budget; sprint-status.yaml set to done; deferred: listening check on burst-to-burst variation (Story 3.3 or Phase 0)"],
   ["2026-11-13","8b2561e","2.4","Rerun on 52aa789 red only on windows-x64 wall time: 20.9 of 20 min in both tiers on the same code that took 13.5 and 16.5 min (runner variance, every test passed); Audio raised fast and full windows-x64 budgets to 25 min; design log (rr)"],
   ["2026-11-13","3317484","2.4","Pushed; PR #16 opened. Full run 43525414721 red only on the missing gamma-bursts entries and wall time; burst-center fit sped up (f22f29f, same results within 6.4e-9 ms, Story 2.4 tests 1081 to 395 s on the dev PC) and gamma-bursts hashes pinned; three CI budgets raised by Audio (3317484); full run 43546492371 and fast run 43546488139 green on every job, gamma-bursts hashes equal on all four platforms; design log (rr); PR waits for Audio to merge"],

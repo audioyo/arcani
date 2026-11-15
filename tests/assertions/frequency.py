@@ -1,4 +1,4 @@
-"""Frequency accuracy tool (Story 2.1, FR-1).
+"""Frequency accuracy tool (Stories 2.1, 2.5, and 2.6, FR-1).
 
 Measures the carrier and the AM rate of one channel. Calibrated on
 Python-synthesized signals of known carrier and rate first
@@ -33,6 +33,17 @@ the verdict reads row `frequency-accuracy` through `row` on every call.
   instantaneous rate error; it passes only when that is strictly below the
   row and no per-sample step reaches PHASE_STEP_CYCLES (note "phase step");
   a NaN or infinite measure fails with note "not finite".
+- Envelope phase mode (Story 2.6), for a theta or gamma envelope whose rate
+  follows a rate curve: curve_phase(t, rate_hz, cycle=None) is the ideal
+  phase integral in cycles (r t without a cycle; cycle a mapping with
+  swing_hz, period_s, start_phase_deg). envelope_phase_track(x, fs,
+  expected_cycles) takes |analytic(x)|, removes its mean, tapers each end
+  by a raised cosine over ENVELOPE_TAPER_S, forms its analytic signal with
+  every bin below half the bottom of row theta-rate zeroed, removes the
+  expected phase, trims ENVELOPE_TRIM_S at each end, and unwraps: the same
+  dict as phase_track. For a sine-shape theta tap or an uncoupled gamma tap.
+  check_envelope_phase(name, x, fs, expected_cycles) is check_phase's
+  report shape on row frequency-accuracy.
 
 NumPy and the standard library only.
 """
@@ -197,6 +208,90 @@ def check_phase(name, x, fs, expected_cycles) -> dict:
     result = {"name": name, "row": ACCURACY_ROW, "threshold": r.value, "unit": r.unit,
               "measured": None, "result": "fail", "note": ""}
     track = phase_track(x, fs, expected_cycles)
+    measured = track["max_rate_error_hz"]
+    step = track["max_step_cycles"]
+    if not (math.isfinite(measured) and math.isfinite(step)):
+        result["note"] = "not finite"
+        return result
+    result["measured"] = measured
+    if not step < PHASE_STEP_CYCLES:
+        result["note"] = "phase step"
+        return result
+    result["result"] = "pass" if measured < r.value else "fail"
+    return result
+
+
+# --------------------------------------------------- envelope phase mode
+#
+# Story 2.6: along a theta or gamma rate curve the envelope rate must follow
+# the schedule within row frequency-accuracy, with continuous phase. The
+# envelope of a sine-shape theta tap or an uncoupled gamma tap is a raised
+# cosine of the envelope phase, so its mean-removed analytic signal carries
+# that phase. The envelope runs at 1 Hz and up, so its record ends ring far
+# longer than a carrier's: a longer taper and trim, and every bin below half
+# the bottom of row theta-rate removed (the mean and its leakage).
+
+ENVELOPE_TRIM_S = 10.0
+ENVELOPE_TAPER_S = 5.0
+
+
+def curve_phase(t, rate_hz, cycle=None) -> np.ndarray:
+    """Ideal phase integral in cycles at times t (signal spec, Rate curve, Phase integral)."""
+    t = np.asarray(t, dtype=np.float64)
+    r = float(rate_hz)
+    if cycle is None:
+        return r * t
+    s = float(cycle["swing_hz"])
+    period = float(cycle["period_s"])
+    phi0 = math.radians(float(cycle["start_phase_deg"]))
+    k = s * period / (2.0 * math.pi)
+    return r * t + k * (math.cos(phi0) - np.cos(2.0 * math.pi * t / period + phi0))
+
+
+def envelope_phase_track(x, fs, expected_cycles) -> dict:
+    """Residual phase of the envelope of x against the expected envelope phase integral."""
+    a = np.asarray(x, dtype=np.float64)
+    expected = np.asarray(expected_cycles, dtype=np.float64)
+    if expected.shape != a.shape:
+        raise ValueError(f"expected_cycles has shape {expected.shape}, x has {a.shape}")
+    k = int(round(ENVELOPE_TRIM_S * fs))
+    m = int(round(ENVELOPE_TAPER_S * fs))
+    if a.size <= 2 * k + 1:
+        raise ValueError(f"signal of {a.size} samples is too short for a {ENVELOPE_TRIM_S} s trim at each end")
+    env = np.abs(_analytic(a))
+    env = env - float(np.mean(env))
+    taper = np.ones(a.size)
+    edge = 0.5 - 0.5 * np.cos(math.pi * np.arange(m) / m)
+    taper[:m] = edge
+    taper[a.size - m:] = edge[::-1]
+    spectrum = np.fft.fft(env * taper)
+    f = np.fft.fftfreq(a.size, d=1.0 / float(fs))
+    low = row("theta-rate").min / 2.0
+    z = np.fft.ifft(spectrum * np.where(f > low, 2.0, 0.0))
+    frac = expected - np.rint(expected)
+    z = z * np.exp(-2j * math.pi * frac)
+    z = z[k:a.size - k]
+    residual = np.unwrap(np.angle(z)) / (2.0 * math.pi)
+    residual = residual - residual[0]
+    step = np.diff(residual)
+    rate_error = step * float(fs)
+    return {
+        "residual_cycles": residual,
+        "rate_error_hz": rate_error,
+        "max_rate_error_hz": float(np.max(np.abs(rate_error))) if rate_error.size else 0.0,
+        "max_step_cycles": float(np.max(np.abs(step))) if step.size else 0.0,
+    }
+
+
+def check_envelope_phase(name, x, fs, expected_cycles) -> dict:
+    r = row(ACCURACY_ROW)
+    result = {"name": name, "row": ACCURACY_ROW, "threshold": r.value, "unit": r.unit,
+              "measured": None, "result": "fail", "note": ""}
+    a = np.asarray(x, dtype=np.float64)
+    if not np.all(np.isfinite(a)):
+        result["note"] = "not finite"
+        return result
+    track = envelope_phase_track(a, fs, expected_cycles)
     measured = track["max_rate_error_hz"]
     step = track["max_step_cycles"]
     if not (math.isfinite(measured) and math.isfinite(step)):

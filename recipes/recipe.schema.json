@@ -84,7 +84,7 @@
           "type": "number"
         },
         "rate_hz": {
-          "description": "Theta rate in Hz: the envelope repeats at this rate.",
+          "description": "Theta rate in Hz: the envelope repeats at this rate; with rate_cycle, the center of the cycle.",
           "x-arcani-tag": "loudness-relevant",
           "type": "number"
         },
@@ -98,6 +98,30 @@
           "x-arcani-tag": "loudness-relevant",
           "type": "string",
           "enum": ["sine", "smoothed_on_off", "sawtooth", "reverse_saw", "custom"]
+        },
+        "rate_cycle": {
+          "description": "Optional sinusoidal theta rate cycle (docs/signal-spec.md, Rate curve): the theta rate is rate_hz + swing_hz * sin(2 pi t / period_s + start_phase_deg); only the envelope phase follows it, never the carrier.",
+          "x-arcani-tag": "loudness-relevant",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["swing_hz", "period_s", "start_phase_deg"],
+          "properties": {
+            "swing_hz": {
+              "description": "Swing in Hz: the rate spans rate_hz - swing_hz to rate_hz + swing_hz.",
+              "x-arcani-tag": "loudness-relevant",
+              "type": "number"
+            },
+            "period_s": {
+              "description": "Cycle period in seconds.",
+              "x-arcani-tag": "loudness-relevant",
+              "type": "number"
+            },
+            "start_phase_deg": {
+              "description": "Start phase in degrees: 0 at the center rising, 90 at the maximum, 270 at the minimum; 360 is the same point as 0.",
+              "x-arcani-tag": "loudness-relevant",
+              "type": "number"
+            }
+          }
         }
       }
     },
@@ -114,7 +138,7 @@
           "type": "number"
         },
         "rate_hz": {
-          "description": "Gamma rate in Hz: the AM envelope repeats at this rate.",
+          "description": "Gamma rate in Hz: the AM envelope repeats at this rate; with rate_cycle, the center of the cycle.",
           "x-arcani-tag": "loudness-relevant",
           "type": "number"
         },
@@ -139,6 +163,30 @@
           "description": "Coupling phase in degrees, measured on the theta reference envelope from its 0 degree point (the envelope peak); 360 is the same point as 0. Required with smooth_swell and bursts and rejected with uncoupled, at compile.",
           "x-arcani-tag": "loudness-relevant",
           "type": "number"
+        },
+        "rate_cycle": {
+          "description": "Optional sinusoidal gamma rate cycle (docs/signal-spec.md, Rate curve): the gamma rate is rate_hz + swing_hz * sin(2 pi t / period_s + start_phase_deg); only the envelope phase follows it, never the carrier.",
+          "x-arcani-tag": "loudness-relevant",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["swing_hz", "period_s", "start_phase_deg"],
+          "properties": {
+            "swing_hz": {
+              "description": "Swing in Hz: the rate spans rate_hz - swing_hz to rate_hz + swing_hz.",
+              "x-arcani-tag": "loudness-relevant",
+              "type": "number"
+            },
+            "period_s": {
+              "description": "Cycle period in seconds.",
+              "x-arcani-tag": "loudness-relevant",
+              "type": "number"
+            },
+            "start_phase_deg": {
+              "description": "Start phase in degrees: 0 at the center rising, 90 at the maximum, 270 at the minimum; 360 is the same point as 0.",
+              "x-arcani-tag": "loudness-relevant",
+              "type": "number"
+            }
+          }
         }
       }
     },

@@ -44,6 +44,14 @@ Contract with recipes/recipe.schema.json (JSON Schema draft 2020-12):
   means sine). Every new property is `loudness-relevant`. The cycle's locked
   ranges (rows rate-cycle-period and rate-cycle-start-phase) and its
   worst-case rate checks live in the tables and the validator, not the schema.
+- Story 2.6: `theta_reference` gains the optional `rate_cycle` after `shape`,
+  and `gamma_pac` the optional `rate_cycle` after `coupling_phase_deg`: each
+  an object, additionalProperties false, that requires `swing_hz`,
+  `period_s`, and `start_phase_deg`, each a number, the same shape as
+  `binaural.beat_rate_cycle`. Every new property is `loudness-relevant`. Its
+  locked ranges and worst-case checks live in the tables and the validator.
+  A missing member is a `required` fault (invalid fixture
+  theta-cycle-missing-start-phase.json).
 - The schema holds structure and types only. The only numeric bounds allowed
   are the seed bounds 0 and 2^53 - 1; locked ranges live in
   tests/tables/ranges.tsv (Story 1.3).
@@ -91,6 +99,10 @@ FIELDS = {
     "/theta_reference/rate_hz": ("number", "loudness-relevant", True),
     "/theta_reference/am_depth_percent": ("number", "loudness-relevant", True),
     "/theta_reference/shape": ("string", "loudness-relevant", True),
+    "/theta_reference/rate_cycle": ("object", "loudness-relevant", False),             # Story 2.6
+    "/theta_reference/rate_cycle/swing_hz": ("number", "loudness-relevant", True),
+    "/theta_reference/rate_cycle/period_s": ("number", "loudness-relevant", True),
+    "/theta_reference/rate_cycle/start_phase_deg": ("number", "loudness-relevant", True),
     "/gamma_pac": ("object", ANY_TAG, False),                              # Story 2.2
     "/gamma_pac/carrier_hz": ("number", "loudness-relevant", True),
     "/gamma_pac/rate_hz": ("number", "loudness-relevant", True),
@@ -98,6 +110,10 @@ FIELDS = {
     "/gamma_pac/carrier_wave": ("string", "loudness-relevant", True),
     "/gamma_pac/coupling": ("string", "loudness-relevant", True),
     "/gamma_pac/coupling_phase_deg": ("number", "loudness-relevant", False),  # Story 2.3
+    "/gamma_pac/rate_cycle": ("object", "loudness-relevant", False),                   # Story 2.6
+    "/gamma_pac/rate_cycle/swing_hz": ("number", "loudness-relevant", True),
+    "/gamma_pac/rate_cycle/period_s": ("number", "loudness-relevant", True),
+    "/gamma_pac/rate_cycle/start_phase_deg": ("number", "loudness-relevant", True),
     "/binaural": ("object", ANY_TAG, False),
     "/binaural/carrier_left_hz": ("number", "loudness-relevant", True),
     "/binaural/beat_rate_hz": ("number", "loudness-relevant", True),
@@ -317,7 +333,8 @@ def test_theta_shape_enum_accepts_custom_and_rejects_other_text():
 # ------------------------------------------------- gamma PAC layer (Story 2.2)
 
 GAMMA_REQUIRED = ["carrier_hz", "rate_hz", "am_depth_percent", "carrier_wave", "coupling"]
-GAMMA_PROPERTIES = GAMMA_REQUIRED + ["coupling_phase_deg"]  # Story 2.3: optional, after coupling
+# Story 2.3: coupling_phase_deg optional, after coupling; Story 2.6: rate_cycle optional, last.
+GAMMA_PROPERTIES = GAMMA_REQUIRED + ["coupling_phase_deg", "rate_cycle"]
 GAMMA_CARRIER_WAVE_ENUM = ["sine", "triangle", "softened_square"]
 GAMMA_COUPLING_ENUM = ["uncoupled", "smooth_swell", "bursts"]  # Story 2.3 adds smooth_swell, 2.4 bursts
 
@@ -510,3 +527,105 @@ def test_binaural_cycle_and_waveform_accept_and_reject():
     assert {e.validator for e in errors} == {"additionalProperties"}, [e.message for e in errors]
     errors = list(validator.iter_errors(binaural_recipe(cycle=[1.5, 60, 270])))
     assert {e.validator for e in errors} == {"type"}, [e.message for e in errors]
+
+
+# ------------------------------------------- rate curves on theta and gamma (Story 2.6)
+
+THETA_PROPERTIES = ["carrier_hz", "rate_hz", "am_depth_percent", "shape", "rate_cycle"]
+THETA_CYCLE = {"swing_hz": 2.5, "period_s": 60, "start_phase_deg": 0}
+GAMMA_CYCLE = {"swing_hz": 15, "period_s": 60, "start_phase_deg": 0}
+REPO_FIXTURES = REPO_ROOT / "recipes" / "fixtures"
+MISSING_START = "theta-cycle-missing-start-phase.json"
+
+
+def cycle_recipe(theta_cycle=None, gamma_cycle=None):
+    r = {
+        "schema_version": "1.0", "engine_version": "0.0.1", "seed": 42,
+        "author": "Arcani test", "date": "2026-11-14", "rationale": "Schema rate curve test.",
+        "length_s": 1, "loudness_target_lufs": -36,
+        "theta_reference": {"carrier_hz": 450, "rate_hz": 3.5, "am_depth_percent": 75, "shape": "sine"},
+        "gamma_pac": {"carrier_hz": 250, "rate_hz": 45, "am_depth_percent": 100, "carrier_wave": "sine",
+                      "coupling": "smooth_swell", "coupling_phase_deg": 0},
+    }
+    if theta_cycle is not None:
+        r["theta_reference"]["rate_cycle"] = theta_cycle
+    if gamma_cycle is not None:
+        r["gamma_pac"]["rate_cycle"] = gamma_cycle
+    return r
+
+
+def layer_cycle_node(schema, layer):
+    node = resolve(schema, schema["properties"][layer])
+    assert "rate_cycle" in node["properties"], f"no {layer}.rate_cycle property (Story 2.6)"
+    return node, resolve(schema, node["properties"]["rate_cycle"])
+
+
+def test_theta_and_gamma_gain_a_rate_cycle_shaped_like_the_beat_rate_cycle():
+    schema = load_schema_strict()
+    theta = resolve(schema, schema["properties"]["theta_reference"])
+    assert list(theta["properties"]) == THETA_PROPERTIES
+    assert sorted(theta.get("required", [])) == sorted(THETA_PROPERTIES[:4])
+    assert list(gamma_node(schema)["properties"]) == GAMMA_PROPERTIES
+    beat = resolve(schema, binaural_node(schema)["properties"]["beat_rate_cycle"])
+    for layer in ("theta_reference", "gamma_pac"):
+        node, cycle = layer_cycle_node(schema, layer)
+        assert "rate_cycle" not in node.get("required", []), layer
+        assert node["properties"]["rate_cycle"].get("x-arcani-tag") == "loudness-relevant", layer
+        assert cycle.get("type") == "object", layer
+        assert cycle.get("additionalProperties") is False, layer
+        assert list(cycle["properties"]) == CYCLE_PROPERTIES, layer
+        assert sorted(cycle.get("required", [])) == sorted(CYCLE_PROPERTIES), layer
+        for name in CYCLE_PROPERTIES:
+            prop = cycle["properties"][name]
+            assert prop.get("x-arcani-tag") == "loudness-relevant", (layer, name)
+            assert resolve(schema, prop).get("type") == "number", (layer, name)
+            assert not {"minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"} & set(resolve(schema, prop))
+        # The same members, types, and required list as the beat rate cycle.
+        assert list(cycle["properties"]) == list(beat["properties"]), layer
+        assert sorted(cycle["required"]) == sorted(beat["required"]), layer
+
+
+def test_theta_and_gamma_rate_cycles_accept_and_reject():
+    import jsonschema
+
+    validator = jsonschema.Draft202012Validator(load_schema_strict())
+    assert not list(validator.iter_errors(cycle_recipe())), "no cycle"
+    assert not list(validator.iter_errors(cycle_recipe(THETA_CYCLE))), "theta cycle"
+    assert not list(validator.iter_errors(cycle_recipe(None, GAMMA_CYCLE))), "gamma cycle"
+    assert not list(validator.iter_errors(cycle_recipe(THETA_CYCLE, GAMMA_CYCLE))), "both"
+    # Out of the locked ranges is still schema-valid (the ranges live in the tables).
+    for bad_range in ({"swing_hz": -1, "period_s": 59.99, "start_phase_deg": 360.01},
+                      {"swing_hz": 30, "period_s": 60.01, "start_phase_deg": -0.01}):
+        assert not list(validator.iter_errors(cycle_recipe(bad_range, bad_range))), bad_range
+    for layer, base in (("theta_reference", THETA_CYCLE), ("gamma_pac", GAMMA_CYCLE)):
+        def with_cycle(cycle, layer=layer):
+            return cycle_recipe(cycle, None) if layer == "theta_reference" else cycle_recipe(None, cycle)
+
+        for name in CYCLE_PROPERTIES:
+            missing = {k: v for k, v in base.items() if k != name}
+            errors = list(validator.iter_errors(with_cycle(missing)))
+            assert {e.validator for e in errors} == {"required"}, (layer, name, [e.message for e in errors])
+            text = dict(base, **{name: "1"})
+            errors = list(validator.iter_errors(with_cycle(text)))
+            assert {e.validator for e in errors} == {"type"}, (layer, name, [e.message for e in errors])
+            assert {"/".join(str(p) for p in e.absolute_path) for e in errors} == {
+                f"{layer}/rate_cycle/{name}"}, (layer, name)
+        errors = list(validator.iter_errors(with_cycle(dict(base, curve="linear"))))
+        assert {e.validator for e in errors} == {"additionalProperties"}, (layer, [e.message for e in errors])
+        errors = list(validator.iter_errors(with_cycle([2.5, 60, 0])))
+        assert {e.validator for e in errors} == {"type"}, (layer, [e.message for e in errors])
+
+
+def test_missing_start_phase_fixture_fails_the_schema_with_required():
+    import jsonschema
+
+    path = REPO_FIXTURES / "invalid" / MISSING_START
+    assert path.is_file(), f"missing fixture {path} (Story 2.6)"
+    recipe = json.loads(path.read_text(encoding="utf-8"))
+    validator = jsonschema.Draft202012Validator(load_schema_strict())
+    errors = list(validator.iter_errors(recipe))
+    assert {e.validator for e in errors} == {"required"}, [e.message for e in errors]
+    assert {"/".join(str(p) for p in e.absolute_path) for e in errors} == {"theta_reference/rate_cycle"}
+    expected = json.loads((REPO_FIXTURES / "invalid-expected.json").read_text(encoding="utf-8"))["fixtures"]
+    assert expected.get(MISSING_START) == {"parameter": "/theta_reference/rate_cycle/start_phase_deg",
+                                           "rule": "required", "schema_keyword": "required"}

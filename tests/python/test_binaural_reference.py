@@ -297,7 +297,9 @@ def test_reference_beat_offset_follows_the_rate_curve_vectors(vectors):
     for r in vectors["rate_curve"]:
         key = (r["center_hex"], r["swing_hex"], r["period_hex"], r["start_hex"])
         by_cycle.setdefault(key, []).append(r)
-    assert len(by_cycle) == 3, sorted(by_cycle)
+    # The Sleep cycle at three start phases (Story 2.5) and the three theta
+    # and gamma cycles of the rate-curve fixtures (Story 2.6): one law.
+    assert len(by_cycle) == 6, sorted(by_cycle)
     for fs in SAMPLE_RATES:
         for (center, swing, period, start), rows in by_cycle.items():
             b = {"carrier_left_hz": 100.0, "beat_rate_hz": float.fromhex(center),

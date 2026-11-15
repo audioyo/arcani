@@ -96,6 +96,18 @@
 // LoudnessRelevant. Waveform text outside the enum is rule "enum", limit
 // "sine, triangle". The new members are read through templates and the enum
 // constant through a lookup probe, so the suite builds before they exist.
+//
+// Story 2.6 (rate curves on the theta and gamma rates), recipe/recipe.hpp:
+//   struct RateCycle { double swing_hz, period_s, start_phase_deg; };  // replaces BeatRateCycle
+//   Binaural::beat_rate_cycle is std::optional<RateCycle>;
+//   ThetaReference and GammaPac gain std::optional<RateCycle> rate_cycle;  // absent when absent
+// Field table: /theta_reference/rate_cycle (Object, LoudnessRelevant, not
+// required) right after /theta_reference/shape, then its swing_hz (no range
+// row), period_s (row rate-cycle-period), start_phase_deg (row
+// rate-cycle-start-phase), each a required Number; /gamma_pac/rate_cycle
+// likewise right after /gamma_pac/coupling_phase_deg. The type is reached
+// through a lookup probe and the members through requires-expressions, so the
+// suite builds before they exist.
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -139,6 +151,28 @@ namespace arcani::recipe_probe {
 using namespace arcani::recipe;
 inline const std::string binaural_waveform_enum(kBinauralWaveformEnum);
 }  // namespace arcani::recipe_probe
+
+// Story 2.6 lookup probe for types: the fallbacks live in their own
+// namespace, reached through a using-directive (visible as members of the
+// global namespace), so a real arcani::recipe type hides its fallback.
+namespace recipe_rate_cycle_fallback {
+struct RateCycle {
+  int missing = 0;
+};
+struct BeatRateCycle {
+  int missing = 0;
+};
+}  // namespace recipe_rate_cycle_fallback
+
+namespace arcani::recipe_rate_cycle_probe {
+using namespace ::recipe_rate_cycle_fallback;
+using namespace arcani::recipe;
+using RateCycleType = RateCycle;
+inline constexpr bool kRateCycleDeclared =
+    !std::is_same_v<RateCycleType, ::recipe_rate_cycle_fallback::RateCycle>;
+inline constexpr bool kBeatRateCycleGone =
+    std::is_same_v<BeatRateCycle, ::recipe_rate_cycle_fallback::BeatRateCycle>;
+}  // namespace arcani::recipe_rate_cycle_probe
 
 namespace fs = std::filesystem;
 namespace json = arcani::json;
@@ -859,7 +893,11 @@ TEST_CASE("field table orders the gamma rows between theta and binaural", "[reci
   const std::vector<std::string> gamma = {"/gamma_pac", "/gamma_pac/carrier_hz", "/gamma_pac/rate_hz",
                                           "/gamma_pac/am_depth_percent", "/gamma_pac/carrier_wave",
                                           "/gamma_pac/coupling",
-                                          "/gamma_pac/coupling_phase_deg"};  // Story 2.3
+                                          "/gamma_pac/coupling_phase_deg",  // Story 2.3
+                                          "/gamma_pac/rate_cycle",          // Story 2.6
+                                          "/gamma_pac/rate_cycle/swing_hz",
+                                          "/gamma_pac/rate_cycle/period_s",
+                                          "/gamma_pac/rate_cycle/start_phase_deg"};
   const auto at = std::find(paths.begin(), paths.end(), gamma.front());
   REQUIRE(at != paths.end());
   const auto start = static_cast<std::size_t>(at - paths.begin());
@@ -878,7 +916,7 @@ TEST_CASE("field table orders the gamma rows between theta and binaural", "[reci
     }
     INFO(path);
     CHECK(f.tag == recipe::FieldTag::LoudnessRelevant);
-    if (path == "/gamma_pac") {
+    if (path == "/gamma_pac" || path == "/gamma_pac/rate_cycle") {
       CHECK(f.type == recipe::FieldType::Object);
       CHECK_FALSE(f.required);
     } else if (path == "/gamma_pac/coupling_phase_deg") {
@@ -890,6 +928,267 @@ TEST_CASE("field table orders the gamma rows between theta and binaural", "[reci
       CHECK(f.type == (text ? recipe::FieldType::String : recipe::FieldType::Number));
     }
   }
+}
+
+// ------------------------------------- rate curves on theta and gamma (Story 2.6)
+
+namespace {
+
+namespace rc_probe = arcani::recipe_rate_cycle_probe;
+
+std::string rate_cycle_text(const std::string& body) { return ", \"rate_cycle\": " + body; }
+
+// A 450 Hz carrier amplitude-modulated at 3.5 Hz by the sine envelope, 75
+// percent, with `extra` appended inside theta_reference after shape.
+std::string theta_cycle_recipe(const std::string& extra) {
+  return "{\"schema_version\": \"1.0\", \"engine_version\": \"0.0.1\", \"seed\": 42, "
+         "\"author\": \"Arcani test\", \"date\": \"2026-11-14\", "
+         "\"rationale\": \"Rate curve parse test, made in the test.\", "
+         "\"length_s\": 10, \"loudness_target_lufs\": -36, "
+         "\"theta_reference\": {\"carrier_hz\": 450, \"rate_hz\": 3.5, \"am_depth_percent\": 75, "
+         "\"shape\": \"sine\"" +
+         extra + "}}";
+}
+
+// A 250 Hz sine carrier amplitude-modulated at 45 Hz, 100 percent, uncoupled,
+// with `extra` appended inside gamma_pac after coupling.
+std::string gamma_cycle_recipe(const std::string& extra) {
+  return "{\"schema_version\": \"1.0\", \"engine_version\": \"0.0.1\", \"seed\": 42, "
+         "\"author\": \"Arcani test\", \"date\": \"2026-11-14\", "
+         "\"rationale\": \"Rate curve parse test, made in the test.\", "
+         "\"length_s\": 10, \"loudness_target_lufs\": -36, "
+         "\"gamma_pac\": {\"carrier_hz\": 250, \"rate_hz\": 45, \"am_depth_percent\": 100, "
+         "\"carrier_wave\": \"sine\", \"coupling\": \"uncoupled\"" +
+         extra + "}}";
+}
+
+template <class L>
+concept HasRateCycle = requires(const L& l) {
+  { l.rate_cycle.has_value() } -> std::convertible_to<bool>;
+  { l.rate_cycle->swing_hz } -> std::convertible_to<double>;
+  { l.rate_cycle->period_s } -> std::convertible_to<double>;
+  { l.rate_cycle->start_phase_deg } -> std::convertible_to<double>;
+};
+
+// The layer's rate_cycle against `cycle` (nullopt: absent), or a failed check
+// when the layer has no rate_cycle member yet.
+template <class L>
+void check_rate_cycle(const L& layer, std::optional<WantCycle> cycle, const char* which) {
+  if constexpr (HasRateCycle<L>) {
+    REQUIRE(layer.rate_cycle.has_value() == cycle.has_value());
+    if (cycle.has_value()) {
+      CHECK(layer.rate_cycle->swing_hz == cycle->swing_hz);
+      CHECK(layer.rate_cycle->period_s == cycle->period_s);
+      CHECK(layer.rate_cycle->start_phase_deg == cycle->start_phase_deg);
+    }
+  } else {
+    FAIL("not implemented: recipe::" << which << " has no std::optional<RateCycle> rate_cycle (Story 2.6)");
+  }
+}
+
+template <class L>
+void check_member_type(const char* which) {
+  if constexpr (HasRateCycle<L>) {
+    CHECK(std::is_same_v<decltype(L::rate_cycle), std::optional<rc_probe::RateCycleType>>);
+  } else {
+    FAIL("not implemented: recipe::" << which << " has no rate_cycle (Story 2.6)");
+  }
+}
+
+template <class R>
+concept CycleStructMembers = requires { &R::swing_hz; &R::period_s; &R::start_phase_deg; };
+
+template <class R>
+void check_cycle_struct() {
+  if constexpr (CycleStructMembers<R>) {
+    CHECK(std::is_same_v<decltype(R::swing_hz), double>);
+    CHECK(std::is_same_v<decltype(R::period_s), double>);
+    CHECK(std::is_same_v<decltype(R::start_phase_deg), double>);
+  } else {
+    FAIL("not implemented: recipe::RateCycle {swing_hz, period_s, start_phase_deg} (Story 2.6)");
+  }
+}
+
+}  // namespace
+
+TEST_CASE("recipe::RateCycle is the one cycle type of all three layers", "[recipe][rate-curves]") {
+  CHECK(rc_probe::kRateCycleDeclared);
+  check_cycle_struct<rc_probe::RateCycleType>();
+  CHECK(std::is_same_v<decltype(recipe::Binaural::beat_rate_cycle), std::optional<rc_probe::RateCycleType>>);
+  check_member_type<recipe::ThetaReference>("ThetaReference");
+  check_member_type<recipe::GammaPac>("GammaPac");
+}
+
+TEST_CASE("recipe::BeatRateCycle is gone: it became RateCycle", "[recipe][rate-curves]") {
+  CHECK(rc_probe::kBeatRateCycleGone);
+}
+
+TEST_CASE("engine parse stage fills the theta and gamma rate cycles", "[recipe][rate-curves]") {
+  struct Case {
+    std::string extra;
+    std::optional<WantCycle> cycle;
+  };
+  // Compile, not parse, rejects out-of-range cycle values
+  // (tests/cpp/test_validate.cpp), so parse accepts them all.
+  const Case cases[] = {
+      {"", std::nullopt},
+      {rate_cycle_text("{\"swing_hz\": 2.5, \"period_s\": 60, \"start_phase_deg\": 0}"), WantCycle{2.5, 60.0, 0.0}},
+      {rate_cycle_text("{\"start_phase_deg\": 270, \"period_s\": 59.99, \"swing_hz\": 0}"),
+       WantCycle{0.0, 59.99, 270.0}},
+      {rate_cycle_text("{\"swing_hz\": -1.01, \"period_s\": 60.01, \"start_phase_deg\": 360.01}"),
+       WantCycle{-1.01, 60.01, 360.01}},
+  };
+  for (const auto& c : cases) {
+    INFO("'" << c.extra << "'");
+    {
+      const auto r = recipe::parse(theta_cycle_recipe(c.extra));
+      INFO(r.error.rule << " " << r.error.parameter << " " << r.error.value);
+      REQUIRE(r.recipe.has_value());
+      REQUIRE(r.recipe->theta_reference.has_value());
+      CHECK(r.recipe->theta_reference->rate_hz == 3.5);  // rate_hz stays the center
+      check_rate_cycle(*r.recipe->theta_reference, c.cycle, "ThetaReference");
+    }
+    {
+      const auto r = recipe::parse(gamma_cycle_recipe(c.extra));
+      INFO(r.error.rule << " " << r.error.parameter << " " << r.error.value);
+      REQUIRE(r.recipe.has_value());
+      REQUIRE(r.recipe->gamma_pac.has_value());
+      CHECK(r.recipe->gamma_pac->rate_hz == 45.0);
+      check_rate_cycle(*r.recipe->gamma_pac, c.cycle, "GammaPac");
+    }
+  }
+  // Every earlier fixture with a theta or gamma layer has no rate_cycle.
+  for (const char* name : {"both-layers.json", "theta-sine-6hz.json", "gamma-uncoupled-40hz-25pct.json",
+                           "swell-sine-0deg-100pct.json", "bursts-40hz.json", "theta-gamma-uncoupled.json"}) {
+    INFO(name);
+    const auto r = recipe::parse(fixture("valid", name));
+    REQUIRE(r.recipe.has_value());
+    if (r.recipe->theta_reference.has_value()) {
+      check_rate_cycle(*r.recipe->theta_reference, std::nullopt, "ThetaReference");
+    }
+    if (r.recipe->gamma_pac.has_value()) {
+      check_rate_cycle(*r.recipe->gamma_pac, std::nullopt, "GammaPac");
+    }
+  }
+  // The rate-curve fixtures parse with their cycles, every one from 0 degrees
+  // with the 60 s period.
+  struct Fixture {
+    const char* name;
+    std::optional<WantCycle> theta, gamma;
+  };
+  const Fixture fixtures[] = {
+      {"theta-cycle-sine.json", WantCycle{2.5, 60.0, 0.0}, std::nullopt},
+      {"theta-cycle-smoothed-on-off.json", WantCycle{2.5, 60.0, 0.0}, std::nullopt},
+      {"gamma-cycle-uncoupled.json", std::nullopt, WantCycle{15.0, 60.0, 0.0}},
+      {"swell-theta-cycle.json", WantCycle{2.0, 60.0, 0.0}, std::nullopt},
+      {"bursts-theta-cycle.json", WantCycle{2.0, 60.0, 0.0}, std::nullopt},
+      {"gamma-cycle-swell-theta-cycle.json", WantCycle{2.0, 60.0, 0.0}, WantCycle{15.0, 60.0, 0.0}},
+  };
+  for (const auto& f : fixtures) {
+    INFO(f.name);
+    const auto r = recipe::parse(fixture("valid", f.name));
+    INFO(r.error.rule << " " << r.error.parameter << " " << r.error.value);
+    REQUIRE(r.recipe.has_value());
+    REQUIRE(r.recipe->theta_reference.has_value() == f.theta.has_value());
+    if (f.theta.has_value()) {
+      check_rate_cycle(*r.recipe->theta_reference, f.theta, "ThetaReference");
+    }
+    if (r.recipe->gamma_pac.has_value()) {
+      check_rate_cycle(*r.recipe->gamma_pac, f.gamma, "GammaPac");
+    } else {
+      CHECK_FALSE(f.gamma.has_value());
+    }
+    CHECK_FALSE(r.recipe->binaural.has_value());
+  }
+}
+
+TEST_CASE("engine parse names theta and gamma rate cycle faults", "[recipe][rate-curves]") {
+  struct Case {
+    std::string body;
+    const char* rule;
+    const char* member;  // after /<layer>/rate_cycle
+  };
+  const Case cases[] = {
+      {"{\"swing_hz\": 2.5, \"start_phase_deg\": 0}", "required", "/period_s"},
+      {"{\"period_s\": 60, \"start_phase_deg\": 0}", "required", "/swing_hz"},
+      {"{\"swing_hz\": 2.5, \"period_s\": 60}", "required", "/start_phase_deg"},
+      {"{\"swing_hz\": \"2.5\", \"period_s\": 60, \"start_phase_deg\": 0}", "type", "/swing_hz"},
+      {"{\"swing_hz\": 2.5, \"period_s\": 60, \"start_phase_deg\": 0, \"curve\": \"linear\"}", "unknown_property",
+       "/curve"},
+      {"60", "type", ""},
+  };
+  for (const bool theta : {true, false}) {
+    for (const auto& c : cases) {
+      const std::string text =
+          theta ? theta_cycle_recipe(rate_cycle_text(c.body)) : gamma_cycle_recipe(rate_cycle_text(c.body));
+      INFO((theta ? "theta " : "gamma ") << c.body);
+      const auto r = recipe::parse(text);
+      INFO("got " << r.error.rule << " " << r.error.parameter);
+      REQUIRE_FALSE(r.recipe.has_value());
+      CHECK(r.error.rule == c.rule);
+      CHECK(r.error.parameter ==
+            std::string(theta ? "/theta_reference" : "/gamma_pac") + "/rate_cycle" + c.member);
+    }
+  }
+}
+
+TEST_CASE("field table orders the theta rows, the rate cycle after shape", "[recipe][rate-curves][schema]") {
+  std::vector<std::string> paths;
+  for (const auto& f : recipe::fields()) {
+    paths.emplace_back(f.path);
+  }
+  const std::vector<std::string> theta = {
+      "/theta_reference",          "/theta_reference/carrier_hz",          "/theta_reference/rate_hz",
+      "/theta_reference/am_depth_percent", "/theta_reference/shape",      "/theta_reference/rate_cycle",
+      "/theta_reference/rate_cycle/swing_hz", "/theta_reference/rate_cycle/period_s",
+      "/theta_reference/rate_cycle/start_phase_deg"};
+  const auto at = std::find(paths.begin(), paths.end(), theta.front());
+  REQUIRE(at != paths.end());
+  const auto start = static_cast<std::size_t>(at - paths.begin());
+  REQUIRE(start + theta.size() < paths.size());
+  for (std::size_t i = 0; i < theta.size(); ++i) {
+    CHECK(paths[start + i] == theta[i]);
+  }
+  CHECK(paths[start + theta.size()] == "/gamma_pac");
+  for (const auto& f : recipe::fields()) {
+    const std::string path(f.path);
+    if (path.rfind("/theta_reference/rate_cycle", 0) != 0 && path.rfind("/gamma_pac/rate_cycle", 0) != 0) {
+      continue;
+    }
+    INFO(path);
+    CHECK(f.tag == recipe::FieldTag::LoudnessRelevant);
+    if (path == "/theta_reference/rate_cycle" || path == "/gamma_pac/rate_cycle") {
+      CHECK(f.type == recipe::FieldType::Object);
+      CHECK_FALSE(f.required);
+    } else {
+      CHECK(f.type == recipe::FieldType::Number);
+      CHECK(f.required);
+    }
+  }
+}
+
+TEST_CASE("the rate-curve fixtures have distinct recipe hashes; earlier hashes are unchanged",
+          "[recipe][rate-curves][hash]") {
+  const auto h = engine_hashes();
+  std::set<std::string> seen;
+  for (const char* name : {"theta-cycle-sine.json", "theta-cycle-smoothed-on-off.json", "gamma-cycle-uncoupled.json",
+                           "swell-theta-cycle.json", "bursts-theta-cycle.json",
+                           "gamma-cycle-swell-theta-cycle.json", "theta-cycle-below-1.json",
+                           "theta-cycle-above-6.json", "gamma-cycle-below-30.json", "gamma-cycle-above-60.json",
+                           "gamma-cycle-carrier-rule.json"}) {
+    INFO(name);
+    REQUIRE(h.count(name) == 1);
+    CHECK(seen.insert(h.at(name)).second);
+  }
+  // A rate_cycle changes the hash: the same theta layer without one hashes
+  // differently, and the earlier hand-written hash still holds.
+  const auto with = recipe::parse(theta_cycle_recipe(
+      rate_cycle_text("{\"swing_hz\": 2.5, \"period_s\": 60, \"start_phase_deg\": 0}")));
+  const auto without = recipe::parse(theta_cycle_recipe(""));
+  REQUIRE(with.recipe.has_value());
+  REQUIRE(without.recipe.has_value());
+  CHECK(with.recipe->hash != without.recipe->hash);
+  CHECK(h.at("both-layers.json") == "fd3e0508393b78386fa9a6f62e6b6282ca0e268648661eececa4fac3430a8a4c");
 }
 
 TEST_CASE("seed integer form and seed bounds", "[recipe]") {
@@ -964,6 +1263,11 @@ const std::map<std::string, std::string> kRangeExempt = {
     // beat-rate, f_C + s against binaural-carrier-right) and swing_hz >= 0
     // bound it; signal spec, Rate curve, Range checks.
     {"/binaural/beat_rate_cycle/swing_hz", "bounded by the worst-case rate checks, no range row of its own"},
+    // Story 2.6: swing_hz >= 0 and r - s, r + s against row theta-rate or
+    // gamma-rate bound them; signal spec, Rate curve, Range checks, theta and
+    // gamma.
+    {"/theta_reference/rate_cycle/swing_hz", "bounded by the worst-case rate checks, no range row of its own"},
+    {"/gamma_pac/rate_cycle/swing_hz", "bounded by the worst-case rate checks, no range row of its own"},
 };
 
 // The field-to-row mapping settled in the Story 1.3 spec (path -> row, scale).
@@ -981,6 +1285,10 @@ const std::map<std::string, std::pair<std::string, double>> kExpectedRegistratio
     {"/binaural/beat_rate_hz", {"beat-rate", 1.0}},
     {"/binaural/beat_rate_cycle/period_s", {"rate-cycle-period", 1.0}},              // Story 2.5
     {"/binaural/beat_rate_cycle/start_phase_deg", {"rate-cycle-start-phase", 1.0}},  // Story 2.5
+    {"/theta_reference/rate_cycle/period_s", {"rate-cycle-period", 1.0}},             // Story 2.6
+    {"/theta_reference/rate_cycle/start_phase_deg", {"rate-cycle-start-phase", 1.0}},  // Story 2.6
+    {"/gamma_pac/rate_cycle/period_s", {"rate-cycle-period", 1.0}},                   // Story 2.6
+    {"/gamma_pac/rate_cycle/start_phase_deg", {"rate-cycle-start-phase", 1.0}},        // Story 2.6
 };
 
 template <class F>

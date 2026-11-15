@@ -1,4 +1,4 @@
-"""Reference render of the theta reference (docs/signal-spec.md, Theta reference; Story 2.1).
+"""Reference render of the theta reference (docs/signal-spec.md, Theta reference and Rate curve; Stories 2.1 and 2.6).
 
 Implemented from the signal spec only, never from engine code, engine
 binaries, or engine output (AD-16, AD-19). Segments are chosen by the spec's
@@ -25,7 +25,9 @@ ideal sine), never the engine's approximation.
 - render(theta_reference, fs, frames): the theta tap of one channel,
   a[n] * ideal_sine(phase_T[n]) for n in [0, frames), with
   a = 1.0 - d * (1.0 - e[n]), d = am_depth_percent / 100.0, and both phases
-  n * inc mod 2^64 (ideal.phase_increment of carrier_hz and rate_hz).
+  n * inc mod 2^64 (ideal.phase_increment of carrier_hz and rate_hz). With
+  a rate_cycle (Story 2.6) the envelope phase adds the ideal U in phase
+  units (reference/rate_curve.py); W stays at the center rate_hz.
 
 NumPy, the standard library, and reference/ only.
 """
@@ -34,7 +36,7 @@ import math
 
 import numpy as np
 
-from . import ideal
+from . import ideal, rate_curve
 
 SHAPES = ("sine", "smoothed_on_off", "sawtooth", "reverse_saw")
 ON_SHARE_PERCENT = 50.0
@@ -118,7 +120,9 @@ def render(theta_reference, fs, frames):
     inc_e = np.uint64(ideal.phase_increment(rate_hz, fs))
     n = np.arange(frames, dtype=np.uint64)
     phase_t = n * inc_t  # wraps modulo 2^64
-    phase_e = n * inc_e
+    # Rate curve (Story 2.6): the ideal U of the theta rate cycle in phase
+    # units; zeros without one. W stays at the center rate_hz.
+    phase_e = n * inc_e + rate_curve.offset_units(theta_reference.get("rate_cycle"), fs, frames)
     e = _envelope_array(shape, phase_e, rate_hz)
     d = float(theta_reference["am_depth_percent"]) / 100.0
     a = 1.0 - d * (1.0 - e)

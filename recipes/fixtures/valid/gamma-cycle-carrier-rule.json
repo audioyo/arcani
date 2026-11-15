@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-14",
+  "rationale": "Rate curve fixture (Story 2.6), schema-valid and rejected at compile: a 200 Hz gamma carrier with a gamma rate cycle of 45 Hz plus or minus 10 Hz. The center passes the carrier rule (200 Hz is at least 4 x 45 Hz), the highest rate does not (4 x 55 Hz = 220 Hz). 100 percent depth, uncoupled, 60 s period, start phase 0 degrees, 5 s. Values are placeholders, not starter defaults. A test fixture, not for listening.",
+  "length_s": 5,
+  "loudness_target_lufs": -36,
+  "gamma_pac": {
+    "carrier_hz": 200,
+    "rate_hz": 45,
+    "am_depth_percent": 100,
+    "carrier_wave": "sine",
+    "coupling": "uncoupled",
+    "rate_cycle": {
+      "swing_hz": 10,
+      "period_s": 60,
+      "start_phase_deg": 0
+    }
+  }
+}

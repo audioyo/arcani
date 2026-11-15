@@ -1,7 +1,8 @@
 // Recipe validator (Story 1.3): locked ranges, the carrier rule, (Story 2.1)
 // the theta shape rule, (Story 2.2) the gamma carrier wave rule, (Story 2.3)
-// the coupling rules, and (Story 2.5) the beat rate cycle worst case and the
-// binaural waveform rule.
+// the coupling rules, (Story 2.5) the beat rate cycle worst case and the
+// binaural waveform rule, and (Story 2.6) the theta and gamma rate cycle
+// worst cases.
 //
 // check_ranges() runs after parse in both compile modes. It walks the field
 // table in order and checks every present field that names a range row
@@ -14,7 +15,14 @@
 // and beat_rate_hz + swing_hz against beat-rate, and
 // (carrier_left_hz + beat_rate_hz) + swing_hz against binaural-carrier-right,
 // each reported on swing_hz with the derived value; period_s and
-// start_phase_deg follow against their rows. The first failure wins.
+// start_phase_deg follow against their rows. (Story 2.6) Likewise at
+// /theta_reference/rate_cycle/swing_hz and /gamma_pac/rate_cycle/swing_hz:
+// the worst-case checks run when the walk reaches swing_hz, after that
+// layer's own fields and before period_s and start_phase_deg: swing_hz >= 0 (rule range.min, limit
+// ">= 0 Hz"), then rate_hz - swing_hz and rate_hz + swing_hz against
+// theta-rate or gamma-rate, reported on swing_hz with the derived value;
+// period_s and start_phase_deg follow against their rows. The first failure
+// wins.
 //
 // Bounds: min is always inclusive; max is inclusive or exclusive per the
 // row's max_bound. Values are compared in binary64 against bound *
@@ -61,12 +69,13 @@ std::optional<recipe::Error> check_ranges(const recipe::Recipe& r);
 
 // Rules after the ranges (Stories 2.1 and 2.2), run by compile after
 // check_ranges() and before final.required, first failure wins:
-// 1. carrier rule on the theta reference: carrier_hz against rate_hz;
+// 1. carrier rule on the theta reference: carrier_hz against rate_hz, or
+//    (Story 2.6) against rate_hz + swing_hz with a rate cycle, the worst case;
 // 2. a custom theta shape: parameter /theta_reference/shape, value custom,
 //    rule kShapeNotModeledRule, limit kModeledThetaShapes. The signal spec
 //    models no custom envelope curve, so it does not exist;
 // 3. carrier rule on the gamma PAC layer: /gamma_pac/carrier_hz against
-//    rate_hz;
+//    rate_hz, or (Story 2.6) rate_hz + swing_hz with a rate cycle;
 // 4. a non-sine gamma carrier: parameter /gamma_pac/carrier_wave, value the
 //    text (triangle or softened_square), rule kNonSineCarrierRule, limit
 //    kModeledGammaCarrierWaves. The signal spec models only the sine carrier;

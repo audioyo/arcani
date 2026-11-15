@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-14",
+  "rationale": "Rate curve fixture (Story 2.6): 120 s. Theta reference: a 450 Hz carrier amplitude-modulated by the sine envelope at a theta rate that cycles over 1 to 6 Hz every 60 s (center 3.5 Hz, swing 2.5 Hz, start phase 0 degrees: the center, rising), 75 percent AM depth. The same value in both channels; no other layer. Values are placeholders, not starter defaults. A test fixture, not for listening.",
+  "length_s": 120,
+  "loudness_target_lufs": -36,
+  "theta_reference": {
+    "carrier_hz": 450,
+    "rate_hz": 3.5,
+    "am_depth_percent": 75,
+    "shape": "sine",
+    "rate_cycle": {
+      "swing_hz": 2.5,
+      "period_s": 60,
+      "start_phase_deg": 0
+    }
+  }
+}

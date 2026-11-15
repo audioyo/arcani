@@ -71,7 +71,14 @@ engine or from binary64 library calls:
   (engine bits), with ideal values at 25 digits: the exact K = s P / (2 pi),
   ideal cosines of the integer cycle phases, and the ideal sine of
   phase_C / 2^64 + U in decimal arithmetic. The ideal rate-curve law
-  (rate and beat phase at chosen times) is exact in decimal arithmetic.
+  (rate and phase at chosen times) is exact in decimal arithmetic.
+- Rate curves on the theta and gamma rates (Story 2.6): the same cycle
+  constants per curved layer, U by the cycle cosine and the cycles-to-units
+  rule, the curved envelope phases n * inc + U mod 2^64, and the theta,
+  gamma, and bus taps evaluated in binary64 in the spec's operation order
+  (engine bits), with ideal values at 25 digits: the ideal U (exact K, ideal
+  cosines) rounded to the nearest phase unit, the ideal envelopes, swell,
+  and burst gate of that integer phase, and the ideal carrier sines.
 - 24-bit rounding (Story 1.4): x = s * 2^23 in exact Fraction arithmetic,
   clamped to [-8388608, 8388607], else rounded to the nearest integer, ties
   to even; NaN gives 0. Written as 3 bytes, little-endian two's complement.
@@ -1787,6 +1794,10 @@ RATE_CURVE_CASES = (
     (1.5, 1.5, 60.0, 270.0, (0.0, 7.5, 15.0, 30.0, 45.0, 60.0, 75.0, 120.0)),
     (1.5, 1.5, 60.0, 0.0, (0.0, 15.0, 30.0, 45.0, 60.0)),
     (1.5, 1.5, 60.0, 90.0, (0.0, 15.0, 30.0)),
+    # Story 2.6: the theta and gamma cycles of the rate-curve fixtures.
+    (3.5, 2.5, 60.0, 0.0, (0.0, 15.0, 30.0, 45.0, 60.0, 120.0)),
+    (4.0, 2.0, 60.0, 0.0, (0.0, 15.0, 45.0, 60.0)),
+    (45.0, 15.0, 60.0, 0.0, (0.0, 15.0, 45.0, 60.0)),
 )
 
 
@@ -1918,6 +1929,312 @@ def binaural_sample_rows():
     return rows
 
 
+# ------------------------------------------ rate curves on theta and gamma
+#
+# Story 2.6 (signal spec, Rate curve): the Story 2.5 law, integral, cycle
+# cosine, and cycles-to-units rule, unchanged, on the theta envelope phase
+# and the gamma envelope phase: phase_E[n] = n * inc_E + U_E[n] and
+# phase_M[n] = n * inc_M + U_M[n] mod 2^64, each U with its layer's own P0,
+# inc_P, K, and c0. The carriers do not change. The swell and the burst gate
+# read the curved phase_E. W, Hb, and Wb stay at the center rate_hz.
+
+
+class LayerCycle:
+    """One theta or gamma rate cycle at one sample rate (signal spec, Rate curve, Engine)."""
+
+    def __init__(self, center_hz, cycle, fs):
+        swing, period, start = cycle
+        self.center_hz, self.swing, self.period, self.start = center_hz, swing, period, start
+        self.p0, self.start_ratio = coupling_phase_units(start)
+        self.inv_period = 1.0 / period  # one binary64 division
+        self.inc_cycle, self.q_cycle = increment(self.inv_period, fs)
+        self.swing_period = swing * period  # one rounding
+        self.k = self.swing_period * inv_two_pi()  # one rounding
+        self.c0 = cycle_cosine(self.p0)
+        self.lowest = center_hz - swing   # one rounding (Rate curve, Range checks)
+        self.highest = center_hz + swing  # one rounding
+
+    def phase(self, n):
+        return (self.p0 + n * self.inc_cycle) % CYCLE
+
+    def engine_units(self, n):
+        """U[n] in phase units: cycles_to_units(K * (c0 - cycle_cosine(p_P[n])))."""
+        c = cycle_cosine(self.phase(n))
+        v = self.k * (self.c0 - c)  # c0 - c, then K times it
+        return cycles_to_units(v)[0]
+
+    def ideal_cycles(self, n):
+        """Ideal U[n] in cycles, K = s P / (2 pi) exact, ideal cosines of the integer phases."""
+        with localcontext() as ctx:
+            ctx.prec = PREC + 10
+            k = exact_decimal(self.swing) * exact_decimal(self.period) / (2 * decimal_pi())
+            c0 = ideal_sine_decimal((self.p0 + QUARTER) % CYCLE)
+            c = ideal_sine_decimal((self.phase(n) + QUARTER) % CYCLE)
+            return k * (c0 - c)
+
+    def ideal_units(self, n):
+        """The ideal U[n] as the nearest integer number of phase units, mod 2^64."""
+        with localcontext() as ctx:
+            ctx.prec = PREC + 10
+            x = self.ideal_cycles(n) * Decimal(CYCLE)
+            return int(x.to_integral_value(rounding="ROUND_HALF_EVEN")) % CYCLE
+
+
+# Largest addition one curved phase makes to a tap's bound (Rate curve,
+# Reference): the envelope's largest slope per cycle times the phase error
+# delta, at most 3e-7 over every compile-accepted cycle.
+CURVE_ADD = 3e-7
+B_SINE = 1e-6  # row sine-error, -120 dBFS, as linear full scale
+
+RATE_CURVE_LENGTH_S = 120.0
+THETA_CYCLE = (2.5, 60.0, 0.0)          # 3.5 +- 2.5 Hz: the whole theta-rate row, from the center rising
+THETA_CYCLE_COUPLED = (2.0, 60.0, 0.0)  # 4 +- 2 Hz
+GAMMA_CYCLE = (15.0, 60.0, 0.0)         # 45 +- 15 Hz: the whole gamma-rate row
+
+# (fixture, theta, gamma): the Story 2.6 fixtures in recipes/fixtures/valid/,
+# 120 s, no binaural layer. theta is None or (carrier_hz, rate_hz,
+# am_depth_percent, shape, cycle or None); gamma is None or (carrier_hz,
+# rate_hz, am_depth_percent, coupling, coupling_phase_deg or None, cycle or
+# None); a cycle is (swing_hz, period_s, start_phase_deg).
+# gamma-cycle-swell-theta-cycle.json and bursts-theta-cycle.json, in this
+# order, are the hash probe's rate-curves-<fs> sources.
+RATE_CURVE_FIXTURES = (
+    ("theta-cycle-sine.json", (450.0, 3.5, 75.0, "sine", THETA_CYCLE), None),
+    ("theta-cycle-smoothed-on-off.json", (450.0, 3.5, 75.0, "smoothed_on_off", THETA_CYCLE), None),
+    ("gamma-cycle-uncoupled.json", None, (250.0, 45.0, 100.0, "uncoupled", None, GAMMA_CYCLE)),
+    ("swell-theta-cycle.json", (450.0, 4.0, 75.0, "sine", THETA_CYCLE_COUPLED),
+     (250.0, 40.0, 100.0, "smooth_swell", 0.0, None)),
+    ("bursts-theta-cycle.json", (450.0, 4.0, 75.0, "sine", THETA_CYCLE_COUPLED),
+     (250.0, 40.0, 100.0, "bursts", 0.0, None)),
+    ("gamma-cycle-swell-theta-cycle.json", (450.0, 4.0, 75.0, "sine", THETA_CYCLE_COUPLED),
+     (250.0, 45.0, 100.0, "smooth_swell", 0.0, GAMMA_CYCLE)),
+)
+RATE_CURVE_PROBE_FIXTURES = ("gamma-cycle-swell-theta-cycle.json", "bursts-theta-cycle.json")
+
+
+class CurvedFixture:
+    """The theta and gamma layers of one Story 2.6 fixture at one sample rate."""
+
+    def __init__(self, fixture, theta, gamma, fs):
+        self.fixture, self.theta_spec, self.gamma_spec, self.fs = fixture, theta, gamma, fs
+        self.theta = self.gamma = self.theta_cycle = self.gamma_cycle = None
+        self.coupling, self.c_units, self.hb, self.wb = "none", 0, 0, 0
+        if theta is not None:
+            carrier, rate, depth, shape, cycle = theta
+            self.theta = ThetaLayer(carrier, rate, depth, shape, fs)
+            self.theta_cycle = None if cycle is None else LayerCycle(rate, cycle, fs)
+        if gamma is not None:
+            carrier, rate, depth, coupling, deg, cycle = gamma
+            self.gamma = GammaLayer(carrier, rate, depth, fs)
+            self.coupling = coupling
+            self.c_units = coupling_phase_units(deg)[0] if deg is not None else 0
+            if coupling == "bursts":
+                theta_rate = theta[1] if theta is not None else 0.0
+                self.hb = burst_half_width_units(theta_rate)[0]  # at the center rate
+                self.wb = burst_edge_units(theta_rate)[0]
+            self.gamma_cycle = None if cycle is None else LayerCycle(rate, cycle, fs)
+        self.inc_theta_envelope = self.theta.inc_rate if self.theta is not None else 0
+
+    def theta_phase(self, n, ideal=False):
+        """(U_E, phase_E) engine or ideal; U_E = 0 without a theta cycle."""
+        base = (n * self.inc_theta_envelope) % CYCLE
+        if self.theta_cycle is None:
+            return 0, base
+        u = self.theta_cycle.ideal_units(n) if ideal else self.theta_cycle.engine_units(n)
+        return u, (base + u) % CYCLE
+
+    def gamma_phase(self, n, ideal=False):
+        """(U_M, phase_M) engine or ideal; U_M = 0 without a gamma cycle."""
+        base = (n * self.gamma.inc_rate) % CYCLE
+        if self.gamma_cycle is None:
+            return 0, base
+        u = self.gamma_cycle.ideal_units(n) if ideal else self.gamma_cycle.engine_units(n)
+        return u, (base + u) % CYCLE
+
+    def engine(self, n):
+        """(factor, theta, gamma, bus) in binary64; factor is s or g, None uncoupled."""
+        t = g = 0.0
+        factor = None
+        _, pe = self.theta_phase(n)
+        if self.theta is not None:
+            th = self.theta
+            e = engine_envelope(th.shape, pe, th.w_units, th.h_units)
+            a = 1.0 - th.depth * (1.0 - e)
+            t = a * engine_sine((n * th.inc_carrier) % CYCLE)
+        if self.gamma is not None:
+            ga = self.gamma
+            _, pm = self.gamma_phase(n)
+            e = gamma_envelope(pm)
+            if self.coupling == "uncoupled":
+                a = 1.0 - ga.depth * (1.0 - e)
+            else:
+                if self.coupling == "smooth_swell":
+                    factor = swell(pe, self.c_units)
+                else:
+                    factor = burst_gate(pe, self.c_units, self.hb, self.wb)
+                a = coupled_amplitude(ga.depth, factor, e)
+            assert a > 0.0, (self.fixture, n)
+            g = a * engine_sine((n * ga.inc_carrier) % CYCLE)
+        return factor, t, g, t + g  # stereo bus: one binary64 addition
+
+    def ideal(self, n):
+        """(theta, gamma) ideal Decimals: the ideal envelopes at the ideal integer phases."""
+        with localcontext() as ctx:
+            ctx.prec = PREC + 10
+            t = g = Decimal(0)
+            _, pe = self.theta_phase(n, ideal=True)
+            if self.theta is not None:
+                th = self.theta
+                e = ideal_envelope_decimal(th.shape, pe, th.w_units, th.h_units)
+                a = 1 - exact_decimal(th.depth) * (1 - e)
+                t = a * ideal_sine_decimal((n * th.inc_carrier) % CYCLE)
+            if self.gamma is not None:
+                ga = self.gamma
+                _, pm = self.gamma_phase(n, ideal=True)
+                e = gamma_envelope_ideal(pm)
+                if self.coupling == "uncoupled":
+                    a = 1 - exact_decimal(ga.depth) * (1 - e)
+                else:
+                    if self.coupling == "smooth_swell":
+                        f = swell_ideal(pe, self.c_units)
+                    else:
+                        f = burst_gate_ideal(pe, self.c_units, self.hb, self.wb)
+                    a = 1 - exact_decimal(ga.depth) * f * (1 - e)
+                g = a * ideal_sine_decimal((n * ga.inc_carrier) % CYCLE)
+            return t, g
+
+
+def curved_fixtures(fs):
+    for fixture, theta, gamma in RATE_CURVE_FIXTURES:
+        yield CurvedFixture(fixture, theta, gamma, fs)
+
+
+def _cycle_columns(prefix, cycle):
+    if cycle is None:
+        return {f"{prefix}_swing_hex": "none", f"{prefix}_period_hex": "none",
+                f"{prefix}_start_hex": "none", f"{prefix}_p0": "none",
+                f"{prefix}_inc_cycle": "none", f"{prefix}_k_hex": "none"}
+    return {f"{prefix}_swing_hex": hexf(cycle.swing), f"{prefix}_period_hex": hexf(cycle.period),
+            f"{prefix}_start_hex": hexf(cycle.start), f"{prefix}_p0": str(cycle.p0),
+            f"{prefix}_inc_cycle": str(cycle.inc_cycle), f"{prefix}_k_hex": hexf(cycle.k)}
+
+
+def layer_rate_cycle_rows():
+    rows = []
+    for fs in RATES:
+        frames, _ = samples(RATE_CURVE_LENGTH_S, fs)
+        for fx in curved_fixtures(fs):
+            for layer, cyc, inc in (("theta", fx.theta_cycle, fx.inc_theta_envelope),
+                                    ("gamma", fx.gamma_cycle,
+                                     fx.gamma.inc_rate if fx.gamma is not None else 0)):
+                if cyc is None:
+                    continue
+                with localcontext() as ctx:
+                    ctx.prec = PREC + 10
+                    ideal_c0 = ideal_sine_decimal((cyc.p0 + QUARTER) % CYCLE)
+                rows.append({
+                    "fixture": fx.fixture, "layer": layer, "fs": fs,
+                    "center_hex": hexf(cyc.center_hz), "swing_hex": hexf(cyc.swing),
+                    "period_hex": hexf(cyc.period), "start_hex": hexf(cyc.start),
+                    "lowest_hex": hexf(cyc.lowest), "highest_hex": hexf(cyc.highest),
+                    "inc_rate": str(inc), "p0": str(cyc.p0),
+                    "inv_period_hex": hexf(cyc.inv_period), "inc_cycle": str(cyc.inc_cycle),
+                    "swing_period_hex": hexf(cyc.swing_period), "k_hex": hexf(cyc.k),
+                    "c0_bits": bits(cyc.c0), "ideal_c0": format_ideal(ideal_c0),
+                    "frames": str(frames),
+                })
+    return rows
+
+
+def rate_curve_sample_indices(fx, frames, fs):
+    """Start, block boundaries, each curved cycle's quarter points, the seek point, the end."""
+    indices = {0, 1, 63, 64, 65, 127, 128, 1000, frames - 1, frames, frames + 63}
+    for cyc in (fx.theta_cycle, fx.gamma_cycle):
+        if cyc is None:
+            continue
+        for k in (1, 2, 3, 4):
+            n = first_at_or_above((k * QUARTER - cyc.p0) % CYCLE or CYCLE, cyc.inc_cycle)
+            indices.update((n - 1, n, n + 37))  # n + 37: off the whole second, so the carrier is not near 0
+    seek, _ = samples(SEEK_S, fs)
+    indices.update((seek - 1, seek, seek + 1))
+    return sorted(i for i in indices if i >= 0)
+
+
+def rate_curve_sample_rows():
+    rows = []
+    for fs in RATES:
+        frames, _ = samples(RATE_CURVE_LENGTH_S, fs)
+        for fx in curved_fixtures(fs):
+            # Engine against ideal, per tap (Rate curve, Reference): the
+            # earlier section's bound plus CURVE_ADD for each curved phase
+            # the tap reads.
+            theta_reads = int(fx.theta_cycle is not None)
+            gamma_reads = int(fx.gamma_cycle is not None) + int(
+                fx.coupling in COUPLED_2_4 and fx.theta_cycle is not None)
+            bound_t = 1.5 * B_SINE + 2.0**-47 + CURVE_ADD * theta_reads
+            bound_g = 2 * B_SINE + 2.0**-46 + CURVE_ADD * gamma_reads
+            bound_b = bound_t + bound_g + 2.0**-52
+            for n in rate_curve_sample_indices(fx, frames, fs):
+                ue, pe = fx.theta_phase(n)
+                pt = (n * fx.theta.inc_carrier) % CYCLE if fx.theta is not None else 0
+                if fx.gamma is not None:
+                    um, pm = fx.gamma_phase(n)
+                    pg = (n * fx.gamma.inc_carrier) % CYCLE
+                else:
+                    um = pm = pg = 0
+                past_end = n >= frames
+                if past_end:
+                    t = g = bus = 0.0
+                    ideal_t = ideal_g = ideal_bus = "0"
+                    factor_bits = "none"
+                else:
+                    factor, t, g, bus = fx.engine(n)
+                    factor_bits = "none" if factor is None else bits(factor)
+                    it, ig = fx.ideal(n)
+                    assert abs(Decimal(t) - it) <= Decimal(bound_t), (fx.fixture, fs, n)
+                    assert abs(Decimal(g) - ig) <= Decimal(bound_g), (fx.fixture, fs, n)
+                    with localcontext() as ctx:
+                        ctx.prec = PREC + 10
+                        ib = it + ig
+                    assert abs(Decimal(bus) - ib) <= Decimal(bound_b), (fx.fixture, fs, n)
+                    ideal_t, ideal_g, ideal_bus = format_ideal(it), format_ideal(ig), format_ideal(ib)
+                row = {
+                    "case": "past_end" if past_end else "signal",
+                    "fixture": fx.fixture, "fs": fs, "length_hex": hexf(RATE_CURVE_LENGTH_S),
+                    "frames": str(frames), "n": str(n),
+                }
+                row.update(_theta_columns(None if fx.theta_spec is None else fx.theta_spec[:4]))
+                row.update(_cycle_columns("theta", fx.theta_cycle))
+                if fx.gamma_spec is None:
+                    row.update({"gamma_carrier_hex": "none", "gamma_rate_hex": "none",
+                                "gamma_depth_hex": "none", "coupling": "none", "deg_hex": "none"})
+                else:
+                    gc, gr, gd, coupling, deg, _ = fx.gamma_spec
+                    row.update({"gamma_carrier_hex": hexf(gc), "gamma_rate_hex": hexf(gr),
+                                "gamma_depth_hex": hexf(gd), "coupling": coupling,
+                                "deg_hex": "none" if deg is None else hexf(deg)})
+                row.update(_cycle_columns("gamma", fx.gamma_cycle))
+                row.update({
+                    "inc_theta": str(fx.theta.inc_carrier) if fx.theta is not None else "0",
+                    "inc_theta_envelope": str(fx.inc_theta_envelope),
+                    "inc_gamma": str(fx.gamma.inc_carrier) if fx.gamma is not None else "0",
+                    "inc_gamma_envelope": str(fx.gamma.inc_rate) if fx.gamma is not None else "0",
+                    "w_units": str(fx.theta.w_units) if fx.theta is not None else "0",
+                    "c_units": str(fx.c_units), "hb_units": str(fx.hb), "wb_units": str(fx.wb),
+                    "phase_theta": str(pt),
+                    "theta_cycle_phase": "none" if fx.theta_cycle is None else str(fx.theta_cycle.phase(n)),
+                    "theta_u": str(ue), "phase_theta_envelope": str(pe),
+                    "phase_gamma": str(pg),
+                    "gamma_cycle_phase": "none" if fx.gamma_cycle is None else str(fx.gamma_cycle.phase(n)),
+                    "gamma_u": str(um), "phase_gamma_envelope": str(pm),
+                    "factor_bits": factor_bits,
+                    "theta_bits": bits(t), "gamma_bits": bits(g), "bus_bits": bits(bus),
+                    "ideal_theta": ideal_t, "ideal_gamma": ideal_g, "ideal_bus": ideal_bus,
+                })
+                rows.append(row)
+    return rows
+
+
 # ------------------------------------------------------- 24-bit rounding
 
 Q24_MAX = 8388607   # 2^23 - 1
@@ -1999,7 +2316,7 @@ def quantize_rows():
 
 def build():
     return {
-        "spec": "docs/signal-spec.md (sections core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer, rate curve, and 24-bit rounding)",
+        "spec": "docs/signal-spec.md (sections core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer, rate curve (the beat rate, Story 2.5; the theta and gamma rates, Story 2.6), and 24-bit rounding)",
         "generator": "tools/signal_spec_vectors.py",
         "cycle": str(CYCLE),
         "sine_coefficients": sine_coefficients(),
@@ -2064,6 +2381,13 @@ def build():
         "rate_cycles": rate_cycle_rows(),
         "rate_curve": rate_curve_rows(),
         "binaural_samples": binaural_sample_rows(),
+        "rate_curve_constants": {
+            "length_s": dec(RATE_CURVE_LENGTH_S),
+            "curve_add": dec(CURVE_ADD),
+            "probe_fixtures": list(RATE_CURVE_PROBE_FIXTURES),
+        },
+        "layer_rate_cycles": layer_rate_cycle_rows(),
+        "rate_curve_samples": rate_curve_sample_rows(),
         "quantize_24": quantize_rows(),
     }
 
@@ -2334,7 +2658,7 @@ def tables(data):
                    f"| `{r['c0_bits']}` | {r['ideal_c0']} |")
     out.append("")
     out.append("| Center (hex) | Swing (hex) | Period (hex) | Start phase (hex) | t (hex) "
-               "| Rate ideal (Hz) | Beat phase ideal (cycles) |")
+               "| Rate ideal (Hz) | Phase ideal (cycles) |")
     out.append("| --- | --- | --- | --- | --- | --- | --- |")
     for r in data["rate_curve"]:
         out.append(f"| `{r['center_hex']}` | `{r['swing_hex']}` | `{r['period_hex']}` "
@@ -2364,6 +2688,30 @@ def tables(data):
                    f"| {r['phase_center']} | {r['phase_cycle']} | `{r['c_bits']}` | `{r['v_bits']}` "
                    f"| {r['u_units']} | {r['phase_right']} | `{r['left_bits']}` | `{r['right_bits']}` "
                    f"| {r['ideal_left']} | {r['ideal_right']} |")
+    out.append("")
+    out.append("| Fixture | Layer | fs | Center (hex) | Swing (hex) | Period (hex) | Start phase (hex) "
+               "| Lowest rate (hex) | Highest rate (hex) | Rate inc | P0 | inc_P | K (hex) "
+               "| c0 (binary64 bits) | Frames |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["layer_rate_cycles"]:
+        out.append(f"| {r['fixture']} | {r['layer']} | {r['fs']} | `{r['center_hex']}` "
+                   f"| `{r['swing_hex']}` | `{r['period_hex']}` | `{r['start_hex']}` "
+                   f"| `{r['lowest_hex']}` | `{r['highest_hex']}` | {r['inc_rate']} | {r['p0']} "
+                   f"| {r['inc_cycle']} | `{r['k_hex']}` | `{r['c0_bits']}` | {r['frames']} |")
+    out.append("")
+    out.append("| Case | Fixture | fs | n | Theta cycle phase | Theta U | Theta envelope phase "
+               "| Gamma cycle phase | Gamma U | Gamma envelope phase | s or g (binary64 bits) "
+               "| Theta (binary64 bits) | Gamma (binary64 bits) | Bus (binary64 bits) "
+               "| Theta ideal | Gamma ideal | Bus ideal |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- "
+               "| --- | --- |")
+    for r in data["rate_curve_samples"]:
+        factor = r["factor_bits"] if r["factor_bits"] == "none" else f"`{r['factor_bits']}`"
+        out.append(f"| {r['case']} | {r['fixture']} | {r['fs']} | {r['n']} | {r['theta_cycle_phase']} "
+                   f"| {r['theta_u']} | {r['phase_theta_envelope']} | {r['gamma_cycle_phase']} "
+                   f"| {r['gamma_u']} | {r['phase_gamma_envelope']} | {factor} "
+                   f"| `{r['theta_bits']}` | `{r['gamma_bits']}` | `{r['bus_bits']}` "
+                   f"| {r['ideal_theta']} | {r['ideal_gamma']} | {r['ideal_bus']} |")
     out.append("")
     out.append("| Rule | Case | s (hex) | x = s * 2^23 (hex) | Value | Bytes (little-endian) |")
     out.append("| --- | --- | --- | --- | --- | --- |")

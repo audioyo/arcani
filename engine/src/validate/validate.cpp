@@ -39,6 +39,10 @@ constexpr std::string_view kRightCarrierRow = "binaural-carrier-right";
 constexpr std::string_view kBeatRateRow = "beat-rate";
 constexpr std::string_view kBeatRatePath = "/binaural/beat_rate_hz";
 constexpr std::string_view kSwingPath = "/binaural/beat_rate_cycle/swing_hz";
+constexpr std::string_view kThetaSwingPath = "/theta_reference/rate_cycle/swing_hz";
+constexpr std::string_view kGammaSwingPath = "/gamma_pac/rate_cycle/swing_hz";
+constexpr std::string_view kThetaRateRow = "theta-rate";
+constexpr std::string_view kGammaRateRow = "gamma-rate";
 
 // Index of a row in kRows, or std::size(kRows) when absent.
 constexpr std::size_t row_index(std::string_view id) noexcept {
@@ -54,6 +58,8 @@ constexpr std::size_t row_index(std::string_view id) noexcept {
 static_assert(row_index("session-length") < std::size(kRows));
 static_assert(row_index(kRightCarrierRow) < std::size(kRows));
 static_assert(row_index(kBeatRateRow) < std::size(kRows));
+static_assert(row_index(kThetaRateRow) < std::size(kRows));
+static_assert(row_index(kGammaRateRow) < std::size(kRows));
 
 // A range-governed field's value lookup. known is false for a path the
 // validator has no mapping for; value is empty when the field's layer is
@@ -109,6 +115,30 @@ Lookup field_value(const recipe::Recipe& r, std::string_view path) {
   if (path == "/gamma_pac/coupling_phase_deg") {
     if (r.gamma_pac && r.gamma_pac->coupling_phase_deg) {
       return {true, *r.gamma_pac->coupling_phase_deg};
+    }
+    return {true, std::nullopt};
+  }
+  if (path == "/theta_reference/rate_cycle/period_s") {
+    if (r.theta_reference && r.theta_reference->rate_cycle) {
+      return {true, r.theta_reference->rate_cycle->period_s};
+    }
+    return {true, std::nullopt};
+  }
+  if (path == "/theta_reference/rate_cycle/start_phase_deg") {
+    if (r.theta_reference && r.theta_reference->rate_cycle) {
+      return {true, r.theta_reference->rate_cycle->start_phase_deg};
+    }
+    return {true, std::nullopt};
+  }
+  if (path == "/gamma_pac/rate_cycle/period_s") {
+    if (r.gamma_pac && r.gamma_pac->rate_cycle) {
+      return {true, r.gamma_pac->rate_cycle->period_s};
+    }
+    return {true, std::nullopt};
+  }
+  if (path == "/gamma_pac/rate_cycle/start_phase_deg") {
+    if (r.gamma_pac && r.gamma_pac->rate_cycle) {
+      return {true, r.gamma_pac->rate_cycle->start_phase_deg};
     }
     return {true, std::nullopt};
   }
@@ -172,25 +202,33 @@ std::optional<recipe::Error> check_row(std::string_view parameter, double value,
   return std::nullopt;
 }
 
-// Worst case of a beat rate cycle (docs/signal-spec.md, Rate curve, Range
-// checks), in order: the swing itself, the lowest and highest rate against
-// beat-rate, then the highest right carrier against binaural-carrier-right.
-// Each sum is the one binary64 rounding the spec names.
-std::optional<recipe::Error> check_cycle_worst_case(const recipe::Binaural& b) {
-  const recipe::BeatRateCycle& cycle = *b.beat_rate_cycle;
+// Worst case of a rate cycle about the center rate_hz (docs/signal-spec.md,
+// Rate curve, Range checks), in order: the swing itself, then the lowest and
+// highest rate against the layer's rate row, each reported on the swing's
+// path. Each sum is the one binary64 rounding the spec names.
+std::optional<recipe::Error> check_rate_worst_case(std::string_view swing_path, std::string_view rate_row,
+                                                   double rate_hz, const recipe::RateCycle& cycle) {
   const double swing = cycle.swing_hz;
   if (!(swing >= 0.0)) {
-    return recipe::Error{std::string(kSwingPath), json::format_number(swing), "range.min", ">= 0 Hz"};
+    return recipe::Error{std::string(swing_path), json::format_number(swing), "range.min", ">= 0 Hz"};
   }
-  const std::size_t beat = row_index(kBeatRateRow);
-  const double lowest = b.beat_rate_hz - swing;
-  if (auto e = check_row(kSwingPath, lowest, beat, 1.0, kRows[beat].unit)) {
+  const std::size_t i = row_index(rate_row);
+  const double lowest = rate_hz - swing;
+  if (auto e = check_row(swing_path, lowest, i, 1.0, kRows[i].unit)) {
     return e;
   }
-  const double highest = b.beat_rate_hz + swing;
-  if (auto e = check_row(kSwingPath, highest, beat, 1.0, kRows[beat].unit)) {
+  const double highest = rate_hz + swing;
+  return check_row(swing_path, highest, i, 1.0, kRows[i].unit);
+}
+
+// Worst case of a beat rate cycle: the rate worst case against beat-rate,
+// then the highest right carrier against binaural-carrier-right.
+std::optional<recipe::Error> check_cycle_worst_case(const recipe::Binaural& b) {
+  const recipe::RateCycle& cycle = *b.beat_rate_cycle;
+  if (auto e = check_rate_worst_case(kSwingPath, kBeatRateRow, b.beat_rate_hz, cycle)) {
     return e;
   }
+  const double swing = cycle.swing_hz;
   const double center = b.carrier_left_hz + b.beat_rate_hz;  // f_C, as compile sums it
   const double right = center + swing;
   const std::size_t j = row_index(kRightCarrierRow);
@@ -207,6 +245,26 @@ std::optional<recipe::Error> check_ranges(const recipe::Recipe& r) {
       // No range row of its own: the worst-case checks bound it.
       if (r.binaural && r.binaural->beat_rate_cycle) {
         if (auto e = check_cycle_worst_case(*r.binaural)) {
+          return e;
+        }
+      }
+      continue;
+    }
+    if (f.path == kThetaSwingPath) {
+      // Story 2.6: the theta rate cycle worst case, after the theta fields.
+      if (r.theta_reference && r.theta_reference->rate_cycle) {
+        if (auto e = check_rate_worst_case(kThetaSwingPath, kThetaRateRow, r.theta_reference->rate_hz,
+                                           *r.theta_reference->rate_cycle)) {
+          return e;
+        }
+      }
+      continue;
+    }
+    if (f.path == kGammaSwingPath) {
+      // Story 2.6: the gamma rate cycle worst case, after the gamma fields.
+      if (r.gamma_pac && r.gamma_pac->rate_cycle) {
+        if (auto e = check_rate_worst_case(kGammaSwingPath, kGammaRateRow, r.gamma_pac->rate_hz,
+                                           *r.gamma_pac->rate_cycle)) {
           return e;
         }
       }
@@ -252,9 +310,11 @@ std::optional<recipe::Error> check_ranges(const recipe::Recipe& r) {
 std::optional<recipe::Error> check_rules(const recipe::Recipe& r) {
   if (r.theta_reference) {
     const recipe::ThetaReference& theta = *r.theta_reference;
-    // A fixed rate: the interval is the one value.
-    if (auto e = check_carrier_rule("/theta_reference/carrier_hz", theta.carrier_hz, theta.rate_hz,
-                                    theta.rate_hz)) {
+    // A fixed rate is the one value; a rate cycle spans r - s to r + s.
+    const double swing = theta.rate_cycle ? theta.rate_cycle->swing_hz : 0.0;
+    const double lo = theta.rate_cycle ? theta.rate_hz - swing : theta.rate_hz;
+    const double hi = theta.rate_cycle ? theta.rate_hz + swing : theta.rate_hz;
+    if (auto e = check_carrier_rule("/theta_reference/carrier_hz", theta.carrier_hz, lo, hi)) {
       return e;
     }
     if (theta.shape == recipe::ThetaShape::Custom) {
@@ -264,9 +324,11 @@ std::optional<recipe::Error> check_rules(const recipe::Recipe& r) {
   }
   if (r.gamma_pac) {
     const recipe::GammaPac& gamma = *r.gamma_pac;
-    // A fixed rate: the interval is the one value.
-    if (auto e = check_carrier_rule("/gamma_pac/carrier_hz", gamma.carrier_hz, gamma.rate_hz,
-                                    gamma.rate_hz)) {
+    // A fixed rate is the one value; a rate cycle spans r - s to r + s.
+    const double swing = gamma.rate_cycle ? gamma.rate_cycle->swing_hz : 0.0;
+    const double lo = gamma.rate_cycle ? gamma.rate_hz - swing : gamma.rate_hz;
+    const double hi = gamma.rate_cycle ? gamma.rate_hz + swing : gamma.rate_hz;
+    if (auto e = check_carrier_rule("/gamma_pac/carrier_hz", gamma.carrier_hz, lo, hi)) {
       return e;
     }
     if (gamma.carrier_wave == recipe::GammaCarrierWave::Triangle) {

@@ -355,6 +355,16 @@ std::string string_at(const Value& obj, std::string_view key) {
   return v != nullptr ? v->string() : std::string();
 }
 
+// A rate cycle member (beat_rate_cycle or rate_cycle), or nothing when absent.
+std::optional<RateCycle> rate_cycle_at(const Value& obj, std::string_view key) {
+  const Value* cycle = obj.find(key);
+  if (cycle == nullptr) {
+    return std::nullopt;
+  }
+  return RateCycle{number_at(*cycle, "swing_hz"), number_at(*cycle, "period_s"),
+                   number_at(*cycle, "start_phase_deg")};
+}
+
 }  // namespace
 
 ParseResult parse(std::string_view utf8) {
@@ -396,6 +406,7 @@ ParseResult parse(std::string_view utf8) {
     t.rate_hz = number_at(*theta, "rate_hz");
     t.am_depth_percent = number_at(*theta, "am_depth_percent");
     t.shape = shape_named(string_at(*theta, "shape"))->shape;  // checked: an enum member
+    t.rate_cycle = rate_cycle_at(*theta, "rate_cycle");
     r.theta_reference = t;
   }
   if (const Value* gamma = root.find("gamma_pac")) {
@@ -408,16 +419,14 @@ ParseResult parse(std::string_view utf8) {
     if (gamma->find("coupling_phase_deg") != nullptr) {
       g.coupling_phase_deg = number_at(*gamma, "coupling_phase_deg");
     }
+    g.rate_cycle = rate_cycle_at(*gamma, "rate_cycle");
     r.gamma_pac = g;
   }
   if (const Value* bin = root.find("binaural")) {
     Binaural b;
     b.carrier_left_hz = number_at(*bin, "carrier_left_hz");
     b.beat_rate_hz = number_at(*bin, "beat_rate_hz");
-    if (const Value* cycle = bin->find("beat_rate_cycle")) {
-      b.beat_rate_cycle = BeatRateCycle{number_at(*cycle, "swing_hz"), number_at(*cycle, "period_s"),
-                                        number_at(*cycle, "start_phase_deg")};
-    }
+    b.beat_rate_cycle = rate_cycle_at(*bin, "beat_rate_cycle");
     if (bin->find("waveform") != nullptr) {
       b.waveform = waveform_named(string_at(*bin, "waveform"))->waveform;  // checked: an enum member
     }

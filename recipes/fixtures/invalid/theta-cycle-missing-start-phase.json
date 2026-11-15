@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-14",
+  "rationale": "Invalid fixture (Story 2.6): theta_reference.rate_cycle has no start_phase_deg (rule required). Values are placeholders.",
+  "length_s": 5,
+  "loudness_target_lufs": -36,
+  "theta_reference": {
+    "carrier_hz": 450,
+    "rate_hz": 3.5,
+    "am_depth_percent": 75,
+    "shape": "sine",
+    "rate_cycle": {
+      "swing_hz": 2.5,
+      "period_s": 60
+    }
+  }
+}

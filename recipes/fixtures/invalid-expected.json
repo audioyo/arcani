@@ -230,6 +230,11 @@
     "seed-negative.json": {
       "parameter": "/seed"
     },
+    "theta-cycle-missing-start-phase.json": {
+      "parameter": "/theta_reference/rate_cycle/start_phase_deg",
+      "rule": "required",
+      "schema_keyword": "required"
+    },
     "theta-reference-null.json": {
       "parameter": "/theta_reference",
       "rule": "type",

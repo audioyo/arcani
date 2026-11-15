@@ -15,7 +15,9 @@
 //   phase_R[n] = phase_C[n] + U[n] mod 2^64          (U = 0 without a cycle)
 //   bin[c][n] = a_c * sine(phase_c[n])
 //
-// Expected interface, engine/src/core/envelope.hpp, namespace arcani::core:
+// Expected interface, namespace arcani::core: engine/src/core/rate_cycle.hpp
+// from Story 2.6 (moved unchanged from core/envelope.hpp, Story 2.5 review row
+// 9; tests/cpp/test_rate_curves.cpp checks the move):
 //
 //   double cycle_cosine(std::uint64_t phase) noexcept;
 //   // Rate curve, Cycle cosine: q = phase + 2^62, the engine sine's fold
@@ -68,6 +70,9 @@
 
 #include "api_helpers.hpp"
 #include "core/envelope.hpp"
+#if __has_include("core/rate_cycle.hpp")
+#include "core/rate_cycle.hpp"  // Story 2.6: the cycle functions moved here
+#endif
 #include "core/phase.hpp"
 #include "core/sine.hpp"
 #include "plan/plan.hpp"

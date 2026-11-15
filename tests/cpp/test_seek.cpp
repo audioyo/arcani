@@ -220,6 +220,96 @@ TEST_CASE("seek: the beat rate cycle fixture sought to 55 s equals the continuou
   }
 }
 
+// Story 2.6: with a theta or gamma rate cycle, seek also sets each cycle phase
+// to its own P0 + k * inc_P beside the envelope accumulator k * inc_E or
+// k * inc_M (signal spec, Rate curve, Seek). Each rate-curve fixture (120 s;
+// recipes/fixtures/valid/, signal spec Vectors: theta and gamma rate cycles)
+// is sought to kSeekSeconds (55 s) and to a few other frames, and compared
+// chunk by chunk, every tap included, with a renderer that renders
+// continuously from frame 0.
+
+namespace {
+
+const char* const kCurvedFixtures[] = {"theta-cycle-sine.json",  "theta-cycle-smoothed-on-off.json",
+                                       "gamma-cycle-uncoupled.json", "swell-theta-cycle.json",
+                                       "bursts-theta-cycle.json", "gamma-cycle-swell-theta-cycle.json"};
+
+// Frames [k, end) of a renderer sought to k against a continuous render from
+// 0: the number of chunks that differ in the output or in any tap.
+std::size_t seek_differences_all_taps(const api::PlanPtr& plan, std::uint64_t k, std::uint64_t end) {
+  constexpr std::size_t kChunk = 32768;
+  auto continuous = api::renderer(plan.get());
+  auto sought = api::renderer(plan.get());
+  for (std::uint64_t at = 0; at < k;) {
+    const auto n = static_cast<std::size_t>(std::min<std::uint64_t>(kChunk, k - at));
+    (void)api::render(continuous.get(), n);
+    at += n;
+  }
+  api::seek(sought.get(), k);
+  std::size_t differing = 0;
+  for (std::uint64_t at = k; at < end;) {
+    const auto n = static_cast<std::size_t>(std::min<std::uint64_t>(kChunk, end - at));
+    api::TapBuffers a(n);
+    api::TapBuffers b(n);
+    const arc_taps ta = a.taps();
+    const arc_taps tb = b.taps();
+    const auto out_a = api::render(continuous.get(), n, &ta);
+    const auto out_b = api::render(sought.get(), n, &tb);
+    const bool same = api::same_bytes(out_a, out_b) && api::same_bytes(a.theta_reference, b.theta_reference) &&
+                      api::same_bytes(a.gamma_pac, b.gamma_pac) && api::same_bytes(a.stereo_bus, b.stereo_bus) &&
+                      api::same_bytes(a.binaural_join, b.binaural_join) && api::same_bytes(a.master, b.master);
+    differing += same ? 0 : 1;
+    at += n;
+  }
+  return differing;
+}
+
+}  // namespace
+
+TEST_CASE("seek: each theta and gamma rate-curve fixture sought to 55 s equals the continuous render",
+          "[seek][rate-curves]") {
+  for (const char* fixture : kCurvedFixtures) {
+    for (const std::uint32_t fs : spec::sample_rates()) {
+      INFO(fixture << " at " << fs);
+      auto plan = api::compile_ok(api::valid(fixture), api::options(ARC_MODE_MEASURE, fs));
+      const std::uint64_t frames = arc_plan_frame_count(plan.get());
+      const std::uint64_t k =
+          static_cast<std::uint64_t>(std::llround(spec::kSeekSeconds * static_cast<double>(fs)));
+      REQUIRE(k > 0);
+      REQUIRE(k < frames);
+      CHECK(seek_differences_all_taps(plan, k, frames + 64) == 0);
+      // Other seek points: block boundaries, a quarter of the first cycle and
+      // the cycle's peak rate, half a cycle, and just before the end.
+      for (const std::uint64_t other : {std::uint64_t{63}, std::uint64_t{64}, std::uint64_t{15} * fs + 1,
+                                        std::uint64_t{30} * fs + 37, frames - 100}) {
+        INFO("seek to " << other);
+        CHECK(seek_differences_all_taps(plan, other, std::min<std::uint64_t>(other + 3 * fs, frames + 64)) == 0);
+      }
+    }
+  }
+}
+
+TEST_CASE("seek: the curved theta and gamma taps after a seek are not the unsought start", "[seek][rate-curves]") {
+  // Must-fail guard for the comparison above: the theta and gamma taps from
+  // 55 s differ from those from 0 s, so a seek that left the cycle phase at P0
+  // would not pass by accident.
+  for (const std::uint32_t fs : spec::sample_rates()) {
+    auto plan = api::compile_ok(api::valid("gamma-cycle-swell-theta-cycle.json"), api::options(ARC_MODE_MEASURE, fs));
+    const std::uint64_t k = static_cast<std::uint64_t>(std::llround(spec::kSeekSeconds * static_cast<double>(fs)));
+    auto start = api::renderer(plan.get());
+    auto sought = api::renderer(plan.get());
+    api::seek(sought.get(), k);
+    api::TapBuffers a(4096);
+    api::TapBuffers b(4096);
+    const arc_taps ta = a.taps();
+    const arc_taps tb = b.taps();
+    (void)api::render(start.get(), 4096, &ta);
+    (void)api::render(sought.get(), 4096, &tb);
+    CHECK_FALSE(api::same_bytes(a.theta_reference, b.theta_reference));
+    CHECK_FALSE(api::same_bytes(a.gamma_pac, b.gamma_pac));
+  }
+}
+
 TEST_CASE("seek comparison catches a one-sample offset", "[seek]") {
   // Must-fail for tail_matches: the tail from k + 1 does not match at k.
   const Session s = full(api::kBeat6, 48000);

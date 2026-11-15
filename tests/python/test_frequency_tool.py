@@ -542,3 +542,235 @@ def test_wrong_start_phase_schedule_fails(fs):
     wrong = swept_cycles(fs, left, center, swing, period, 90.0, seconds)
     result = mod.check_phase("wrong start phase", x, fs, wrong)
     assert result["result"] == "fail", result
+
+
+# ------------------------------------------------- envelope phase mode (Story 2.6)
+#
+# Contract with tests/assertions/frequency.py (spec Implementation Notes):
+#
+# - curve_phase(t, rate_hz, cycle=None): the ideal phase integral in cycles at
+#   times t (seconds, an array): r t + K (cos(phi0) - cos(2 pi t / P + phi0)),
+#   K = s P / (2 pi), cycle a mapping with swing_hz, period_s, start_phase_deg;
+#   r t when cycle is None. float64, the shape of t.
+# - ENVELOPE_TRIM_S = 10.0, ENVELOPE_TAPER_S = 5.0.
+# - envelope_phase_track(x, fs, expected_cycles): |analytic(x)|, mean removed,
+#   each end tapered by a raised cosine over ENVELOPE_TAPER_S, the analytic
+#   signal of that with every bin below half the bottom of row theta-rate
+#   zeroed, the expected phase removed, ENVELOPE_TRIM_S trimmed at each end,
+#   unwrapped: the same dict as phase_track. ValueError on a shape mismatch or
+#   a signal too short for the trims.
+# - check_envelope_phase(name, x, fs, expected_cycles): check_phase's report
+#   shape on row frequency-accuracy, the step rule PHASE_STEP_CYCLES (note
+#   "phase step"), note "not finite" for a NaN or infinite measure.
+#
+# Calibration: Python-synthesized swept AM tones, 120 s, both rates, made here
+# from the closed form: a 450 Hz carrier amplitude-modulated by the sine
+# envelope (75 percent) at a theta rate of 3.5 +- 2.5 Hz from 0 and 270
+# degrees and 4 +- 2 Hz from 90 degrees, and a 250 Hz carrier
+# amplitude-modulated at a gamma rate of 45 +- 15 Hz and 40 +- 10 Hz
+# (100 percent), every cycle 60 s; each within row
+# frequency-accuracy-calibration. Must-fail: the same tones with the AM rate
+# 0.02 Hz off the schedule fail row frequency-accuracy.
+
+ENVELOPE_SECONDS = 120.0
+# (carrier, depth, center, swing, start phase degrees): every cycle 60 s.
+SWEPT_AM = (
+    (450.0, 0.75, 3.5, 2.5, 0.0),
+    (450.0, 0.75, 3.5, 2.5, 270.0),
+    (450.0, 0.75, 4.0, 2.0, 90.0),
+    (250.0, 1.0, 45.0, 15.0, 0.0),
+    (250.0, 1.0, 40.0, 10.0, 0.0),
+)
+SWEPT_PERIOD_S = 60.0
+
+
+def am_schedule(fs, center_hz, swing_hz, start_deg, seconds=ENVELOPE_SECONDS, offset_hz=0.0):
+    """The closed-form AM phase in cycles at each sample (made here, not the tool's curve_phase)."""
+    t = np.arange(int(round(seconds * fs)), dtype=np.float64) / fs
+    phi0 = math.radians(start_deg)
+    k = swing_hz * SWEPT_PERIOD_S / (2.0 * math.pi)
+    return (center_hz + offset_hz) * t + k * (math.cos(phi0) - np.cos(2.0 * math.pi * t / SWEPT_PERIOD_S + phi0))
+
+
+def swept_am(fs, carrier_hz, depth, cycles):
+    """A carrier amplitude-modulated by the sine envelope of the AM phase `cycles`."""
+    t = np.arange(cycles.size, dtype=np.float64) / fs
+    e = 0.5 + 0.5 * np.cos(2.0 * np.pi * cycles)
+    a = 1.0 - depth * (1.0 - e)
+    return a * np.sin(2.0 * np.pi * carrier_hz * t + 0.3)
+
+
+def cycle_of(swing_hz, start_deg):
+    return {"swing_hz": swing_hz, "period_s": SWEPT_PERIOD_S, "start_phase_deg": start_deg}
+
+
+def test_envelope_mode_constants():
+    mod = freq()
+    assert mod.ENVELOPE_TRIM_S == 10.0
+    assert mod.ENVELOPE_TAPER_S == 5.0
+    assert mod.ENVELOPE_TAPER_S <= mod.ENVELOPE_TRIM_S
+    assert mod.PHASE_STEP_CYCLES == 1e-4
+
+
+def test_curve_phase_without_a_cycle_is_the_rate_times_t():
+    mod = freq()
+    t = np.arange(48000, dtype=np.float64) / 48000.0
+    got = mod.curve_phase(t, 3.5)
+    assert isinstance(got, np.ndarray) and got.dtype == np.float64 and got.shape == t.shape
+    assert np.array_equal(got, 3.5 * t)
+    assert np.array_equal(mod.curve_phase(t, 3.5, None), 3.5 * t)
+
+
+def test_curve_phase_follows_every_rate_curve_vector():
+    mod = freq()
+    rows = json.loads(VECTORS.read_text(encoding="utf-8"))["rate_curve"]
+    assert len(rows) >= 30
+    for r in rows:
+        cycle = {"swing_hz": float.fromhex(r["swing_hex"]), "period_s": float.fromhex(r["period_hex"]),
+                 "start_phase_deg": float.fromhex(r["start_hex"])}
+        t = float.fromhex(r["t_hex"])
+        got = float(mod.curve_phase(np.array([t]), float.fromhex(r["center_hex"]), cycle)[0])
+        want = float(r["ideal_beat_cycles"])
+        # binary64 against the decimal ideal: a few ulps of a phase below 3000 cycles.
+        assert abs(got - want) <= 1e-9, (r, got)
+    # At t = 0 the phase is 0 for every start phase.
+    for deg in (0.0, 90.0, 180.0, 270.0, 360.0):
+        assert float(mod.curve_phase(np.array([0.0]), 3.5, cycle_of(2.5, deg))[0]) == 0.0, deg
+
+
+def test_curve_phase_equals_the_closed_form_made_here():
+    mod = freq()
+    for fs in SAMPLE_RATES:
+        for _, _, center, swing, start in SWEPT_AM:
+            want = am_schedule(fs, center, swing, start, seconds=10.0)
+            t = np.arange(want.size, dtype=np.float64) / fs
+            got = mod.curve_phase(t, center, cycle_of(swing, start))
+            assert np.max(np.abs(got - want)) <= 1e-9, (fs, center, swing, start)
+
+
+@pytest.fixture(scope="module")
+def swept_am_tones():
+    """(fs, case) -> (tone, schedule) of 120 s, the last two kept (a 48 kHz pair is about 90 MB)."""
+    cache = {}
+
+    def get(fs, case, offset_hz=0.0):
+        key = (fs, case, offset_hz)
+        if key not in cache:
+            carrier, depth, center, swing, start = case
+            judged = am_schedule(fs, center, swing, start)
+            played = judged if offset_hz == 0.0 else am_schedule(fs, center, swing, start, offset_hz=offset_hz)
+            while len(cache) >= 2:
+                del cache[next(iter(cache))]
+            cache[key] = (swept_am(fs, carrier, depth, played), judged)
+        return cache[key]
+
+    return get
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_envelope_phase_track_keys_and_shape(fs, swept_am_tones):
+    mod = freq()
+    x, cycles = swept_am_tones(fs, SWEPT_AM[0])
+    got = mod.envelope_phase_track(x, fs, cycles)
+    assert set(got) == {"residual_cycles", "rate_error_hz", "max_rate_error_hz", "max_step_cycles"}
+    residual = np.asarray(got["residual_cycles"])
+    k = int(round(mod.ENVELOPE_TRIM_S * fs))
+    assert residual.shape == (x.size - 2 * k,)
+    assert residual[0] == 0.0
+    rate = np.asarray(got["rate_error_hz"], dtype=np.float64)
+    assert rate.ndim == 1 and rate.size > 0 and np.all(np.isfinite(rate))
+    assert got["max_rate_error_hz"] == float(np.max(np.abs(rate)))
+    assert got["max_step_cycles"] == float(np.max(np.abs(np.diff(residual))))
+    # Any constant offset in expected_cycles gives the same verdict.
+    shifted = mod.envelope_phase_track(x, fs, cycles + 7.25)
+    assert abs(shifted["max_rate_error_hz"] - got["max_rate_error_hz"]) < 1e-6
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+@pytest.mark.parametrize("case", SWEPT_AM)
+def test_swept_am_envelope_reads_within_calibration(fs, case, swept_am_tones):
+    mod = freq()
+    x, cycles = swept_am_tones(fs, case)
+    got = mod.envelope_phase_track(x, fs, cycles)
+    assert got["max_rate_error_hz"] < calibration_hz(), (fs, case, got["max_rate_error_hz"])
+    assert got["max_step_cycles"] < mod.PHASE_STEP_CYCLES, (fs, case, got["max_step_cycles"])
+    result = mod.check_envelope_phase(f"swept AM {case}", x, fs, cycles)
+    assert result["result"] == "pass" and result["note"] == "", result
+    # The tool's own curve_phase gives the same verdict as the schedule made here.
+    t = np.arange(x.size, dtype=np.float64) / fs
+    own = mod.check_envelope_phase("curve_phase", x, fs, mod.curve_phase(t, case[2], cycle_of(case[3], case[4])))
+    assert own["result"] == "pass", own
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+@pytest.mark.parametrize("case", (SWEPT_AM[0], SWEPT_AM[3]))
+def test_swept_am_rate_off_by_0_02_hz_fails(fs, case, swept_am_tones):
+    mod = freq()
+    x, judged = swept_am_tones(fs, case, offset_hz=MOVE_HZ)
+    result = mod.check_envelope_phase("moved AM rate", x, fs, judged)
+    assert result["result"] == "fail", result
+    assert result["note"] == "", result
+    assert result["measured"] > accuracy_hz(), result
+
+
+def test_check_envelope_phase_report_shape(swept_am_tones):
+    mod = freq()
+    fs = SAMPLE_RATES[0]
+    x, cycles = swept_am_tones(fs, SWEPT_AM[3])
+    result = mod.check_envelope_phase("gamma", x, fs, cycles)
+    assert set(result) == {"name", "row", "threshold", "unit", "measured", "result", "note"}
+    assert result["name"] == "gamma"
+    assert result["row"] == "frequency-accuracy"
+    assert result["threshold"] == accuracy_hz()
+    assert result["unit"] == "Hz"
+    assert result["measured"] == mod.envelope_phase_track(x, fs, cycles)["max_rate_error_hz"]
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_swept_am_with_a_phase_step_fails_with_note(fs):
+    mod = freq()
+    carrier, depth, center, swing, start = SWEPT_AM[0]
+    cycles = am_schedule(fs, center, swing, start, seconds=40.0)
+    stepped = cycles.copy()
+    stepped[stepped.size // 2:] += 0.25
+    result = mod.check_envelope_phase("phase step", swept_am(fs, carrier, depth, stepped), fs, cycles)
+    assert result["result"] == "fail", result
+    assert result["note"] == "phase step", result
+
+
+def test_check_envelope_phase_not_finite_fails():
+    mod = freq()
+    fs = SAMPLE_RATES[0]
+    carrier, depth, center, swing, start = SWEPT_AM[0]
+    cycles = am_schedule(fs, center, swing, start, seconds=30.0)
+    for bad in (math.nan, math.inf):
+        x = swept_am(fs, carrier, depth, cycles)
+        x[x.size // 2] = bad
+        result = mod.check_envelope_phase("bad", x, fs, cycles)
+        assert result["result"] == "fail" and result["note"] == "not finite", (bad, result)
+        assert result["measured"] is None
+
+
+def test_envelope_phase_track_refuses_bad_input():
+    mod = freq()
+    fs = SAMPLE_RATES[0]
+    carrier, depth, center, swing, start = SWEPT_AM[0]
+    cycles = am_schedule(fs, center, swing, start, seconds=30.0)
+    x = swept_am(fs, carrier, depth, cycles)
+    with pytest.raises(ValueError):
+        mod.envelope_phase_track(x, fs, cycles[:-1])  # shape mismatch
+    short = int(2 * mod.ENVELOPE_TRIM_S * fs)
+    with pytest.raises(ValueError):
+        mod.envelope_phase_track(x[:short], fs, cycles[:short])  # nothing left after the trims
+    with pytest.raises(ValueError):
+        mod.check_envelope_phase("short", x[:short], fs, cycles[:short])
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_swept_am_judged_without_its_cycle_fails(fs, swept_am_tones):
+    # Must-fail: a curved AM rate judged as the constant center rate.
+    mod = freq()
+    x, cycles = swept_am_tones(fs, SWEPT_AM[0])
+    t = np.arange(x.size, dtype=np.float64) / fs
+    result = mod.check_envelope_phase("no cycle", x, fs, mod.curve_phase(t, SWEPT_AM[0][2]))
+    assert result["result"] == "fail", result
