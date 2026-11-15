@@ -275,8 +275,8 @@
    ===================================================================== */
 
 var LAST_UPDATED = "2026-11-14";
-var CURRENT = "2.6";   // story id being worked on
-var NEXT    = "2.7";   // story id that comes next
+var CURRENT = "2.7";   // story id being worked on
+var NEXT    = "3.1";   // story id that comes next
 
 // Workflow step names, used by every story unless it lists its own "stepNames".
 var STEP_NAMES = [
@@ -525,11 +525,11 @@ var EPICS = [
       ["x","Each burst center within 2 ms of its coupling phase"],
       ["x","No click above -60 dBFS at burst edges; matches the reference"]
     ] },
-  { id:"2.6", title:"Rate curves on theta and gamma rates", status:"review",
+  { id:"2.6", title:"Rate curves on theta and gamma rates", status:"done",
     plain:"The theta and gamma rates follow recipe rate curves using the same law as the binaural beat.",
     spec:["spec-2-6-rate-curves-on-theta-and-gamma-rates.md"],
-    steps:[true,true,true,true,true,false,false],
-    stepNotes:["a256046: spec 2026-11-13, burst and edge lengths and the cycle period decided by Audio 2026-11-14; ffb404f: signal spec rate curve on the theta and gamma rates with 2 new vector tables (38 in all)","0e525e9: fresh-context QA agent's failing tests; C++ did not compile against the old engine, 59 of 184 Python cases in the reference, probe, and record files red","d44f5a0: rate_cycle fields, worst-case checks, curved envelope phases, core/rate_cycle, reference/rate_curve.py, envelope phase and rate-curve timing modes, 12 fixtures, rate-curves probe components; 4/4 ctest entries, 2,706 pytest pass, 4 hash-entry tests wait for the full run; design log (ss)","d3b0b8a: review pass 1 (blind hunter, edge case hunter, verification gap; 21 findings, 5 patched, 15 rejected, 1 CI gate): center-rate note on theta-edge, burst-width, burst-edge; harness reference match at start phases 90 and 270, sawtooth, reverse saw, curved gamma with bursts; click check on curved renders; 4/4 ctest entries, 2,720 pytest pass, 4 hash-entry tests wait for the full run","62564d4: rate-curves hashes pinned from full run 43638339501; ab2facf and efbfc43: six CI budgets raised by Audio (design log (tt)); fast run 43656941898 and full run 43656946457 green on every job within budget, rate-curves hashes equal on all four platforms","",""],
+    steps:[true,true,true,true,true,true,true],
+    stepNotes:["a256046: spec 2026-11-13, burst and edge lengths and the cycle period decided by Audio 2026-11-14; ffb404f: signal spec rate curve on the theta and gamma rates with 2 new vector tables (38 in all)","0e525e9: fresh-context QA agent's failing tests; C++ did not compile against the old engine, 59 of 184 Python cases in the reference, probe, and record files red","d44f5a0: rate_cycle fields, worst-case checks, curved envelope phases, core/rate_cycle, reference/rate_curve.py, envelope phase and rate-curve timing modes, 12 fixtures, rate-curves probe components; 4/4 ctest entries, 2,706 pytest pass, 4 hash-entry tests wait for the full run; design log (ss)","d3b0b8a: review pass 1 (blind hunter, edge case hunter, verification gap; 21 findings, 5 patched, 15 rejected, 1 CI gate): center-rate note on theta-edge, burst-width, burst-edge; harness reference match at start phases 90 and 270, sawtooth, reverse saw, curved gamma with bursts; click check on curved renders; 4/4 ctest entries, 2,720 pytest pass, 4 hash-entry tests wait for the full run","62564d4: rate-curves hashes pinned from full run 43638339501; ab2facf and efbfc43: six CI budgets raised by Audio (design log (tt)); fast run 43656941898 and full run 43656946457 green on every job within budget, rate-curves hashes equal on all four platforms; fast and full green on the head 75faa94, every job within budget","092eb46: PR #17 merged into main, 2026-11-14, on Audio's go-ahead after all required checks reported green","sprint-status.yaml set to done"],
     acs:[
       ["x","Same rate-curve law as 2.5; no new formula"],
       ["x","Worst case over the whole curve is range-checked and carrier-rule-checked; must-fail curve rejected"],
@@ -727,6 +727,7 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-14","092eb46","2.6","PR #17 merged into main after fast and full checks on 75faa94 were green, every job within budget; sprint-status.yaml set to done; QA worktree removed; next: Story 2.7"],
   ["2026-11-14","efbfc43","2.6","PR #17 opened; full run 43638339501 red only on the missing rate-curves entries and wall time; hashes pinned (62564d4); Audio raised six CI budgets (ab2facf, efbfc43; design log (tt), 0 billed minutes on the public repo); fast run 43656941898 and full run 43656946457 green on every job within budget, rate-curves hashes equal on all four platforms; PR waits for Audio to merge"],
   ["2026-11-14","d3b0b8a","2.6","Review pass 1: 21 findings, 5 patched in d3b0b8a (center-rate row notes, design log count, validator comment, harness reference match at more start phases and shapes and curved gamma with bursts, click check on curved renders), 15 rejected, 1 CI gate (hash pins); 4/4 ctest entries, 2,720 pytest pass, 4 hash-entry tests wait for the four-platform full run; story in review; not pushed"],
   ["2026-11-14","d44f5a0","2.6","Spec a256046 and signal spec ffb404f; failing tests 0e525e9 (fresh-context QA agent); implementation d44f5a0: theta and gamma rate curves, 4/4 ctest entries, 2,706 pytest pass, 4 hash-entry tests wait for the four-platform full run; design log (ss); not pushed, review pass not yet run"],
