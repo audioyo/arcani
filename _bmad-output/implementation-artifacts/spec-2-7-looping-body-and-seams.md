@@ -3,7 +3,7 @@ title: 'Story 2.7: Looping body and seams'
 type: 'feature'
 created: '2026-11-14'
 baseline_commit: '38e99957fd3a76dba1eea948bcf72456572ceaee'
-status: 'in-progress'
+status: 'in-review'
 route: 'dispatch'
 review_loop_iteration: 0
 context:
@@ -17,7 +17,7 @@ context:
 
 **Problem:** Focus and Learn are looping sessions (FR-7, FR-16, FR-29), but a recipe cannot say it loops, has no opening section or body, and has no max run time. Rows `max-run-time-focus` (45 min) and `max-run-time-learn` (20 min) are pending on this story.
 
-**Approach:** A looping recipe carries a `loop` object. The signal spec's new Â§Loop defines the opening, the body, the seams, and the end. Looping repeats the parameter schedule while every oscillator phase keeps running on the one engine clock (readiness review R5), so theta, gamma, and rate-cycle phase cannot jump at a seam. A body with a rate cycle must hold a whole number of cycle periods, so each pass carries the same schedule.
+**Approach:** A looping recipe carries a `loop` object. The signal spec's new §Loop defines the opening, the body, the seams, and the end. Looping repeats the parameter schedule while every oscillator phase keeps running on the one engine clock (readiness review R5), so theta, gamma, and rate-cycle phase cannot jump at a seam. A body with a rate cycle must hold a whole number of cycle periods, so each pass carries the same schedule.
 
 Decisions (2026-11-14, build agent, under Audio's standing "settle tech forks yourselves" preference):
 - **No opening glide (Audio, 2026-11-14, option A):** the epics AC's "theta rate curve that settles to the body's rate" is dropped. In this story the opening is a time span that sounds like the body; Story 4.4 gives it the ramp-in. No new rate shape.
@@ -32,7 +32,7 @@ Decisions (2026-11-14, build agent, under Audio's standing "settle tech forks yo
 
 ## Boundaries & Constraints
 
-**Always:** Â§Loop lands with vectors from `tools/signal_spec_vectors.py` before engine or reference code. Tests first from a fresh-context QA agent, committed failing. Must-fail renders are doctored in the harness (a phase step and a 1-sample gap at a seam), never in `engine/`. Rows and thresholds from the tables only; both `max-run-time-*` rows lose `pending`. Every existing vector, fixture byte, and pinned hash keeps passing. Design log entry (uu).
+**Always:** §Loop lands with vectors from `tools/signal_spec_vectors.py` before engine or reference code. Tests first from a fresh-context QA agent, committed failing. Must-fail renders are doctored in the harness (a phase step and a 1-sample gap at a seam), never in `engine/`. Rows and thresholds from the tables only; both `max-run-time-*` rows lose `pending`. Every existing vector, fixture byte, and pinned hash keeps passing. Design log entry (uu).
 
 **Never:** Sample repetition (replaying stored samples); a second clock; rate curves on carriers; coupling to the binaural layer; gain ramps or fades (Story 4.4); the loudness window (4.1); starter recipes; pushing or opening the PR without Audio's go-ahead.
 
@@ -51,7 +51,7 @@ Decisions (2026-11-14, build agent, under Audio's standing "settle tech forks yo
 
 ## Code Map
 
-- `docs/signal-spec.md` -- new Â§Loop after Â§Rate curve (2158-2290); header story list (line 5). Vectors in `tools/signal_spec_vectors.py` (seam frames per fixture at both rates, compile cases), `tests/data/signal_spec_vectors.json`, `tests/cpp/SpecTables.cmake`; `tests/python/test_signal_spec_core.py:294` pins the table count.
+- `docs/signal-spec.md` -- new §Loop after §Rate curve (2158-2290); header story list (line 5). Vectors in `tools/signal_spec_vectors.py` (seam frames per fixture at both rates, compile cases), `tests/data/signal_spec_vectors.json`, `tests/cpp/SpecTables.cmake`; `tests/python/test_signal_spec_core.py:294` pins the table count.
 - `recipes/recipe.schema.json` -- top-level `loop`, tags loudness-relevant. `engine/src/recipe/field_table.cpp`, `recipe.{hpp,cpp}` -- `std::optional<Loop>`.
 - `engine/src/validate/validate.{hpp,cpp}` -- loop rules after the binaural checks; order text in `validate.hpp`. Rows from `tests/tables/ranges.tsv:19-20`.
 - `engine/src/plan/plan.{hpp,cpp}` -- `frame_count` already ends output (`renderer.cpp:51`); add opening, body, and seam frames. Renderer and seek need no change.
@@ -65,14 +65,14 @@ Decisions (2026-11-14, build agent, under Audio's standing "settle tech forks yo
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `docs/signal-spec.md`, `tools/signal_spec_vectors.py`, vectors JSON -- Â§Loop with worked seam frames -- the spec merges first.
-- [ ] tests (files above) -- a fresh-context QA agent writes the failing tests from the I/O matrix -- tests first.
-- [ ] schema, field table, recipe, validator, plan, CLI report, reference, hash probe -- implementation.
-- [ ] fixtures, hash vectors, rows, design log (uu), README, `ci/hash_expected.json`, `deferred-work.md` (end fade at the cap, for 4.4) -- records.
-- [ ] `docs/timeline-guidebook.html`, `sprint-status.yaml` -- records.
+- [x] `docs/signal-spec.md`, `tools/signal_spec_vectors.py`, vectors JSON -- §Loop with worked seam frames -- the spec merges first.
+- [x] tests (files above) -- a fresh-context QA agent writes the failing tests from the I/O matrix -- tests first.
+- [x] schema, field table, recipe, validator, plan, CLI report, reference, hash probe -- implementation.
+- [x] fixtures, hash vectors, rows, design log (uu), README, `ci/hash_expected.json`, `deferred-work.md` (end fade at the cap, for 4.4) -- records.
+- [x] `docs/timeline-guidebook.html`, `sprint-status.yaml` -- records.
 
 **Acceptance Criteria:**
-- Given Â§Loop, then it defines body length, seam frames, and the end at the cap, with vectors, and no new oscillator formula.
+- Given §Loop, then it defines body length, seam frames, and the end at the cap, with vectors, and no new oscillator formula.
 - Given a looping recipe without a cap, or with a cap off its row, then compile rejects it with a named rule.
 - Given the full swell render at both rates, then the click tool passes, the recovered theta and gamma envelope phase shows no step at any seam, coupling timing is within row `coupling-timing` across seams, and the join from opening to body is click-free.
 - Given seek into a later pass, then samples equal the continuous render byte for byte.
@@ -112,3 +112,24 @@ Contracts the tests are written against (build agent, 2026-11-14). The signal sp
 ## Spec Change Log
 
 ## Review Triage Log
+
+Pass 1 (2026-11-15): blind hunter (BH), edge case hunter (EC), and verification gap (VG), each in a fresh context, on diff 38e9995..ab8a3dc. The generated `signal_spec_vectors.json`, `recipe_hash_vectors.json`, and the guidebook were left out. VG found no gaps.
+
+| # | Finding | Verdict | Evidence | Route |
+|---|---------|---------|----------|-------|
+| 1 | BH: spec shows mojibake for the section sign in 5 places | low | true; caused by the orchestrator's PowerShell status edit (ANSI read, UTF-8 write); repaired to the section sign, encoding only, no content change | patch (done) |
+| 2 | BH: tasks unticked, status in-progress, Spec Change Log empty | false | ticked and set in-review after the diff was cut; the red-commit test correction is an implementation note, not a review loopback | reject |
+| 3 | BH, VG: committed with 4 failing hash-entry tests | low | true; same gate as Stories 2.2 to 2.6 (design log (kk)); pins wait on a four-platform full run | CI gate before merge |
+| 4 | BH: QA independence weakened (build agent wrote `test_recipe_hash.py` loop leaves and one schema-test fix) | low | true; recorded in Implementation Notes; fix edits this build's spec; surfaced to Audio | reject |
+| 5 | BH: no must-fail for a phase reset at a seam | low | true; must-fails cover a 1-sample gap and a 1 ms step only; the reset is the failure "never sample repetition" guards | patch (test) |
+| 6 | BH: `opening_s >= 0` and `body_s > 0` not table rows; no minimum body (0.25 s gives about 10,799 seams) | low | structural bounds like `swing_hz >= 0`, which has no row either (Rate curve); a minimum body needs a new row with a source; no fixture or starter is near it; surfaced to Audio | reject |
+| 7 | BH: rule 7 reports the sum on `/loop/body_s` | low | true and as §Loop rule 7 defines; cosmetic | reject |
+| 8 | BH: cycle-rule exactness argument leans on the 60 s row | low | true, but a huge body that slips past rule 6 is still rejected by rule 7; developer-only; a static_assert adds a guard | reject |
+| 9 | BH: `max_run_time_min` redundant with `mode` and `length_s` | false | follows from Audio's option A and the single-value rows; the field is what FR-7 and the AC require | reject |
+| 10 | BH: 20 min renders cost more than the frozen estimate (ctest CLI test writes about 318 MB; pytest +5.5 min, 1.8 GB temp) | medium | true; local pytest 30.5 min (was about 25), above the "under 2 min" estimate in the frozen block | escalate to Audio at presentation |
+| 11 | BH: report `loop` block lacks `body_frames` | low | seams give it; additive surface | reject |
+| 12 | BH: end click not measured | false | Audio chose the hard stop (option A); deferred-work entry covers 4.4 | reject |
+| 13 | BH: "focus" beside a number in fixture names | false | Focus is the product mode (FR-16); `check_wording.py` exits 0 | reject |
+| 14 | EC: tap dump `--window` huge count throws `bad_alloc` | low | test tool, loud failure on inputs never given | reject |
+| 15 | EC: `ideal.frame_index` rejects a 0-d ndarray count | low | no caller passes one | reject |
+| 16 | EC: records task ticked though `ci/hash_expected.json` has no `loop-*` entries | low | true; the pin waits on the full CI run (row 3) | CI gate before merge |
