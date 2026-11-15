@@ -2,7 +2,7 @@
 
 This file is the only source of signal formulas (AD-19). The engine (`engine/`) and the Python reference (`reference/`) each implement it on their own; neither defines a formula of its own, and neither is ported from the other. A shape or stage not in this file does not exist.
 
-Story 0.2 writes the core and sine sections. Story 1.2 writes the internal block size and the stub chain. Story 1.4 writes 24-bit rounding. Story 1.5 adds the theta reference oscillator to the stub chain. Story 2.1 writes the theta reference (envelope shapes, depth law). Story 2.2 writes the gamma PAC layer, uncoupled (AM law, constant depth). Story 2.3 writes coupling (coupling phase, smooth swell). Story 2.5 writes the binaural layer and the rate curve (beat rate cycle, closed-form phase integral). Story 2.4 writes bursts (burst gate, burst constants). Story 2.6 applies the rate curve to the theta and gamma rates. Later stories add ramps, loop seams, the limiter, the resampler, the loudness window, and the spectral component model.
+Story 0.2 writes the core and sine sections. Story 1.2 writes the internal block size and the stub chain. Story 1.4 writes 24-bit rounding. Story 1.5 adds the theta reference oscillator to the stub chain. Story 2.1 writes the theta reference (envelope shapes, depth law). Story 2.2 writes the gamma PAC layer, uncoupled (AM law, constant depth). Story 2.3 writes coupling (coupling phase, smooth swell). Story 2.5 writes the binaural layer and the rate curve (beat rate cycle, closed-form phase integral). Story 2.4 writes bursts (burst gate, burst constants). Story 2.6 applies the rate curve to the theta and gamma rates. Story 2.7 writes the loop (opening, body, seams, and the end at the max run time). Later stories add ramps, the limiter, the resampler, the loudness window, and the spectral component model.
 
 **Conventions:**
 
@@ -2749,6 +2749,126 @@ Per Story 2.6 fixture and sample rate at sample `n`: each curved layer's cycle p
 | signal | gamma-cycle-swell-theta-cycle.json | 48000 | 5759999 | 18446737668589858346 | 838367736 | 18445206845873374543 | 18446737668589858346 | 6287758019 | 18429450257424520531 | `0x3fefffffcc2ab27a` | `0xbfae24503c3b7843` | `0xbfa0c084afebbc5e` | `0xbfb7726a76139a50` | -0.05887080063752099216368010 | -0.03271879901300365170423533 | -0.09158959965052464386791543 |
 | past_end | gamma-cycle-swell-theta-cycle.json | 48000 | 5760000 | 18446744073709328384 | 39114 | 18446744073707855050 | 18446744073709328384 | 293354 | 18446744073706158570 | none | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 | 0 |
 | past_end | gamma-cycle-swell-theta-cycle.json | 48000 | 5760063 | 403522526389162 | 3327718221971 | 96848734103461418 | 403522526389162 | 24957886664780 | 1089535779736448732 | none | `0x0000000000000000` | `0x0000000000000000` | `0x0000000000000000` | 0 | 0 | 0 |
+
+## Loop
+
+Story 2.7 writes looping sessions (Focus and Learn). A looping recipe has an opening that plays once, then a body that repeats until the session ends at the mode's max run time. Looping repeats the parameter schedule, never stored samples: every oscillator phase keeps running on the one engine clock (Core), so a seam is only a frame number, and no theta, gamma, carrier, or rate cycle phase can jump there. This section adds no oscillator formula. In this story the opening sounds like the body; the gain ramps of Story 4.4 will live in it, so the body stays steady.
+
+**Recipe fields.** A top-level optional `loop`, an object with four members, all required inside it:
+
+- `mode`: `focus` or `learn` (schema enum). It names the cap row: `focus` reads range row `max-run-time-focus` (45 min), `learn` reads `max-run-time-learn` (20 min) (Audio, 2026-11-14).
+- `opening_s`: the opening length in seconds, at least 0.
+- `body_s`: the body length in seconds, above 0.
+- `max_run_time_min`: the max run time in minutes, against the mode's row.
+
+A field that is not of its type, a missing one, an unknown one, or a `mode` outside the enum is a schema fault (rules `type`, `required`, `unknown_property`, `enum`); so a looping recipe without a cap is rejected by the schema. Every recipe without `loop`, which is every recipe written before Story 2.7, keeps its bytes and recipe hash and renders the same bits.
+
+**Compile order.** The loop rules run after every range check of the earlier sections (the binaural checks last, with the rate cycles' worst cases of Rate curve, Range checks) and before the rules that follow the ranges (Theta reference, Gamma PAC layer, Coupling, Binaural layer, Compile order). In this order, first failure wins:
+
+1. `max_run_time_min` against the mode's row: parameter `/loop/max_run_time_min`, rule `range.min` or `range.max`, limit for example `<= 45 min (row max-run-time-focus)`. Both rows are single values (min equal to max), so `focus` with 46 and `learn` with 45 are both rejected.
+2. The session ends at the cap: `length_s` must equal `max_run_time_min * 60` (binary64, one rounding; exact for every value rule 1 accepts). Parameter `/length_s`, value `length_s`, rule `loop session ends at the max run time`, limit for example `= 1200 s (20 min x 60)`. A listener timer comes in Phase 3; until then the cap is the session length.
+3. `opening_s >= 0`: parameter `/loop/opening_s`, rule `range.min`, limit `>= 0 s`.
+4. `body_s > 0`: parameter `/loop/body_s`, rule `range.min`, limit `> 0 s`.
+5. Whole samples, `opening_s` then `body_s` (Whole-sample rule): parameter the field, value the field, rule `loop time not whole samples`, limit `a multiple of 0.25 s (whole samples at 44100 and 48000 Hz)`.
+6. Whole rate cycles: with any rate cycle (`theta_reference.rate_cycle`, `gamma_pac.rate_cycle`, `binaural.beat_rate_cycle`, in that order), `body_s` is a whole multiple of the cycle's `period_s` (Cycle rule): parameter `/loop/body_s`, value `body_s`, rule `loop body not whole rate cycles`, limit naming the period and its path, for example `a whole multiple of 60 s (/theta_reference/rate_cycle/period_s)`. Without a rate cycle there is no such rule.
+7. `opening_s + body_s <= length_s` (binary64, one rounding; exact here): parameter `/loop/body_s`, value the sum, rule `loop opening and body exceed the session`, limit for example `<= 1200 s (length_s)`. So at least one whole body pass plays.
+
+Values and limits are written as the shortest round-trip text of a binary64, as every range error is. Every rule runs in both compile modes, before `final.required`.
+
+**Whole-sample rule.** A time `t_s` is a whole number of samples at both native rates when `t_s * 44100` and `t_s * 48000` are both integers, exactly (rational arithmetic, not the rounded product). A binary64 `t_s >= 0` is a dyadic rational `a / 2^k` with `a` odd or `k <= 0`; `t_s * 44100` is an integer only when `2^k` divides `44100 = 2^2 * 11025`, so `k <= 2`, and `t_s * 48000` only when `k <= 7` (`48000 = 2^7 * 375`). Both hold exactly when `k <= 2`, that is, when `4 * t_s` is an integer. The engine tests that, with no rounding:
+
+```
+x = t_s * 4.0      binary64, exact (a power-of-two scale)
+whole when x >= 2^53, or when x equals its truncation toward zero
+```
+
+Below 2^53, `x` converts to an unsigned 64-bit integer and back exactly; every binary64 at or above 2^53 is an integer, and rule 7 then bounds both fields by the session length. The rounded product is not enough: the binary64 nearest 1/3, times 44100, rounds to exactly 14700, yet its exact product is not an integer (Vectors: whole samples). For a whole-sample `t_s` below 2^51 s, `t_s * fs` is an integer below 2^53, so the seconds-to-samples rule (Core) returns it exactly: `seconds_to_samples(t_s, fs) = t_s * fs`.
+
+**Cycle rule.** `body_s` is a whole multiple of `period_s` when `body_s / period_s` is an integer, exactly. The engine tests:
+
+```
+q = body_s / period_s      binary64, one rounding
+whole when q is an integer (the Whole-sample rule's integer test) and q * period_s == body_s (binary64, one rounding)
+```
+
+When the exact quotient is an integer below 2^53, the division and the product are exact, so the test passes. When it is not, the exact quotient is at least `1 / (4 * period_s)` from every integer (a whole-sample `body_s` is a multiple of 0.25 s, and the 60 s period of row `rate-cycle-period` is too), far more than the division's rounding for any body up to the 8 h session length, so `q` is not an integer and the test fails. So for every value that reaches it the test is the exact one. With a body of whole cycles, the ideal rate curve (Rate curve, Law) at time `opening_s + k * body_s + tau` equals the rate at `opening_s + tau` for every pass `k`: each pass carries the same schedule.
+
+**Frames.** Once per plan, with the seconds-to-samples rule (Core), every value an exact integer:
+
+```
+O = seconds_to_samples(opening_s, fs)    opening end: the join, where the first body pass starts (0 when opening_s is 0)
+B = seconds_to_samples(body_s, fs)       body length in frames
+N = seconds_to_samples(length_s, fs)     session end: the frame count (Stub chain)
+seam k = O + k * B                       for k = 1, 2, ... while O + k * B < N
+M = (N - O - 1) div B                    the seam count, integer division; O + B <= N by rule 7
+```
+
+The opening covers frames `[0, O)`; body pass `k` (k = 0 to M) covers `[O + k * B, min(O + (k + 1) * B, N))`. When `N - O` is not a whole number of bodies, the last pass is cut at the cap. A seam at `N` would be the end, so it is not a seam. The frames are the same on every platform.
+
+**Per sample.** Nothing changes. Every tap and the output at frame `n` are the formulas of the earlier sections at `n` (Stub chain, Theta reference, Gamma PAC layer, Coupling, Bursts, Binaural layer, Rate curve): every carrier, envelope, and cycle phase is its start plus `n * inc mod 2^64` (plus the cycle offset `U[n]` where a rate cycle applies), with no reset at the join or at a seam. So a looping recipe renders sample for sample what the same recipe without `loop` renders. A rate cycle's phase after one body moves by `B * inc_P mod 2^64`, a whole number of cycles up to the increment rule's frequency error (Core, Frequency error: under 1e-11 s of cycle period); that error grows smoothly with `n`, like any other phase, and never steps. No sample is stored or replayed, and there is no second clock.
+
+**End at the cap.** The output ends at frame `N` with no fade (Audio, 2026-11-14); past the end every sample is `+0.0` (Stub chain). The click tool leaves the last 50 ms out, as for every session end. Story 4.4 adds the end fade at the cap and the ramp-in inside the opening.
+
+**Seek.** Unchanged (Stub chain, Seek; Rate curve, Seek): seek to frame `k` sets every phase from `k` alone, so a seek into any body pass is byte-identical to a continuous render from frame 0, and the block size cannot change a sample.
+
+**Reference.** The Python reference (`reference/stub_chain.py`) reads `loop`, computes `O`, `B`, `N`, and the seams by the same rules, and renders any frame window `[start, start + T)` straight from the frame numbers, with no change to its formulas: each layer takes the frame indices themselves. Its error bounds are those of the earlier sections at every frame.
+
+**Report.** For a looping recipe the command-line renderer's report gains a member `loop` with `opening_end_frame` (`O`), `seam_frames` (every seam, in order), and `end_frame` (`N`): the seam list a later listening review reads. A report without `loop` is unchanged.
+
+**Fixtures.** `loop-swell-theta-cycle.json` (mode `learn`) is a 450 Hz carrier amplitude-modulated by the sine envelope at a theta rate that cycles over 2 to 6 Hz every 60 s (4 +- 2 Hz from the center, rising), 75 percent depth, and a 250 Hz sine carrier amplitude-modulated at 40 Hz with a smooth swell peaking at the 0 degree coupling phase, 100 percent depth; opening 60 s, body 120 s (two theta rate cycles), 20 min cap, so `length_s` 1200, 9 seams, and a last pass cut at half a body. `loop-bursts-theta-cycle.json` is the same with 50 ms bursts at 0 degrees. `loop-focus-no-cycle.json` (mode `focus`) is the 450 Hz carrier amplitude-modulated by the sine envelope at a fixed 4 Hz theta rate, 75 percent depth, alone; opening 0 s, body 90.25 s (no rate cycle, so any whole-sample body), 45 min cap. The other fixtures of Vectors: loop compile cases are schema-valid and rejected at compile, one per rule and one per rate cycle path. `loop-swell-theta-cycle.json` is the source of the hash probe's `loop-<fs>` components: 5 s from frame 0, then 5 s centered on seam 9 by a seek to `seam 9 - seconds_to_samples(2.5, fs)`.
+
+### Vectors: whole samples
+
+The Whole-sample rule on chosen times: `t_s`, `4 * t_s` (exact), the binary64 products `t_s * fs` (one rounding, as the seconds-to-samples rule forms them), whether the exact product is an integer, the frame count `n` by the seconds-to-samples rule, and the verdict (whole at both rates, which is `4 * t_s` an integer). The last row is the binary64 nearest 1/3: both rounded products are integers, the exact ones are not.
+
+| t_s (hex) | t_s | 4 * t_s (hex) | t_s * 44100 (hex) | Exact at 44100 | n at 44100 | t_s * 48000 (hex) | Exact at 48000 | n at 48000 | Whole samples |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `0x0.0p+0` | 0 | `0x0.0p+0` | `0x0.0p+0` | yes | 0 | `0x0.0p+0` | yes | 0 | yes |
+| `0x1.0000000000000p-2` | 0.25 | `0x1.0000000000000p+0` | `0x1.5888000000000p+13` | yes | 11025 | `0x1.7700000000000p+13` | yes | 12000 | yes |
+| `0x1.e000000000000p+5` | 60 | `0x1.e000000000000p+7` | `0x1.42ff800000000p+21` | yes | 2646000 | `0x1.5f90000000000p+21` | yes | 2880000 | yes |
+| `0x1.6900000000000p+6` | 90.25 | `0x1.6900000000000p+8` | `0x1.e5d7c80000000p+21` | yes | 3980025 | `0x1.0867800000000p+22` | yes | 4332000 | yes |
+| `0x1.e000000000000p+6` | 120 | `0x1.e000000000000p+8` | `0x1.42ff800000000p+22` | yes | 5292000 | `0x1.5f90000000000p+22` | yes | 5760000 | yes |
+| `0x1.5180000000000p+11` | 2700 | `0x1.5180000000000p+13` | `0x1.c6374c0000000p+26` | yes | 119070000 | `0x1.ee62800000000p+26` | yes | 129600000 | yes |
+| `0x1.0000000000000p-3` | 0.125 | `0x1.0000000000000p-1` | `0x1.5888000000000p+12` | no | 5512 | `0x1.7700000000000p+12` | yes | 6000 | no |
+| `0x1.999999999999ap-4` | 0.1 | `0x1.999999999999ap-2` | `0x1.13a0000000000p+12` | no | 4410 | `0x1.2c00000000000p+12` | no | 4800 | no |
+| `0x1.e0ccccccccccdp+5` | 60.1 | `0x1.e0ccccccccccdp+7` | `0x1.4389500000000p+21` | no | 2650410 | `0x1.6026000000000p+21` | no | 2884800 | no |
+| `0x1.e080000000000p+6` | 120.125 | `0x1.e080000000000p+8` | `0x1.4355a20000000p+22` | no | 5297512 | `0x1.5fedc00000000p+22` | yes | 5766000 | no |
+| `0x1.5555555555555p-2` | 0.3333333333333333 | `0x1.5555555555555p+0` | `0x1.cb60000000000p+13` | no | 14700 | `0x1.f400000000000p+13` | no | 16000 | no |
+
+### Vectors: loop compile cases
+
+Per Story 2.7 fixture: the loop fields, `length_s`, the layers with their rate cycles, and the compile verdict, the same in both modes and at both rates, with the first failing rule (Loop, Compile order) as parameter, value, rule, and limit (`none` when accepted).
+
+| Fixture | Mode | Max run time (min) | length_s | opening_s | body_s | Layers | Result | Parameter | Value | Rule | Limit |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| loop-swell-theta-cycle.json | learn | 20 | 1200 | 60 | 120 | theta 450 Hz sine 4 Hz +- 2 Hz / 60 s; gamma 250 Hz 40 Hz smooth_swell | accepted | none | none | none | none |
+| loop-bursts-theta-cycle.json | learn | 20 | 1200 | 60 | 120 | theta 450 Hz sine 4 Hz +- 2 Hz / 60 s; gamma 250 Hz 40 Hz bursts | accepted | none | none | none | none |
+| loop-focus-no-cycle.json | focus | 45 | 2700 | 0 | 90.25 | theta 450 Hz sine 4 Hz | accepted | none | none | none | none |
+| loop-focus-cap-46.json | focus | 46 | 2760 | 60 | 120 | theta 450 Hz sine 4 Hz +- 2 Hz / 60 s; gamma 250 Hz 40 Hz smooth_swell | rejected | /loop/max_run_time_min | 46 | range.max | <= 45 min (row max-run-time-focus) |
+| loop-learn-cap-45.json | learn | 45 | 2700 | 60 | 120 | theta 450 Hz sine 4 Hz +- 2 Hz / 60 s; gamma 250 Hz 40 Hz smooth_swell | rejected | /loop/max_run_time_min | 45 | range.max | <= 20 min (row max-run-time-learn) |
+| loop-learn-cap-19.json | learn | 19 | 1140 | 60 | 120 | theta 450 Hz sine 4 Hz +- 2 Hz / 60 s; gamma 250 Hz 40 Hz smooth_swell | rejected | /loop/max_run_time_min | 19 | range.min | >= 20 min (row max-run-time-learn) |
+| loop-length-not-cap.json | learn | 20 | 1100 | 60 | 120 | theta 450 Hz sine 4 Hz +- 2 Hz / 60 s; gamma 250 Hz 40 Hz smooth_swell | rejected | /length_s | 1100 | loop session ends at the max run time | = 1200 s (20 min x 60) |
+| loop-opening-negative.json | learn | 20 | 1200 | -60 | 120 | theta 450 Hz sine 4 Hz +- 2 Hz / 60 s; gamma 250 Hz 40 Hz smooth_swell | rejected | /loop/opening_s | -60 | range.min | >= 0 s |
+| loop-body-zero.json | learn | 20 | 1200 | 60 | 0 | theta 450 Hz sine 4 Hz +- 2 Hz / 60 s; gamma 250 Hz 40 Hz smooth_swell | rejected | /loop/body_s | 0 | range.min | > 0 s |
+| loop-opening-not-whole-samples.json | learn | 20 | 1200 | 60.1 | 120 | theta 450 Hz sine 4 Hz +- 2 Hz / 60 s; gamma 250 Hz 40 Hz smooth_swell | rejected | /loop/opening_s | 60.1 | loop time not whole samples | a multiple of 0.25 s (whole samples at 44100 and 48000 Hz) |
+| loop-body-not-whole-samples.json | learn | 20 | 1200 | 60 | 120.125 | theta 450 Hz sine 4 Hz +- 2 Hz / 60 s; gamma 250 Hz 40 Hz smooth_swell | rejected | /loop/body_s | 120.125 | loop time not whole samples | a multiple of 0.25 s (whole samples at 44100 and 48000 Hz) |
+| loop-body-off-cycle.json | learn | 20 | 1200 | 60 | 90 | theta 450 Hz sine 4 Hz +- 2 Hz / 60 s; gamma 250 Hz 40 Hz smooth_swell | rejected | /loop/body_s | 90 | loop body not whole rate cycles | a whole multiple of 60 s (/theta_reference/rate_cycle/period_s) |
+| loop-gamma-body-off-cycle.json | learn | 20 | 1200 | 60 | 90 | theta 450 Hz sine 4 Hz; gamma 250 Hz 45 Hz uncoupled +- 15 Hz / 60 s | rejected | /loop/body_s | 90 | loop body not whole rate cycles | a whole multiple of 60 s (/gamma_pac/rate_cycle/period_s) |
+| loop-binaural-body-off-cycle.json | learn | 20 | 1200 | 60 | 90 | theta 450 Hz sine 4 Hz; binaural 100 Hz beat 1.5 Hz +- 1.5 Hz / 60 s | rejected | /loop/body_s | 90 | loop body not whole rate cycles | a whole multiple of 60 s (/binaural/beat_rate_cycle/period_s) |
+| loop-exceeds-session.json | learn | 20 | 1200 | 1140 | 120 | theta 450 Hz sine 4 Hz +- 2 Hz / 60 s; gamma 250 Hz 40 Hz smooth_swell | rejected | /loop/body_s | 1260 | loop opening and body exceed the session | <= 1200 s (length_s) |
+
+### Vectors: loop frames
+
+Per compile-accepted loop fixture and sample rate: the loop fields, the opening end `O`, the body `B`, and the end `N` in frames, the seam count `M` and every seam frame `O + k * B` (Loop, Frames), and the frames of the last pass (from the last seam, or from `O` with no seam, to `N`).
+
+| Fixture | fs | Mode | Max run time (min) | length_s (hex) | opening_s (hex) | body_s (hex) | Opening end O | Body B | End N | Seams | Seam frames | Last pass frames |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| loop-swell-theta-cycle.json | 44100 | learn | 20 | `0x1.2c00000000000p+10` | `0x1.e000000000000p+5` | `0x1.e000000000000p+6` | 2646000 | 5292000 | 52920000 | 9 | 7938000, 13230000, 18522000, 23814000, 29106000, 34398000, 39690000, 44982000, 50274000 | 2646000 |
+| loop-bursts-theta-cycle.json | 44100 | learn | 20 | `0x1.2c00000000000p+10` | `0x1.e000000000000p+5` | `0x1.e000000000000p+6` | 2646000 | 5292000 | 52920000 | 9 | 7938000, 13230000, 18522000, 23814000, 29106000, 34398000, 39690000, 44982000, 50274000 | 2646000 |
+| loop-focus-no-cycle.json | 44100 | focus | 45 | `0x1.5180000000000p+11` | `0x0.0p+0` | `0x1.6900000000000p+6` | 0 | 3980025 | 119070000 | 29 | 3980025, 7960050, 11940075, 15920100, 19900125, 23880150, 27860175, 31840200, 35820225, 39800250, 43780275, 47760300, 51740325, 55720350, 59700375, 63680400, 67660425, 71640450, 75620475, 79600500, 83580525, 87560550, 91540575, 95520600, 99500625, 103480650, 107460675, 111440700, 115420725 | 3649275 |
+| loop-swell-theta-cycle.json | 48000 | learn | 20 | `0x1.2c00000000000p+10` | `0x1.e000000000000p+5` | `0x1.e000000000000p+6` | 2880000 | 5760000 | 57600000 | 9 | 8640000, 14400000, 20160000, 25920000, 31680000, 37440000, 43200000, 48960000, 54720000 | 2880000 |
+| loop-bursts-theta-cycle.json | 48000 | learn | 20 | `0x1.2c00000000000p+10` | `0x1.e000000000000p+5` | `0x1.e000000000000p+6` | 2880000 | 5760000 | 57600000 | 9 | 8640000, 14400000, 20160000, 25920000, 31680000, 37440000, 43200000, 48960000, 54720000 | 2880000 |
+| loop-focus-no-cycle.json | 48000 | focus | 45 | `0x1.5180000000000p+11` | `0x0.0p+0` | `0x1.6900000000000p+6` | 0 | 4332000 | 129600000 | 29 | 4332000, 8664000, 12996000, 17328000, 21660000, 25992000, 30324000, 34656000, 38988000, 43320000, 47652000, 51984000, 56316000, 60648000, 64980000, 69312000, 73644000, 77976000, 82308000, 86640000, 90972000, 95304000, 99636000, 103968000, 108300000, 112632000, 116964000, 121296000, 125628000 | 3972000 |
 
 ## 24-bit rounding
 

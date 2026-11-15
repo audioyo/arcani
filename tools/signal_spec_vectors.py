@@ -2235,6 +2235,259 @@ def rate_curve_sample_rows():
     return rows
 
 
+# ------------------------------------------------------------------ loop
+#
+# Story 2.7 (Loop): a looping recipe's opening, body, seams, and end, and its
+# compile rules, in exact Fraction arithmetic. The engine's binary64 tests of
+# the spec are evaluated beside the exact ones, and the generator asserts
+# they agree on every case.
+
+LOOP_MODES = ("focus", "learn")
+LOOP_MODE_ROWS = {"focus": "max-run-time-focus", "learn": "max-run-time-learn"}
+MAX_RUN_TIME_MIN = {"focus": 45.0, "learn": 20.0}  # rows max-run-time-focus and max-run-time-learn (min = max)
+LOOP_LENGTH_RULE = "loop session ends at the max run time"
+LOOP_WHOLE_SAMPLES_RULE = "loop time not whole samples"
+LOOP_WHOLE_SAMPLES_LIMIT = "a multiple of 0.25 s (whole samples at 44100 and 48000 Hz)"
+LOOP_WHOLE_CYCLES_RULE = "loop body not whole rate cycles"
+LOOP_EXCEEDS_RULE = "loop opening and body exceed the session"
+LOOP_WINDOW_S = 8.0        # the seam windows of the loop render tests
+LOOP_PROBE_SEGMENT_S = 5.0  # each hash probe loop segment
+LOOP_PROBE_SEAM = 9         # the probe's second segment is centered on this seam
+
+
+def js_number(x):
+    """The shortest round-trip text of a binary64, as ECMAScript writes it (integers without .0)."""
+    if x == int(x) and abs(x) < 1e21:
+        return str(int(x))
+    return repr(x)
+
+
+def loop_recipe(mode, opening, body, cap, length, theta, gamma, binaural=None):
+    """A looping recipe's values. theta and gamma as in RATE_CURVE_FIXTURES;
+    binaural is None or (carrier_left_hz, beat_rate_hz, cycle or None)."""
+    return {"loop": (mode, opening, body, cap), "length_s": length,
+            "theta": theta, "gamma": gamma, "binaural": binaural}
+
+
+LOOP_THETA = (450.0, 4.0, 75.0, "sine", THETA_CYCLE_COUPLED)  # 4 +- 2 Hz, from the center rising
+LOOP_SWELL = (250.0, 40.0, 100.0, "smooth_swell", 0.0, None)
+LOOP_BURSTS = (250.0, 40.0, 100.0, "bursts", 0.0, None)
+LOOP_BASE = loop_recipe("learn", 60.0, 120.0, 20.0, 1200.0, LOOP_THETA, LOOP_SWELL)
+SLEEP_CYCLE = (1.5, 60.0, 270.0)
+
+
+def loop_variant(**changes):
+    mode, opening, body, cap = LOOP_BASE["loop"]
+    values = {"mode": mode, "opening": opening, "body": body, "cap": cap,
+              "length": LOOP_BASE["length_s"], "theta": LOOP_BASE["theta"], "gamma": LOOP_BASE["gamma"],
+              "binaural": None}
+    values.update(changes)
+    return loop_recipe(values["mode"], values["opening"], values["body"], values["cap"], values["length"],
+                       values["theta"], values["gamma"], values["binaural"])
+
+
+# The Story 2.7 fixtures in recipes/fixtures/valid/. The first three compile;
+# the rest are schema-valid and rejected at compile, one per rule (the cycle
+# rule once per cycle path). loop-swell-theta-cycle.json is rendered in full,
+# loop-bursts-theta-cycle.json in seam windows only, and
+# loop-swell-theta-cycle.json is the hash probe's loop-<fs> source.
+LOOP_FIXTURES = (
+    ("loop-swell-theta-cycle.json", LOOP_BASE),
+    ("loop-bursts-theta-cycle.json", loop_variant(gamma=LOOP_BURSTS)),
+    ("loop-focus-no-cycle.json", loop_variant(mode="focus", opening=0.0, body=90.25, cap=45.0, length=2700.0,
+                                              theta=(450.0, 4.0, 75.0, "sine", None), gamma=None)),
+    ("loop-focus-cap-46.json", loop_variant(mode="focus", cap=46.0, length=2760.0)),
+    ("loop-learn-cap-45.json", loop_variant(cap=45.0, length=2700.0)),
+    ("loop-learn-cap-19.json", loop_variant(cap=19.0, length=1140.0)),
+    ("loop-length-not-cap.json", loop_variant(length=1100.0)),
+    ("loop-opening-negative.json", loop_variant(opening=-60.0)),
+    ("loop-body-zero.json", loop_variant(body=0.0)),
+    ("loop-opening-not-whole-samples.json", loop_variant(opening=60.1)),
+    ("loop-body-not-whole-samples.json", loop_variant(body=120.125)),
+    ("loop-body-off-cycle.json", loop_variant(body=90.0)),
+    ("loop-gamma-body-off-cycle.json", loop_variant(
+        body=90.0, theta=(450.0, 4.0, 75.0, "sine", None),
+        gamma=(250.0, 45.0, 100.0, "uncoupled", None, GAMMA_CYCLE))),
+    ("loop-binaural-body-off-cycle.json", loop_variant(
+        body=90.0, theta=(450.0, 4.0, 75.0, "sine", None), gamma=None, binaural=(100.0, 1.5, SLEEP_CYCLE))),
+    ("loop-exceeds-session.json", loop_variant(opening=1140.0)),
+)
+LOOP_FULL_RENDER_FIXTURE = "loop-swell-theta-cycle.json"
+LOOP_WINDOW_FIXTURES = ("loop-swell-theta-cycle.json", "loop-bursts-theta-cycle.json")
+LOOP_PROBE_FIXTURE = "loop-swell-theta-cycle.json"
+
+LOOP_WHOLE_SAMPLE_TIMES = (0.0, 0.25, 60.0, 90.25, 120.0, 2700.0, 0.125, 0.1, 60.1, 120.125, 1.0 / 3.0)
+
+
+def whole_samples_exact(t):
+    """t * 44100 and t * 48000 both integers, exactly."""
+    return all((Fraction(t) * fs).denominator == 1 for fs in RATES)
+
+
+def is_binary64_integer(x):
+    """The engine's integer test of a finite binary64 x >= 0: x >= 2^53, or x equals its truncation."""
+    if x >= 2.0**53:
+        return True
+    return float(int(x)) == x
+
+
+def whole_samples_engine(t):
+    """Loop, Whole-sample rule: x = t * 4.0 (exact scale), an integer."""
+    return is_binary64_integer(t * 4.0)
+
+
+def whole_cycles_exact(body, period):
+    return (Fraction(body) / Fraction(period)).denominator == 1
+
+
+def whole_cycles_engine(body, period):
+    """Loop, Cycle rule: q = body / period (one rounding), an integer, and q * period (one rounding) == body."""
+    q = body / period
+    return is_binary64_integer(q) and q * period == body
+
+
+def loop_cycles(rec):
+    """(parameter path, period_s) of every rate cycle of a recipe, in field order."""
+    out = []
+    theta, gamma, binaural = rec["theta"], rec["gamma"], rec["binaural"]
+    if theta is not None and theta[4] is not None:
+        out.append(("/theta_reference/rate_cycle/period_s", theta[4][1]))
+    if gamma is not None and gamma[5] is not None:
+        out.append(("/gamma_pac/rate_cycle/period_s", gamma[5][1]))
+    if binaural is not None and binaural[2] is not None:
+        out.append(("/binaural/beat_rate_cycle/period_s", binaural[2][1]))
+    return out
+
+
+def loop_error(rec):
+    """The first Loop compile rule fault: (parameter, value, rule, limit), or None."""
+    mode, opening, body, cap = rec["loop"]
+    length = rec["length_s"]
+    row_id = LOOP_MODE_ROWS[mode]
+    bound = MAX_RUN_TIME_MIN[mode]
+    if not cap >= bound:
+        return "/loop/max_run_time_min", js_number(cap), "range.min", f">= {js_number(bound)} min (row {row_id})"
+    if not cap <= bound:
+        return "/loop/max_run_time_min", js_number(cap), "range.max", f"<= {js_number(bound)} min (row {row_id})"
+    end = binary64(Fraction(cap) * 60)
+    assert end == cap * 60.0
+    if not length == end:
+        return "/length_s", js_number(length), LOOP_LENGTH_RULE, f"= {js_number(end)} s ({js_number(cap)} min x 60)"
+    if not opening >= 0.0:
+        return "/loop/opening_s", js_number(opening), "range.min", ">= 0 s"
+    if not body > 0.0:
+        return "/loop/body_s", js_number(body), "range.min", "> 0 s"
+    for path, t in (("/loop/opening_s", opening), ("/loop/body_s", body)):
+        exact = whole_samples_exact(t)
+        assert exact == whole_samples_engine(t), t
+        if not exact:
+            return path, js_number(t), LOOP_WHOLE_SAMPLES_RULE, LOOP_WHOLE_SAMPLES_LIMIT
+    for path, period in loop_cycles(rec):
+        exact = whole_cycles_exact(body, period)
+        assert exact == whole_cycles_engine(body, period), (body, period)
+        if not exact:
+            return ("/loop/body_s", js_number(body), LOOP_WHOLE_CYCLES_RULE,
+                    f"a whole multiple of {js_number(period)} s ({path})")
+    total = binary64(Fraction(opening) + Fraction(body))
+    assert total == opening + body
+    if not total <= length:
+        return "/loop/body_s", js_number(total), LOOP_EXCEEDS_RULE, f"<= {js_number(length)} s (length_s)"
+    return None
+
+
+def loop_frames(rec, fs):
+    """(O, B, N, seams): the opening end, body length, session end, and seam frames O + k * B < N, k >= 1."""
+    _, opening, body, _ = rec["loop"]
+    o, _ = samples(opening, fs)
+    b, _ = samples(body, fs)
+    n, _ = samples(rec["length_s"], fs)
+    assert Fraction(opening) * fs == o and Fraction(body) * fs == b  # exact: whole samples
+    seams = []
+    k = 1
+    while o + k * b < n:
+        seams.append(o + k * b)
+        k += 1
+    assert len(seams) == (n - o - 1) // b
+    return o, b, n, seams
+
+
+def loop_whole_sample_rows():
+    rows = []
+    for t in LOOP_WHOLE_SAMPLE_TIMES:
+        exact = whole_samples_exact(t)
+        assert exact == whole_samples_engine(t), t
+        row = {"t_hex": hexf(t), "t": js_number(t), "four_t_hex": hexf(t * 4.0),
+               "whole": "yes" if exact else "no"}
+        for fs in RATES:
+            n, product = samples(t, fs)
+            row[f"product_{fs}_hex"] = hexf(product)
+            row[f"exact_{fs}"] = "yes" if (Fraction(t) * fs).denominator == 1 else "no"
+            row[f"n_{fs}"] = str(n)
+        rows.append(row)
+    return rows
+
+
+def _loop_layers(rec):
+    theta, gamma, binaural = rec["theta"], rec["gamma"], rec["binaural"]
+    parts = []
+    if theta is not None:
+        carrier, rate, depth, shape, cycle = theta
+        text = f"theta {js_number(carrier)} Hz {shape} {js_number(rate)} Hz"
+        if cycle is not None:
+            text += f" +- {js_number(cycle[0])} Hz / {js_number(cycle[1])} s"
+        parts.append(text)
+    if gamma is not None:
+        carrier, rate, depth, coupling, _, cycle = gamma
+        text = f"gamma {js_number(carrier)} Hz {js_number(rate)} Hz {coupling}"
+        if cycle is not None:
+            text += f" +- {js_number(cycle[0])} Hz / {js_number(cycle[1])} s"
+        parts.append(text)
+    if binaural is not None:
+        left, beat, cycle = binaural
+        text = f"binaural {js_number(left)} Hz beat {js_number(beat)} Hz"
+        if cycle is not None:
+            text += f" +- {js_number(cycle[0])} Hz / {js_number(cycle[1])} s"
+        parts.append(text)
+    return "; ".join(parts)
+
+
+def loop_compile_rows():
+    rows = []
+    for fixture, rec in LOOP_FIXTURES:
+        mode, opening, body, cap = rec["loop"]
+        err = loop_error(rec)
+        rows.append({
+            "fixture": fixture, "mode": mode, "max_run_time_min": js_number(cap),
+            "length_s": js_number(rec["length_s"]), "opening_s": js_number(opening), "body_s": js_number(body),
+            "layers": _loop_layers(rec),
+            "result": "accepted" if err is None else "rejected",
+            "parameter": "none" if err is None else err[0],
+            "value": "none" if err is None else err[1],
+            "rule": "none" if err is None else err[2],
+            "limit": "none" if err is None else err[3],
+        })
+    return rows
+
+
+def loop_frame_rows():
+    rows = []
+    for fs in RATES:
+        for fixture, rec in LOOP_FIXTURES:
+            if loop_error(rec) is not None:
+                continue
+            mode, opening, body, cap = rec["loop"]
+            o, b, n, seams = loop_frames(rec, fs)
+            last_start = seams[-1] if seams else o
+            rows.append({
+                "fixture": fixture, "fs": fs, "mode": mode, "max_run_time_min": js_number(cap),
+                "length_hex": hexf(rec["length_s"]), "opening_hex": hexf(opening), "body_hex": hexf(body),
+                "opening_end_frame": str(o), "body_frames": str(b), "end_frame": str(n),
+                "seam_count": str(len(seams)), "seam_frames": [str(s) for s in seams],
+                "last_pass_frames": str(n - last_start),
+            })
+    return rows
+
+
 # ------------------------------------------------------- 24-bit rounding
 
 Q24_MAX = 8388607   # 2^23 - 1
@@ -2316,7 +2569,7 @@ def quantize_rows():
 
 def build():
     return {
-        "spec": "docs/signal-spec.md (sections core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer, rate curve (the beat rate, Story 2.5; the theta and gamma rates, Story 2.6), and 24-bit rounding)",
+        "spec": "docs/signal-spec.md (sections core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer, rate curve (the beat rate, Story 2.5; the theta and gamma rates, Story 2.6), loop (Story 2.7), and 24-bit rounding)",
         "generator": "tools/signal_spec_vectors.py",
         "cycle": str(CYCLE),
         "sine_coefficients": sine_coefficients(),
@@ -2388,6 +2641,25 @@ def build():
         },
         "layer_rate_cycles": layer_rate_cycle_rows(),
         "rate_curve_samples": rate_curve_sample_rows(),
+        "loop_constants": {
+            "modes": list(LOOP_MODES),
+            "mode_rows": dict(LOOP_MODE_ROWS),
+            "max_run_time_min": {m: dec(v) for m, v in MAX_RUN_TIME_MIN.items()},
+            "length_rule": LOOP_LENGTH_RULE,
+            "whole_samples_rule": LOOP_WHOLE_SAMPLES_RULE,
+            "whole_samples_limit": LOOP_WHOLE_SAMPLES_LIMIT,
+            "whole_cycles_rule": LOOP_WHOLE_CYCLES_RULE,
+            "exceeds_rule": LOOP_EXCEEDS_RULE,
+            "full_render_fixture": LOOP_FULL_RENDER_FIXTURE,
+            "window_fixtures": list(LOOP_WINDOW_FIXTURES),
+            "window_s": dec(LOOP_WINDOW_S),
+            "probe_fixture": LOOP_PROBE_FIXTURE,
+            "probe_segment_s": dec(LOOP_PROBE_SEGMENT_S),
+            "probe_seam": LOOP_PROBE_SEAM,
+        },
+        "loop_whole_samples": loop_whole_sample_rows(),
+        "loop_compile_cases": loop_compile_rows(),
+        "loop_frames": loop_frame_rows(),
         "quantize_24": quantize_rows(),
     }
 
@@ -2712,6 +2984,31 @@ def tables(data):
                    f"| {r['gamma_u']} | {r['phase_gamma_envelope']} | {factor} "
                    f"| `{r['theta_bits']}` | `{r['gamma_bits']}` | `{r['bus_bits']}` "
                    f"| {r['ideal_theta']} | {r['ideal_gamma']} | {r['ideal_bus']} |")
+    out.append("")
+    out.append("| t_s (hex) | t_s | 4 * t_s (hex) | t_s * 44100 (hex) | Exact at 44100 | n at 44100 "
+               "| t_s * 48000 (hex) | Exact at 48000 | n at 48000 | Whole samples |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["loop_whole_samples"]:
+        out.append(f"| `{r['t_hex']}` | {r['t']} | `{r['four_t_hex']}` | `{r['product_44100_hex']}` "
+                   f"| {r['exact_44100']} | {r['n_44100']} | `{r['product_48000_hex']}` | {r['exact_48000']} "
+                   f"| {r['n_48000']} | {r['whole']} |")
+    out.append("")
+    out.append("| Fixture | Mode | Max run time (min) | length_s | opening_s | body_s | Layers | Result "
+               "| Parameter | Value | Rule | Limit |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["loop_compile_cases"]:
+        out.append(f"| {r['fixture']} | {r['mode']} | {r['max_run_time_min']} | {r['length_s']} "
+                   f"| {r['opening_s']} | {r['body_s']} | {r['layers']} | {r['result']} | {r['parameter']} "
+                   f"| {r['value']} | {r['rule']} | {r['limit']} |")
+    out.append("")
+    out.append("| Fixture | fs | Mode | Max run time (min) | length_s (hex) | opening_s (hex) | body_s (hex) "
+               "| Opening end O | Body B | End N | Seams | Seam frames | Last pass frames |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["loop_frames"]:
+        out.append(f"| {r['fixture']} | {r['fs']} | {r['mode']} | {r['max_run_time_min']} | `{r['length_hex']}` "
+                   f"| `{r['opening_hex']}` | `{r['body_hex']}` | {r['opening_end_frame']} | {r['body_frames']} "
+                   f"| {r['end_frame']} | {r['seam_count']} | {', '.join(r['seam_frames'])} "
+                   f"| {r['last_pass_frames']} |")
     out.append("")
     out.append("| Rule | Case | s (hex) | x = s * 2^23 (hex) | Value | Bytes (little-endian) |")
     out.append("| --- | --- | --- | --- | --- | --- |")
