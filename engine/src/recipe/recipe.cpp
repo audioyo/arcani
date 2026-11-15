@@ -107,6 +107,25 @@ const WaveformName* waveform_named(std::string_view s) noexcept {
   return nullptr;
 }
 
+// loop.mode: the schema enum members, in schema order.
+struct LoopModeName {
+  std::string_view name;
+  LoopMode mode;
+};
+constexpr LoopModeName kLoopModeNames[] = {
+    {"focus", LoopMode::Focus},
+    {"learn", LoopMode::Learn},
+};
+
+const LoopModeName* loop_mode_named(std::string_view s) noexcept {
+  for (const auto& entry : kLoopModeNames) {
+    if (entry.name == s) {
+      return &entry;
+    }
+  }
+  return nullptr;
+}
+
 // Seed bounds: 0 to 2^53 - 1, the largest integer a JSON number holds exactly.
 constexpr double kSeedMax = 9007199254740991.0;
 constexpr std::string_view kSeedMaxText = "9007199254740991";
@@ -271,6 +290,9 @@ std::optional<Error> check_value(const Field& f, const Value& v) {
   if (f.path == "/binaural/waveform" && waveform_named(v.string()) == nullptr) {
     return make_error(pointer, v.string(), "enum", kBinauralWaveformEnum);
   }
+  if (f.path == "/loop/mode" && loop_mode_named(v.string()) == nullptr) {
+    return make_error(pointer, v.string(), "enum", kLoopModeEnum);
+  }
   if (f.path == "/loudness_hash" && !hash_ok(v.string())) {
     return make_error(pointer, v.string(), "pattern", kLoudnessHashPattern);
   }
@@ -431,6 +453,14 @@ ParseResult parse(std::string_view utf8) {
       b.waveform = waveform_named(string_at(*bin, "waveform"))->waveform;  // checked: an enum member
     }
     r.binaural = b;
+  }
+  if (const Value* loop = root.find("loop")) {
+    Loop l;
+    l.mode = loop_mode_named(string_at(*loop, "mode"))->mode;  // checked: an enum member
+    l.opening_s = number_at(*loop, "opening_s");
+    l.body_s = number_at(*loop, "body_s");
+    l.max_run_time_min = number_at(*loop, "max_run_time_min");
+    r.loop = l;
   }
   r.hash = crypto::sha256_hex(json::canonicalize(strip_hash_excluded(root, "")));
   result.recipe = std::move(r);

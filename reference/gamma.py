@@ -53,6 +53,8 @@ reference/ideal.py's ideal sine), never the engine's approximation.
   the gamma envelope phase adds the ideal U in phase units, and with
   theta_reference["rate_cycle"] the theta envelope phase p_E does
   (reference/rate_curve.py); Hb and Wb stay at the center theta rate.
+  frames may also be a 1-D integer array of frame indices (Story 2.7,
+  ideal.frame_index): the tap at exactly those frames, in that order.
 
 NumPy, the standard library, and reference/ only.
 """
@@ -150,18 +152,15 @@ def _check(gamma_pac):
 
 
 def render(gamma_pac, fs, frames, theta_reference=None):
-    """Gamma tap of one channel for n in [0, frames), binary64."""
-    frames = int(frames)
-    if frames < 0:
-        raise ValueError(f"frames must be >= 0, got {frames}")
+    """Gamma tap of one channel for n in [0, frames), or at an index array, binary64."""
+    n = ideal.frame_index(frames)
     _check(gamma_pac)
     inc_g = np.uint64(ideal.phase_increment(float(gamma_pac["carrier_hz"]), fs))
     inc_m = np.uint64(ideal.phase_increment(float(gamma_pac["rate_hz"]), fs))
-    n = np.arange(frames, dtype=np.uint64)
     phase_g = n * inc_g  # wraps modulo 2^64
     # Rate curve (Story 2.6): the ideal U of the gamma rate cycle in phase
     # units; zeros without one.
-    phase_m = n * inc_m + rate_curve.offset_units(gamma_pac.get("rate_cycle"), fs, frames)
+    phase_m = n * inc_m + rate_curve.offset_units(gamma_pac.get("rate_cycle"), fs, n)
     e = _envelope_array(phase_m)
     d = float(gamma_pac["am_depth_percent"]) / 100.0
     coupling = gamma_pac["coupling"]
@@ -171,7 +170,7 @@ def render(gamma_pac, fs, frames, theta_reference=None):
         theta_cycle = None if theta_reference is None else theta_reference.get("rate_cycle")
         # The theta envelope phase, curved by the theta rate cycle (Story 2.6);
         # Hb and Wb stay at the center rate. Wraps modulo 2^64.
-        phase_e = n * inc_e + rate_curve.offset_units(theta_cycle, fs, frames)
+        phase_e = n * inc_e + rate_curve.offset_units(theta_cycle, fs, n)
         c = coupling_phase_units(gamma_pac["coupling_phase_deg"])
         if coupling == "smooth_swell":
             s = swell(phase_e, c)

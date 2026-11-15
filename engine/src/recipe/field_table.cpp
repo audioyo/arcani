@@ -78,6 +78,15 @@ constexpr Field kFields[] = {
     // One of the schema enum members (recipe::kBinauralWaveformEnum); triangle
     // is schema-valid and rejected at compile.
     {"/binaural/waveform", String, LoudnessRelevant, false, "", 1.0},
+    // Story 2.7 (docs/signal-spec.md, Loop). No member names a row: the mode
+    // picks max-run-time-focus or max-run-time-learn for max_run_time_min,
+    // and the loop rules run after every range check (validate/validate.hpp).
+    {"/loop", Object, LoudnessRelevant, false, "", 1.0},
+    // One of the schema enum members (recipe::kLoopModeEnum).
+    {"/loop/mode", String, LoudnessRelevant, true, "", 1.0},
+    {"/loop/opening_s", Number, LoudnessRelevant, true, "", 1.0},
+    {"/loop/body_s", Number, LoudnessRelevant, true, "", 1.0},
+    {"/loop/max_run_time_min", Number, LoudnessRelevant, true, "", 1.0},
 };
 
 }  // namespace

@@ -2,7 +2,7 @@
 // the theta shape rule, (Story 2.2) the gamma carrier wave rule, (Story 2.3)
 // the coupling rules, (Story 2.5) the beat rate cycle worst case and the
 // binaural waveform rule, and (Story 2.6) the theta and gamma rate cycle
-// worst cases.
+// worst cases, and (Story 2.7) the loop rules.
 //
 // check_ranges() runs after parse in both compile modes. It walks the field
 // table in order and checks every present field that names a range row
@@ -21,8 +21,9 @@
 // layer's own fields and before period_s and start_phase_deg: swing_hz >= 0 (rule range.min, limit
 // ">= 0 Hz"), then rate_hz - swing_hz and rate_hz + swing_hz against
 // theta-rate or gamma-rate, reported on swing_hz with the derived value;
-// period_s and start_phase_deg follow against their rows. The first failure
-// wins.
+// period_s and start_phase_deg follow against their rows. (Story 2.7) After
+// the walk, so after the binaural checks, it runs check_loop(). The first
+// failure wins.
 //
 // Bounds: min is always inclusive; max is inclusive or exclusive per the
 // row's max_bound. Values are compared in binary64 against bound *
@@ -60,12 +61,44 @@ struct RangeRow {
   std::string_view unit = "Hz";  // ranges.tsv unit
 };
 
-// One entry per row the field table names, plus binaural-carrier-right.
-// beat-rate is also the row of the beat rate cycle worst case.
+// One entry per row the field table names, plus binaural-carrier-right and
+// (Story 2.7) max-run-time-focus and max-run-time-learn, which loop.mode
+// picks. beat-rate is also the row of the beat rate cycle worst case.
 std::span<const RangeRow> range_rows() noexcept;
 
 // The first locked-range fault of a parsed recipe, or nothing.
 std::optional<recipe::Error> check_ranges(const recipe::Recipe& r);
+
+// The loop rules (docs/signal-spec.md, Loop, Compile order; Story 2.7), or
+// nothing without a loop field. check_ranges() runs it last. In order, first
+// failure wins:
+// 1. max_run_time_min against the mode's row (focus: max-run-time-focus,
+//    learn: max-run-time-learn): parameter /loop/max_run_time_min, rule
+//    range.min or range.max, limit for example
+//    "<= 45 min (row max-run-time-focus)";
+// 2. length_s == max_run_time_min * 60 (one binary64 rounding): parameter
+//    /length_s, rule kLoopLengthRule, limit for example
+//    "= 1200 s (20 min x 60)";
+// 3. opening_s >= 0: parameter /loop/opening_s, rule range.min, ">= 0 s";
+// 4. body_s > 0: parameter /loop/body_s, rule range.min, "> 0 s";
+// 5. opening_s, then body_s, a whole number of samples at 44100 and
+//    48000 Hz (4 * t_s an integer): rule kLoopWholeSamplesRule, limit
+//    kLoopWholeSamplesLimit;
+// 6. with a rate cycle (theta, gamma, then binaural), body_s a whole
+//    multiple of its period_s: parameter /loop/body_s, rule
+//    kLoopWholeCyclesRule, limit for example
+//    "a whole multiple of 60 s (/theta_reference/rate_cycle/period_s)";
+// 7. opening_s + body_s <= length_s (one rounding): parameter /loop/body_s,
+//    value the sum, rule kLoopExceedsRule, limit for example
+//    "<= 1200 s (length_s)".
+std::optional<recipe::Error> check_loop(const recipe::Recipe& r);
+
+inline constexpr std::string_view kLoopLengthRule = "loop session ends at the max run time";
+inline constexpr std::string_view kLoopWholeSamplesRule = "loop time not whole samples";
+inline constexpr std::string_view kLoopWholeSamplesLimit =
+    "a multiple of 0.25 s (whole samples at 44100 and 48000 Hz)";
+inline constexpr std::string_view kLoopWholeCyclesRule = "loop body not whole rate cycles";
+inline constexpr std::string_view kLoopExceedsRule = "loop opening and body exceed the session";
 
 // Rules after the ranges (Stories 2.1 and 2.2), run by compile after
 // check_ranges() and before final.required, first failure wins:

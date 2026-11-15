@@ -114,6 +114,22 @@ uint64_t arc_plan_seed(const arc_plan* plan);
 size_t arc_plan_stage_count(const arc_plan* plan);
 arc_status arc_plan_stage(const arc_plan* plan, size_t index, arc_stage_kind* out_kind,
                           arc_error* error);
+/* Loop frames of a looping recipe (docs/signal-spec.md, Loop; Story 2.7).
+   The opening covers frames [0, opening_end_frame); seam k, for k = 1 to
+   seam_count, is opening_end_frame + k * body_frames; the session ends at
+   end_frame (arc_plan_frame_count). Without a loop field, looping is 0 and
+   every other field is 0. */
+typedef struct arc_loop_frames {
+  int looping; /* 1 for a looping recipe, else 0 */
+  uint64_t opening_end_frame;
+  uint64_t body_frames;
+  uint64_t seam_count;
+  uint64_t end_frame;
+} arc_loop_frames;
+
+/* Fills *out_loop. ARC_ERR_INVALID_ARGUMENT for a NULL plan or out_loop. */
+arc_status arc_plan_loop(const arc_plan* plan, arc_loop_frames* out_loop, arc_error* error);
+
 /* Non-blocking warning count; 0 for NULL. A warning is an arc_error. */
 size_t arc_plan_warning_count(const arc_plan* plan);
 arc_status arc_plan_warning(const arc_plan* plan, size_t index, arc_error* out_warning,

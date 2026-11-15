@@ -24,7 +24,8 @@ reference/ideal.py's ideal sine), never the engine's approximation.
   addition), phase_C[n] = n * inc_C mod 2^64. Without a cycle the right ear
   is ideal_sine(phase_C); with one, y = phase_C / 2^64 + U in binary64,
   reduced to [-1/2, 1/2] by subtracting the nearest integer (np.rint), and the right
-  ear is sin(2 pi y).
+  ear is sin(2 pi y). frames may also be a 1-D integer array of frame
+  indices (Story 2.7, ideal.frame_index): the ears at exactly those frames.
 
 NumPy, the standard library, and reference/ only.
 """
@@ -55,21 +56,18 @@ def beat_offset_cycles(binaural, fs, frames):
 
 
 def render(binaural, fs, frames):
-    """(left, right) binaural ears for n in [0, frames), binary64."""
-    frames = int(frames)
-    if frames < 0:
-        raise ValueError(f"frames must be >= 0, got {frames}")
+    """(left, right) binaural ears for n in [0, frames), or at an index array, binary64."""
+    n = ideal.frame_index(frames)
     _check(binaural)
     f_left = float(binaural["carrier_left_hz"])
     f_center = f_left + float(binaural["beat_rate_hz"])
-    n = np.arange(frames, dtype=np.uint64)
     phase_l = n * np.uint64(ideal.phase_increment(f_left, fs))  # wraps modulo 2^64
     phase_c = n * np.uint64(ideal.phase_increment(f_center, fs))
     left = np.ascontiguousarray(ideal.ideal_sine(phase_l), dtype=np.float64)
     if binaural.get("beat_rate_cycle") is None:
         right = ideal.ideal_sine(phase_c)
     else:
-        y = phase_c.astype(np.float64) / 2.0**64 + beat_offset_cycles(binaural, fs, frames)
+        y = phase_c.astype(np.float64) / 2.0**64 + beat_offset_cycles(binaural, fs, n)
         y = y - np.rint(y)
         right = np.sin(2.0 * math.pi * y)
     return left, np.ascontiguousarray(right, dtype=np.float64)

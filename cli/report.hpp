@@ -4,6 +4,8 @@
 #ifndef ARCANI_CLI_REPORT_HPP
 #define ARCANI_CLI_REPORT_HPP
 
+#include <arcani/arcani.h>
+
 #include "tables.hpp"
 
 #include <chrono>
@@ -34,12 +36,22 @@ struct DeterminismKey {
   std::uint32_t sample_rate = 0;
 };
 
+// The loop block of a looping recipe (docs/signal-spec.md, Loop, Report;
+// Story 2.7): the opening end, every seam in order, and the session end, in
+// frames.
+struct LoopReport {
+  std::uint64_t opening_end_frame = 0;
+  std::vector<std::uint64_t> seam_frames;
+  std::uint64_t end_frame = 0;
+};
+
 struct Report {
   std::string engine_version;
   std::uint64_t seed = 0;
   std::uint32_t sample_rate = 0;
   std::string mode;  // "measure" or "final"
   std::uint64_t frames = 0;
+  std::optional<LoopReport> loop;  // written only when present
   DeterminismKey determinism_key;
   std::vector<Assertion> assertions;
 };
@@ -51,7 +63,12 @@ std::string json_string(std::string_view utf8);
 // Shortest round-trip text of a finite double (std::to_chars).
 std::string json_number(double x);
 
-// The report as one UTF-8 JSON object, members in struct order.
+// The loop block from the C API loop frames: seam k (1 to seam_count) is
+// opening_end_frame + k * body_frames. Empty when looping is 0.
+std::optional<LoopReport> loop_report(const arc_loop_frames& frames);
+
+// The report as one UTF-8 JSON object, members in struct order. The loop
+// member is left out when absent, so a report without one is unchanged.
 std::string report_json(const Report& report);
 
 // True only when the value of ARCANI_REFERENCE_MACHINE (nullptr when unset)

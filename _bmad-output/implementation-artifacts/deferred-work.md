@@ -94,3 +94,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-4-gamma-coupled-50-ms-bursts.md`
   summary: Independent review and a listening note for the free-running gamma envelope inside bursts before design log (qq) locks.
   evidence: Story 2.4 review row 13 (medium). With a free-running gamma envelope each burst opens on a different gamma phase (240 degrees per theta cycle at 40 Hz; at 45 Hz alternate bursts center on a gamma trough), unlike the research run, which restarted the AM per burst. Audio approved it in the frozen spec, but rule 4 asks for an independent review of signal defaults, and burst-to-burst variation has not been listened to; settle in the Story 3.3 listening preview or Phase 0.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-7-looping-body-and-seams.md`
+  summary: In Story 4.4, add an end fade at the max run time cap for Focus and Learn looping sessions (and the ramp-in inside the opening), so a looping session no longer stops hard at the cap; the click tool then judges the end too, not only its last-50 ms exclusion.
+  evidence: Decided 2026-11-14 (Audio, option A): in Story 2.7 the output ends at the cap with no fade, because gain ramps are Story 4.4 (docs/signal-spec.md, Loop, End at the cap; design log 2026-11-14 (uu)).

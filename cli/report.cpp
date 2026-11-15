@@ -81,6 +81,20 @@ std::string json_number(double x) {
   return std::string(buf, r.ptr);
 }
 
+std::optional<LoopReport> loop_report(const arc_loop_frames& frames) {
+  if (frames.looping == 0) {
+    return std::nullopt;
+  }
+  LoopReport loop;
+  loop.opening_end_frame = frames.opening_end_frame;
+  loop.end_frame = frames.end_frame;
+  loop.seam_frames.reserve(static_cast<std::size_t>(frames.seam_count));
+  for (std::uint64_t k = 1; k <= frames.seam_count; ++k) {
+    loop.seam_frames.push_back(frames.opening_end_frame + k * frames.body_frames);
+  }
+  return loop;
+}
+
 std::string report_json(const Report& report) {
   const DeterminismKey& key = report.determinism_key;
   std::string out = "{\n";
@@ -89,6 +103,18 @@ std::string report_json(const Report& report) {
   out += "  \"sample_rate\": " + integer(report.sample_rate) + ",\n";
   out += "  \"mode\": " + json_string(report.mode) + ",\n";
   out += "  \"frames\": " + integer(report.frames) + ",\n";
+  if (report.loop) {
+    const LoopReport& loop = *report.loop;
+    out += "  \"loop\": {\n";
+    out += "    \"opening_end_frame\": " + integer(loop.opening_end_frame) + ",\n";
+    out += "    \"seam_frames\": [";
+    for (std::size_t i = 0; i < loop.seam_frames.size(); ++i) {
+      out += (i == 0 ? "" : ", ") + integer(loop.seam_frames[i]);
+    }
+    out += "],\n";
+    out += "    \"end_frame\": " + integer(loop.end_frame) + "\n";
+    out += "  },\n";
+  }
   out += "  \"determinism_key\": {\n";
   out += "    \"recipe_hash\": " + json_string(key.recipe_hash) + ",\n";
   out += "    \"asset_hashes\": [";

@@ -1,0 +1,35 @@
+{
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-14",
+  "rationale": "Loop fixture (Story 2.7): learn mode, max run time 20 min, length 1200 s, opening 60.1 s, body 120 s. Theta reference: a 450 Hz carrier amplitude-modulated by the sine envelope at a theta rate that cycles over 2 to 6 Hz every 60 s (center 4 Hz, swing 2 Hz, start phase 0 degrees), 75 percent AM depth. Gamma PAC layer: a 250 Hz sine carrier amplitude-modulated at 40 Hz, its AM depth a smooth swell peaking at the 0 degree coupling phase of the theta reference, 100 percent. Compile rejects it: /loop/opening_s loop time not whole samples (a multiple of 0.25 s (whole samples at 44100 and 48000 Hz)). Values are placeholders, not starter defaults. A test fixture, not for listening.",
+  "length_s": 1200,
+  "loudness_target_lufs": -36,
+  "theta_reference": {
+    "carrier_hz": 450,
+    "rate_hz": 4,
+    "am_depth_percent": 75,
+    "shape": "sine",
+    "rate_cycle": {
+      "swing_hz": 2,
+      "period_s": 60,
+      "start_phase_deg": 0
+    }
+  },
+  "gamma_pac": {
+    "carrier_hz": 250,
+    "rate_hz": 40,
+    "am_depth_percent": 100,
+    "carrier_wave": "sine",
+    "coupling": "smooth_swell",
+    "coupling_phase_deg": 0
+  },
+  "loop": {
+    "mode": "learn",
+    "opening_s": 60.1,
+    "body_s": 120,
+    "max_run_time_min": 20
+  }
+}

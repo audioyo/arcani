@@ -706,7 +706,11 @@ def test_loop_accepts_both_modes_and_rejects_by_schema_keyword():
         missing = {k: v for k, v in LOOP.items() if k != name}
         assert keywords(missing) == ({"required"}, {"loop"}), name
         text = dict(LOOP, **{name: 1 if name == "mode" else "1"})
-        assert keywords(text) == ({"type"}, {f"loop/{name}"}), name
+        found, where = keywords(text)
+        # A non-string mode also fails the enum (jsonschema reports every
+        # keyword); type must be among them, on the member itself.
+        assert where == {f"loop/{name}"} and "type" in found, (name, found)
+        assert found == ({"type", "enum"} if name == "mode" else {"type"}), (name, found)
     for mode in ("sleep", "Learn", "focus "):
         assert keywords(dict(LOOP, mode=mode)) == ({"enum"}, {"loop/mode"}), mode
     assert keywords(dict(LOOP, fade_s=5)) == ({"additionalProperties"}, {"loop"})

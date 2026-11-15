@@ -134,6 +134,16 @@
 // and, after arc_seek to frame seconds_to_samples(55, fs), 5 s more,
 // interleaved stereo float32, fixture after fixture.
 // tests/python/test_probe_rate_curves.py checks each part.
+//
+// Components loop-44100 and loop-48000 (Story 2.7): the fixture
+// recipes/fixtures/valid/loop-swell-theta-cycle.json (docs/signal-spec.md,
+// Loop, Fixtures), embedded (kLoopSwellRecipe) with the fixture's values: the
+// swell layers of rate-curves with a 40 Hz gamma rate, looping in learn mode
+// (opening 60 s, body 120 s, 20 min cap). Compiled in measure mode, 5 s
+// rendered from frame 0, then, after arc_seek to seam 9 (from arc_plan_loop)
+// minus seconds_to_samples(2.5, fs), 5 s more centered on that seam,
+// interleaved stereo float32. tests/python/test_probe_loop.py checks each
+// part.
 
 #include <arcani/arcani.h>
 
@@ -376,6 +386,46 @@ constexpr char kBinauralCycleRecipe[] = R"({
 
 constexpr double kBinauralPartSeconds = 5.0;
 constexpr double kBinauralSeekSeconds = 55.0;
+constexpr double kLoopHalfPartSeconds = 2.5;  // half of kBinauralPartSeconds
+constexpr std::uint64_t kLoopProbeSeam = 9;   // signal spec, loop_constants probe_seam
+
+// loop-swell-theta-cycle.json (Story 2.7): the rate-curves swell fixture's
+// theta reference with a 40 Hz smooth swell, looping in learn mode.
+constexpr char kLoopSwellRecipe[] = R"({
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani hash probe",
+  "date": "2026-11-14",
+  "rationale": "Hash probe loop component (Story 2.7): loop-swell-theta-cycle.json.",
+  "length_s": 1200,
+  "loudness_target_lufs": -36,
+  "theta_reference": {
+    "carrier_hz": 450,
+    "rate_hz": 4,
+    "am_depth_percent": 75,
+    "shape": "sine",
+    "rate_cycle": {
+      "swing_hz": 2,
+      "period_s": 60,
+      "start_phase_deg": 0
+    }
+  },
+  "gamma_pac": {
+    "carrier_hz": 250,
+    "rate_hz": 40,
+    "am_depth_percent": 100,
+    "carrier_wave": "sine",
+    "coupling": "smooth_swell",
+    "coupling_phase_deg": 0
+  },
+  "loop": {
+    "mode": "learn",
+    "opening_s": 60,
+    "body_s": 120,
+    "max_run_time_min": 20
+  }
+})";
 
 constexpr char kRateCurveSwellRecipe[] = R"({
   "schema_version": "1.0",
@@ -546,9 +596,11 @@ std::vector<float> probe_bursts(std::uint32_t fs) {
   return out;
 }
 
-// One recipe: 5 s from frame 0, then 5 s after a seek to 55 s; empty on any
-// API failure.
-std::vector<float> render_with_seek(const std::string& recipe, std::uint32_t fs) {
+// One recipe: 5 s from frame 0, then 5 s after a seek to 55 s, or (Story 2.7)
+// with loop_seam above 0 to seam loop_seam minus 2.5 s, so the second part is
+// centered on that seam (seam k = opening_end_frame + k * body_frames, from
+// arc_plan_loop); empty on any API failure.
+std::vector<float> render_with_seek(const std::string& recipe, std::uint32_t fs, std::uint64_t loop_seam = 0) {
   arc_compile_options options;
   std::memset(&options, 0, sizeof options);
   options.mode = ARC_MODE_MEASURE;
@@ -562,7 +614,18 @@ std::vector<float> render_with_seek(const std::string& recipe, std::uint32_t fs)
     return {};
   }
   const auto part = static_cast<std::size_t>(arcani::core::seconds_to_samples(kBinauralPartSeconds, fs));
-  const std::uint64_t seek = arcani::core::seconds_to_samples(kBinauralSeekSeconds, fs);
+  std::uint64_t seek = arcani::core::seconds_to_samples(kBinauralSeekSeconds, fs);
+  if (loop_seam > 0) {
+    arc_loop_frames loop;
+    std::memset(&loop, 0, sizeof loop);
+    if (arc_plan_loop(plan, &loop, &error) != ARC_OK || loop.looping == 0 || loop_seam > loop.seam_count) {
+      std::fprintf(stderr, "arcani-hashprobe: no loop seam %llu\n", static_cast<unsigned long long>(loop_seam));
+      arc_plan_release(plan);
+      return {};
+    }
+    seek = loop.opening_end_frame + loop_seam * loop.body_frames -
+           arcani::core::seconds_to_samples(kLoopHalfPartSeconds, fs);
+  }
   arc_renderer* renderer = nullptr;
   std::vector<double> stereo(4 * part);
   bool ok = arc_renderer_create(plan, &renderer, &error) == ARC_OK;
@@ -599,6 +662,11 @@ std::vector<float> probe_rate_curves(std::uint32_t fs) {
     out.insert(out.end(), part.begin(), part.end());
   }
   return out;
+}
+
+// The looping swell fixture: 5 s from frame 0, then 5 s centered on seam 9.
+std::vector<float> probe_loop(std::uint32_t fs) {
+  return render_with_seek(std::string(kLoopSwellRecipe, sizeof kLoopSwellRecipe - 1), fs, kLoopProbeSeam);
 }
 
 // Writes samples as little-endian float32 regardless of host byte order.
@@ -653,6 +721,8 @@ int main(int argc, char** argv) {
       {"gamma-bursts-48000", probe_bursts(48000)},
       {"rate-curves-44100", probe_rate_curves(44100)},
       {"rate-curves-48000", probe_rate_curves(48000)},
+      {"loop-44100", probe_loop(44100)},
+      {"loop-48000", probe_loop(48000)},
   };
   for (const Component& c : components) {
     if (c.samples.empty()) {

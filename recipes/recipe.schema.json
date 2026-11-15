@@ -238,6 +238,36 @@
           "enum": ["sine", "triangle"]
         }
       }
+    },
+    "loop": {
+      "description": "Looping session (docs/signal-spec.md, Loop): an opening that plays once, then a body that repeats until the session ends at the mode's max run time. Compile checks the cap against the mode's range row, that length_s equals max_run_time_min * 60, and that the opening and body are whole samples and, with any rate cycle, the body is whole cycles.",
+      "x-arcani-tag": "loudness-relevant",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "opening_s", "body_s", "max_run_time_min"],
+      "properties": {
+        "mode": {
+          "description": "Listening mode, which names the max run time row: focus (max-run-time-focus) or learn (max-run-time-learn).",
+          "x-arcani-tag": "loudness-relevant",
+          "type": "string",
+          "enum": ["focus", "learn"]
+        },
+        "opening_s": {
+          "description": "Opening length in seconds, played once before the first body pass; 0 or more.",
+          "x-arcani-tag": "loudness-relevant",
+          "type": "number"
+        },
+        "body_s": {
+          "description": "Body length in seconds, repeated until the session ends; above 0.",
+          "x-arcani-tag": "loudness-relevant",
+          "type": "number"
+        },
+        "max_run_time_min": {
+          "description": "Max run time in minutes, against the mode's range row; the session ends there.",
+          "x-arcani-tag": "loudness-relevant",
+          "type": "number"
+        }
+      }
     }
   }
 }

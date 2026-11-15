@@ -92,6 +92,22 @@ struct Binaural {
   BinauralWaveform waveform = BinauralWaveform::Sine;  // absent means sine
 };
 
+// Looping session mode (docs/signal-spec.md, Loop, Story 2.7): it names the
+// max run time row (focus: max-run-time-focus, learn: max-run-time-learn).
+enum class LoopMode { Focus, Learn };
+
+// The schema enum of loop.mode, in schema order (the limit of an enum error).
+inline constexpr std::string_view kLoopModeEnum = "focus, learn";
+
+// A looping session: the opening plays once, then the body repeats until the
+// session ends at max_run_time_min. All four are required inside loop.
+struct Loop {
+  LoopMode mode = LoopMode::Focus;
+  double opening_s = 0.0;
+  double body_s = 0.0;
+  double max_run_time_min = 0.0;
+};
+
 struct Recipe {
   std::string schema_version;
   std::string engine_version;
@@ -106,6 +122,7 @@ struct Recipe {
   std::optional<ThetaReference> theta_reference;
   std::optional<GammaPac> gamma_pac;
   std::optional<Binaural> binaural;
+  std::optional<Loop> loop;  // Story 2.7; absent when the field is absent
   std::string hash;  // recipe hash, 64 lowercase hex digits
 };
 

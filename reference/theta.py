@@ -28,6 +28,8 @@ ideal sine), never the engine's approximation.
   n * inc mod 2^64 (ideal.phase_increment of carrier_hz and rate_hz). With
   a rate_cycle (Story 2.6) the envelope phase adds the ideal U in phase
   units (reference/rate_curve.py); W stays at the center rate_hz.
+  frames may also be a 1-D integer array of frame indices (Story 2.7,
+  ideal.frame_index): the tap at exactly those frames, in that order.
 
 NumPy, the standard library, and reference/ only.
 """
@@ -108,21 +110,18 @@ def envelope(shape, phase, rate_hz):
 
 
 def render(theta_reference, fs, frames):
-    """Theta tap of one channel for n in [0, frames), binary64."""
-    frames = int(frames)
-    if frames < 0:
-        raise ValueError(f"frames must be >= 0, got {frames}")
+    """Theta tap of one channel for n in [0, frames), or at an index array, binary64."""
+    n = ideal.frame_index(frames)
     shape = theta_reference["shape"]
     if shape not in SHAPES:
         raise ValueError(f"shape not modeled in the signal spec: {shape!r}")
     rate_hz = float(theta_reference["rate_hz"])
     inc_t = np.uint64(ideal.phase_increment(float(theta_reference["carrier_hz"]), fs))
     inc_e = np.uint64(ideal.phase_increment(rate_hz, fs))
-    n = np.arange(frames, dtype=np.uint64)
     phase_t = n * inc_t  # wraps modulo 2^64
     # Rate curve (Story 2.6): the ideal U of the theta rate cycle in phase
     # units; zeros without one. W stays at the center rate_hz.
-    phase_e = n * inc_e + rate_curve.offset_units(theta_reference.get("rate_cycle"), fs, frames)
+    phase_e = n * inc_e + rate_curve.offset_units(theta_reference.get("rate_cycle"), fs, n)
     e = _envelope_array(shape, phase_e, rate_hz)
     d = float(theta_reference["am_depth_percent"]) / 100.0
     a = 1.0 - d * (1.0 - e)

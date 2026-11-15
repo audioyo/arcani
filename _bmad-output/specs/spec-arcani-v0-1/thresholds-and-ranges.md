@@ -45,5 +45,5 @@ The repo's threshold table and locked-range table (spine Conventions) are built 
 | Binaural beat rate | 0 to below 30 Hz | Design log (f) |
 | Rate cycle | Optional sinusoidal cycle of the binaural beat rate, the theta rate, or the gamma rate: period exactly 60 s; start phase 0 to 360 degrees; the whole cycle stays inside that rate's range | Lee et al. 2024 (0 to 3 Hz every 60 s); design log (n), 2026-11-12 (pp), 2026-11-14 (ss) |
 | Session length | Up to 8 h | Engineering default, the longest length the drift test proves; Phase 0 sets the hearing-safety value; design log 2026-11-01 (u) |
-| Looping max run time | Required on every looping recipe; v0.1 starters: Focus 45 min, Learn 20 min | Engineering default, top of each mode's length range (listening-modes.md); design log (m); Phase 0 sets the WHO-ITU-based value |
+| Looping max run time | Required on every looping recipe; v0.1 starters: Focus 45 min, Learn 20 min; the recipe's loop mode picks the row and the session ends at it | Engineering default, top of each mode's length range (listening-modes.md); design log (m), 2026-11-14 (uu); Phase 0 sets the WHO-ITU-based value |
 | Loudness levels | Tones -36 LUFS-I, master -16 LUFS-I; every tones-only v0.1 starter targets -36 LUFS-I | Engineering defaults; design log (g), (m) |

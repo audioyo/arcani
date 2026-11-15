@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-14",
+  "rationale": "Loop fixture (Story 2.7): focus mode, max run time 45 min, length 2700 s, opening 0 s, body 90.25 s. Theta reference: a 450 Hz carrier amplitude-modulated by the sine envelope at a fixed 4 Hz theta rate, 75 percent AM depth. Values are placeholders, not starter defaults. A test fixture, not for listening.",
+  "length_s": 2700,
+  "loudness_target_lufs": -36,
+  "theta_reference": {
+    "carrier_hz": 450,
+    "rate_hz": 4,
+    "am_depth_percent": 75,
+    "shape": "sine"
+  },
+  "loop": {
+    "mode": "focus",
+    "opening_s": 0,
+    "body_s": 90.25,
+    "max_run_time_min": 45
+  }
+}
