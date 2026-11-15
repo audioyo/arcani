@@ -249,3 +249,105 @@ def test_strict_loader_accepts_largest_finite_and_surrogate_pairs():
     assert tool.strict_loads(b"[1.7976931348623158e308]") == [1.7976931348623157e308]
     assert tool.strict_loads(b'["\\ud83d\\ude00"]') == ["\U0001F600"]
     assert tool.strict_loads('["é"]'.encode("utf-8")) == ["é"]
+
+
+# ------------------------------------------------- loop fixtures (Story 2.7)
+#
+# The fifteen valid loop fixtures carry exactly the values of LOOP_FIXTURES in
+# tools/signal_spec_vectors.py (seed 42, schema 1.0, engine 0.0.1, author
+# "Arcani test fixtures", loudness -36); the five invalid ones are each the
+# swell loop fixture with one change, listed in invalid-expected.json.
+
+GENERATOR = REPO_ROOT / "tools" / "signal_spec_vectors.py"
+METADATA = ("author", "date", "rationale")
+LOOP_INVALID = {
+    "loop-missing-max-run-time.json": {"parameter": "/loop/max_run_time_min", "rule": "required",
+                                       "schema_keyword": "required"},
+    "loop-missing-mode.json": {"parameter": "/loop/mode", "rule": "required", "schema_keyword": "required"},
+    "loop-mode-not-in-enum.json": {"parameter": "/loop/mode", "rule": "enum", "value": "sleep",
+                                   "limit": "focus, learn", "schema_keyword": "enum"},
+    "loop-opening-as-string.json": {"parameter": "/loop/opening_s", "rule": "type", "schema_keyword": "type"},
+    "loop-unknown-property.json": {"parameter": "/loop/fade_s", "rule": "unknown_property",
+                                   "schema_keyword": "additionalProperties"},
+}
+
+
+def load_generator():
+    assert GENERATOR.is_file(), f"missing {GENERATOR}"
+    spec = importlib.util.spec_from_file_location("signal_spec_vectors_for_fixtures", GENERATOR)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _cycle(cycle):
+    swing, period, phase = cycle
+    return {"swing_hz": swing, "period_s": period, "start_phase_deg": phase}
+
+
+def loop_fixture_values(rec):
+    """The recipe a LOOP_FIXTURES entry describes, metadata left out."""
+    mode, opening, body, cap = rec["loop"]
+    out = {"schema_version": "1.0", "engine_version": "0.0.1", "seed": 42, "length_s": rec["length_s"],
+           "loudness_target_lufs": -36}
+    if rec["theta"] is not None:
+        carrier, rate, depth, shape, cycle = rec["theta"]
+        out["theta_reference"] = {"carrier_hz": carrier, "rate_hz": rate, "am_depth_percent": depth, "shape": shape}
+        if cycle is not None:
+            out["theta_reference"]["rate_cycle"] = _cycle(cycle)
+    if rec["gamma"] is not None:
+        carrier, rate, depth, coupling, phase, cycle = rec["gamma"]
+        out["gamma_pac"] = {"carrier_hz": carrier, "rate_hz": rate, "am_depth_percent": depth,
+                            "carrier_wave": "sine", "coupling": coupling}
+        if phase is not None:
+            out["gamma_pac"]["coupling_phase_deg"] = phase
+        if cycle is not None:
+            out["gamma_pac"]["rate_cycle"] = _cycle(cycle)
+    if rec["binaural"] is not None:
+        left, beat, cycle = rec["binaural"]
+        out["binaural"] = {"carrier_left_hz": left, "beat_rate_hz": beat}
+        if cycle is not None:
+            out["binaural"]["beat_rate_cycle"] = _cycle(cycle)
+    out["loop"] = {"mode": mode, "opening_s": opening, "body_s": body, "max_run_time_min": cap}
+    return out
+
+
+def test_loop_fixtures_hold_the_generator_values():
+    gen = load_generator()
+    names = [name for name, _ in gen.LOOP_FIXTURES]
+    assert len(names) == 15 and len(set(names)) == 15
+    on_disk = sorted(n for n in names(VALID) if n.startswith("loop-")) if False else sorted(
+        p.name for p in VALID.glob("loop-*.json"))
+    assert on_disk == sorted(names), on_disk
+    for name, rec in gen.LOOP_FIXTURES:
+        path = VALID / name
+        value = json.loads(path.read_text(encoding="utf-8"))
+        assert value.get("author") == "Arcani test fixtures", name
+        assert isinstance(value.get("rationale"), str) and value["rationale"], name
+        got = {k: v for k, v in value.items() if k not in METADATA}
+        assert got == loop_fixture_values(rec), name
+        # The loop members in field order, the loop the last member.
+        assert list(value["loop"]) == ["mode", "opening_s", "body_s", "max_run_time_min"], name
+        assert list(value)[-1] == "loop", name
+
+
+def test_invalid_loop_fixtures_are_the_swell_loop_fixture_with_one_change():
+    exp = expected()
+    base = json.loads((VALID / "loop-swell-theta-cycle.json").read_text(encoding="utf-8"))
+    base_core = {k: v for k, v in base.items() if k not in METADATA}
+    for name, want in LOOP_INVALID.items():
+        path = INVALID / name
+        assert path.is_file(), f"missing fixture {path} (Story 2.7)"
+        assert exp.get(name) == want, (name, exp.get(name))
+        value = json.loads(path.read_text(encoding="utf-8"))
+        core = {k: v for k, v in value.items() if k not in METADATA}
+        assert {k: v for k, v in core.items() if k != "loop"} == {k: v for k, v in base_core.items() if k != "loop"}, name
+        loop, base_loop = core["loop"], base_core["loop"]
+        changed = {k for k in set(loop) | set(base_loop) if loop.get(k, None) != base_loop.get(k, None)}
+        assert len(changed) == 1, (name, changed)
+    loops = {name: json.loads((INVALID / name).read_text(encoding="utf-8"))["loop"] for name in LOOP_INVALID}
+    assert "max_run_time_min" not in loops["loop-missing-max-run-time.json"]
+    assert "mode" not in loops["loop-missing-mode.json"]
+    assert loops["loop-mode-not-in-enum.json"]["mode"] == "sleep"
+    assert isinstance(loops["loop-opening-as-string.json"]["opening_s"], str)
+    assert "fade_s" in loops["loop-unknown-property.json"]

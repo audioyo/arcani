@@ -310,6 +310,147 @@ TEST_CASE("seek: the curved theta and gamma taps after a seek are not the unsoug
   }
 }
 
+// Story 2.7: a looping recipe repeats its parameter schedule, never stored
+// samples, and seek stays a pure function of the frame (signal spec, Loop,
+// Seek). loop-swell-theta-cycle.json (a 450 Hz carrier amplitude-modulated by
+// the sine envelope at a theta rate of 4 +- 2 Hz cycling every 60 s, 75
+// percent depth, and a 250 Hz sine carrier amplitude-modulated at 40 Hz with
+// a smooth swell peaking at the 0 degree coupling phase, 100 percent depth;
+// opening 60 s, body 120 s, 20 min) is sought into body pass 5 (from seam 5,
+// O + 5 * B) and compared with a renderer that renders continuously from
+// frame 0 in blocks, keeping only the compared window. Seam frames come from
+// the spec vectors (kLoopFrames).
+
+namespace {
+
+const spec::LoopFrameVector& loop_frames(const char* fixture, std::uint32_t fs) {
+  for (const auto& v : spec::kLoopFrames) {
+    if (std::string(v.fixture) == fixture && v.fs == fs) {
+      return v;
+    }
+  }
+  FAIL("no loop frame vector for " << fixture << " at " << fs);
+  return spec::kLoopFrames[0];
+}
+
+std::size_t loop_differing_bytes(const std::vector<double>& a, const std::vector<double>& b) {
+  if (a.size() != b.size()) {
+    return std::max(a.size(), b.size()) * sizeof(double);
+  }
+  const auto* x = reinterpret_cast<const unsigned char*>(a.data());
+  const auto* y = reinterpret_cast<const unsigned char*>(b.data());
+  std::size_t n = 0;
+  for (std::size_t i = 0; i < a.size() * sizeof(double); ++i) {
+    n += x[i] != y[i] ? 1 : 0;
+  }
+  return n;
+}
+
+bool slice_matches(const std::vector<double>& whole, std::size_t first_frame, const std::vector<double>& part) {
+  const std::size_t at = 2 * first_frame;
+  return at + part.size() <= whole.size() && api::same_bytes(whole.data() + at, part.data(), part.size());
+}
+
+}  // namespace
+
+TEST_CASE("seek: a seek into body pass 5 of the looping swell fixture equals the continuous render",
+          "[seek][loop]") {
+  constexpr std::size_t kChunk = 65536;
+  for (const std::uint32_t fs : spec::sample_rates()) {
+    const auto& v = loop_frames(spec::kLoop_full_render_fixture, fs);
+    INFO(v.fixture << " at " << fs);
+    REQUIRE(v.seam_count >= 6);
+    const std::uint64_t pass5 = v.seams[4];  // seam 5 starts body pass 5
+    REQUIRE(pass5 == v.opening_end_frame + 5 * v.body_frames);
+    auto plan = api::compile_ok(api::valid(v.fixture), api::options(ARC_MODE_MEASURE, fs));
+    REQUIRE(arc_plan_frame_count(plan.get()) == v.end_frame);
+    const std::uint64_t window_start = pass5 - fs / 2;
+    const auto window = static_cast<std::size_t>(2 * fs);
+
+    // Continuous from frame 0, output only, in blocks up to the window.
+    auto continuous = api::renderer(plan.get());
+    std::vector<double> scratch(2 * kChunk);
+    for (std::uint64_t at = 0; at < window_start;) {
+      const auto n = static_cast<std::size_t>(std::min<std::uint64_t>(kChunk, window_start - at));
+      arc_error e;
+      api::poison(e);
+      const arc_status s = arc_render(continuous.get(), scratch.data(), n, nullptr, &e);
+      INFO(api::describe(e));
+      REQUIRE(s == ARC_OK);
+      at += n;
+    }
+    api::TapBuffers want_taps(window);
+    const arc_taps wt = want_taps.taps();
+    const std::vector<double> want = api::render(continuous.get(), window, &wt);
+
+    // Seeks: the window start, the frame before seam 5, seam 5 itself, and
+    // two frames inside pass 5.
+    for (const std::uint64_t k : {window_start, pass5 - 1, pass5, pass5 + 12345, pass5 + fs}) {
+      INFO("seek to " << k);
+      auto sought = api::renderer(plan.get());
+      api::seek(sought.get(), k);
+      const auto n = static_cast<std::size_t>(window_start + window - k);
+      api::TapBuffers taps(n);
+      const arc_taps t = taps.taps();
+      const std::vector<double> got = api::render(sought.get(), n, &t);
+      const auto first = static_cast<std::size_t>(k - window_start);
+      CHECK(slice_matches(want, first, got));
+      CHECK(slice_matches(want_taps.theta_reference, first, taps.theta_reference));
+      CHECK(slice_matches(want_taps.gamma_pac, first, taps.gamma_pac));
+      CHECK(slice_matches(want_taps.stereo_bus, first, taps.stereo_bus));
+      CHECK(slice_matches(want_taps.binaural_join, first, taps.binaural_join));
+      CHECK(slice_matches(want_taps.master, first, taps.master));
+    }
+  }
+}
+
+TEST_CASE("seek: a window across a seam renders the same bytes at every block size", "[seek][loop][blocks]") {
+  const auto& sizes = spec::row("block-sizes");
+  const double allowed = spec::row("block-size-invariance").value();
+  REQUIRE_FALSE(sizes.values.empty());
+  for (const std::uint32_t fs : spec::sample_rates()) {
+    const auto& v = loop_frames(spec::kLoop_full_render_fixture, fs);
+    REQUIRE(v.seam_count >= 1);
+    auto plan = api::compile_ok(api::valid(v.fixture), api::options(ARC_MODE_MEASURE, fs));
+    const std::uint64_t start = v.seams[0] - fs / 4;
+    const auto frames = static_cast<std::size_t>(fs / 2);
+    auto one = api::renderer(plan.get());
+    api::seek(one.get(), start);
+    api::TapBuffers whole_taps(frames);
+    const arc_taps wt = whole_taps.taps();
+    const std::vector<double> whole = api::render(one.get(), frames, &wt);
+    for (const double size : sizes.values) {
+      const auto block = static_cast<std::size_t>(size);
+      INFO(v.fixture << " at " << fs << ", " << block << " frames per call across seam 1");
+      auto r = api::renderer(plan.get());
+      api::seek(r.get(), start);
+      api::TapBuffers taps(frames);
+      std::vector<double> out(2 * frames, -7.0);
+      for (std::size_t done = 0; done < frames;) {
+        const std::size_t n = std::min(block, frames - done);
+        arc_taps t = taps.taps();
+        const std::size_t at = 2 * done;
+        t.theta_reference += at;
+        t.gamma_pac += at;
+        t.stereo_bus += at;
+        t.binaural_join += at;
+        t.master += at;
+        arc_error e;
+        api::poison(e);
+        const arc_status s = arc_render(r.get(), out.data() + at, n, &t, &e);
+        INFO(api::describe(e));
+        REQUIRE(s == ARC_OK);
+        done += n;
+      }
+      CHECK(static_cast<double>(loop_differing_bytes(out, whole)) <= allowed);
+      CHECK(static_cast<double>(loop_differing_bytes(taps.theta_reference, whole_taps.theta_reference)) <= allowed);
+      CHECK(static_cast<double>(loop_differing_bytes(taps.gamma_pac, whole_taps.gamma_pac)) <= allowed);
+      CHECK(static_cast<double>(loop_differing_bytes(taps.stereo_bus, whole_taps.stereo_bus)) <= allowed);
+      CHECK(static_cast<double>(loop_differing_bytes(taps.master, whole_taps.master)) <= allowed);
+    }
+  }
+}
+
 TEST_CASE("seek comparison catches a one-sample offset", "[seek]") {
   // Must-fail for tail_matches: the tail from k + 1 does not match at k.
   const Session s = full(api::kBeat6, 48000);

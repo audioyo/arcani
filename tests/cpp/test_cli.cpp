@@ -76,6 +76,7 @@
 #include "api_helpers.hpp"
 #include "cli_helpers.hpp"
 #include "determinism_helpers.hpp"
+#include "spec_tables.hpp"
 #include "json/value.hpp"
 #include "tables.hpp"
 
@@ -584,6 +585,50 @@ TEST_CASE("zero length writes a header-only WAV and speed is not applicable (no 
     check_report_members(report, "", text, 48000, "measure", 0);
     check_not_applicable(report, "no frames");
   }
+}
+
+// ------------------------------------------------------------------- loop
+
+// Story 2.7: a looping recipe's report gains loop {opening_end_frame,
+// seam_frames, end_frame} right after frames (spec Implementation Notes,
+// Report); a report without loop is unchanged. One looping render only, at
+// 44.1 kHz (the swell loop fixture is 20 min, so its WAV is about 318 MB; it
+// is removed after the check).
+TEST_CASE("a looping recipe's report lists the opening end, every seam, and the end", "[cli][loop]") {
+  ScopedEnv env(kEnv, nullptr);
+  const std::uint32_t rate = 44100;
+  const std::string fixture = "loop-swell-theta-cycle.json";
+  const arcani::test::spec::LoopFrameVector* want = nullptr;
+  for (const auto& v : arcani::test::spec::kLoopFrames) {
+    if (fixture == v.fixture && v.fs == rate) {
+      want = &v;
+    }
+  }
+  REQUIRE(want != nullptr);
+  const fs::path dir = case_dir("loop");
+  const fs::path wav = dir / "x.wav";
+  const RunResult r = run_cli({fixture_path(fixture), "--out", wav.string(), "--rate", "44100"});
+  INFO("stdout: " << r.out << "\nstderr: " << r.err);
+  REQUIRE(r.exit_code == 0);
+  CHECK(fs::file_size(wav) == h::expected_wav_header(want->end_frame, rate).size() + 6 * want->end_frame);
+  fs::remove(wav);
+  const json::Value report = require_report(dir / "x.report.json");
+  CHECK(report.find("frames")->number() == static_cast<double>(want->end_frame));
+  const json::Value* loop = report.find("loop");
+  REQUIRE(loop != nullptr);
+  CHECK(loop->find("opening_end_frame")->number() == static_cast<double>(want->opening_end_frame));
+  CHECK(loop->find("end_frame")->number() == static_cast<double>(want->end_frame));
+  const auto& seams = loop->find("seam_frames")->array();
+  REQUIRE(seams.size() == want->seam_count);
+  for (std::size_t k = 0; k < seams.size(); ++k) {
+    INFO("seam " << k + 1);
+    CHECK(seams[k].number() == static_cast<double>(want->seams[k]));
+  }
+  // A recipe without loop: no loop member.
+  const fs::path plain_dir = case_dir("loop-absent");
+  const RunResult p = run_cli({fixture_path(arcani::test::api::kBeat6), "--out", (plain_dir / "x.wav").string()});
+  REQUIRE(p.exit_code == 0);
+  CHECK(require_report(plain_dir / "x.report.json").find("loop") == nullptr);
 }
 
 // ------------------------------------------------------------------ speed
