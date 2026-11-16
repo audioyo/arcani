@@ -62,6 +62,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import components_common
 from assertions import row as table_row
 from assertions.tables import load_tables
 
@@ -552,3 +553,152 @@ def test_must_fail_band_check_silence():
     reports = mod.check_bands("silence", np.zeros(int(SWEEP_SECONDS * fs)), fs, sweep_table())
     assert reports and not all_pass(reports), reports
     assert not all_pass([r for r in reports if r["row"] == "spectrum-level"]), reports
+
+
+# ------------------------------------------------------------ one-to-one matching
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_must_fail_a_duplicated_row_or_two_rows_on_one_line(fs):
+    """Matching is one to one: a row that claims a line another row already claims is a mismatch."""
+    mod = cc()
+    x = tones(fs, STATIC_LINES)
+    table = static_table()
+    assert all_pass(mod.check_static("clean", x, fs, table))
+    for doctored in (table + [line(444.0, -10.5)],                                   # the same row twice
+                     table + [line(444.0 + 2.0 * frequency_tol(), -10.5)]):         # a second row on one line
+        count = mod.check_static("doubled", x, fs, doctored)[2]
+        assert count["result"] == "fail" and count["measured"] >= 1, count
+
+
+# ------------------------------------------------------------ sweep edge
+
+def edge_tol_hz():
+    """Two closed forms of an edge agree like two component tables: row component-frequency-error."""
+    r = table_row("component-frequency-error")
+    assert r.unit == "Hz", r
+    return r.value
+
+
+def bessel_abs(beta):
+    """|J_n(beta)| for n = 0, 1, ... by Miller's backward recurrence, normalized by J_0 + 2 sum J_2k = 1.
+
+    Independent of the tool's FFT: J_(n-1) = (2 n / beta) J_n - J_(n+1) from far above beta down to 0.
+    """
+    start = int(beta + 40.0 * beta ** (1.0 / 3.0) + 80.0)
+    start += start % 2
+    j = [0.0] * (start + 2)
+    j[start] = 1e-300
+    for n in range(start, 0, -1):
+        j[n - 1] = (2.0 * n / beta) * j[n] - j[n + 1]
+        if abs(j[n - 1]) > 1e250:
+            for m in range(n - 1, start + 1):
+                j[m] *= 1e-250
+    norm = j[0] + 2.0 * sum(j[2:start + 1:2])
+    return [abs(v / norm) for v in j[:start + 1]]
+
+
+def bessel_edge_hz(half_width_hz, period_s, level_db):
+    if half_width_hz <= 0.0:
+        return 0.0
+    beta = half_width_hz * period_s
+    values = bessel_abs(beta)
+    peak = max(values)
+    n_last = max(n for n, v in enumerate(values) if v >= 10.0 ** (-level_db / 20.0) * peak)
+    return max(0.0, n_last / period_s - half_width_hz)
+
+
+def period_s():
+    r = table_row("rate-cycle-period")
+    assert r.kind == "ranges" and r.min == r.max and r.unit == "s", r
+    return r.min
+
+
+def fixture_half_widths():
+    """Every half width (high - low) / 2 above 0 of the component vectors."""
+    rows = components_common.vectors()["components"]
+    out = sorted({(float(r["high"]) - float(r["low"])) / 2.0 for r in rows} - {0.0})
+    assert out, "no swept vector row"
+    return out
+
+
+def test_sweep_edge_is_the_bessel_edge_at_every_vector_half_width():
+    mod = cc()
+    P, L = period_s(), component_db()
+    for a in fixture_half_widths():
+        want = bessel_edge_hz(a, P, L)
+        got = mod.sweep_edge_hz(a, P)
+        assert abs(got - want) < edge_tol_hz(), (a, got, want)
+        assert got > 0.0, a
+    for a in (0.0, -1.0):
+        assert mod.sweep_edge_hz(a, P) == 0.0
+
+
+def test_must_fail_the_bessel_edge_check_catches_a_wrong_edge():
+    P, L = period_s(), component_db()
+    want = bessel_edge_hz(1.5, P, L)
+    assert want > 0.0
+    assert not abs((want + 1.0 / P) - want) < edge_tol_hz()
+    # The independent recurrence reproduces known values: J_0(1) and J_1(1).
+    values = bessel_abs(1.0)
+    assert abs(values[0] - 0.7651976865579666) < 1e-12 and abs(values[1] - 0.44005058574493355) < 1e-12
+
+
+# Swept calibration at the row's period: the turning-point skirts reach past
+# the interval by more than the tool's resolution, so the sweep edge decides
+# the result. A 1000 Hz tone swept by 15 Hz, two whole periods.
+EDGE_CENTER_HZ = 1000.0
+EDGE_SWING_HZ = 15.0
+
+
+def edge_signal(fs, extra_hz=None, extra_db=-35.0):
+    P = period_s()
+    x = swept(fs, EDGE_CENTER_HZ, EDGE_SWING_HZ, 0.5, seconds=2.0 * P, period=P)
+    if extra_hz is not None:
+        t = np.arange(x.size, dtype=np.float64) / fs
+        x = x + 0.5 * ratio(extra_db) * np.sin(2.0 * math.pi * extra_hz * t)
+    return x
+
+
+def edge_table():
+    return [Row(EDGE_CENTER_HZ, EDGE_CENTER_HZ - EDGE_SWING_HZ, EDGE_CENTER_HZ + EDGE_SWING_HZ, 1.0)]
+
+
+@pytest.fixture(scope="module")
+def edge_fs():
+    return max(SAMPLE_RATES)
+
+
+def test_band_check_needs_the_sweep_edge_at_the_rows_period(edge_fs, monkeypatch):
+    """The correct edge passes the swept tone; an edge of 0 leaves its skirts outside the band and fails."""
+    mod = cc()
+    fs = edge_fs
+    x = edge_signal(fs)
+    resolution = 8.0 * fs / x.size
+    edge = mod.sweep_edge_hz(EDGE_SWING_HZ, period_s())
+    assert edge > resolution, (edge, resolution)  # the edge, not the resolution, decides
+    rows = band_reports(mod, "edge", x, fs, edge_table())
+    assert all(all_pass(r) for r in rows.values()), rows
+    # Doctored in the harness: no sweep edge.
+    monkeypatch.setattr(mod, "sweep_edge_hz", lambda half_width_hz, period: 0.0)
+    rows = band_reports(mod, "no edge", x, fs, edge_table())
+    assert not all_pass(rows[COMPONENT_ROW]), rows
+    assert max(r["measured"] for r in rows[COMPONENT_ROW]) >= 1, rows
+
+
+def test_must_fail_an_inflated_edge_hides_a_line_the_true_edge_catches(edge_fs, monkeypatch):
+    """A tone past the true edge is outside every band and counted; an inflated edge would swallow it."""
+    mod = cc()
+    fs = edge_fs
+    P = period_s()
+    edge = mod.sweep_edge_hz(EDGE_SWING_HZ, P)
+    resolution = 8.0 * fs / (int(round(2.0 * P * fs)))
+    extra = EDGE_CENTER_HZ + EDGE_SWING_HZ + edge + resolution + 0.3
+    x = edge_signal(fs, extra_hz=extra)
+    rows = band_reports(mod, "extra", x, fs, edge_table())
+    assert not all_pass(rows[COMPONENT_ROW]), rows
+    assert all_pass(rows["spectrum-level"]), rows
+    # Doctored in the harness: the edge inflated by 1 Hz takes the tone into the band, and the check is blind.
+    monkeypatch.setattr(mod, "sweep_edge_hz", lambda half_width_hz, period: edge + 1.0)
+    rows = band_reports(mod, "inflated", x, fs, edge_table())
+    assert all(all_pass(r) for r in rows.values()), rows

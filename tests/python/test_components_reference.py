@@ -352,3 +352,43 @@ def test_vectors_file_is_json_with_the_story_keys():
     assert len(data["component_cases"]) == len(common.case_names())
     assert sum(int(c["components"]) for c in data["component_cases"]) == sum(
         len(common.want_rows(n)) for n in common.case_names())
+
+
+# ------------------------------------------------------------ coefficient vectors
+
+
+def coefficient_rows():
+    rows = common.vectors()["component_coefficients"]
+    assert rows, "no component_coefficients vectors"
+    return rows
+
+
+@pytest.mark.parametrize("r", coefficient_rows(), ids=lambda r: f"{r['form']}-{r['rate_hex']}-k{r['k']}")
+def test_reference_coefficients_equal_the_vectors(r):
+    """P(k, w), c_k (signed for the on-off forms, |c_k| for the sawtooth), and the search bound B(k)."""
+    tol = common.level_error()
+    h, w, p, c, bound = ref().coefficient(r["form"], float.fromhex(r["rate_hex"]), int(r["k"]))
+    assert w == float.fromhex(r["w_hex"]), r
+    if r["h_hex"] == "none":
+        assert h is None, r
+    else:
+        assert h == float.fromhex(r["h_hex"]), r
+    for got, text in ((p, r["p"]), (bound, r["bound"])):
+        if text == "none":
+            assert got is None, r
+        else:
+            assert abs(got - float(text)) < tol, (r, got)
+    assert abs(c - float(r["c"])) < tol, (r, c)
+    if bound is not None:
+        assert abs(c) <= bound, (r, c, bound)
+
+
+def test_must_fail_the_coefficient_check_catches_a_wrong_coefficient():
+    """A coefficient doctored in the harness by twice row component-level-error is outside the row."""
+    tol = common.level_error()
+    r = next(r for r in coefficient_rows() if r["form"] == "burst_gate" and int(r["k"]) == 3)
+    _, _, _, c, _ = ref().coefficient(r["form"], float.fromhex(r["rate_hex"]), 3)
+    assert abs(c - float(r["c"])) < tol
+    assert not abs((c + 2.0 * tol) - float(r["c"])) < tol
+    with pytest.raises(ValueError):
+        ref().coefficient("custom", 6.0, 1)

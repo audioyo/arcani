@@ -24,8 +24,8 @@ the reference component table (reference/components.py):
   spectrum-level, and no line at or above the threshold lies outside them.
 
 Taps: the theta reference and gamma PAC taps of reference.stub_chain.render
-(the same in both channels, so the left channel is measured against the left
-ear's rows), and each binaural ear from reference.binaural.render (the
+(the same in both channels: the right channel is asserted equal to the left
+bit for bit, and each channel is measured against its own ear's rows), and each binaural ear from reference.binaural.render (the
 binaural layer alone, as the join tap also holds the bus). Each tap is shown
 to be a real waveform before it is judged.
 
@@ -34,6 +34,11 @@ with no muted ear (the muted cases reuse binaural-beat-6.json and are
 covered by the table tests). Static fixtures render their whole length, at
 most `case_length_s` of the vectors (both-layers.json is 600 s; its first
 10 s hold the same lines); rate-cycle fixtures render 120 s.
+
+Cases without a fixture file (rendered from their vector recipe in tmp_path):
+the static ones line by line, and `swell-cycles-60deg-apart` and
+`bursts-cycles-60deg-apart` by band power at 120 s, so a nonzero coupling
+phase and two rate cycles with different start phases are measured too.
 
 Must-fail: the harness drops one side-frequency row (the strongest one) from
 the reference table of each layer tap and the cross-check must fail. No
@@ -46,6 +51,7 @@ only (the table does not depend on the sample rate).
 
 import functools
 import importlib
+import json
 import math
 
 import numpy as np
@@ -90,33 +96,46 @@ STATIC_SIDES = [n for n in STATIC if has_side_rows(n)]
 CYCLE_SIDES = [n for n in CYCLES if has_side_rows(n)]
 
 
+def render_taps(path, recipe, fs, seconds):
+    """{(layer, ear): one channel} of the reference render of a recipe file.
+
+    The theta and gamma taps are the same in both channels: the right channel
+    is asserted equal to the left bit for bit, then each is measured against
+    its own ear's rows.
+    """
+    frames = common.reference_module("ideal").seconds_to_samples(seconds, fs)
+    out = {}
+    if "theta_reference" in recipe or "gamma_pac" in recipe:
+        render = common.reference_module("stub_chain").render(path, fs, frames=frames)
+        for layer, key in (("theta_reference", "theta"), ("gamma_pac", "gamma")):
+            if layer not in recipe:
+                continue
+            left = np.ascontiguousarray(render[key][0::2])
+            right = np.ascontiguousarray(render[key][1::2])
+            assert left.tobytes() == right.tobytes(), (path, layer, "the right channel differs from the left")
+            out[(layer, "left")] = left
+            out[(layer, "right")] = right
+    if "binaural" in recipe:
+        left, right = common.reference_module("binaural").render(recipe["binaural"], fs, frames)
+        out[("binaural", "left")] = np.ascontiguousarray(left)
+        out[("binaural", "right")] = np.ascontiguousarray(right)
+    for key, x in out.items():
+        assert x.size == frames, (path, key, x.size)
+    return out
+
+
 @functools.lru_cache(maxsize=4)
 def taps(name, fs):
     """{(layer, ear): one channel} of the reference render of a fixture case."""
     c = common.case(name)
     path = common.FIXTURES_VALID / c["fixture"]
     recipe = common.load_fixture(c["fixture"])
-    ideal = common.reference_module("ideal")
     if is_cycle(name):
         seconds = CYCLE_SECONDS
         assert float(recipe["length_s"]) == seconds, (name, recipe["length_s"])
     else:
         seconds = min(float(recipe["length_s"]), float(common.constants()["case_length_s"]))
-    frames = ideal.seconds_to_samples(seconds, fs)
-    out = {}
-    if "theta_reference" in recipe or "gamma_pac" in recipe:
-        render = common.reference_module("stub_chain").render(path, fs, frames=frames)
-        if "theta_reference" in recipe:
-            out[("theta_reference", "left")] = np.ascontiguousarray(render["theta"][0::2])
-        if "gamma_pac" in recipe:
-            out[("gamma_pac", "left")] = np.ascontiguousarray(render["gamma"][0::2])
-    if "binaural" in recipe:
-        left, right = common.reference_module("binaural").render(recipe["binaural"], fs, frames)
-        out[("binaural", "left")] = np.ascontiguousarray(left)
-        out[("binaural", "right")] = np.ascontiguousarray(right)
-    for key, x in out.items():
-        assert x.size == frames, (name, key, x.size)
-    return out
+    return render_taps(path, recipe, fs, seconds)
 
 
 def tables_of(name):
@@ -243,3 +262,79 @@ def test_must_fail_band_cross_check_with_one_side_frequency_dropped(name):
 
 def test_the_threshold_is_the_row():
     assert cc().threshold_db() == table_row(common.COMPONENT_ROW).value
+
+
+# ------------------------------------------------------------ the phase-dependent model, rendered
+
+# Cases no fixture file has: every measured fixture sits at the 0 degree
+# coupling phase with in-phase rate cycles, so these renders check the parts of
+# the model that turn with a phase: summed burst lines at a nonzero coupling
+# phase, and a row swept by two rate cycles with different start phases.
+NO_FILE = [n for n in common.case_names() if common.case(n)["fixture"] == "none"]
+NO_FILE_STATIC = [n for n in NO_FILE if not is_cycle(n)]
+NO_FILE_CYCLES = ["swell-cycles-60deg-apart", "bursts-cycles-60deg-apart"]
+
+
+def written_case(name, folder, seconds):
+    """The case recipe with length_s set to `seconds`, written to folder; (path, recipe)."""
+    recipe = common.case_recipe(name)
+    recipe["length_s"] = seconds
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{name}.json"
+    path.write_text(json.dumps(recipe), encoding="utf-8")
+    return path, recipe
+
+
+def case_judged(name, x_taps, fs, check):
+    table = common.as_rows(common.reference_components().component_table(common.case_recipe(name)))
+    out = []
+    for (layer, ear), x in x_taps.items():
+        rows = common.layer_rows(table, layer, ear)
+        where = f"{name} {fs} {layer} {ear}"
+        assert rows, where
+        real_waveform(where, x)
+        out.append((where, check(where, x, fs, rows), rows, x))
+    return out
+
+
+def test_the_phase_cases_are_present():
+    for name in ("bursts-60hz-135deg", "bursts-45hz-45deg"):
+        assert name in NO_FILE_STATIC, name
+    for name in NO_FILE_CYCLES:
+        assert name in NO_FILE and is_cycle(name), name
+
+
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+@pytest.mark.parametrize("name", NO_FILE_STATIC)
+def test_static_case_without_a_fixture_lines_are_the_table(name, fs, tmp_path):
+    seconds = float(common.constants()["case_length_s"])
+    path, recipe = written_case(name, tmp_path, seconds)
+    x_taps = render_taps(path, recipe, fs, seconds)
+    problems = []
+    doctored = 0
+    for where, reports, rows, x in case_judged(name, x_taps, fs, cc().check_static):
+        problems += [(where, r) for r in failing(reports)]
+        dropped = drop_strongest_side(rows)
+        if dropped is not None:
+            doctored += 1
+            assert failing(cc().check_static(where + " dropped", x, fs, dropped)), where
+    assert not problems, problems
+    if any((r.gamma_mult, r.theta_mult) != (0, 0) for r in common.want_rows(name)):
+        assert doctored > 0, name
+
+
+@pytest.mark.parametrize("name", NO_FILE_CYCLES)
+def test_rate_cycle_case_without_a_fixture_band_powers_are_the_table(name, tmp_path):
+    fs = CYCLE_RATE
+    path, recipe = written_case(name, tmp_path, CYCLE_SECONDS)
+    x_taps = render_taps(path, recipe, fs, CYCLE_SECONDS)
+    problems = []
+    doctored = 0
+    for where, reports, rows, x in case_judged(name, x_taps, fs, cc().check_bands):
+        problems += [(where, r) for r in failing(reports)]
+        dropped = drop_strongest_side(rows)
+        if dropped is not None:
+            doctored += 1
+            assert failing(cc().check_bands(where + " dropped", x, fs, dropped)), where
+    assert not problems, problems
+    assert doctored > 0, name
