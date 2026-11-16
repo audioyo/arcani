@@ -22,7 +22,10 @@ static and swept tones first (tests/python/test_component_check_tool.py).
   The third holds the count of unmatched lines: a measured line at or above
   the threshold re the tap's strongest line with no table row within half
   the tool's resolution (`8 * fs / len(x)` Hz, the window's main lobe), plus
-  a table row with no measured line within it. A line or a row whose level is
+  a table row with no measured line within it, plus every extra table row
+  that claims a measured line another row already claims (each row claims
+  the nearest measured line within that radius, so matching is one to one:
+  a duplicated row, or two rows on one line, is a mismatch). A line or a row whose level is
   within row `spectrum-level` of the threshold is exempt from the count (it
   may be in or out). It passes only at count 0. A non-finite or silent tap,
   or an empty table, fails all three with a note.
@@ -55,6 +58,12 @@ static and swept tones first (tests/python/test_component_check_tool.py).
   outside every band; a line within row `spectrum-level` of the threshold is
   exempt). A swept line keeps its power, so a band is judged by its power
   and never by peak height.
+  Limit: a band check cannot see a missing weak row inside a merged band
+  whose loss changes the band's power by less than row `spectrum-level`
+  (a 0.01 row in a band of power 1 moves it by 0.0004 dB). Per-row presence
+  is carried by check_static on the static fixtures, which share every
+  shape's line model with the rate-cycle fixtures; the band check carries
+  the intervals and the total power.
 
 NumPy and the standard library only, plus `row` and the spectrum tool.
 """
@@ -128,11 +137,15 @@ def check_static(name, x, fs, table) -> list:
             continue
         if not np.any(np.abs(centers - f) <= radius):
             count += 1
+    claims = {}
     for f, level in expected:
-        if abs(level + threshold) <= level_tol:
-            continue
-        if not np.any(np.abs(freqs - f) <= radius):
+        distance = np.abs(freqs - f)
+        k = int(np.argmin(distance))
+        if distance[k] <= radius:
+            claims[k] = claims.get(k, 0) + 1
+        elif abs(level + threshold) > level_tol:
             count += 1
+    count += sum(c - 1 for c in claims.values())
     reports[2]["measured"] = count
     reports[2]["result"] = "pass" if count == 0 else "fail"
     return reports
@@ -223,6 +236,8 @@ def check_bands(name, x, fs, table) -> list:
     widened = []
     for r in rows:
         low, high = float(r.low_hz), float(r.high_hz)
+        # One period for every row: row rate-cycle-period is a single value, so a row swept by two
+        # cycles is one sinusoid of that period.
         edge = sweep_edge_hz((high - low) / 2.0, period)
         widened.append(_Row(float(r.center_hz), max(0.0, low - edge), high + edge, float(r.level)))
     resolution = _resolution_hz(np.asarray(x).size, fs)
