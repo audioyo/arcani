@@ -138,7 +138,11 @@ arc_status arc_plan_loop(const arc_plan* plan, arc_loop_frames* out_loop, arc_er
    carrier plus gamma_mult times the gamma rate, theta_mult times the theta
    rate, and beat_mult times the beat rate, each following its rate cycle;
    [low_hz, high_hz] is the range it covers over a whole cycle (both equal
-   center_hz without one). The table is the same at every sample rate, and a
+   center_hz without one). A line whose frequency lies below 0 Hz sounds at
+   its absolute value and is listed mirrored (center_hz, low_hz, high_hz
+   become -center_hz, -high_hz, -low_hz; an interval that crosses 0 is listed
+   as |center_hz|, 0, and the larger end), while the multipliers keep
+   describing the unmirrored frequency. The table is the same at every sample rate, and a
    muted ear has no binaural row. The renderer never reads it. */
 typedef enum arc_component_layer {
   ARC_COMPONENT_THETA_REFERENCE = 0,

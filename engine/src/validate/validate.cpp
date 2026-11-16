@@ -14,6 +14,18 @@
 
 namespace arcani::validate {
 
+// The integer test of a binary64 x >= 0 (docs/signal-spec.md, Loop,
+// Whole-sample rule): every binary64 at or above 2^53 (or infinite) counts
+// as whole, and below 2^53 x converts to an unsigned 64-bit integer and back
+// exactly when it is one.
+bool is_whole(double x) noexcept {
+  if (!(x < 0x1p53)) {
+    return true;
+  }
+  const auto u = static_cast<std::uint64_t>(x);  // 0 <= x < 2^53: in range
+  return static_cast<double>(u) == x;
+}
+
 namespace {
 
 // Engine copy of the ranges.tsv rows the field table names, in row units.
@@ -240,18 +252,6 @@ std::optional<recipe::Error> check_cycle_worst_case(const recipe::Binaural& b) {
   const double right = center + swing;
   const std::size_t j = row_index(kRightCarrierRow);
   return check_row(kSwingPath, right, j, 1.0, kRows[j].unit);
-}
-
-// The integer test of a binary64 x >= 0 (docs/signal-spec.md, Loop,
-// Whole-sample rule): every binary64 at or above 2^53 (or infinite) counts
-// as whole, and below 2^53 x converts to an unsigned 64-bit integer and back
-// exactly when it is one.
-bool is_whole(double x) noexcept {
-  if (!(x < 0x1p53)) {
-    return true;
-  }
-  const auto u = static_cast<std::uint64_t>(x);  // 0 <= x < 2^53: in range
-  return static_cast<double>(u) == x;
 }
 
 // Loop, Whole-sample rule: 4 * t_s (an exact power-of-two scale) is an

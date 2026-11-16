@@ -89,18 +89,6 @@ double sawtooth_bound(int k, double w) noexcept {
 
 bool has_cycle(const std::optional<recipe::RateCycle>& c) noexcept { return c && c->swing_hz > 0.0; }
 
-// The Loop Cycle rule's integer test: below 2^53 x converts to an unsigned
-// 64-bit integer and back exactly when it is whole.
-bool is_whole(double x) noexcept {
-  if (!(x >= 0.0)) {
-    return false;
-  }
-  if (x >= 0x1p53) {
-    return true;
-  }
-  return static_cast<double>(static_cast<std::uint64_t>(x)) == x;
-}
-
 // A line of one layer: gamma_mult i, theta_mult j, amplitude.
 struct Line {
   std::int32_t i;
@@ -149,8 +137,8 @@ std::vector<Line> gamma_lines(const recipe::GammaPac& g, const recipe::ThetaRefe
     return out;
   }
   if (d == 0.0 || theta == nullptr) {
-    // Compile accepts coupled gamma without theta AM depth only at gamma
-    // depth 0: the carrier alone.
+    // Gamma depth 0 (any theta reference), or no theta_reference field, which
+    // compile accepts for coupled gamma only at depth 0: the carrier alone.
     out.push_back({0, 0, 1.0});
     return out;
   }
@@ -210,7 +198,9 @@ std::vector<Line> gamma_lines(const recipe::GammaPac& g, const recipe::ThetaRefe
   if (!has_cycle(g.rate_cycle) && !has_cycle(theta->rate_cycle)) {
     const double two = 2.0 * g.rate_hz;
     const double q = two / theta_rate;
-    if (is_whole(q) && q * theta_rate == two && q < 0x1p30) {
+    // The cap 2^30 keeps n2 an int; no locked rate pair comes near it
+    // (Components, Bursts, lines at one frequency).
+    if (q > 0.0 && is_whole(q) && q * theta_rate == two && q < 0x1p30) {
       n2 = static_cast<int>(q);
       summed = n2 > 0;
     }
@@ -380,6 +370,8 @@ ComponentResult build_components(const recipe::Recipe& r, MutedEar mute) {
       }
       const double a = static_cast<double>(l.i) * swing_gamma;
       const double b = static_cast<double>(l.j) * swing_theta;
+      // One sinusoid of amplitude half: both cycles share one period, since row
+      // rate-cycle-period is a single value (Components, Rate cycles).
       double half = std::fabs(a) + std::fabs(b);
       if (a != 0.0 && b != 0.0) {
         const double s = a * a + b * b + 2.0 * a * b * cos_between;
