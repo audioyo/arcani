@@ -27,6 +27,7 @@
 
 #include "core/envelope.hpp"
 #include "recipe/recipe.hpp"
+#include "validate/components.hpp"
 
 namespace arcani::plan {
 
@@ -158,6 +159,9 @@ struct Plan {
   GammaOscillator gamma;
   BinauralEars binaural;
   LoopFrames loop;  // Story 2.7
+  // Story 3.1 (docs/signal-spec.md, Components): the component table, left
+  // ear rows first. The renderer never reads it; Story 3.2's spacing rule does.
+  std::vector<validate::Component> components;
   std::array<StageKind, 5> stages{};
   std::vector<recipe::Error> warnings;  // non-blocking; empty in v0.1
 };
