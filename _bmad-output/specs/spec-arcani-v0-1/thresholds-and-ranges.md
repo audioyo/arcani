@@ -11,7 +11,7 @@ The repo's threshold table and locked-range table (spine Conventions) are built 
 | Coupling timing | Each gamma envelope peak within 2 ms of its target coupling phase on the in-file theta reference | Plan Test thresholds; FR-3 |
 | Coupling independence | Changing binaural beat rate or phase leaves every gamma peak time unchanged to the sample | AD-5 |
 | Envelope shape | Passes through the reference match | FR-13 |
-| Carrier rule | Every modulated carrier at least 4 times its modulation rate | Plan Test thresholds; FR-9 |
+| Carrier rule | Every modulated carrier at least 4 times its modulation rate, the layer's own named rate at its worst case along a rate cycle; coupling does not change it | Plan Test thresholds; FR-9; design log 2026-11-16 (vv) |
 | Spacing rule | Per ear, at least 50 Hz between any spectral component of one layer and any of another, incl. side frequencies; own-layer components and the binaural pair exempt. Component = line within 40 dB of the layer's strongest line. Checked across the whole session incl. rate curves | Design log 2026-10-27 (e), (i); AD-20 |
 | Frequency accuracy | Every carrier and rate within 0.01 Hz of the recipe value; along rate curves, instantaneous rate within 0.01 Hz of the schedule with continuous phase | Plan Test thresholds; FR-1 |
 | Long-session drift | Theta reference phase error under 1 ms after an 8-hour render | Plan Test thresholds; FR-1 |
