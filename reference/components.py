@@ -20,6 +20,11 @@ transformed.
   center_hz, then gamma_mult, theta_mult, beat_mult). It reads the three
   layer objects and mute ("none", "left", "right") only.
 - `component_table_from_file(recipe_path, mute="none")`: the same from a file.
+- `coefficient(form, rate_hz, k)`: (h, w, P, c, bound) of one Fourier
+  coefficient as the table uses it: form "smoothed_on_off" (the theta
+  envelope, h = 1/4), "burst_gate" (h = 0.025 * rate, w = 0.01 * rate), or
+  "sawtooth" (h None; the reverse saw has the same |c_k|); c signed for the
+  two on-off forms and |c_k| for the sawtooth; P and bound None at k = 0.
 
 NumPy, the standard library, and reference/ only.
 """
@@ -117,6 +122,26 @@ def _sawtooth_bound(k, w):
     return (_edge_bound(k, w) + 1.0 / (pk * (1.0 - w))) / (2.0 * pk)
 
 
+def coefficient(form, rate_hz, k):
+    """(h, w, P(k, w), c_k, B(k)) of one coefficient; see the module docstring."""
+    rate_hz = float(rate_hz)
+    if form == "burst_gate":
+        h, w = (BURST_WIDTH_MS / 1000.0 / 2) * rate_hz, (BURST_EDGE_MS / 1000.0) * rate_hz
+    elif form in ("smoothed_on_off", "sawtooth"):
+        h, w = THETA_HALF_ON, (THETA_EDGE_MS / 1000.0) * rate_hz
+    else:
+        raise ValueError(f"no coefficient form {form!r}")
+    if form == "sawtooth":
+        c = _sawtooth(k, w)
+        bound = _sawtooth_bound(k, w) if k else None
+        h = None
+    else:
+        c = _on_off(k, h, w)
+        bound = _on_off_bound(k, w) if k else None
+    p = _edge_factor(abs(k), w) if k else None
+    return h, w, p, c, bound
+
+
 def _swing(layer, key):
     """(swing_hz, P0) of a rate cycle with swing above 0, else (0.0, 0)."""
     cycle = (layer or {}).get(key)
@@ -212,7 +237,7 @@ def _gamma_lines(gamma, theta, t):
     if _swing(gamma, "rate_cycle")[0] == 0.0 and _swing(theta, "rate_cycle")[0] == 0.0:
         two = 2.0 * float(gamma["rate_hz"])
         q = two / theta_rate
-        if _whole(q) and q * theta_rate == two and q > 0.0:
+        if 0.0 < q < 2.0**30 and _whole(q) and q * theta_rate == two:
             n2 = int(q)
     if n2 is not None and n2 % 2 == 0:
         n = n2 // 2
@@ -294,6 +319,7 @@ def component_table(recipe, mute="none"):
             level = amp / carrier
             if not level >= t:
                 continue
+            # One sinusoid of amplitude half: both cycles share one period (row rate-cycle-period is one value).
             a, b = i * swing_gamma, j * swing_theta
             if a != 0.0 and b != 0.0:
                 half = float(np.sqrt(max(a * a + b * b + 2.0 * a * b * cos_between, 0.0)))

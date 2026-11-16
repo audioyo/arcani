@@ -2947,8 +2947,10 @@ A line that shares its frequency with no other has the magnitude of its amplitud
 
 ```
 q = (2.0 * f_M) / f_theta      the doubling exact, the division one rounding
-whole when q is an integer and q * f_theta == 2.0 * f_M (one rounding); then n2 = q
+whole when 0 < q < 2^30, q is an integer, and q * f_theta == 2.0 * f_M (one rounding); then n2 = q
 ```
+
+The cap `2^30` keeps `n2` a 32-bit integer; inside the locked ranges `q` is at most 120 (2 times 60 Hz over 1 Hz), so it never decides a recipe.
 
 - **`n2` even (the gamma rate is a whole multiple `n = n2 / 2` of the theta rate, for example 60 Hz over 6 Hz):** every line lies at `f_G + m * f_theta` for an integer `m` and sums three members, `(0, m)`, `(1, m - n)`, and `(-1, m + n)`. The carrier line, `m = 0`, sums to `1 - d * g_0 / 2 + (d / 2) * g_n * cos(2 * pi * n * C / 2^64)`. The row is named `(0, m)`.
 - **`n2` odd (for example 45 Hz over 6 Hz, `n2 = 15`):** the lines `(0, j)` stand alone. The line at `f_G + f_M + j * f_theta` sums two members, `(1, j)` and `(-1, j + n2)`. The row is named after the member with the smaller `|theta_mult|` (they never tie, since `n2` is odd).
