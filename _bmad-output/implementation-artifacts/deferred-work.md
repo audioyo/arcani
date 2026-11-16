@@ -1,13 +1,13 @@
 # Deferred Work
 
 - source_spec: none
-  summary: Story 0.1 part 2, compile-flag check (`-ffp-contract=off` present, no fast-math, on every toolchain) and engine undefined-symbol denylist, each with its must-fail case.
+  summary: (closed by Story 0.1 part 2, `spec-0-1-part-2-compile-flags-and-symbol-denylist.md`; Story 0.1 done in sprint status) Story 0.1 part 2, compile-flag check (`-ffp-contract=off` present, no fast-math, on every toolchain) and engine undefined-symbol denylist, each with its must-fail case.
   evidence: Split from Story 0.1 on 2026-11-02 at Audio's choice; independently shippable once the part 1 build exists.
 - source_spec: none
-  summary: Story 0.1 part 3, full four-platform CI matrix (Windows arm64, macOS arm64, Android NDK arm64 on the USB phone via the guarded self-hosted runner), hash compare tool with exact and tolerance modes, wall-time budget table with CI minutes estimate, and nightly skip when main is unchanged.
+  summary: (closed by Story 0.1 part 3, `spec-0-1-part-3-four-platform-ci-and-hash-compare.md`; the physical-phone probe moved to its own row below) Story 0.1 part 3, full four-platform CI matrix (Windows arm64, macOS arm64, Android NDK arm64 on the USB phone via the guarded self-hosted runner), hash compare tool with exact and tolerance modes, wall-time budget table with CI minutes estimate, and nightly skip when main is unchanged.
   evidence: Split from Story 0.1 on 2026-11-02 at Audio's choice; depends on part 1 but ships as its own reviewable change. Repo is public, so hosted runners cost nothing; the self-hosted PC runner must refuse fork pull requests.
 - source_spec: `_bmad-output/implementation-artifacts/spec-0-1-part-1-build-skeleton-and-fast-ci.md`
-  summary: Part 2 must set the engine compile flags (`-ffp-contract=off`, no fast-math, warnings as errors, reproducible-binary flags such as `/Brepro` and `-ffile-prefix-map`) in CMake, not only check for them.
+  summary: (closed by Story 0.1 part 2 for the AD-9 output flags: `CMakeLists.txt` sets `-ffp-contract=off` on both toolchains; reproducible-binary flags dropped by design log 2026-11-02 (z), see the row below) Part 2 must set the engine compile flags (`-ffp-contract=off`, no fast-math, warnings as errors, reproducible-binary flags such as `/Brepro` and `-ffile-prefix-map`) in CMake, not only check for them.
   evidence: Review finding 8; part 1 CMake sets only C++20 and Release, and AD-9 bit-exactness depends on these flags before any DSP code lands.
 - source_spec: `_bmad-output/implementation-artifacts/spec-0-1-part-1-build-skeleton-and-fast-ci.md`
   summary: Check that the CLAUDE.md Build, C++ tests, and Render commands name an existing preset and the real built binary path, not only that they are non-empty.
@@ -89,11 +89,17 @@
   summary: In Story 4.4, reject coupled gamma wherever gamma level and depth are non-zero while the theta reference layer's gain, including its ramp, is exactly zero per sample (master gain does not count; gamma level uses the same definition), with a must-fail fixture where a theta-only fade to silence ends before a coupled gamma fade (AD-5, design log 2026-11-04 (ee), Story 2.3 AC).
   evidence: Decided 2026-11-10 (Audio): no level or fade field exists before Story 4.4, so no recipe can reach zero level in Story 2.3; 2.3 ships the missing-theta and zero-AM-depth rejections only.
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-3-gamma-coupled-smooth-swell.md`
-  summary: Decide whether the carrier rule for coupled gamma checks the gamma carrier against the gamma rate alone (today) or against the gamma rate plus the theta rate, its highest modulation component with a smooth swell (a 240 Hz carrier at 60 Hz gamma and 6 Hz theta would then fail, limit 264 Hz).
+  summary: (progress review 2026-11-16: room proposes the stricter reading, gamma rate plus theta rate, as the default; Focus and Learn pass at 184 Hz against their 250 Hz carrier; needs a design log entry and rule 4 review at the start of Story 3.1) Decide whether the carrier rule for coupled gamma checks the gamma carrier against the gamma rate alone (today) or against the gamma rate plus the theta rate, its highest modulation component with a smooth swell (a 240 Hz carrier at 60 Hz gamma and 6 Hz theta would then fail, limit 264 Hz).
   evidence: Unverified, would be medium. Story 2.3 review pass 1 row 5: no doc defines "modulation rate" for a carrier with two nested modulations; settle with Audio and the research library before Story 3.1's component model.
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-4-gamma-coupled-50-ms-bursts.md`
-  summary: Independent review and a listening note for the free-running gamma envelope inside bursts before design log (qq) locks.
+  summary: (progress review 2026-11-16: gets its own line on the Story 3.3 listening checklist; does not block Story 3.1 or 3.2, since burst phase does not move any spectral line) Independent review and a listening note for the free-running gamma envelope inside bursts before design log (qq) locks.
   evidence: Story 2.4 review row 13 (medium). With a free-running gamma envelope each burst opens on a different gamma phase (240 degrees per theta cycle at 40 Hz; at 45 Hz alternate bursts center on a gamma trough), unlike the research run, which restarted the AM per burst. Audio approved it in the frozen spec, but rule 4 asks for an independent review of signal defaults, and burst-to-burst variation has not been listened to; settle in the Story 3.3 listening preview or Phase 0.
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-7-looping-body-and-seams.md`
   summary: In Story 4.4, add an end fade at the max run time cap for Focus and Learn looping sessions (and the ramp-in inside the opening), so a looping session no longer stops hard at the cap; the click tool then judges the end too, not only its last-50 ms exclusion.
   evidence: Decided 2026-11-14 (Audio, option A): in Story 2.7 the output ends at the cap with no fade, because gain ramps are Story 4.4 (docs/signal-spec.md, Loop, End at the cap; design log 2026-11-14 (uu)).
+- source_spec: none
+  summary: Before Story 5.1, shard the full CI tier and run the whole-session 8 hour renders on nightly and manual runs only, so the fast tier stays under its 45 min job limit. The drift threshold does not change.
+  evidence: Progress review 2026-11-16: fast windows-x64 at 37.4 of 45 min and full windows-x64 at 36.5 of 45 after Story 2.7 (design log (oo)), before any 8 hour render exists. The repo is public, so hosted runners are free; the limit is job wall time, not cost.
+- source_spec: none
+  summary: In Story 3.2, report the worst-case spacing margin per starter and per ear (distance to the 50 Hz placeholder), so when a critical-band source replaces the placeholder it is clear at once which starters still pass.
+  evidence: Progress review 2026-11-16: 50 Hz is a placeholder (design log 2026-10-27 (e), project plan spacing note); Story 3.2 checks the whole session, including rate curves.

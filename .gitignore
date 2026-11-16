@@ -10,3 +10,6 @@ __pycache__/
 
 # Build outputs
 build/
+
+# Editor workspace
+*.code-workspace
