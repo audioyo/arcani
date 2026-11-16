@@ -33,6 +33,16 @@
 // --output-only: the whole session in arc_render calls of kChunkFrames frames
 //   with no taps, streamed to out.f64 alone, so a 20 min session needs no
 //   whole-session buffer. Prints "arcani-tapdump: frames N total N".
+//
+// Story 3.1 adds the component table (docs/signal-spec.md, Components):
+//
+// --components [--mute left|right]: compiles with that muted ear (none by
+//   default), renders nothing, and writes OUT_DIR/components.tsv: the header
+//   ear<TAB>layer<TAB>gamma_mult<TAB>theta_mult<TAB>beat_mult<TAB>center_hz
+//   <TAB>low_hz<TAB>high_hz<TAB>level, then one line per row of
+//   arc_plan_component in table order (ear left or right; layer
+//   theta_reference, gamma_pac, or binaural; the four doubles as %.17g), LF
+//   line ends. Prints "arcani-tapdump: components N".
 
 #include <arcani/arcani.h>
 
@@ -50,7 +60,8 @@ constexpr std::size_t kChunkFrames = 65536;
 const char* const kUsage =
     "usage: arcani-tapdump RECIPE RATE OUT_DIR [EXTRA_FRAMES]\n"
     "       arcani-tapdump RECIPE RATE OUT_DIR --window START FRAMES\n"
-    "       arcani-tapdump RECIPE RATE OUT_DIR --output-only\n";
+    "       arcani-tapdump RECIPE RATE OUT_DIR --output-only\n"
+    "       arcani-tapdump RECIPE RATE OUT_DIR --components [--mute left|right]\n";
 
 bool parse_u64(const char* text, std::uint64_t& out) {
   if (text == nullptr || *text == '\0') {
@@ -110,7 +121,7 @@ bool write_f64(const std::string& path, const std::vector<double>& samples) {
   return written && closed;
 }
 
-enum class Mode { Whole, Window, OutputOnly };
+enum class Mode { Whole, Window, OutputOnly, Components };
 
 struct Args {
   Mode mode = Mode::Whole;
@@ -118,6 +129,7 @@ struct Args {
   std::uint64_t extra = 0;   // Whole: frames past the session end
   std::uint64_t start = 0;   // Window: the seek frame
   std::uint64_t frames = 0;  // Window: the frames rendered
+  arc_mute_ear mute = ARC_MUTE_NONE;  // Components: the muted binaural ear
 };
 
 bool parse_args(int argc, char** argv, Args& a) {
@@ -126,6 +138,24 @@ bool parse_args(int argc, char** argv, Args& a) {
   }
   if (argc == 4) {
     return true;
+  }
+  if (std::strcmp(argv[4], "--components") == 0) {
+    a.mode = Mode::Components;
+    if (argc == 5) {
+      return true;
+    }
+    if (argc != 7 || std::strcmp(argv[5], "--mute") != 0) {
+      return false;
+    }
+    if (std::strcmp(argv[6], "left") == 0) {
+      a.mute = ARC_MUTE_LEFT;
+      return true;
+    }
+    if (std::strcmp(argv[6], "right") == 0) {
+      a.mute = ARC_MUTE_RIGHT;
+      return true;
+    }
+    return false;
   }
   if (argc == 5 && std::strcmp(argv[4], "--output-only") == 0) {
     a.mode = Mode::OutputOnly;
@@ -171,6 +201,46 @@ int dump_taps(arc_renderer* renderer, std::size_t count, const std::string& out_
       return 1;
     }
   }
+  return 0;
+}
+
+// Writes the plan's component table to OUT_DIR/components.tsv.
+int dump_components(const arc_plan* plan, const std::string& out_dir, arc_error& error) {
+  static const char* const kLayers[] = {"theta_reference", "gamma_pac", "binaural"};
+  static const char* const kEars[] = {"left", "right"};
+  std::string text = "ear\tlayer\tgamma_mult\ttheta_mult\tbeat_mult\tcenter_hz\tlow_hz\thigh_hz\tlevel\n";
+  const std::size_t count = arc_plan_component_count(plan);
+  for (std::size_t i = 0; i < count; ++i) {
+    arc_component c;
+    if (arc_plan_component(plan, i, &c, &error) != ARC_OK) {
+      std::fprintf(stderr, "arcani-tapdump: component %zu failed: %s\n", i, error.rule);
+      return 1;
+    }
+    const int layer = static_cast<int>(c.layer);
+    const int ear = static_cast<int>(c.ear);
+    if (layer < 0 || layer > 2 || ear < 0 || ear > 1) {
+      std::fprintf(stderr, "arcani-tapdump: component %zu has no layer or ear name\n", i);
+      return 1;
+    }
+    char line[512];
+    std::snprintf(line, sizeof line, "%s\t%s\t%ld\t%ld\t%ld\t%.17g\t%.17g\t%.17g\t%.17g\n", kEars[ear],
+                  kLayers[layer], static_cast<long>(c.gamma_mult), static_cast<long>(c.theta_mult),
+                  static_cast<long>(c.beat_mult), c.center_hz, c.low_hz, c.high_hz, c.level);
+    text += line;
+  }
+  const std::string path = out_dir + "/components.tsv";
+  std::FILE* f = std::fopen(path.c_str(), "wb");
+  if (f == nullptr) {
+    std::fprintf(stderr, "arcani-tapdump: cannot write %s\n", path.c_str());
+    return 1;
+  }
+  const bool written = std::fwrite(text.data(), 1, text.size(), f) == text.size();
+  const bool closed = std::fclose(f) == 0;
+  if (!written || !closed) {
+    std::fprintf(stderr, "arcani-tapdump: cannot write %s\n", path.c_str());
+    return 1;
+  }
+  std::printf("arcani-tapdump: components %zu\n", count);
   return 0;
 }
 
@@ -221,7 +291,7 @@ int main(int argc, char** argv) {
   std::memset(&options, 0, sizeof options);
   options.mode = ARC_MODE_MEASURE;
   options.sample_rate = static_cast<std::uint32_t>(args.rate);
-  options.mute_binaural_ear = ARC_MUTE_NONE;
+  options.mute_binaural_ear = args.mute;
   arc_error error;
   std::memset(&error, 0, sizeof error);
   arc_plan* plan = nullptr;
@@ -229,6 +299,11 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "arcani-tapdump: rejected: parameter=%s value=%s rule=%s limit=%s\n",
                  error.parameter, error.value, error.rule, error.limit);
     return 1;
+  }
+  if (args.mode == Mode::Components) {
+    const int status = dump_components(plan, argv[3], error);
+    arc_plan_release(plan);
+    return status;
   }
   const std::uint64_t frames = arc_plan_frame_count(plan);
   std::uint64_t total = frames;  // OutputOnly

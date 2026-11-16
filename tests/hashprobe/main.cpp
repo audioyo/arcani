@@ -144,6 +144,18 @@
 // minus seconds_to_samples(2.5, fs), 5 s more centered on that seam,
 // interleaved stereo float32. tests/python/test_probe_loop.py checks each
 // part.
+//
+// Component components (Story 3.1): the component table (docs/signal-spec.md,
+// Components) carries no sample, so the probe hashes its bits. For each of
+// the six probe cases of the signal spec vectors (component_constants
+// .probe_cases, in order; each recipe text embedded in kComponentRecipes as
+// the vectors write it), compiled at 48000 Hz with no muted ear through the
+// public C API (arc_plan_component): one float32 holding the row count, then
+// per row 21 float32 values: layer, ear, gamma_mult, theta_mult, beat_mult as
+// their integer values, then center_hz, low_hz, high_hz, and level, each as
+// the four 16-bit words of its binary64 pattern, most significant first (each
+// word exact in float32). 6600 samples. tests/python/test_probe_components.py
+// decodes it.
 
 #include <arcani/arcani.h>
 
@@ -669,6 +681,66 @@ std::vector<float> probe_loop(std::uint32_t fs) {
   return render_with_seek(std::string(kLoopSwellRecipe, sizeof kLoopSwellRecipe - 1), fs, kLoopProbeSeam);
 }
 
+// The probe cases of the component vectors, in probe order (Story 3.1).
+constexpr const char* kComponentRecipes[] = {
+    // theta-smoothed-on-off-1hz
+    R"({"schema_version":"1.0","engine_version":"0.0.1","seed":42,"author":"Arcani test fixtures","date":"2026-11-16","rationale":"Component vector case theta-smoothed-on-off-1hz (Story 3.1). A test recipe, not for listening.","length_s":10,"loudness_target_lufs":-36,"theta_reference":{"carrier_hz":450,"rate_hz":1,"am_depth_percent":75,"shape":"smoothed_on_off"}})",
+    // theta-sawtooth-6hz
+    R"({"schema_version":"1.0","engine_version":"0.0.1","seed":42,"author":"Arcani test fixtures","date":"2026-11-16","rationale":"Component vector case theta-sawtooth-6hz (Story 3.1). A test recipe, not for listening.","length_s":10,"loudness_target_lufs":-36,"theta_reference":{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sawtooth"}})",
+    // bursts-45hz
+    R"({"schema_version":"1.0","engine_version":"0.0.1","seed":42,"author":"Arcani test fixtures","date":"2026-11-16","rationale":"Component vector case bursts-45hz (Story 3.1). A test recipe, not for listening.","length_s":10,"loudness_target_lufs":-36,"theta_reference":{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"},"gamma_pac":{"carrier_hz":250,"rate_hz":45,"am_depth_percent":100,"carrier_wave":"sine","coupling":"bursts","coupling_phase_deg":0}})",
+    // bursts-60hz
+    R"({"schema_version":"1.0","engine_version":"0.0.1","seed":42,"author":"Arcani test fixtures","date":"2026-11-16","rationale":"Component vector case bursts-60hz (Story 3.1). A test recipe, not for listening.","length_s":10,"loudness_target_lufs":-36,"theta_reference":{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"},"gamma_pac":{"carrier_hz":250,"rate_hz":60,"am_depth_percent":100,"carrier_wave":"sine","coupling":"bursts","coupling_phase_deg":0}})",
+    // gamma-cycle-swell-theta-cycle
+    R"({"schema_version":"1.0","engine_version":"0.0.1","seed":42,"author":"Arcani test fixtures","date":"2026-11-16","rationale":"Component vector case gamma-cycle-swell-theta-cycle (Story 3.1). A test recipe, not for listening.","length_s":10,"loudness_target_lufs":-36,"theta_reference":{"carrier_hz":450,"rate_hz":4,"am_depth_percent":75,"shape":"sine","rate_cycle":{"swing_hz":2,"period_s":60,"start_phase_deg":0}},"gamma_pac":{"carrier_hz":250,"rate_hz":45,"am_depth_percent":100,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":0,"rate_cycle":{"swing_hz":15,"period_s":60,"start_phase_deg":0}}})",
+    // binaural-cycle-sleep
+    R"({"schema_version":"1.0","engine_version":"0.0.1","seed":42,"author":"Arcani test fixtures","date":"2026-11-16","rationale":"Component vector case binaural-cycle-sleep (Story 3.1). A test recipe, not for listening.","length_s":10,"loudness_target_lufs":-36,"binaural":{"carrier_left_hz":100,"beat_rate_hz":1.5,"beat_rate_cycle":{"swing_hz":1.5,"period_s":60,"start_phase_deg":270}}})",
+};
+
+// The component tables of kComponentRecipes at 48000 Hz; empty on any API failure.
+std::vector<float> probe_components() {
+  std::vector<float> out;
+  for (const char* text : kComponentRecipes) {
+    const std::string recipe(text);
+    arc_compile_options options;
+    std::memset(&options, 0, sizeof options);
+    options.mode = ARC_MODE_MEASURE;
+    options.sample_rate = 48000;
+    options.mute_binaural_ear = ARC_MUTE_NONE;
+    arc_error error;
+    arc_plan* plan = nullptr;
+    if (arc_compile(recipe.data(), recipe.size(), &options, &plan, &error) != ARC_OK) {
+      std::fprintf(stderr, "arcani-hashprobe: compile failed: %s %s %s %s\n", error.parameter, error.value,
+                   error.rule, error.limit);
+      return {};
+    }
+    const std::size_t count = arc_plan_component_count(plan);
+    out.push_back(static_cast<float>(count));
+    for (std::size_t i = 0; i < count; ++i) {
+      arc_component c;
+      if (arc_plan_component(plan, i, &c, &error) != ARC_OK) {
+        std::fprintf(stderr, "arcani-hashprobe: component %zu failed: %s\n", i, error.rule);
+        arc_plan_release(plan);
+        return {};
+      }
+      out.push_back(static_cast<float>(static_cast<int>(c.layer)));
+      out.push_back(static_cast<float>(static_cast<int>(c.ear)));
+      out.push_back(static_cast<float>(c.gamma_mult));
+      out.push_back(static_cast<float>(c.theta_mult));
+      out.push_back(static_cast<float>(c.beat_mult));
+      for (const double v : {c.center_hz, c.low_hz, c.high_hz, c.level}) {
+        std::uint64_t bits = 0;
+        std::memcpy(&bits, &v, sizeof bits);
+        for (const int shift : {48, 32, 16, 0}) {
+          out.push_back(static_cast<float>((bits >> shift) & 0xFFFFu));
+        }
+      }
+    }
+    arc_plan_release(plan);
+  }
+  return out;
+}
+
 // Writes samples as little-endian float32 regardless of host byte order.
 bool write_f32(const std::string& path, const std::vector<float>& samples) {
   std::vector<unsigned char> bytes;
@@ -723,6 +795,7 @@ int main(int argc, char** argv) {
       {"rate-curves-48000", probe_rate_curves(48000)},
       {"loop-44100", probe_loop(44100)},
       {"loop-48000", probe_loop(48000)},
+      {"components", probe_components()},
   };
   for (const Component& c : components) {
     if (c.samples.empty()) {
