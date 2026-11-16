@@ -32,8 +32,14 @@ carrier line) for one layer in one ear.
 - `check_bands(name, x, fs, table)`: report assertion dicts on rows
   `spectrum-level` (each band's measured power against its expected power)
   and `spectral-component-level` (the count of measured lines at or above
-  the threshold outside every band). The widening is the spectrum tool's
-  resolution, `8 * fs / len(x)` Hz.
+  the threshold outside every band). Each interval is widened by the
+  spectrum tool's resolution, `8 * fs / len(x)` Hz, plus the row's sweep
+  edge: a row swept sinusoidally with half width A over period P has the
+  Bessel line spectrum of modulation index A * P, lines 1 / P apart, and the
+  edge is the closed-form distance past A at which those lines fall below
+  row `spectral-component-level` re the row's strongest line (spec
+  amendment 2026-11-16). `bands(table, resolution_hz)` itself widens by
+  `resolution_hz` only, as the bands tests here use it.
 
 The spectrum tool itself (tests/assertions/spectrum.py) is not changed by
 Story 3.1: its bytes are pinned here.

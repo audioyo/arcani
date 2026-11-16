@@ -12,7 +12,14 @@ the reference component table (reference/components.py):
   is a table row within rows spectrum-frequency and spectrum-level, and
   every table row is measured.
 - A fixture with a rate cycle (120 s, two whole cycles): `check_bands`; the
-  table's intervals, widened by the tool's resolution, merge into bands;
+  table's intervals, widened by the tool's resolution plus each sweep's
+  spectral edge, merge into bands. The edge is closed form, never tuned to
+  a fixture: a row swept sinusoidally with half width A over period P has
+  the Bessel line spectrum of modulation index A * P, lines 1 / P apart, and
+  the edge is the distance past A at which those lines fall below row
+  spectral-component-level re the row's strongest line (spec amendment
+  2026-11-16, on sweep turning points that put lines up to 0.15 Hz past an
+  interval);
   each band's power equals the sum of its rows' level^2 within row
   spectrum-level, and no line at or above the threshold lies outside them.
 
