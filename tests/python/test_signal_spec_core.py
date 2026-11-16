@@ -293,8 +293,9 @@ def test_spec_tables_equal_json(vectors):
     # curve, binaural fixtures, binaural samples), rate curves on the theta
     # and gamma rates (2: theta and gamma rate cycles, theta and gamma rate
     # curve samples), loop (3: whole samples, loop compile cases, loop
-    # frames), 24-bit rounding (1).
-    assert len(generated) == 41, generated
+    # frames), components (3: component coefficients, component cases,
+    # components), 24-bit rounding (1).
+    assert len(generated) == 44, generated
     assert len(in_doc) == len(generated), [b[0] for b in in_doc]
     assert not problems, "\n".join(problems)
 
