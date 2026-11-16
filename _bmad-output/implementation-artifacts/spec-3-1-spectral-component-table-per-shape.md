@@ -3,7 +3,7 @@ title: 'Story 3.1: Spectral component table per shape'
 type: 'feature'
 created: '2026-11-16'
 baseline_commit: 'dbb346fb9a5d2d25267214ee789bcc756daaf837'
-status: 'in-progress'
+status: 'in-review'
 route: 'dispatch'
 review_loop_iteration: 0
 context:
@@ -74,12 +74,12 @@ Decisions (2026-11-16, build agent; Audio delegated every decision and approval 
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `docs/signal-spec.md`, `tools/signal_spec_vectors.py`, vectors JSON, `SpecTables.cmake` -- Components section with vectors -- the spec merges first.
-- [ ] `tests/tables/thresholds.tsv`, `docs/design-log.md` (vv) -- rows and the carrier rule decision -- tables are data.
-- [ ] tests (C++ `tests/cpp/test_components.cpp`; Python tool calibration, reference table, cross-check, probe) -- a fresh-context QA agent writes failing tests -- tests first.
-- [ ] `engine/src/validate/components.*`, plan, C API, tap dump mode, hash probe -- implementation.
-- [ ] `reference/components.py`, `tests/assertions/component_check.py` -- reference and cross-check tool.
-- [ ] `deferred-work.md`, guidebook, `sprint-status.yaml`, `ci/hash_expected.json` -- records.
+- [x] `docs/signal-spec.md`, `tools/signal_spec_vectors.py`, vectors JSON, `SpecTables.cmake` -- Components section with vectors -- the spec merges first.
+- [x] `tests/tables/thresholds.tsv`, `docs/design-log.md` (vv) -- rows and the carrier rule decision -- tables are data.
+- [x] tests (C++ `tests/cpp/test_components.cpp`; Python tool calibration, reference table, cross-check, probe) -- a fresh-context QA agent writes failing tests -- tests first.
+- [x] `engine/src/validate/components.*`, plan, C API, tap dump mode, hash probe -- implementation.
+- [x] `reference/components.py`, `tests/assertions/component_check.py` -- reference and cross-check tool.
+- [x] `deferred-work.md`, guidebook, `sprint-status.yaml`, `ci/hash_expected.json` -- records.
 
 **Acceptance Criteria:**
 - Given the signal spec, when Components merges, then it models every v0.1 shape with vectors, and defines a component by row `spectral-component-level`.
@@ -207,6 +207,18 @@ def check_bands(name, x, fs, table) -> list      # report assertion dicts
 - Must-fail for the cross-check: the test drops one side-frequency row from the reference table in the harness and expects a fail. No fault code in `engine/` or `reference/`.
 
 **Suggested test files (the QA agent may split differently).** `tests/cpp/test_components.cpp` (every case of `kComponentCases` compiled from its `recipe` text, and from its fixture file where it has one, against `kComponents` within the two error rows, same rows in the same order; both sample rates equal; muted ears; C API argument errors; `build_components` on an unmodeled shape; the coefficient vectors are for the reference and for any engine helper the implementation exposes), `tests/python/test_components_reference.py` (reference table against the vectors; fixture layer objects equal the case cells), `tests/python/test_component_check_tool.py` (calibration), `tests/python/test_components_crosscheck.py` (reference renders of every Epic 2 shape fixture; static and band checks; the dropped side frequency), `tests/python/test_components_engine.py` (the tap dump's `components.tsv` against the reference table within the error rows), `tests/python/test_probe_components.py` (probe component decoded against the reference table; hash entry).
+
+### Engagement 3 (2026-11-16): implementation
+
+- **Engine:** `engine/src/validate/components.{hpp,cpp}`, `build_components(recipe, mute)` with the contract types, constants, and error texts. Binary64 basic operations, `std::sqrt`, `core::cycles_to_units`, and `core::cycle_cosine` only (`cos2pi`, `sin2pi`, `sin_pi`, `cos_pi` helpers; the stable `P(k, w)` form below `|2 k w - 1| < 2^-5`). The search bounds compare with a slack of `1 + 2^-20`, so a rounding of a bound can only look one term further; the level test decides every row. `plan::compile` builds the table right after `check_rules()` (its own no-model error is unreachable there) and stores it in `plan::Plan::components`. `arc_plan_component_count` and `arc_plan_component` in `arcani.h` and `api.cpp`, following `arc_plan_stage` for argument errors.
+- **Tap dump:** `--components [--mute left|right]`, any other trailing argument is a usage error (exit 2).
+- **Hash probe:** component `components` after `loop-48000`; the six probe case recipe texts embedded verbatim from the vectors in `kComponentRecipes`. The dev PC probe writes 6600 samples that decode to the reference and vector tables. `ci/hash_expected.json` has no `components` entry yet: it is pinned from the next four-platform full run, as for every engine component, so `test_probe_components.py::test_expected_entry_names_the_components_component` is the one expected failure.
+- **Reference:** `reference/components.py` (`Component`, `NoComponentModel`, `component_table`, `component_table_from_file`), binary64 with NumPy sine, cosine, and square root; README lists it.
+- **Cross-check tool:** `tests/assertions/component_check.py` with the tested signatures plus `sweep_edge_hz(half_width_hz, period_s)` (the approved sweep edge: `|J_n(A P)|` from the FFT of `exp(i A P sin t)`, edge `n_last / P - A`, 0 for a static row, P from range row `rate-cycle-period`). `check_bands` widens each row by its sweep edge, then calls `bands(rows, 8 * fs / N)`, whose plain widening is unchanged. A static line matches a row within half the tool's resolution. `band_power_db` uses the unwindowed FFT (rate-cycle taps hold whole cycles). `spectrum.py` is unchanged.
+- **Rows:** `spectral-component-level`, `component-level-error`, and `component-frequency-error` lose `pending`.
+- **Records:** signal spec Components gains a Sweep edge paragraph and the widened band wording; design log (vv) gains the sweep edge, the implementation, and the test results; `deferred-work.md` closes the carrier rule row; sprint status and guidebook set Story 3.1 to review.
+- **Verification (dev PC):** `cmake --workflow --preset windows-clang-cl` passes (4/4 ctest entries; `arcani_tests` 405 test cases, the 17 `[components]` cases with 90,571 assertions). Story test files: `test_components_reference.py` and `test_reference_independent.py` 123 passed; `test_component_check_tool.py` 45 passed; `test_components_crosscheck.py` 105 passed; `test_components_engine.py` and `test_probe_components.py` 88 passed, 1 expected failure (the hash entry). Full `uv run pytest`: 3,178 passed, 2 skipped, 4 failed (37 min), all four waiting on the components entry of ci/hash_expected.json (the dev PC probe hash is 8f4f4d26...0207). Cross-check measurements: static worst 0.00024 Hz and 0.0128 dB, band power worst 0.12 dB, no unmatched line. `check_engine_source.py`, `check_fp_pragmas.py`, `check_wording.py`, `check_table_log.py --base main`, `check_row_coverage.py`, and `signal_spec_vectors.py --check` exit 0.
+- **No test expectation was edited.**
 
 ## Spec Change Log
 
