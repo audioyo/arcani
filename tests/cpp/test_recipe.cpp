@@ -108,6 +108,20 @@
 // likewise right after /gamma_pac/coupling_phase_deg. The type is reached
 // through a lookup probe and the members through requires-expressions, so the
 // suite builds before they exist.
+//
+// Story 2.7 (looping body and seams), recipe/recipe.hpp:
+//   enum class LoopMode { Focus, Learn };
+//   inline constexpr std::string_view kLoopModeEnum = "focus, learn";
+//   struct Loop { LoopMode mode; double opening_s; double body_s; double max_run_time_min; };
+//   Recipe gains std::optional<Loop> loop;  // absent when the recipe has no loop
+// Field table, right after the binaural rows and last: /loop (Object,
+// LoudnessRelevant, not required), then /loop/mode (String), /loop/opening_s,
+// /loop/body_s, /loop/max_run_time_min (Numbers), each required and
+// LoudnessRelevant, none naming a range row (the mode picks the max run time
+// row, and the loop rules bound the times). Mode text outside the enum is
+// rule "enum", value the text, limit kLoopModeEnum. The members are read
+// through requires-expressions and the enum constant through a lookup probe,
+// so the suite builds before they exist.
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -173,6 +187,14 @@ inline constexpr bool kRateCycleDeclared =
 inline constexpr bool kBeatRateCycleGone =
     std::is_same_v<BeatRateCycle, ::recipe_rate_cycle_fallback::BeatRateCycle>;
 }  // namespace arcani::recipe_rate_cycle_probe
+
+// Story 2.7 lookup probe, as for kBinauralWaveformEnum above.
+inline constexpr std::string_view kLoopModeEnum = "(missing)";
+
+namespace arcani::recipe_loop_probe {
+using namespace arcani::recipe;
+inline const std::string loop_mode_enum(kLoopModeEnum);
+}  // namespace arcani::recipe_loop_probe
 
 namespace fs = std::filesystem;
 namespace json = arcani::json;
@@ -619,7 +641,7 @@ TEST_CASE("engine parse names binaural waveform and cycle faults", "[recipe][bin
   }
 }
 
-TEST_CASE("field table orders the binaural rows last, the cycle and waveform after the beat rate",
+TEST_CASE("field table orders the binaural rows before the loop rows, the cycle and waveform after the beat rate",
           "[recipe][binaural][schema]") {
   std::vector<std::string> paths;
   for (const auto& f : recipe::fields()) {
@@ -632,10 +654,12 @@ TEST_CASE("field table orders the binaural rows last, the cycle and waveform aft
   const auto at = std::find(paths.begin(), paths.end(), binaural.front());
   REQUIRE(at != paths.end());
   const auto start = static_cast<std::size_t>(at - paths.begin());
-  REQUIRE(start + binaural.size() == paths.size());
+  // Story 2.7: the five loop rows follow the binaural rows and end the table.
+  REQUIRE(start + binaural.size() + 5 == paths.size());
   for (std::size_t i = 0; i < binaural.size(); ++i) {
     CHECK(paths[start + i] == binaural[i]);
   }
+  CHECK(paths[start + binaural.size()] == "/loop");
   for (const auto& f : recipe::fields()) {
     const std::string path(f.path);
     if (path.rfind("/binaural", 0) != 0) {
@@ -1191,6 +1215,289 @@ TEST_CASE("the rate-curve fixtures have distinct recipe hashes; earlier hashes a
   CHECK(h.at("both-layers.json") == "fd3e0508393b78386fa9a6f62e6b6282ca0e268648661eececa4fac3430a8a4c");
 }
 
+// ------------------------------------------------ looping body and seams (Story 2.7)
+
+namespace {
+
+// A 450 Hz carrier amplitude-modulated by the sine envelope at 4 Hz, 75
+// percent depth, with `loop` as the last member (empty: no loop).
+std::string loop_recipe(const std::string& loop, const std::string& length = "1200") {
+  std::string s =
+      "{\"schema_version\": \"1.0\", \"engine_version\": \"0.0.1\", \"seed\": 42, "
+      "\"author\": \"Arcani test\", \"date\": \"2026-11-14\", "
+      "\"rationale\": \"Loop parse test, made in the test.\", "
+      "\"length_s\": " + length + ", \"loudness_target_lufs\": -36, "
+      "\"theta_reference\": {\"carrier_hz\": 450, \"rate_hz\": 4, \"am_depth_percent\": 75, \"shape\": \"sine\"}";
+  if (!loop.empty()) {
+    s += ", \"loop\": " + loop;
+  }
+  return s + "}";
+}
+
+template <class R>
+concept RecipeHasLoop = requires(const R& r) {
+  { r.loop.has_value() } -> std::convertible_to<bool>;
+  r.loop->mode;
+  { r.loop->opening_s } -> std::convertible_to<double>;
+  { r.loop->body_s } -> std::convertible_to<double>;
+  { r.loop->max_run_time_min } -> std::convertible_to<double>;
+};
+
+struct WantLoop {
+  bool focus;
+  double opening_s, body_s, max_run_time_min;
+};
+
+// The recipe's loop against `want` (nullopt: absent), or a failed check when
+// the recipe has no loop member yet.
+template <class R>
+void check_recipe_loop(const R& r, std::optional<WantLoop> want) {
+  if constexpr (RecipeHasLoop<R>) {
+    using Mode = std::remove_cvref_t<decltype(r.loop->mode)>;
+    REQUIRE(r.loop.has_value() == want.has_value());
+    if (want.has_value()) {
+      CHECK(r.loop->mode == (want->focus ? Mode::Focus : Mode::Learn));
+      CHECK(r.loop->opening_s == want->opening_s);
+      CHECK(r.loop->body_s == want->body_s);
+      CHECK(r.loop->max_run_time_min == want->max_run_time_min);
+    }
+  } else {
+    FAIL("not implemented: recipe::Recipe has no std::optional<Loop> loop (Story 2.7)");
+  }
+}
+
+template <class R>
+void check_loop_member_types() {
+  if constexpr (RecipeHasLoop<R>) {
+    using L = typename decltype(R::loop)::value_type;
+    CHECK(std::is_same_v<decltype(L::opening_s), double>);
+    CHECK(std::is_same_v<decltype(L::body_s), double>);
+    CHECK(std::is_same_v<decltype(L::max_run_time_min), double>);
+    CHECK(std::is_enum_v<decltype(L::mode)>);
+  } else {
+    FAIL("not implemented: recipe::Loop {mode, opening_s, body_s, max_run_time_min} (Story 2.7)");
+  }
+}
+
+// The max run time row of a mode (the assertion call records the id).
+double cap_of(const char* mode) {
+  return tables::row(std::string(mode) == "focus" ? "max-run-time-focus" : "max-run-time-learn").max;
+}
+
+}  // namespace
+
+TEST_CASE("the loop mode enum constant names both modes in schema order", "[recipe][loop]") {
+  CHECK(arcani::recipe_loop_probe::loop_mode_enum == "focus, learn");
+}
+
+TEST_CASE("recipe::Loop holds the mode and three binary64 times", "[recipe][loop]") {
+  check_loop_member_types<recipe::Recipe>();
+}
+
+TEST_CASE("engine parse stage fills the loop; a recipe without one has none", "[recipe][loop]") {
+  struct Case {
+    std::string loop;
+    WantLoop want;
+  };
+  // Compile, not parse, applies the loop rules (tests/cpp/test_loop.cpp), so
+  // parse accepts caps off their rows, negative and zero times, and any
+  // member order.
+  const Case cases[] = {
+      {"{\"mode\": \"learn\", \"opening_s\": 60, \"body_s\": 120, \"max_run_time_min\": 21}",
+       {false, 60.0, 120.0, 21.0}},
+      {"{\"mode\": \"focus\", \"opening_s\": 0, \"body_s\": 90.25, \"max_run_time_min\": 44.5}",
+       {true, 0.0, 90.25, 44.5}},
+      {"{\"max_run_time_min\": 46, \"body_s\": 0, \"opening_s\": -60, \"mode\": \"focus\"}",
+       {true, -60.0, 0.0, 46.0}},
+      {"{\"mode\": \"learn\", \"opening_s\": 60.1, \"body_s\": 120.125, \"max_run_time_min\": 19}",
+       {false, 60.1, 120.125, 19.0}},
+  };
+  for (const auto& c : cases) {
+    INFO(c.loop);
+    const auto r = recipe::parse(loop_recipe(c.loop));
+    INFO(r.error.rule << " " << r.error.parameter << " " << r.error.value);
+    REQUIRE(r.recipe.has_value());
+    check_recipe_loop(*r.recipe, c.want);
+  }
+  {
+    const auto r = recipe::parse(loop_recipe(""));
+    REQUIRE(r.recipe.has_value());
+    check_recipe_loop(*r.recipe, std::nullopt);
+  }
+  // Every fixture written before Story 2.7 has no loop.
+  for (const char* name : {"both-layers.json", "theta-sine-6hz.json", "swell-theta-cycle.json",
+                           "bursts-theta-cycle.json", "binaural-cycle-sleep.json",
+                           "gamma-cycle-swell-theta-cycle.json"}) {
+    INFO(name);
+    const auto r = recipe::parse(fixture("valid", name));
+    REQUIRE(r.recipe.has_value());
+    check_recipe_loop(*r.recipe, std::nullopt);
+  }
+  // The three compile-accepted loop fixtures parse with their loops; each
+  // cap is its mode's row and the session ends at the cap.
+  struct Fixture {
+    const char* name;
+    const char* mode;
+    double opening_s, body_s;
+  };
+  const Fixture fixtures[] = {
+      {"loop-swell-theta-cycle.json", "learn", 60.0, 120.0},
+      {"loop-bursts-theta-cycle.json", "learn", 60.0, 120.0},
+      {"loop-focus-no-cycle.json", "focus", 0.0, 90.25},
+  };
+  for (const auto& f : fixtures) {
+    INFO(f.name);
+    const auto r = recipe::parse(fixture("valid", f.name));
+    INFO(r.error.rule << " " << r.error.parameter << " " << r.error.value);
+    REQUIRE(r.recipe.has_value());
+    check_recipe_loop(*r.recipe, WantLoop{std::string(f.mode) == "focus", f.opening_s, f.body_s, cap_of(f.mode)});
+    CHECK(r.recipe->length_s == cap_of(f.mode) * 60.0);
+  }
+}
+
+TEST_CASE("engine parse names loop faults", "[recipe][loop]") {
+  struct Case {
+    std::string loop;
+    const char* rule;
+    const char* parameter;
+    const char* value;  // nullptr: not checked
+  };
+  const Case cases[] = {
+      {"{\"mode\": \"learn\", \"opening_s\": 60, \"body_s\": 120}", "required", "/loop/max_run_time_min", nullptr},
+      {"{\"opening_s\": 60, \"body_s\": 120, \"max_run_time_min\": 21}", "required", "/loop/mode", nullptr},
+      {"{\"mode\": \"learn\", \"body_s\": 120, \"max_run_time_min\": 21}", "required", "/loop/opening_s", nullptr},
+      {"{\"mode\": \"learn\", \"opening_s\": 60, \"max_run_time_min\": 21}", "required", "/loop/body_s", nullptr},
+      {"{\"mode\": \"sleep\", \"opening_s\": 60, \"body_s\": 120, \"max_run_time_min\": 21}", "enum", "/loop/mode",
+       "sleep"},
+      {"{\"mode\": \"Learn\", \"opening_s\": 60, \"body_s\": 120, \"max_run_time_min\": 21}", "enum", "/loop/mode",
+       "Learn"},
+      {"{\"mode\": 1, \"opening_s\": 60, \"body_s\": 120, \"max_run_time_min\": 21}", "type", "/loop/mode", nullptr},
+      {"{\"mode\": \"learn\", \"opening_s\": \"60\", \"body_s\": 120, \"max_run_time_min\": 21}", "type",
+       "/loop/opening_s", nullptr},
+      {"{\"mode\": \"learn\", \"opening_s\": 60, \"body_s\": 120, \"max_run_time_min\": \"21\"}", "type",
+       "/loop/max_run_time_min", nullptr},
+      {"{\"mode\": \"learn\", \"opening_s\": 60, \"body_s\": 120, \"max_run_time_min\": 21, \"fade_s\": 5}",
+       "unknown_property", "/loop/fade_s", nullptr},
+      {"21", "type", "/loop", nullptr},
+  };
+  for (const auto& c : cases) {
+    INFO(c.loop);
+    const auto r = recipe::parse(loop_recipe(c.loop));
+    INFO("got " << r.error.rule << " " << r.error.parameter << " " << r.error.value << " " << r.error.limit);
+    REQUIRE_FALSE(r.recipe.has_value());
+    CHECK(r.error.rule == c.rule);
+    CHECK(r.error.parameter == c.parameter);
+    if (c.value != nullptr) {
+      CHECK(r.error.value == c.value);
+    }
+    if (std::string(c.rule) == "enum") {
+      CHECK(r.error.limit == arcani::recipe_loop_probe::loop_mode_enum);
+      CHECK(r.error.limit == "focus, learn");
+    }
+  }
+}
+
+TEST_CASE("the five invalid loop fixtures fail parse with their named fault", "[recipe][loop][fixtures]") {
+  struct Case {
+    const char* name;
+    const char* parameter;
+    const char* rule;
+  };
+  const Case cases[] = {
+      {"loop-missing-max-run-time.json", "/loop/max_run_time_min", "required"},
+      {"loop-missing-mode.json", "/loop/mode", "required"},
+      {"loop-mode-not-in-enum.json", "/loop/mode", "enum"},
+      {"loop-opening-as-string.json", "/loop/opening_s", "type"},
+      {"loop-unknown-property.json", "/loop/fade_s", "unknown_property"},
+  };
+  for (const auto& c : cases) {
+    INFO(c.name);
+    const auto r = recipe::parse(fixture("invalid", c.name));
+    INFO("got " << r.error.rule << " " << r.error.parameter << " " << r.error.value << " " << r.error.limit);
+    REQUIRE_FALSE(r.recipe.has_value());
+    CHECK(r.error.parameter == c.parameter);
+    CHECK(r.error.rule == c.rule);
+    if (std::string(c.rule) == "enum") {
+      CHECK(r.error.value == "sleep");
+      CHECK(r.error.limit == arcani::recipe_loop_probe::loop_mode_enum);
+    }
+  }
+}
+
+TEST_CASE("field table ends with the loop rows, after the binaural rows", "[recipe][loop][schema]") {
+  std::vector<std::string> paths;
+  for (const auto& f : recipe::fields()) {
+    paths.emplace_back(f.path);
+  }
+  const std::vector<std::string> loop = {"/loop", "/loop/mode", "/loop/opening_s", "/loop/body_s",
+                                         "/loop/max_run_time_min"};
+  const auto at = std::find(paths.begin(), paths.end(), loop.front());
+  REQUIRE(at != paths.end());
+  const auto start = static_cast<std::size_t>(at - paths.begin());
+  REQUIRE(start > 0);
+  REQUIRE(start + loop.size() == paths.size());
+  CHECK(paths[start - 1].rfind("/binaural", 0) == 0);
+  for (std::size_t i = 0; i < loop.size(); ++i) {
+    CHECK(paths[start + i] == loop[i]);
+  }
+  for (const auto& f : recipe::fields()) {
+    const std::string path(f.path);
+    if (path.rfind("/loop", 0) != 0) {
+      continue;
+    }
+    INFO(path);
+    CHECK(f.tag == recipe::FieldTag::LoudnessRelevant);
+    CHECK(f.range_row.empty());  // the mode picks the row
+    if (path == "/loop") {
+      CHECK(f.type == recipe::FieldType::Object);
+      CHECK_FALSE(f.required);
+    } else if (path == "/loop/mode") {
+      CHECK(f.type == recipe::FieldType::String);
+      CHECK(f.required);
+    } else {
+      CHECK(f.type == recipe::FieldType::Number);
+      CHECK(f.required);
+    }
+  }
+}
+
+TEST_CASE("the loop fixtures have distinct recipe hashes; a loop changes the hash; earlier hashes are unchanged",
+          "[recipe][loop][hash]") {
+  const auto h = engine_hashes();
+  std::set<std::string> seen;
+  for (const char* name : {"loop-swell-theta-cycle.json", "loop-bursts-theta-cycle.json", "loop-focus-no-cycle.json",
+                           "loop-focus-cap-46.json", "loop-learn-cap-45.json", "loop-learn-cap-19.json",
+                           "loop-length-not-cap.json", "loop-opening-negative.json", "loop-body-zero.json",
+                           "loop-opening-not-whole-samples.json", "loop-body-not-whole-samples.json",
+                           "loop-body-off-cycle.json", "loop-gamma-body-off-cycle.json",
+                           "loop-binaural-body-off-cycle.json", "loop-exceeds-session.json"}) {
+    INFO(name);
+    REQUIRE(h.count(name) == 1);
+    CHECK(seen.insert(h.at(name)).second);
+  }
+  const std::string loop = "{\"mode\": \"learn\", \"opening_s\": 60, \"body_s\": 120, \"max_run_time_min\": 21}";
+  const auto with = recipe::parse(loop_recipe(loop));
+  const auto without = recipe::parse(loop_recipe(""));
+  REQUIRE(with.recipe.has_value());
+  REQUIRE(without.recipe.has_value());
+  CHECK(with.recipe->hash != without.recipe->hash);
+  // Every loop member is in the hash.
+  for (const char* other : {"{\"mode\": \"focus\", \"opening_s\": 60, \"body_s\": 120, \"max_run_time_min\": 21}",
+                            "{\"mode\": \"learn\", \"opening_s\": 0, \"body_s\": 120, \"max_run_time_min\": 21}",
+                            "{\"mode\": \"learn\", \"opening_s\": 60, \"body_s\": 60, \"max_run_time_min\": 21}",
+                            "{\"mode\": \"learn\", \"opening_s\": 60, \"body_s\": 120, \"max_run_time_min\": 44}"}) {
+    INFO(other);
+    const auto r = recipe::parse(loop_recipe(other));
+    REQUIRE(r.recipe.has_value());
+    CHECK(r.recipe->hash != with.recipe->hash);
+  }
+  // Hashes committed before Story 2.7 hold: a recipe without loop keeps its hash.
+  CHECK(h.at("both-layers.json") == "fd3e0508393b78386fa9a6f62e6b6282ca0e268648661eececa4fac3430a8a4c");
+  CHECK(h.at("swell-theta-cycle.json") == "ae9a452ae78ded5ba4989a98e4341d7eec11f246cdf8f32bfd7f12ff0fcaf926");
+  CHECK(h.at("gamma-cycle-swell-theta-cycle.json") ==
+        "d3249325d97c170c613b2741a6c79fe485034dc73adc46d41e451c38afeb1c7d");
+}
+
 TEST_CASE("seed integer form and seed bounds", "[recipe]") {
   const auto seven = recipe::parse(fixture("valid", "minimal-seed-7-0.json"));
   REQUIRE(seven.recipe.has_value());
@@ -1268,6 +1575,13 @@ const std::map<std::string, std::string> kRangeExempt = {
     // gamma.
     {"/theta_reference/rate_cycle/swing_hz", "bounded by the worst-case rate checks, no range row of its own"},
     {"/gamma_pac/rate_cycle/swing_hz", "bounded by the worst-case rate checks, no range row of its own"},
+    // Story 2.7: the loop mode picks the max run time row (max-run-time-focus
+    // or max-run-time-learn), and the loop rules bound the opening and body
+    // (at least 0 and above 0, whole samples, whole rate cycles, within the
+    // session); signal spec, Loop, Compile order.
+    {"/loop/opening_s", "bounded by the loop rules, no range row of its own"},
+    {"/loop/body_s", "bounded by the loop rules, no range row of its own"},
+    {"/loop/max_run_time_min", "checked against the row its loop mode names, not a fixed row"},
 };
 
 // The field-to-row mapping settled in the Story 1.3 spec (path -> row, scale).

@@ -14,6 +14,11 @@ binary64; it never implements the engine's approximation (design log
 - ideal_sine(phase): sin(2*pi*phase/2^64). The phase is read as a signed
   64-bit value first, so the argument stays in [-pi, pi) and keeps its
   precision near the top of the cycle.
+- frame_index(frames) (Story 2.7): the frame indices a layer renders, as a
+  uint64 ndarray: 0 to frames - 1 for an int, or a 1-D integer ndarray of
+  frame indices itself (any order, each >= 0), so a window renders straight
+  from its frame numbers. A negative count or index raises ValueError
+  ("frames must be >= 0").
 - render_probe_segment(f_hz, fs, n): n samples of an unmodulated sine at
   carrier f_hz, phase[0] = 0, phase[k] = k * inc mod 2^64.
 - probe_sine_component(fs): the hash probe's sine-<fs> component, 1 s each
@@ -68,6 +73,20 @@ def ideal_sine(phase):
     if isinstance(s, float):
         return float(y)
     return y
+
+
+def frame_index(frames):
+    """Frame indices as a uint64 array: arange(frames) for an int, else the index array."""
+    if isinstance(frames, np.ndarray):
+        if frames.ndim != 1 or not (frames.size == 0 or np.issubdtype(frames.dtype, np.integer)):
+            raise ValueError(f"frames must be an int or a 1-D integer array, got {frames.dtype} {frames.shape}")
+        if frames.size and int(frames.min()) < 0:
+            raise ValueError(f"frames must be >= 0, got {int(frames.min())}")
+        return frames.astype(np.uint64)
+    count = int(frames)
+    if count < 0:
+        raise ValueError(f"frames must be >= 0, got {frames}")
+    return np.arange(count, dtype=np.uint64)
 
 
 def render_probe_segment(f_hz, fs, n):

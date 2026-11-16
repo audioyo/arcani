@@ -136,6 +136,19 @@ struct BinauralEars {
   double cycle_c0 = 0.0;               // c0 = cycle_cosine(P0)
 };
 
+// Loop frames (docs/signal-spec.md, Loop, Frames; Story 2.7): the opening
+// covers [0, opening_end_frame), body pass k starts at opening_end_frame +
+// k * body_frames, and seam k (1 to seam_count) is that start for k >= 1,
+// every seam below frame_count. The renderer never reads these: every sample
+// is a function of its frame alone, so a seam is only a frame number. Without
+// a loop field, present is false and every field is 0.
+struct LoopFrames {
+  bool present = false;
+  std::uint64_t opening_end_frame = 0;  // O = seconds_to_samples(opening_s, fs)
+  std::uint64_t body_frames = 0;        // B = seconds_to_samples(body_s, fs)
+  std::uint64_t seam_count = 0;         // M = (N - O - 1) / B
+};
+
 struct Plan {
   std::uint32_t sample_rate = 0;
   std::uint64_t frame_count = 0;  // seconds_to_samples(length_s, fs)
@@ -144,6 +157,7 @@ struct Plan {
   ThetaOscillator theta;
   GammaOscillator gamma;
   BinauralEars binaural;
+  LoopFrames loop;  // Story 2.7
   std::array<StageKind, 5> stages{};
   std::vector<recipe::Error> warnings;  // non-blocking; empty in v0.1
 };

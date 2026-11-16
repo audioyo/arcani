@@ -52,6 +52,14 @@ Contract with recipes/recipe.schema.json (JSON Schema draft 2020-12):
   locked ranges and worst-case checks live in the tables and the validator.
   A missing member is a `required` fault (invalid fixture
   theta-cycle-missing-start-phase.json).
+- Story 2.7: the optional top-level `loop`, the property right after
+  `binaural` (the last one): an object, additionalProperties false, that
+  requires `mode`, a string whose `enum` is exactly ["focus", "learn"] (the
+  mode names its max run time row), and `opening_s`, `body_s`, and
+  `max_run_time_min`, each a number. Every loop property, `loop` itself
+  included, is `loudness-relevant`. `_min` (minutes) joins the unit
+  suffixes. The max run time rows and the loop rules live in the tables and
+  the validator, not the schema.
 - The schema holds structure and types only. The only numeric bounds allowed
   are the seed bounds 0 and 2^53 - 1; locked ranges live in
   tests/tables/ranges.tsv (Story 1.3).
@@ -77,7 +85,7 @@ SCHEMA = REPO_ROOT / "recipes" / "recipe.schema.json"
 TOOL = REPO_ROOT / "tools" / "recipe_hash.py"
 
 TAGS = {"hash-excluded", "loudness-relevant", "none"}
-UNIT_SUFFIXES = ("_hz", "_deg", "_db", "_lufs", "_s", "_percent")
+UNIT_SUFFIXES = ("_hz", "_deg", "_db", "_lufs", "_s", "_percent", "_min")  # Story 2.7 adds _min
 SNAKE = re.compile(r"[a-z][a-z0-9]*(?:_[a-z0-9]+)*")
 ANY_TAG = object()
 SEED_MAX = 2**53 - 1
@@ -122,6 +130,11 @@ FIELDS = {
     "/binaural/beat_rate_cycle/period_s": ("number", "loudness-relevant", True),
     "/binaural/beat_rate_cycle/start_phase_deg": ("number", "loudness-relevant", True),
     "/binaural/waveform": ("string", "loudness-relevant", False),                    # Story 2.5
+    "/loop": ("object", "loudness-relevant", False),                                  # Story 2.7
+    "/loop/mode": ("string", "loudness-relevant", True),
+    "/loop/opening_s": ("number", "loudness-relevant", True),
+    "/loop/body_s": ("number", "loudness-relevant", True),
+    "/loop/max_run_time_min": ("number", "loudness-relevant", True),
 }
 
 
@@ -629,3 +642,95 @@ def test_missing_start_phase_fixture_fails_the_schema_with_required():
     expected = json.loads((REPO_FIXTURES / "invalid-expected.json").read_text(encoding="utf-8"))["fixtures"]
     assert expected.get(MISSING_START) == {"parameter": "/theta_reference/rate_cycle/start_phase_deg",
                                            "rule": "required", "schema_keyword": "required"}
+
+
+# ------------------------------------------------- loop (Story 2.7)
+
+LOOP_PROPERTIES = ["mode", "opening_s", "body_s", "max_run_time_min"]
+LOOP_MODE_ENUM = ["focus", "learn"]
+LOOP = {"mode": "learn", "opening_s": 60, "body_s": 120, "max_run_time_min": 21}
+
+
+def loop_recipe(loop):
+    r = {
+        "schema_version": "1.0", "engine_version": "0.0.1", "seed": 42,
+        "author": "Arcani test", "date": "2026-11-14", "rationale": "Schema loop test.",
+        "length_s": 1200, "loudness_target_lufs": -36,
+        "theta_reference": {"carrier_hz": 450, "rate_hz": 4, "am_depth_percent": 75, "shape": "sine"},
+    }
+    if loop is not None:
+        r["loop"] = loop
+    return r
+
+
+def test_loop_is_the_last_root_property_an_object_with_four_required_members():
+    schema = load_schema_strict()
+    names = list(schema["properties"])
+    assert names[-2:] == ["binaural", "loop"], names
+    assert "loop" not in schema.get("required", [])
+    prop = schema["properties"]["loop"]
+    assert prop.get("x-arcani-tag") == "loudness-relevant"
+    node = resolve(schema, prop)
+    assert node.get("type") == "object"
+    assert node.get("additionalProperties") is False
+    assert list(node["properties"]) == LOOP_PROPERTIES
+    assert sorted(node.get("required", [])) == sorted(LOOP_PROPERTIES)
+    for name in LOOP_PROPERTIES:
+        member = node["properties"][name]
+        assert member.get("x-arcani-tag") == "loudness-relevant", name
+        want = "string" if name == "mode" else "number"
+        assert resolve(schema, member).get("type") == want, name
+        assert not {"minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf"} & set(
+            resolve(schema, member)), name
+    assert resolve(schema, node["properties"]["mode"]).get("enum") == LOOP_MODE_ENUM
+
+
+def test_loop_accepts_both_modes_and_rejects_by_schema_keyword():
+    import jsonschema
+
+    validator = jsonschema.Draft202012Validator(load_schema_strict())
+    assert not list(validator.iter_errors(loop_recipe(None))), "no loop"
+    for mode in LOOP_MODE_ENUM:
+        assert not list(validator.iter_errors(loop_recipe(dict(LOOP, mode=mode)))), mode
+    # Off the max run time rows, negative, zero, and not whole samples are
+    # still schema-valid: the loop rules live in the validator.
+    for values in ({"max_run_time_min": 46}, {"opening_s": -60}, {"body_s": 0}, {"opening_s": 60.1},
+                   {"body_s": 90}):
+        assert not list(validator.iter_errors(loop_recipe(dict(LOOP, **values)))), values
+
+    def keywords(loop):
+        errors = list(validator.iter_errors(loop_recipe(loop)))
+        return {e.validator for e in errors}, {"/".join(str(p) for p in e.absolute_path) for e in errors}
+
+    for name in LOOP_PROPERTIES:
+        missing = {k: v for k, v in LOOP.items() if k != name}
+        assert keywords(missing) == ({"required"}, {"loop"}), name
+        text = dict(LOOP, **{name: 1 if name == "mode" else "1"})
+        found, where = keywords(text)
+        # A non-string mode also fails the enum (jsonschema reports every
+        # keyword); type must be among them, on the member itself.
+        assert where == {f"loop/{name}"} and "type" in found, (name, found)
+        assert found == ({"type", "enum"} if name == "mode" else {"type"}), (name, found)
+    for mode in ("sleep", "Learn", "focus "):
+        assert keywords(dict(LOOP, mode=mode)) == ({"enum"}, {"loop/mode"}), mode
+    assert keywords(dict(LOOP, fade_s=5)) == ({"additionalProperties"}, {"loop"})
+    assert keywords([60, 120]) == ({"type"}, {"loop"})
+
+
+def test_invalid_loop_fixtures_fail_the_schema_with_their_keyword():
+    import jsonschema
+
+    validator = jsonschema.Draft202012Validator(load_schema_strict())
+    cases = {
+        "loop-missing-max-run-time.json": ("required", "loop"),
+        "loop-missing-mode.json": ("required", "loop"),
+        "loop-mode-not-in-enum.json": ("enum", "loop/mode"),
+        "loop-opening-as-string.json": ("type", "loop/opening_s"),
+        "loop-unknown-property.json": ("additionalProperties", "loop"),
+    }
+    for name, (keyword, where) in cases.items():
+        path = REPO_FIXTURES / "invalid" / name
+        assert path.is_file(), f"missing fixture {path} (Story 2.7)"
+        errors = list(validator.iter_errors(json.loads(path.read_text(encoding="utf-8"))))
+        assert {e.validator for e in errors} == {keyword}, (name, [e.message for e in errors])
+        assert {"/".join(str(p) for p in e.absolute_path) for e in errors} == {where}, name

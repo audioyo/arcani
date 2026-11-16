@@ -108,6 +108,16 @@ CompileResult compile(std::string_view utf8, Mode mode, std::uint32_t sample_rat
     p.stages[i] = kStages[i].kind;
   }
 
+  // Loop frames (Loop, Frames). check_ranges() has checked that the opening
+  // and body are whole samples, the body above 0, and O + B <= N, so every
+  // value is exact and the seam count is well defined.
+  if (rec.loop) {
+    p.loop.present = true;
+    p.loop.opening_end_frame = core::seconds_to_samples(rec.loop->opening_s, sample_rate);
+    p.loop.body_frames = core::seconds_to_samples(rec.loop->body_s, sample_rate);
+    p.loop.seam_count = (p.frame_count - p.loop.opening_end_frame - 1) / p.loop.body_frames;
+  }
+
   // Theta reference: the carrier at theta_reference.carrier_hz,
   // amplitude-modulated at rate_hz by the shape's envelope, both phases 0 at
   // n = 0, the same value in both channels. check_rules() has rejected a

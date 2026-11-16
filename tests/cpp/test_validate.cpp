@@ -285,6 +285,10 @@ std::set<std::string> ids_named_by_fields() {
     }
   }
   out.insert("binaural-carrier-right");
+  // Story 2.7: the loop mode picks its max run time row, so no field names
+  // these two; the validator reads both (signal spec, Loop, Compile order).
+  out.insert("max-run-time-focus");
+  out.insert("max-run-time-learn");
   return out;
 }
 
@@ -463,8 +467,11 @@ TEST_CASE("engine range table equals ranges.tsv row for row", "[validate][ranges
   const auto expected_ids = ids_named_by_fields();
   // Story 2.1 adds theta-rate and theta-depth; Story 2.2 adds gamma-carrier,
   // gamma-rate, and coupling-depth; Story 2.3 adds coupling-phase; Story 2.5
-  // adds rate-cycle-period and rate-cycle-start-phase.
-  REQUIRE(expected_ids.size() == 14);
+  // adds rate-cycle-period and rate-cycle-start-phase; Story 2.7 adds
+  // max-run-time-focus and max-run-time-learn.
+  REQUIRE(expected_ids.size() == 16);
+  CHECK(expected_ids.count("max-run-time-focus") == 1);
+  CHECK(expected_ids.count("max-run-time-learn") == 1);
   CHECK(expected_ids.count("rate-cycle-period") == 1);
   CHECK(expected_ids.count("rate-cycle-start-phase") == 1);
   CHECK(expected_ids.count("coupling-phase") == 1);
@@ -777,7 +784,28 @@ TEST_CASE("valid/ means schema-valid: the out-of-range hash fixture is rejected 
       "bursts-no-theta.json", "bursts-no-coupling-phase.json",
       // Story 2.6: four worst-case rates and one carrier rule on r + s.
       "theta-cycle-below-1.json", "theta-cycle-above-6.json", "gamma-cycle-below-30.json",
-      "gamma-cycle-above-60.json", "gamma-cycle-carrier-rule.json"};
+      "gamma-cycle-above-60.json", "gamma-cycle-carrier-rule.json",
+      // Story 2.7: twelve loop fixtures, one per loop rule (the cycle rule
+      // once per cycle path), checked one by one in tests/cpp/test_loop.cpp.
+      "loop-focus-cap-46.json", "loop-learn-cap-45.json", "loop-learn-cap-19.json",
+      "loop-length-not-cap.json", "loop-opening-negative.json", "loop-body-zero.json",
+      "loop-opening-not-whole-samples.json", "loop-body-not-whole-samples.json", "loop-body-off-cycle.json",
+      "loop-gamma-body-off-cycle.json", "loop-binaural-body-off-cycle.json", "loop-exceeds-session.json"};
+  // The Story 2.7 names above are exactly the rejected loop compile cases of
+  // the spec vectors.
+  {
+    std::set<std::string> loop_rejected;
+    for (const auto& c : spec::kLoopCompileCases) {
+      if (!c.accepted) {
+        loop_rejected.insert(c.fixture);
+      }
+    }
+    CHECK(loop_rejected.size() == 12);
+    for (const auto& name : loop_rejected) {
+      INFO(name);
+      CHECK(expected_rejected.count(name) == 1);
+    }
+  }
   std::set<std::string> rejected_seen;
   std::size_t compiled = 0;
   for (const auto& entry :

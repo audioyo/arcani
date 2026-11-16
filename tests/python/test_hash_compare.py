@@ -107,7 +107,10 @@ only after a green four-platform full run. Story 2.6 adds `rate-curves-44100`
 and `rate-curves-48000`, scope `engine`, each 2 * 2 * 10 * fs samples (the
 two rate-curve probe fixtures in turn, each 5 s from frame 0 and 5 s after a
 seek to 55 s); their entries also arrive only after a green four-platform
-full run. No other entry.
+full run. Story 2.7 adds `loop-44100` and `loop-48000`, scope `engine`, each
+2 * 2 * 5 * fs samples (the swell loop fixture, 5 s from frame 0 and 5 s
+after a seek to 2.5 s before its seam 9); their entries also arrive only
+after a green four-platform full run. No other entry.
 
 Bound has one source (Story 0.3): `bound_dbfs` in `ci/hash_tolerance.json`
 equals the value of threshold row `cross-platform-fallback`, read through the
@@ -833,7 +836,7 @@ def real_rates():
 
 
 def test_real_expected_file_has_every_component_with_its_scope():
-    """Stories 1.6 to 2.6: the sine, stub chain, theta, gamma, swell, binaural, burst, and rate-curve entries, scoped; probe-arith is the only probe entry."""
+    """Stories 1.6 to 2.7: the sine, stub chain, theta, gamma, swell, binaural, burst, rate-curve, and loop entries, scoped; probe-arith is the only probe entry."""
     components = load_ci("hash_expected.json")["components"]
     rates = real_rates()
     want = {"probe-arith": ("probe", 4096)}
@@ -847,6 +850,7 @@ def test_real_expected_file_has_every_component_with_its_scope():
         want[f"binaural-cycle-{fs}"] = ("engine", 2 * 2 * 5 * fs)  # Story 2.5
         want[f"gamma-bursts-{fs}"] = ("engine", 2 * 3 * 5 * fs)  # Story 2.4
         want[f"rate-curves-{fs}"] = ("engine", 2 * 2 * 10 * fs)  # Story 2.6
+        want[f"loop-{fs}"] = ("engine", 2 * 2 * 5 * fs)  # Story 2.7
     assert set(components) == set(want), sorted(components)
     for name, (scope, samples) in want.items():
         entry = components[name]
@@ -863,6 +867,7 @@ def test_real_expected_file_has_every_component_with_its_scope():
     assert components["binaural-cycle-44100"]["sha256"] != components["binaural-cycle-48000"]["sha256"]
     assert components["gamma-bursts-44100"]["sha256"] != components["gamma-bursts-48000"]["sha256"]
     assert components["rate-curves-44100"]["sha256"] != components["rate-curves-48000"]["sha256"]
+    assert components["loop-44100"]["sha256"] != components["loop-48000"]["sha256"]
 
 
 def test_defaults_use_repo_files(tmp_path, root):

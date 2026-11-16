@@ -105,6 +105,10 @@ RATE_CYCLE_FIXTURES = ["theta-cycle-sine.json", "theta-cycle-smoothed-on-off.jso
                        "swell-theta-cycle.json", "bursts-theta-cycle.json", "gamma-cycle-swell-theta-cycle.json",
                        "theta-cycle-below-1.json", "theta-cycle-above-6.json", "gamma-cycle-below-30.json",
                        "gamma-cycle-above-60.json", "gamma-cycle-carrier-rule.json"]
+# Story 2.7: the loop members are in the hash too, checked against the
+# looping swell fixture; a recipe without loop keeps its hash (PINNED_HASHES).
+LOOP_BASE = "loop-swell-theta-cycle.json"
+LOOP_IN_HASH = ["/loop/mode", "/loop/opening_s", "/loop/body_s", "/loop/max_run_time_min"]
 # Hashes committed before Story 2.6 (tests/data/recipe_hash_vectors.json at
 # the story's baseline): a recipe without a rate_cycle keeps its hash.
 PINNED_HASHES = {
@@ -252,9 +256,21 @@ def test_excluded_and_in_hash_lists_cover_every_leaf_tag():
     assert sorted(p for p, t in tags.items() if t == "hash-excluded") == sorted(HASH_EXCLUDED)
     leaves = {p for p in tags if p not in ("/theta_reference", "/gamma_pac", "/binaural",
                                            "/binaural/beat_rate_cycle", "/theta_reference/rate_cycle",
-                                           "/gamma_pac/rate_cycle")}
+                                           "/gamma_pac/rate_cycle", "/loop")}
     assert leaves == (set(HASH_EXCLUDED) | set(IN_HASH) | set(GAMMA_IN_HASH) | set(SWELL_IN_HASH)
-                      | set(BINAURAL_IN_HASH) | set(RATE_CYCLE_IN_HASH))
+                      | set(BINAURAL_IN_HASH) | set(RATE_CYCLE_IN_HASH) | set(LOOP_IN_HASH))
+
+
+@pytest.mark.parametrize("pointer", LOOP_IN_HASH)
+def test_every_loop_field_changes_the_hash(pointer):
+    tool = load_tool()
+    path = VALID / LOOP_BASE
+    assert path.is_file(), f"missing fixture {path} (Story 2.7)"
+    value = json.loads(path.read_text(encoding="utf-8"))
+    new = "focus" if pointer == "/loop/mode" else changed(get(value, pointer))
+    assert tool.hash_value(put(value, pointer, new)) != tool.hash_value(value)
+    without = drop(value, "/loop")
+    assert tool.hash_value(without) != tool.hash_value(value)
 
 
 @pytest.mark.parametrize("pointer", GAMMA_IN_HASH)

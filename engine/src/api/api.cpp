@@ -213,6 +213,25 @@ arc_status arc_plan_stage(const arc_plan* plan, size_t index, arc_stage_kind* ou
   return ARC_OK;
 }
 
+arc_status arc_plan_loop(const arc_plan* plan, arc_loop_frames* out_loop, arc_error* error) {
+  if (plan == nullptr) {
+    return null_argument(error, "plan");
+  }
+  if (out_loop == nullptr) {
+    return null_argument(error, "out_loop");
+  }
+  const arcani::plan::LoopFrames& loop = plan->plan.loop;
+  std::memset(out_loop, 0, sizeof *out_loop);
+  if (loop.present) {
+    out_loop->looping = 1;
+    out_loop->opening_end_frame = loop.opening_end_frame;
+    out_loop->body_frames = loop.body_frames;
+    out_loop->seam_count = loop.seam_count;
+    out_loop->end_frame = plan->plan.frame_count;
+  }
+  return ARC_OK;
+}
+
 size_t arc_plan_warning_count(const arc_plan* plan) {
   return plan == nullptr ? 0 : plan->plan.warnings.size();
 }

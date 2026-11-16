@@ -88,6 +88,7 @@
 #include <limits>
 #include <sstream>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #ifndef ARCANI_TEST_DATA_DIR
@@ -173,6 +174,75 @@ TEST_CASE("report check: a spec report passes, doctored reports fail", "[report]
      "measured": 31.5)"},
       {R"(, "note": ""})", R"(, "note": "", "extra": 1})"},
       {R"("assertions": [)", R"("extra": 1, "assertions": [)"},
+  };
+  for (const auto& [from, to] : doctors) {
+    const std::string bad = replaced(good, from, to);
+    INFO("doctored: " << from << " -> " << to);
+    CHECK_FALSE(h::report_problems(parse_ok(bad)).empty());
+  }
+}
+
+// Story 2.7: a looping recipe's report, the loop block right after frames.
+const char* const kGoodLoopReport = R"({
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "sample_rate": 44100,
+  "mode": "measure",
+  "frames": 52920000,
+  "loop": {
+    "opening_end_frame": 2646000,
+    "seam_frames": [7938000, 13230000, 18522000],
+    "end_frame": 52920000
+  },
+  "determinism_key": {
+    "recipe_hash": "779404f01db97e80f86e776b2803e468629ff28710ef3d5ae542f4ca049e6868",
+    "asset_hashes": [],
+    "engine_version": "0.0.1",
+    "sample_rate": 44100
+  },
+  "assertions": []
+})";
+
+TEST_CASE("report check: a looping report passes, doctored loop blocks fail", "[report][mustfail][loop]") {
+  const std::string good = kGoodLoopReport;
+  for (const std::string& p : h::report_problems(parse_ok(good))) {
+    UNSCOPED_INFO(p);
+  }
+  CHECK(h::report_problems(parse_ok(good)).empty());
+  // No seams is a loop block too (opening and body fill the session).
+  CHECK(h::report_problems(parse_ok(replaced(good, "[7938000, 13230000, 18522000]", "[]"))).empty());
+  const std::pair<const char*, const char*> doctors[] = {
+      // The loop block before frames, or after determinism_key.
+      {R"("frames": 52920000,
+  "loop": {
+    "opening_end_frame": 2646000,
+    "seam_frames": [7938000, 13230000, 18522000],
+    "end_frame": 52920000
+  },)", R"("loop": {
+    "opening_end_frame": 2646000,
+    "seam_frames": [7938000, 13230000, 18522000],
+    "end_frame": 52920000
+  },
+  "frames": 52920000,)"},
+      {R"("opening_end_frame": 2646000,
+    "seam_frames")", R"("seam_frames")"},
+      {R"("opening_end_frame": 2646000,)", R"("opening_end_frame": "2646000",)"},
+      {R"("opening_end_frame": 2646000,)", R"("opening_end_frame": 2646000.5,)"},
+      {R"("opening_end_frame": 2646000,)", R"("opening_end_frame": 52920000,)"},
+      {R"([7938000, 13230000, 18522000])", R"([13230000, 7938000, 18522000])"},
+      {R"([7938000, 13230000, 18522000])", R"([7938000, 7938000, 18522000])"},
+      {R"([7938000, 13230000, 18522000])", R"([2646000, 13230000, 18522000])"},
+      {R"([7938000, 13230000, 18522000])", R"([7938000, 13230000, 52920000])"},
+      {R"([7938000, 13230000, 18522000])", R"([7938000, -1])"},
+      {R"([7938000, 13230000, 18522000])", R"({"k": 1})"},
+      {R"("end_frame": 52920000
+  })", R"("end_frame": 52919999
+  })"},
+      {R"("end_frame": 52920000
+  })", R"("end_frame": 52920000,
+    "body_frames": 5292000
+  })"},
+      {R"("loop": {)", R"("looping": {)"},
   };
   for (const auto& [from, to] : doctors) {
     const std::string bad = replaced(good, from, to);
@@ -479,6 +549,168 @@ TEST_CASE("exit code: 4 when any assertion fails, else 0", "[report][cli]") {
   cli::Assertion forced = pass;
   forced.result = cli::Result::fail;
   CHECK(cli::assertions_exit_code({na, forced}) == 4);
+}
+
+// ------------------------------------------------------------ loop block (Story 2.7)
+//
+// Contract (spec Implementation Notes): cli::Report gains
+//   std::optional<cli::LoopReport> loop;  // LoopReport {opening_end_frame, seam_frames, end_frame}
+// and cli::loop_report(const arc_loop_frames&) returns it, empty when looping
+// is 0, with seam k = opening_end_frame + k * body_frames for k = 1 to
+// seam_count. report_json writes it right after "frames" only when present:
+//   "  \"loop\": {\n"
+//   "    \"opening_end_frame\": O,\n"
+//   "    \"seam_frames\": [s1, s2, ...],\n"   (", " between, [] when none)
+//   "    \"end_frame\": N\n"
+//   "  },\n"
+// Without it the report bytes are unchanged. The member is read through a
+// requires-expression and loop_report through a lookup probe (a global
+// fallback the real declaration hides), so the suite builds before they
+// exist.
+
+struct LoopReportMissing {};
+template <class L>
+LoopReportMissing loop_report(const L&) {
+  return {};
+}
+
+namespace arcani::report_loop_probe {
+using namespace arcani::cli;
+template <class L>
+auto call_loop_report(const L& frames) {
+  return loop_report(frames);
+}
+}  // namespace arcani::report_loop_probe
+
+namespace report_loop_frames_probe {
+// Finds ::arc_loop_frames once arcani/arcani.h declares it; else an
+// incomplete type of this namespace.
+using Frames = struct arc_loop_frames;
+template <class T>
+inline constexpr bool kComplete = requires { sizeof(T); };
+}  // namespace report_loop_frames_probe
+
+namespace {
+
+template <class R>
+concept ReportHasLoop = requires(R r) {
+  { r.loop.has_value() } -> std::convertible_to<bool>;
+  r.loop->opening_end_frame;
+  r.loop->seam_frames;
+  r.loop->end_frame;
+  r.loop.reset();
+};
+
+// The report text with `block` inserted right after the frames line.
+[[maybe_unused]] std::string with_block(const std::string& text, const std::string& block) {
+  const std::string frames_line = "  \"frames\": " + raw_member(text, "frames") + ",\n";
+  const auto at = text.find(frames_line);
+  REQUIRE(at != std::string::npos);
+  std::string out = text;
+  out.insert(at + frames_line.size(), block);
+  return out;
+}
+
+template <class R = cli::Report>
+void check_loop_block() {
+  if constexpr (ReportHasLoop<R>) {
+    using LoopReport = typename decltype(R::loop)::value_type;
+    R r = sample_report();
+    const std::string without = cli::report_json(r);
+    CHECK(without.find("\"loop\"") == std::string::npos);
+
+    LoopReport lr;
+    lr.opening_end_frame = 2646000;
+    lr.seam_frames = {7938000, 13230000, 18522000};
+    lr.end_frame = 1382400000ull;  // equals sample_report().frames
+    r.loop = lr;
+    const std::string with = cli::report_json(r);
+    INFO(with);
+    CHECK(with == with_block(without, "  \"loop\": {\n"
+                                      "    \"opening_end_frame\": 2646000,\n"
+                                      "    \"seam_frames\": [7938000, 13230000, 18522000],\n"
+                                      "    \"end_frame\": 1382400000\n"
+                                      "  },\n"));
+    const json::Value v = parse_ok(with);
+    for (const std::string& p : h::report_problems(v)) {
+      UNSCOPED_INFO(p);
+    }
+    CHECK(h::report_problems(v).empty());
+
+    // No seams: an empty list. One seam: no separator.
+    lr.seam_frames.clear();
+    r.loop = lr;
+    CHECK(cli::report_json(r) == with_block(without, "  \"loop\": {\n"
+                                                     "    \"opening_end_frame\": 2646000,\n"
+                                                     "    \"seam_frames\": [],\n"
+                                                     "    \"end_frame\": 1382400000\n"
+                                                     "  },\n"));
+    lr.opening_end_frame = 0;
+    lr.seam_frames = {5292000};
+    r.loop = lr;
+    CHECK(cli::report_json(r) == with_block(without, "  \"loop\": {\n"
+                                                     "    \"opening_end_frame\": 0,\n"
+                                                     "    \"seam_frames\": [5292000],\n"
+                                                     "    \"end_frame\": 1382400000\n"
+                                                     "  },\n"));
+
+    // Removed again: the bytes of the report without it.
+    r.loop.reset();
+    CHECK(cli::report_json(r) == without);
+  } else {
+    FAIL("not implemented: cli::Report has no std::optional<cli::LoopReport> loop (Story 2.7)");
+  }
+}
+
+template <class L = report_loop_frames_probe::Frames>
+void check_loop_report() {
+  if constexpr (report_loop_frames_probe::kComplete<L>) {
+    L f;
+    std::memset(&f, 0, sizeof f);
+    f.looping = 1;
+    f.opening_end_frame = 2646000;
+    f.body_frames = 5292000;
+    f.seam_count = 9;
+    f.end_frame = 52920000;
+    const auto got = arcani::report_loop_probe::call_loop_report(f);
+    if constexpr (std::is_same_v<std::remove_cvref_t<decltype(got)>, LoopReportMissing>) {
+      FAIL("not implemented: cli::loop_report(const arc_loop_frames&) (Story 2.7)");
+    } else {
+      REQUIRE(got.has_value());
+      CHECK(got->opening_end_frame == 2646000);
+      CHECK(got->end_frame == 52920000);
+      const std::vector<std::uint64_t> seams(got->seam_frames.begin(), got->seam_frames.end());
+      CHECK(seams == std::vector<std::uint64_t>{7938000, 13230000, 18522000, 23814000, 29106000, 34398000,
+                                                39690000, 44982000, 50274000});
+      // Opening 0, no seam.
+      f.opening_end_frame = 0;
+      f.body_frames = 5292000;
+      f.seam_count = 0;
+      f.end_frame = 5292000;
+      const auto none = arcani::report_loop_probe::call_loop_report(f);
+      REQUIRE(none.has_value());
+      CHECK(none->opening_end_frame == 0);
+      CHECK(none->seam_frames.empty());
+      CHECK(none->end_frame == 5292000);
+      // Not looping: no loop block.
+      f.looping = 0;
+      CHECK_FALSE(arcani::report_loop_probe::call_loop_report(f).has_value());
+      std::memset(&f, 0, sizeof f);
+      CHECK_FALSE(arcani::report_loop_probe::call_loop_report(f).has_value());
+    }
+  } else {
+    FAIL("not implemented: arc_loop_frames in arcani/arcani.h (Story 2.7)");
+  }
+}
+
+}  // namespace
+
+TEST_CASE("report_json writes the loop block right after frames only when present", "[report][cli][loop]") {
+  check_loop_block();
+}
+
+TEST_CASE("loop_report lists every seam of an arc_loop_frames; none when not looping", "[report][cli][loop]") {
+  check_loop_report();
 }
 
 #else

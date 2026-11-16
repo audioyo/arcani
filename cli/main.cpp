@@ -269,6 +269,12 @@ int run(const Args& args) {
   }
 
   const std::uint64_t frames = arc_plan_frame_count(plan.plan);
+  // Story 2.7: the loop frames for the report's seam list.
+  arc_loop_frames loop;
+  std::memset(&loop, 0, sizeof loop);
+  if (arc_plan_loop(plan.plan, &loop, &error) != ARC_OK) {
+    return file_error(std::string("loop frames failed: rule=") + error.rule);
+  }
   RendererHandle renderer;
   if (frames > 0 && arc_renderer_create(plan.plan, &renderer.renderer, &error) != ARC_OK) {
     return file_error(std::string("renderer creation failed: rule=") + error.rule);
@@ -313,6 +319,7 @@ int run(const Args& args) {
   report.sample_rate = args.rate;
   report.mode = args.mode == ARC_MODE_FINAL ? "final" : "measure";
   report.frames = frames;
+  report.loop = cli::loop_report(loop);
   report.determinism_key.recipe_hash = arc_plan_recipe_hash(plan.plan);
   report.determinism_key.engine_version = report.engine_version;
   report.determinism_key.sample_rate = args.rate;

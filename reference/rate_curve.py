@@ -1,4 +1,4 @@
-"""Reference rate cycle (docs/signal-spec.md, Rate curve; Stories 2.5 and 2.6).
+"""Reference rate cycle (docs/signal-spec.md, Rate curve; Stories 2.5, 2.6, and 2.7).
 
 Implemented from the signal spec only, with the rules of reference/ideal.py,
 never from engine code, engine binaries, or engine output (AD-16, AD-19).
@@ -15,7 +15,8 @@ binaural beat_rate_cycle, or a theta_reference or gamma_pac rate_cycle).
   inc_P = ideal.phase_increment(1.0 / period_s, fs) and
   K = swing_hz * period_s / (2 * math.pi) in binary64.
 - offset_cycles(cycle, fs, frames): the ideal U[n] in cycles for n in
-  [0, frames), K * (cos(2 pi P0 / 2^64) - cos(2 pi p_P[n] / 2^64)) with
+  [0, frames), or for the frame indices n of an index array (Story 2.7,
+  ideal.frame_index), K * (cos(2 pi P0 / 2^64) - cos(2 pi p_P[n] / 2^64)) with
   p_P[n] = P0 + n * inc_P mod 2^64 and each cosine taken of the signed phase
   in [-2^63, 2^63) times 2 pi / 2^64; a float64 ndarray, zeros when cycle is
   None.
@@ -61,20 +62,12 @@ def _cosine(phases):
     return np.cos(s * _RADIANS_PER_UNIT)
 
 
-def _frames(frames):
-    frames = int(frames)
-    if frames < 0:
-        raise ValueError(f"frames must be >= 0, got {frames}")
-    return frames
-
-
 def offset_cycles(cycle, fs, frames):
-    """Ideal U[n] in cycles for n in [0, frames); zeros without a cycle."""
-    frames = _frames(frames)
+    """Ideal U[n] in cycles for n in [0, frames), or at an index array; zeros without a cycle."""
+    n = ideal.frame_index(frames)
     if cycle is None:
-        return np.zeros(frames, dtype=np.float64)
+        return np.zeros(n.size, dtype=np.float64)
     p0, inc_p, k = cycle_constants(cycle, fs)
-    n = np.arange(frames, dtype=np.uint64)
     phase_p = np.uint64(p0) + n * np.uint64(inc_p)  # wraps modulo 2^64
     c0 = float(_cosine(np.array([p0], dtype=np.uint64))[0])
     return k * (c0 - _cosine(phase_p))
@@ -95,8 +88,8 @@ def cycles_to_units(v):
 
 
 def offset_units(cycle, fs, frames):
-    """Ideal U[n] in phase units for n in [0, frames); zeros without a cycle."""
-    frames = _frames(frames)
+    """Ideal U[n] in phase units for n in [0, frames), or at an index array; zeros without a cycle."""
+    n = ideal.frame_index(frames)
     if cycle is None:
-        return np.zeros(frames, dtype=np.uint64)
-    return cycles_to_units(offset_cycles(cycle, fs, frames))
+        return np.zeros(n.size, dtype=np.uint64)
+    return cycles_to_units(offset_cycles(cycle, fs, n))

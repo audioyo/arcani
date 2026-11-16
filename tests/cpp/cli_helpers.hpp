@@ -338,13 +338,57 @@ inline bool is_string(const json::Value* v) {
 
 // Problems with a report's structure (the Story 1.4 Report decision).
 // Members are checked in the order the spec lists them.
+// Story 2.7: a looping recipe's report has the member loop right after
+// frames, with exactly opening_end_frame, seam_frames, and end_frame (in that
+// order): the seams ascending, each above the opening end and below the end,
+// and the end equal to frames. A report without loop is unchanged.
 inline std::vector<std::string> report_problems(const json::Value& r) {
   std::vector<std::string> p;
-  if (!members_are(r, {"engine_version", "seed", "sample_rate", "mode", "frames",
-                       "determinism_key", "assertions"})) {
+  const bool looping = members_are(r, {"engine_version", "seed", "sample_rate", "mode", "frames", "loop",
+                                       "determinism_key", "assertions"});
+  if (!looping && !members_are(r, {"engine_version", "seed", "sample_rate", "mode", "frames",
+                                   "determinism_key", "assertions"})) {
     p.push_back("top-level members are not exactly engine_version, seed, sample_rate, mode, "
-                "frames, determinism_key, assertions (in that order)");
+                "frames, [loop,] determinism_key, assertions (in that order)");
     return p;
+  }
+  if (looping) {
+    const json::Value& loop = *r.find("loop");
+    if (!members_are(loop, {"opening_end_frame", "seam_frames", "end_frame"})) {
+      p.push_back("loop members are not exactly opening_end_frame, seam_frames, end_frame (in that order)");
+    } else {
+      const json::Value* opening = loop.find("opening_end_frame");
+      const json::Value* end = loop.find("end_frame");
+      const json::Value* seams = loop.find("seam_frames");
+      if (!is_count(opening)) p.push_back("loop opening_end_frame is not a non-negative integer");
+      if (!is_count(end)) p.push_back("loop end_frame is not a non-negative integer");
+      if (is_count(end) && is_count(r.find("frames")) && end->number() != r.find("frames")->number()) {
+        p.push_back("loop end_frame differs from frames");
+      }
+      if (is_count(opening) && is_count(end) && !(opening->number() < end->number())) {
+        p.push_back("loop opening_end_frame is not below end_frame");
+      }
+      if (seams->kind() != json::Kind::Array) {
+        p.push_back("loop seam_frames is not an array");
+      } else {
+        double last = is_count(opening) ? opening->number() : -1.0;
+        for (const json::Value& s : seams->array()) {
+          if (!is_count(&s)) {
+            p.push_back("loop seam_frames holds a value that is not a non-negative integer");
+            break;
+          }
+          if (!(s.number() > last)) {
+            p.push_back("loop seam_frames are not ascending above opening_end_frame");
+            break;
+          }
+          if (is_count(end) && !(s.number() < end->number())) {
+            p.push_back("loop seam_frames holds a frame at or past end_frame");
+            break;
+          }
+          last = s.number();
+        }
+      }
+    }
   }
   if (!is_string(r.find("engine_version"))) p.push_back("engine_version is not a string");
   if (!is_count(r.find("seed"))) p.push_back("seed is not a non-negative integer");

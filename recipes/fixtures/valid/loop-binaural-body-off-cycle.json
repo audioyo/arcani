@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-14",
+  "rationale": "Loop fixture (Story 2.7): learn mode, max run time 20 min, length 1200 s, opening 60 s, body 90 s. Theta reference: a 450 Hz carrier amplitude-modulated by the sine envelope at a fixed 4 Hz theta rate, 75 percent AM depth. Binaural layer: a 100 Hz pure sine in the left ear and a pure sine in the right ear whose beat rate cycles over 0 to 3 Hz every 60 s (center 1.5 Hz, swing 1.5 Hz, start phase 270 degrees). Compile rejects it: /loop/body_s loop body not whole rate cycles (a whole multiple of 60 s (/binaural/beat_rate_cycle/period_s)). Values are placeholders, not starter defaults. A test fixture, not for listening.",
+  "length_s": 1200,
+  "loudness_target_lufs": -36,
+  "theta_reference": {
+    "carrier_hz": 450,
+    "rate_hz": 4,
+    "am_depth_percent": 75,
+    "shape": "sine"
+  },
+  "binaural": {
+    "carrier_left_hz": 100,
+    "beat_rate_hz": 1.5,
+    "beat_rate_cycle": {
+      "swing_hz": 1.5,
+      "period_s": 60,
+      "start_phase_deg": 270
+    }
+  },
+  "loop": {
+    "mode": "learn",
+    "opening_s": 60,
+    "body_s": 90,
+    "max_run_time_min": 20
+  }
+}

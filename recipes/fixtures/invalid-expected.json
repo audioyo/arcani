@@ -104,6 +104,33 @@
     "lone-surrogate-escape.json": {
       "rule": "json.lone_surrogate"
     },
+    "loop-missing-max-run-time.json": {
+      "parameter": "/loop/max_run_time_min",
+      "rule": "required",
+      "schema_keyword": "required"
+    },
+    "loop-missing-mode.json": {
+      "parameter": "/loop/mode",
+      "rule": "required",
+      "schema_keyword": "required"
+    },
+    "loop-mode-not-in-enum.json": {
+      "parameter": "/loop/mode",
+      "rule": "enum",
+      "value": "sleep",
+      "limit": "focus, learn",
+      "schema_keyword": "enum"
+    },
+    "loop-opening-as-string.json": {
+      "parameter": "/loop/opening_s",
+      "rule": "type",
+      "schema_keyword": "type"
+    },
+    "loop-unknown-property.json": {
+      "parameter": "/loop/fade_s",
+      "rule": "unknown_property",
+      "schema_keyword": "additionalProperties"
+    },
     "loudness-gain-db-as-boolean.json": {
       "parameter": "/loudness_gain_db",
       "rule": "type",

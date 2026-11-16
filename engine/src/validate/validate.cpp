@@ -3,6 +3,7 @@
 #include "validate/validate.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <iterator>
 #include <optional>
 #include <string>
@@ -33,6 +34,8 @@ constexpr RangeRow kRows[] = {
     {"binaural-carrier-right", 0.0, 1030.0, true, "Hz"},
     {"rate-cycle-period", 60.0, 60.0, false, "s"},
     {"rate-cycle-start-phase", 0.0, 360.0, false, "degrees"},
+    {"max-run-time-focus", 45.0, 45.0, false, "min"},
+    {"max-run-time-learn", 20.0, 20.0, false, "min"},
 };
 
 constexpr std::string_view kRightCarrierRow = "binaural-carrier-right";
@@ -43,6 +46,8 @@ constexpr std::string_view kThetaSwingPath = "/theta_reference/rate_cycle/swing_
 constexpr std::string_view kGammaSwingPath = "/gamma_pac/rate_cycle/swing_hz";
 constexpr std::string_view kThetaRateRow = "theta-rate";
 constexpr std::string_view kGammaRateRow = "gamma-rate";
+constexpr std::string_view kFocusCapRow = "max-run-time-focus";
+constexpr std::string_view kLearnCapRow = "max-run-time-learn";
 
 // Index of a row in kRows, or std::size(kRows) when absent.
 constexpr std::size_t row_index(std::string_view id) noexcept {
@@ -60,6 +65,8 @@ static_assert(row_index(kRightCarrierRow) < std::size(kRows));
 static_assert(row_index(kBeatRateRow) < std::size(kRows));
 static_assert(row_index(kThetaRateRow) < std::size(kRows));
 static_assert(row_index(kGammaRateRow) < std::size(kRows));
+static_assert(row_index(kFocusCapRow) < std::size(kRows));
+static_assert(row_index(kLearnCapRow) < std::size(kRows));
 
 // A range-governed field's value lookup. known is false for a path the
 // validator has no mapping for; value is empty when the field's layer is
@@ -235,9 +242,93 @@ std::optional<recipe::Error> check_cycle_worst_case(const recipe::Binaural& b) {
   return check_row(kSwingPath, right, j, 1.0, kRows[j].unit);
 }
 
+// The integer test of a binary64 x >= 0 (docs/signal-spec.md, Loop,
+// Whole-sample rule): every binary64 at or above 2^53 (or infinite) counts
+// as whole, and below 2^53 x converts to an unsigned 64-bit integer and back
+// exactly when it is one.
+bool is_whole(double x) noexcept {
+  if (!(x < 0x1p53)) {
+    return true;
+  }
+  const auto u = static_cast<std::uint64_t>(x);  // 0 <= x < 2^53: in range
+  return static_cast<double>(u) == x;
+}
+
+// Loop, Whole-sample rule: 4 * t_s (an exact power-of-two scale) is an
+// integer, so t_s * 44100 and t_s * 48000 are both integers.
+bool whole_samples(double t_s) noexcept { return is_whole(t_s * 4.0); }
+
+// Loop, Cycle rule: body_s / period_s (one rounding) is an integer, and that
+// integer times period_s (one rounding) gives body_s back.
+bool whole_cycles(double body_s, double period_s) noexcept {
+  const double q = body_s / period_s;
+  return is_whole(q) && q * period_s == body_s;
+}
+
 }  // namespace
 
 std::span<const RangeRow> range_rows() noexcept { return kRows; }
+
+std::optional<recipe::Error> check_loop(const recipe::Recipe& r) {
+  if (!r.loop) {
+    return std::nullopt;
+  }
+  const recipe::Loop& loop = *r.loop;
+  // 1. The cap against the mode's row.
+  const std::size_t i = row_index(loop.mode == recipe::LoopMode::Focus ? kFocusCapRow : kLearnCapRow);
+  if (auto e = check_row("/loop/max_run_time_min", loop.max_run_time_min, i, 1.0, kRows[i].unit)) {
+    return e;
+  }
+  // 2. The session ends at the cap.
+  const double end = loop.max_run_time_min * 60.0;
+  if (!(r.length_s == end)) {
+    return recipe::Error{"/length_s", json::format_number(r.length_s), std::string(kLoopLengthRule),
+                         "= " + json::format_number(end) + " s (" + json::format_number(loop.max_run_time_min) +
+                             " min x 60)"};
+  }
+  // 3. and 4. The opening may be empty; the body may not.
+  if (!(loop.opening_s >= 0.0)) {
+    return recipe::Error{"/loop/opening_s", json::format_number(loop.opening_s), "range.min", ">= 0 s"};
+  }
+  if (!(loop.body_s > 0.0)) {
+    return recipe::Error{"/loop/body_s", json::format_number(loop.body_s), "range.min", "> 0 s"};
+  }
+  // 5. Whole samples at both native rates, the opening then the body.
+  if (!whole_samples(loop.opening_s)) {
+    return recipe::Error{"/loop/opening_s", json::format_number(loop.opening_s),
+                         std::string(kLoopWholeSamplesRule), std::string(kLoopWholeSamplesLimit)};
+  }
+  if (!whole_samples(loop.body_s)) {
+    return recipe::Error{"/loop/body_s", json::format_number(loop.body_s), std::string(kLoopWholeSamplesRule),
+                         std::string(kLoopWholeSamplesLimit)};
+  }
+  // 6. A body of whole rate cycles, every cycle in field order.
+  struct CycleRef {
+    std::string_view path;
+    const recipe::RateCycle* cycle;
+  };
+  const CycleRef cycles[] = {
+      {"/theta_reference/rate_cycle/period_s",
+       r.theta_reference && r.theta_reference->rate_cycle ? &*r.theta_reference->rate_cycle : nullptr},
+      {"/gamma_pac/rate_cycle/period_s", r.gamma_pac && r.gamma_pac->rate_cycle ? &*r.gamma_pac->rate_cycle : nullptr},
+      {"/binaural/beat_rate_cycle/period_s",
+       r.binaural && r.binaural->beat_rate_cycle ? &*r.binaural->beat_rate_cycle : nullptr},
+  };
+  for (const CycleRef& c : cycles) {
+    if (c.cycle != nullptr && !whole_cycles(loop.body_s, c.cycle->period_s)) {
+      return recipe::Error{"/loop/body_s", json::format_number(loop.body_s), std::string(kLoopWholeCyclesRule),
+                           "a whole multiple of " + json::format_number(c.cycle->period_s) + " s (" +
+                               std::string(c.path) + ")"};
+    }
+  }
+  // 7. At least one whole body pass fits in the session.
+  const double total = loop.opening_s + loop.body_s;
+  if (!(total <= r.length_s)) {
+    return recipe::Error{"/loop/body_s", json::format_number(total), std::string(kLoopExceedsRule),
+                         "<= " + json::format_number(r.length_s) + " s (length_s)"};
+  }
+  return std::nullopt;
+}
 
 std::optional<recipe::Error> check_ranges(const recipe::Recipe& r) {
   for (const recipe::Field& f : recipe::fields()) {
@@ -304,7 +395,8 @@ std::optional<recipe::Error> check_ranges(const recipe::Recipe& r) {
       }
     }
   }
-  return std::nullopt;
+  // Story 2.7: the loop rules, after every range check above.
+  return check_loop(r);
 }
 
 std::optional<recipe::Error> check_rules(const recipe::Recipe& r) {
