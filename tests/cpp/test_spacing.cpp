@@ -198,12 +198,16 @@ std::vector<validate::Component> table_of(const std::string& text, std::string_v
   return r.components;
 }
 
-std::string carrier_field(const std::string& layer) {
+// The carrier field of a row 2 layer, or nothing for a layer that is never row 2 (theta_reference,
+// or a doctored text), so the caller records a problem instead of aborting.
+std::optional<std::string> carrier_field(const std::string& layer) {
   if (layer == "gamma_pac") {
-    return spec::kSpacing_carrier_field_gamma_pac;
+    return std::string(spec::kSpacing_carrier_field_gamma_pac);
   }
-  REQUIRE(layer == "binaural");
-  return spec::kSpacing_carrier_field_binaural;
+  if (layer == "binaural") {
+    return std::string(spec::kSpacing_carrier_field_binaural);
+  }
+  return std::nullopt;
 }
 
 std::string row_name(const arc_component& c) {
@@ -271,9 +275,14 @@ std::vector<std::string> error_problems(const std::string& parameter, const std:
   }
   // The parameter is the carrier field of row 2's layer.
   sp::Detail d;
-  if (sp::parse_detail(detail, d, true).empty() && parameter != carrier_field(d.pair.row_2.layer)) {
-    problems.push_back("parameter " + parameter + " is not the carrier field of row 2's layer " +
-                       d.pair.row_2.layer);
+  if (sp::parse_detail(detail, d, true).empty()) {
+    const std::optional<std::string> field = carrier_field(d.pair.row_2.layer);
+    if (!field.has_value()) {
+      problems.push_back("row 2's layer " + d.pair.row_2.layer + " has no carrier field");
+    } else if (parameter != *field) {
+      problems.push_back("parameter " + parameter + " is not the carrier field of row 2's layer " +
+                         d.pair.row_2.layer);
+    }
   }
   return problems;
 }

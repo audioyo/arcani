@@ -262,10 +262,21 @@ def test_engine_spacing_mode_honors_the_muted_ear_and_refuses_bad_arguments(tapd
     sleep = common.FIXTURES_VALID / "starter-sleep-layers.json"
     full, _ = dump_spacing(tapdump, sleep, fs, tmp_path / "none")
     assert full["left"] is not None and full["right"] is not None
+    recipe = common.load_fixture("starter-sleep-layers.json")
+    tol = common.frequency_error()
     for mute, other in (("left", "right"), ("right", "left")):
         got, _ = dump_spacing(tapdump, sleep, fs, tmp_path / mute, mute)
         assert got[mute] is None, mute
-        assert got[other] == full[other], mute
+        assert got[other] is not None, mute
+        distance, margin, c1, c2 = got[other]
+        # Muting removes rows, so the other ear's distances are those of the full table...
+        assert (distance, margin) == full[other][:2], mute
+        # ...while its indices are positions in the muted table (Spacing, Table index): the reference's.
+        want = common.reference_spacing().spacing_margins(recipe, mute)[other]
+        assert want is not None, mute
+        assert (c1, c2) == (want.component_1, want.component_2), (mute, got[other], want)
+        assert abs(distance - want.min_distance_hz) < tol, (mute, got[other], want)
+        assert abs(margin - want.margin_hz) < tol, (mute, got[other], want)
     for args in (["--spacing", "--mute", "middle"], ["--spacing", "--mute"], ["--spacing", "extra"]):
         result = run(tapdump, [sleep, fs, tmp_path / "usage", *args])
         assert result.returncode == 2, (args, result.stdout, result.stderr)

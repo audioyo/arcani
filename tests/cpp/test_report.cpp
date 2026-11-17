@@ -875,7 +875,7 @@ void check_spacing_block() {
                                   ", \"margin_hz\": " + cli::json_number(right.margin_hz) +
                                   ", \"component_1\": 36, \"component_2\": 71, \"pair\": " +
                                   cli::json_string(right.pair) +
-                                  "},\n"
+                                  "}\n"
                                   "  },\n"));
 
     // Only the right ear.

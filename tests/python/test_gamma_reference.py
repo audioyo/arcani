@@ -508,8 +508,10 @@ def test_engine_gamma_matches_the_reference(fixture, fs, vectors, engine_dumps, 
 # 5-sine output of the spec's error bound. A 450 Hz carrier
 # amplitude-modulated at 6 Hz by the sine envelope at 75 percent depth, a
 # 250 Hz sine carrier amplitude-modulated at 40 Hz at 100 percent depth
-# (uncoupled), and a 400 Hz unmodulated sine in the left ear with a 406 Hz
-# unmodulated sine in the right ear (a 6 Hz binaural beat), 1 s.
+# (uncoupled), and a 100 Hz unmodulated sine in the left ear with a 106 Hz
+# unmodulated sine in the right ear (a 6 Hz binaural beat), 1 s. Story 3.2
+# (spacing rule, 50 Hz per ear between layers): the binaural pair moved from
+# 400 and 406 Hz, 38 Hz from the 444 Hz theta line, as in test_gamma.cpp.
 THETA_GAMMA_BINAURAL = {
     "schema_version": "1.0", "engine_version": "0.0.1", "seed": 42,
     "author": "Arcani test", "date": "2026-11-07",
@@ -518,7 +520,7 @@ THETA_GAMMA_BINAURAL = {
     "theta_reference": {"carrier_hz": 450, "rate_hz": 6, "am_depth_percent": 75, "shape": "sine"},
     "gamma_pac": {"carrier_hz": 250, "rate_hz": 40, "am_depth_percent": 100,
                   "carrier_wave": "sine", "coupling": "uncoupled"},
-    "binaural": {"carrier_left_hz": 400, "beat_rate_hz": 6},
+    "binaural": {"carrier_left_hz": 100, "beat_rate_hz": 6},
 }
 
 
