@@ -35,7 +35,8 @@ add_executable(arcani_tests
   test_binaural.cpp
   test_rate_curves.cpp
   test_loop.cpp
-  test_components.cpp)
+  test_components.cpp
+  test_spacing.cpp)
 # arcani::engine_internal exposes engine/src (core/phase.hpp, core/sine.hpp)
 # to the tests; the public C API header stays the only shipped include path.
 target_link_libraries(arcani_tests PRIVATE

@@ -23,6 +23,7 @@ typedef void (*destroy_fn)(arc_renderer*);
 typedef const char* (*recipe_hash_fn)(const arc_plan*); /* Story 1.4 */
 typedef uint64_t (*seed_fn)(const arc_plan*);            /* Story 1.4 */
 typedef arc_status (*component_fn)(const arc_plan*, size_t, arc_component*, arc_error*); /* Story 3.1 */
+typedef arc_status (*spacing_fn)(const arc_plan*, arc_ear, arc_spacing*, arc_error*);    /* Story 3.2 */
 
 int arc_test_c_header(void);
 
@@ -44,6 +45,7 @@ int arc_test_c_header(void) {
   seed_fn seed = arc_plan_seed;
   count_fn component_count = arc_plan_component_count; /* Story 3.1 */
   component_fn component = arc_plan_component;
+  spacing_fn spacing = arc_plan_spacing; /* Story 3.2 */
 
   arc_error error;
   arc_compile_options options;
@@ -55,12 +57,14 @@ int arc_test_c_header(void) {
   arc_component line;
   arc_component_layer layer = ARC_COMPONENT_THETA_REFERENCE;
   arc_ear ear = ARC_EAR_LEFT;
+  arc_spacing worst;
   int sum = 0;
 
   error.parameter[0] = '\0';
   error.value[ARC_ERROR_FIELD_BYTES - 1] = '\0';
   error.rule[0] = '\0';
   error.limit[0] = '\0';
+  error.detail[ARC_ERROR_DETAIL_BYTES - 1] = '\0'; /* Story 3.2 */
   options.mode = ARC_MODE_FINAL;
   options.sample_rate = 48000u;
   options.mute_binaural_ear = ARC_MUTE_LEFT;
@@ -78,6 +82,11 @@ int arc_test_c_header(void) {
   line.gamma_mult = 0;
   line.theta_mult = 0;
   line.beat_mult = 0;
+  worst.has_pair = 1;
+  worst.min_distance_hz = 118.0;
+  worst.margin_hz = 68.0;
+  worst.component_1 = 0u;
+  worst.component_2 = 35u;
 
   sum += (int)status + (int)mode + (int)mute + (int)kind;
   sum += ARC_ERR_INVALID_ARGUMENT + ARC_ERR_REJECTED + ARC_ERR_OUT_OF_MEMORY + ARC_ERR_INTERNAL;
@@ -90,6 +99,8 @@ int arc_test_c_header(void) {
   sum += (component_count != NULL) + (component != NULL) + (int)layer + (int)ear + ARC_COMPONENT_BINAURAL;
   sum += (int)line.layer + (int)line.ear + (int)line.gamma_mult + (int)line.theta_mult + (int)line.beat_mult +
          (line.level > 0.0) + (line.low_hz <= line.center_hz) + (line.center_hz <= line.high_hz);
+  sum += (spacing != NULL) + (int)worst.has_pair + (worst.margin_hz < worst.min_distance_hz) +
+         (int)(worst.component_2 - worst.component_1) + error.detail[ARC_ERROR_DETAIL_BYTES - 1];
   sum += (int)sizeof error + error.parameter[0] + (int)options.sample_rate + (taps.master == NULL);
   return sum;
 }

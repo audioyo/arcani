@@ -342,15 +342,79 @@ inline bool is_string(const json::Value* v) {
 // frames, with exactly opening_end_frame, seam_frames, and end_frame (in that
 // order): the seams ascending, each above the opening end and below the end,
 // and the end equal to frames. A report without loop is unchanged.
+// Story 3.2: a report of a recipe with a spacing pair in at least one ear has
+// the member spacing after loop (or after frames without it) and before
+// determinism_key, with exactly left and right; each ear is null or an
+// object with exactly min_distance_hz, margin_hz, component_1, component_2,
+// pair (in that order): numbers, margin 0 or more and at most the minimum
+// distance, component_1 below component_2, pair a non-empty string. At least
+// one ear is not null. A report without spacing is unchanged.
+inline void spacing_problems(const json::Value& spacing, std::vector<std::string>& p) {
+  if (!members_are(spacing, {"left", "right"})) {
+    p.push_back("spacing members are not exactly left, right (in that order)");
+    return;
+  }
+  int pairs = 0;
+  for (const char* ear : {"left", "right"}) {
+    const json::Value& e = *spacing.find(ear);
+    if (e.kind() == json::Kind::Null) {
+      continue;
+    }
+    ++pairs;
+    const std::string where = std::string("spacing ") + ear + " ";
+    if (!members_are(e, {"min_distance_hz", "margin_hz", "component_1", "component_2", "pair"})) {
+      p.push_back(where + "members are not exactly min_distance_hz, margin_hz, component_1, component_2, pair");
+      continue;
+    }
+    const json::Value* distance = e.find("min_distance_hz");
+    const json::Value* margin = e.find("margin_hz");
+    const json::Value* c1 = e.find("component_1");
+    const json::Value* c2 = e.find("component_2");
+    const json::Value* pair = e.find("pair");
+    if (distance->kind() != json::Kind::Number) p.push_back(where + "min_distance_hz is not a number");
+    if (margin->kind() != json::Kind::Number) p.push_back(where + "margin_hz is not a number");
+    if (distance->kind() == json::Kind::Number && margin->kind() == json::Kind::Number &&
+        !(margin->number() >= 0.0 && margin->number() <= distance->number())) {
+      p.push_back(where + "margin_hz is not in [0, min_distance_hz]");
+    }
+    if (!is_count(c1) || !is_count(c2)) {
+      p.push_back(where + "component_1 or component_2 is not a non-negative integer");
+    } else if (!(c1->number() < c2->number())) {
+      p.push_back(where + "component_1 is not below component_2");
+    }
+    if (!is_string(pair) || pair->string().empty()) p.push_back(where + "pair is not a non-empty string");
+  }
+  if (pairs == 0) {
+    p.push_back("spacing is written with no ear holding a pair");
+  }
+}
+
 inline std::vector<std::string> report_problems(const json::Value& r) {
   std::vector<std::string> p;
-  const bool looping = members_are(r, {"engine_version", "seed", "sample_rate", "mode", "frames", "loop",
-                                       "determinism_key", "assertions"});
-  if (!looping && !members_are(r, {"engine_version", "seed", "sample_rate", "mode", "frames",
-                                   "determinism_key", "assertions"})) {
+  const bool has_loop = r.kind() == json::Kind::Object && r.find("loop") != nullptr;
+  const bool has_spacing = r.kind() == json::Kind::Object && r.find("spacing") != nullptr;
+  const bool looping = has_loop;
+  bool shape = false;
+  if (has_loop && has_spacing) {
+    shape = members_are(r, {"engine_version", "seed", "sample_rate", "mode", "frames", "loop", "spacing",
+                            "determinism_key", "assertions"});
+  } else if (has_loop) {
+    shape = members_are(r, {"engine_version", "seed", "sample_rate", "mode", "frames", "loop",
+                            "determinism_key", "assertions"});
+  } else if (has_spacing) {
+    shape = members_are(r, {"engine_version", "seed", "sample_rate", "mode", "frames", "spacing",
+                            "determinism_key", "assertions"});
+  } else {
+    shape = members_are(r, {"engine_version", "seed", "sample_rate", "mode", "frames",
+                            "determinism_key", "assertions"});
+  }
+  if (!shape) {
     p.push_back("top-level members are not exactly engine_version, seed, sample_rate, mode, "
-                "frames, [loop,] determinism_key, assertions (in that order)");
+                "frames, [loop,] [spacing,] determinism_key, assertions (in that order)");
     return p;
+  }
+  if (has_spacing) {
+    spacing_problems(*r.find("spacing"), p);
   }
   if (looping) {
     const json::Value& loop = *r.find("loop");

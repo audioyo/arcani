@@ -230,7 +230,11 @@ std::string theta_member(const char* carrier, const char* rate, const char* dept
 }
 
 const std::string kBaseTheta = theta_member("450", "6", "75", "sine");
-const std::string kBinaural = "\"binaural\": {\"carrier_left_hz\": 400, \"beat_rate_hz\": 6}, ";
+// Story 3.2 (spacing rule, 50 Hz per ear between layers): the binaural
+// pair is 100 Hz left and 106 Hz right, as in the AD-5 sweep, at least
+// 50 Hz from every theta and gamma component here (at 400 and 406 Hz it
+// sat 38 Hz from the 444 Hz line of the 450 Hz theta carrier at 6 Hz).
+const std::string kBinaural = "\"binaural\": {\"carrier_left_hz\": 100, \"beat_rate_hz\": 6}, ";
 
 template <class P>
 concept PlanHasCoupling = requires(const P& p) {
@@ -524,11 +528,15 @@ TEST_CASE("coupling: another theta carrier, depth, or shape at the same rate lea
     const char* depth;
     const char* shape;
   };
-  const Theta others[] = {{"300", "25", "sawtooth"},
-                          {"100", "100", "reverse_saw"},
+  // Story 3.2: every other theta stays at least 50 Hz from the gamma
+  // components (the 250 Hz carrier at 40 Hz with its theta lines), as the
+  // spacing rule needs; it was 300 Hz sawtooth, 100 Hz reverse_saw, and
+  // 200 Hz sine. Carriers below and above the gamma carrier remain.
+  const Theta others[] = {{"420", "25", "sawtooth"},
+                          {"480", "100", "reverse_saw"},
                           {"500", "50", "smoothed_on_off"},
                           {"450", "75", "smoothed_on_off"},
-                          {"200", "75", "sine"}};
+                          {"100", "75", "sine"}};
   for (const char* phase : {"0", "90", "270"}) {
     for (const char* depth : {"25", "100"}) {
       const std::string base = swell_recipe(kBaseTheta, depth, phase);

@@ -485,9 +485,10 @@ namespace {
 // Theta, gamma, and binaural together, made in the test (no stored fixture):
 // a 450 Hz carrier amplitude-modulated at 6 Hz by the sine envelope at
 // 75 percent depth, a 250 Hz sine carrier amplitude-modulated at 40 Hz at
-// 100 percent depth (uncoupled), and a 400 Hz unmodulated sine in the left
-// ear with a 406 Hz unmodulated sine in the right ear (a 6 Hz binaural
-// beat), 1 s.
+// 100 percent depth (uncoupled), and a 100 Hz unmodulated sine in the left
+// ear with a 106 Hz unmodulated sine in the right ear (a 6 Hz binaural
+// beat), 1 s. Story 3.2: the binaural pair moved from 400 and 406 Hz, 38 Hz
+// from the 444 Hz theta line, to stay 50 Hz from every other layer's line.
 std::string theta_gamma_binaural_recipe() {
   return "{\"schema_version\": \"1.0\", \"engine_version\": \"0.0.1\", \"seed\": 42, "
          "\"author\": \"Arcani test\", \"date\": \"2026-11-07\", "
@@ -497,7 +498,7 @@ std::string theta_gamma_binaural_recipe() {
          "\"shape\": \"sine\"}, "
          "\"gamma_pac\": {\"carrier_hz\": 250, \"rate_hz\": 40, \"am_depth_percent\": 100, "
          "\"carrier_wave\": \"sine\", \"coupling\": \"uncoupled\"}, "
-         "\"binaural\": {\"carrier_left_hz\": 400, \"beat_rate_hz\": 6}}";
+         "\"binaural\": {\"carrier_left_hz\": 100, \"beat_rate_hz\": 6}}";
 }
 
 Rendered render_text(const std::string& text, std::uint32_t fs, arc_mute_ear mute) {

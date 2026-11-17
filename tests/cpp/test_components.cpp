@@ -288,7 +288,9 @@ std::string gamma_wave(const std::string& wave) {
   return "\"gamma_pac\": {\"carrier_hz\": 250, \"rate_hz\": 40, \"am_depth_percent\": 100, \"carrier_wave\": \"" +
          wave + "\", \"coupling\": \"uncoupled\"}";
 }
-const std::string kBinauralSine = "\"binaural\": {\"carrier_left_hz\": 400, \"beat_rate_hz\": 6}";
+// Story 3.2: 100 and 106 Hz (it was 400 and 406 Hz, 38 Hz from the 444 Hz
+// theta line), so the muted-ear recipe passes the spacing rule.
+const std::string kBinauralSine = "\"binaural\": {\"carrier_left_hz\": 100, \"beat_rate_hz\": 6}";
 const std::string kBinauralTriangle =
     "\"binaural\": {\"carrier_left_hz\": 400, \"beat_rate_hz\": 6, \"waveform\": \"triangle\"}";
 
