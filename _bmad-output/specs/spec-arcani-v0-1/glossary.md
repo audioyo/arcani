@@ -16,7 +16,7 @@ Binding terms from PRD §3, limited to what v0.1 uses. Code, docs, and recipes u
 - **Mode:** a session family (Focus, Learn, Relax, Sleep); each is one or more recipes.
 - **Locked range:** the allowed span for a recipe parameter, traced to the design log.
 - **Validator:** the compiler check that rejects a recipe breaking a locked range, the carrier rule, or the spacing rule.
-- **Carrier rule:** every modulated carrier is at least 4 times its modulation rate.
+- **Carrier rule:** every modulated carrier is at least 4 times its modulation rate, which is the layer's own named rate (theta rate or gamma rate) at its worst case along a rate cycle; coupling does not change it (design log 2026-11-16 (vv)).
 - **Spectral component:** any spectral line of a layer within 40 dB of that layer's strongest line, counting harmonics from bursts, envelope shapes, and non-sine carriers. 40 dB is a placeholder.
 - **Spacing rule:** in each ear, at least 50 Hz between any spectral component of one layer and any of another, counting modulation side frequencies. A layer's own components and the binaural pair are exempt. 50 Hz is a placeholder.
 - **Rate curve:** a scheduled change of a rate over the session, such as Sleep's cycling binaural beat rate.

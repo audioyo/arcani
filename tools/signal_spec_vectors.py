@@ -1,4 +1,4 @@
-"""Writes the worked test vectors of docs/signal-spec.md: core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer and rate curve, 24-bit rounding.
+"""Writes the worked test vectors of docs/signal-spec.md: core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer and rate curve, loop, components, 24-bit rounding.
 
 Usage:
   python tools/signal_spec_vectors.py            write tests/data/signal_spec_vectors.json
@@ -79,6 +79,12 @@ engine or from binary64 library calls:
   (engine bits), with ideal values at 25 digits: the ideal U (exact K, ideal
   cosines) rounded to the nearest phase unit, the ideal envelopes, swell,
   and burst gate of that integer phase, and the ideal carrier sines.
+- Components (Story 3.1): the line model of every v0.1 shape. Frequencies
+  are exact sums of the binary64 recipe values (Fraction); levels are the
+  closed-form Fourier coefficients of the envelopes, the swell, and the burst
+  gate in decimal arithmetic at 70 digits (decimal pi, sine, cosine, and
+  square root), written with 25 significant digits; coincident burst lines
+  are summed as complex amplitudes. Nothing is sampled or transformed.
 - 24-bit rounding (Story 1.4): x = s * 2^23 in exact Fraction arithmetic,
   clamped to [-8388608, 8388607], else rounded to the nearest integer, ties
   to even; NaN gives 0. Written as 3 bytes, little-endian two's complement.
@@ -2488,6 +2494,528 @@ def loop_frame_rows():
     return rows
 
 
+# ------------------------------------------------- components (Story 3.1)
+#
+# The line model of docs/signal-spec.md, Components, in exact Fraction and
+# 60-digit decimal arithmetic. Frequencies are exact sums of the binary64
+# recipe values; levels are closed-form Fourier coefficients (decimal sine,
+# cosine, pi, and square root). Nothing is sampled, and nothing comes from
+# the engine or the reference.
+
+COMPONENT_LEVEL_DB = 40.0          # row spectral-component-level
+COMPONENT_LEVEL_ERROR = 1e-6       # row component-level-error (a ratio)
+COMPONENT_FREQUENCY_ERROR = 1e-9   # row component-frequency-error (Hz)
+COMPONENT_LAYERS = ("theta_reference", "gamma_pac", "binaural")
+COMPONENT_NO_MODEL_RULE = "no component model"
+THETA_HALF_ON_SHARE = Fraction(1, 4)   # h = H / 2^64 with H = 2^62
+
+
+def component_threshold():
+    """T = 10^(-L / 20) for the row value L in dB, as a Decimal (0.01 for 40 dB)."""
+    with localcontext() as ctx:
+        ctx.prec = PREC + 10
+        return Decimal(10) ** (-exact_decimal(COMPONENT_LEVEL_DB) / 20)
+
+
+def _frac_decimal(x):
+    """The exact value of a Fraction, int, or binary64 as a Decimal at the current precision."""
+    f = Fraction(x)
+    return Decimal(f.numerator) / Decimal(f.denominator)
+
+
+def _sin_pi(z):
+    """sin(pi z) for a Fraction z, as a Decimal."""
+    return decimal_sin_cycles(Fraction(z) / 2)
+
+
+def _cos_pi(z):
+    """cos(pi z) for a Fraction z, as a Decimal."""
+    return decimal_sin_cycles(Fraction(z) / 2 + Fraction(1, 4))
+
+
+def _cos_units(units):
+    """cos(2 pi units / 2^64) for an integer phase, as a Decimal."""
+    return ideal_sine_decimal((units + QUARTER) % CYCLE)
+
+
+def _sin_units(units):
+    """sin(2 pi units / 2^64) for an integer phase, as a Decimal."""
+    return ideal_sine_decimal(units % CYCLE)
+
+
+def edge_factor(k, w):
+    """P(k, w) = cos(pi k w) / (1 - (2 k w)^2), and pi / 4 at 2 k w = 1 (Decimal)."""
+    x = 2 * k * Fraction(w)
+    if x == 1:
+        return decimal_pi() / 4
+    return _cos_pi(k * Fraction(w)) / _frac_decimal(1 - x * x)
+
+
+def edge_factor_bound(k, w):
+    """Pb(k, w) >= |P(k, w)|: 1 while (2 k w)^2 <= 2, then 1 / ((2 k w)^2 - 1) (Fraction)."""
+    x2 = (2 * k * Fraction(w)) ** 2
+    return Fraction(1) if x2 <= 2 else 1 / (x2 - 1)
+
+
+def on_off_coefficient(k, h, w):
+    """The signed Fourier coefficient c_k of the smoothed on-off form with half
+    on share h and edge share w (fractions of a cycle): the theta envelope
+    (h = 1/4) and the burst gate (h = 0.025 * rate_hz)."""
+    h, w = Fraction(h), Fraction(w)
+    if k == 0:
+        return _frac_decimal(2 * h - w)
+    k = abs(k)
+    return _sin_pi(k * (2 * h - w)) / (decimal_pi() * k) * edge_factor(k, w)
+
+
+def on_off_bound(k, w):
+    """B(k) >= |c_k| of the smoothed on-off form for k >= 1, never rising with k (Decimal)."""
+    return _frac_decimal(edge_factor_bound(k, w)) / (decimal_pi() * k)
+
+
+def sawtooth_coefficient(k, w):
+    """|c_k| of the sawtooth and of the reverse saw with edge share w (Decimal)."""
+    w = Fraction(w)
+    if k == 0:
+        return Decimal(1) / 2
+    k = abs(k)
+    pk = decimal_pi() * k
+    return abs(edge_factor(k, w) + _sin_pi(k * w) / (pk * _frac_decimal(1 - w))) / (2 * pk)
+
+
+def sawtooth_bound(k, w):
+    """B(k) >= |c_k| of the sawtooth and the reverse saw for k >= 1, never rising with k."""
+    pk = decimal_pi() * k
+    return (_frac_decimal(edge_factor_bound(k, w))
+            + 1 / (pk * _frac_decimal(1 - Fraction(w)))) / (2 * pk)
+
+
+def has_cycle(cycle):
+    """For the component model a rate has a cycle when its swing is above 0."""
+    return cycle is not None and cycle[0] > 0.0
+
+
+def twice_whole_ratio(gamma_rate, theta_rate):
+    """n2 when twice the gamma rate is a whole multiple of the theta rate by the
+    binary64 test of Components (q = (2 f_M) / f_theta is an integer and
+    q * f_theta == 2 f_M), else None."""
+    two = 2.0 * gamma_rate
+    q = two / theta_rate
+    if q == math.floor(q) and q * theta_rate == two:
+        return int(q)
+    return None
+
+
+class ComponentError(Exception):
+    """A shape with no component model (rule `no component model`)."""
+
+
+def _theta_lines(theta, t):
+    """[(theta_mult, amplitude)] of the theta reference, the carrier first."""
+    _, rate, depth_percent, shape, _ = theta
+    d = _frac_decimal(depth_percent / 100.0)
+    w = Fraction(theta_edge_s() * rate)
+    if shape == "sine":
+        return [(0, 1 - d / 2), (1, d / 4), (-1, d / 4)]
+    if shape == "smoothed_on_off":
+        c0 = on_off_coefficient(0, THETA_HALF_ON_SHARE, w)
+
+        def coefficient(k):
+            return abs(on_off_coefficient(k, THETA_HALF_ON_SHARE, w))
+
+        def bound(k):
+            return on_off_bound(k, w)
+    elif shape in ("sawtooth", "reverse_saw"):
+        c0 = Decimal(1) / 2
+
+        def coefficient(k):
+            return sawtooth_coefficient(k, w)
+
+        def bound(k):
+            return sawtooth_bound(k, w)
+    else:
+        raise ComponentError(shape)
+    carrier = 1 - d + d * c0
+    lines = [(0, carrier)]
+    k = 1
+    while d * bound(k) >= t * carrier:
+        c = coefficient(k)
+        assert c <= bound(k), (shape, k)
+        lines.append((k, d * c))
+        lines.append((-k, d * c))
+        k += 1
+    return lines
+
+
+def _gamma_lines(gamma, theta, t):
+    """[(gamma_mult, theta_mult, amplitude)] of the gamma PAC layer, the carrier
+    first; burst lines at one frequency are already summed."""
+    _, rate, depth_percent, coupling, deg, cycle = gamma
+    d = _frac_decimal(depth_percent / 100.0)
+    if coupling == "uncoupled":
+        return [(0, 0, 1 - d / 2), (1, 0, d / 4), (-1, 0, d / 4)]
+    if coupling not in ("smooth_swell", "bursts"):
+        raise ComponentError(coupling)
+    if d == 0 or theta is None:
+        # Compile accepts coupled gamma without a theta reference with AM depth
+        # only at gamma depth 0: the carrier alone.
+        return [(0, 0, Decimal(1))]
+    if coupling == "smooth_swell":
+        lines = [(0, 0, 1 - d / 4)]
+        lines += [(0, j, d / 8) for j in (1, -1)]
+        lines += [(i, 0, d / 8) for i in (1, -1)]
+        lines += [(i, j, d / 16) for i in (1, -1) for j in (1, -1)]
+        return lines
+    theta_rate, theta_cycle = theta[1], theta[4]
+    h = Fraction((BURST_WIDTH_MS / 1000.0 / 2) * theta_rate)
+    w = Fraction((BURST_EDGE_MS / 1000.0) * theta_rate)
+    g = functools.lru_cache(maxsize=None)(lambda j: on_off_coefficient(j, h, w))
+    c_units = coupling_phase_units(deg)[0]
+    n2 = None
+    if not has_cycle(cycle) and not has_cycle(theta_cycle):
+        n2 = twice_whole_ratio(rate, theta_rate)
+
+    def last_j(scale, carrier):
+        """The last j with scale * B(j) >= t * carrier (0 when there is none)."""
+        j = 0
+        while scale * on_off_bound(j + 1, w) >= t * carrier:
+            j += 1
+        return j
+
+    def rotated(j, scale):
+        """scale * g_j * e^(-2 pi i j C / 2^64) as (real, imaginary)."""
+        units = (j * c_units) % CYCLE
+        return scale * g(j) * _cos_units(units), -scale * g(j) * _sin_units(units)
+
+    def magnitude(parts):
+        re = sum(p[0] for p in parts)
+        im = sum(p[1] for p in parts)
+        return (re * re + im * im).sqrt()
+
+    if n2 is not None and n2 % 2 == 0:
+        # A whole ratio n: every line lies at f_G + m f_theta and sums the
+        # members (0, m), (1, m - n), and (-1, m + n).
+        n = n2 // 2
+
+        def line(m):
+            parts = [rotated(m, -d / 2), rotated(m - n, d / 4), rotated(m + n, d / 4)]
+            if m == 0:
+                parts.append((Decimal(1), Decimal(0)))
+            return magnitude(parts)
+
+        carrier = line(0)
+        last = n + last_j(d, carrier)
+        return [(0, 0, carrier)] + [(0, m, line(m)) for m in range(-last, last + 1) if m != 0]
+    carrier = 1 - d * g(0) / 2
+    last = last_j(d / 2, carrier)
+    lines = [(0, 0, carrier)]
+    for j in range(-last, last + 1):
+        if j != 0:
+            lines.append((0, j, d * abs(g(j)) / 2))
+    if n2 is None:
+        for j in range(-last, last + 1):
+            for i in (1, -1):
+                lines.append((i, j, d * abs(g(j)) / 4))
+        return lines
+    # A half-whole ratio (n2 odd): the lines (0, j) stand alone, and the line at
+    # f_G + f_M + j f_theta sums the members (1, j) and (-1, j + n2).
+    for j in range(-n2 - last, last + 1):
+        amp = magnitude([rotated(j, d / 4), rotated(j + n2, d / 4)])
+        i, jj = (1, j) if abs(j) < abs(j + n2) else (-1, j + n2)
+        lines.append((i, jj, amp))
+    return lines
+
+
+def _interval(center, half):
+    """(center, low, high) of a line that spans center +- half; a frequency
+    below 0 is listed at its absolute value."""
+    low, high = center - half, center + half
+    if high <= 0:
+        return -center, -high, -low
+    if low < 0:
+        return abs(center), Decimal(0), max(-low, high)
+    return center, low, high
+
+
+def component_table(theta, gamma, binaural, mute="none"):
+    """The component table of one recipe (docs/signal-spec.md, Components).
+
+    theta is None or (carrier_hz, rate_hz, am_depth_percent, shape, cycle);
+    gamma is None or (carrier_hz, rate_hz, am_depth_percent, coupling,
+    coupling_phase_deg or None, cycle); binaural is None or (carrier_left_hz,
+    beat_rate_hz, cycle); a cycle is None or (swing_hz, period_s,
+    start_phase_deg). Returns the rows in table order with the left and right
+    tables merged: ear is `both` where a row is in both. Values are Decimals."""
+    with localcontext() as ctx:
+        ctx.prec = PREC + 10
+        t = component_threshold()
+        margin = 2 * Decimal(COMPONENT_LEVEL_ERROR)
+        rows = []
+
+        def swing_and_phase(cycle):
+            if not has_cycle(cycle):
+                return Decimal(0), 0
+            return _frac_decimal(cycle[0]), coupling_phase_units(cycle[2])[0]
+
+        def add(layer, ear, mults, center, half, level):
+            # No vector line may sit inside the in-or-out band around the threshold.
+            assert abs(level - t) > margin, (layer, mults, level)
+            if level < t:
+                return
+            c, lo, hi = _interval(center, half)
+            rows.append({"layer": layer, "ear": ear, "gamma_mult": mults[0], "theta_mult": mults[1],
+                         "beat_mult": mults[2], "center": c, "low": lo, "high": hi, "level": level})
+
+        s_t, p_t = swing_and_phase(theta[4]) if theta is not None else (Decimal(0), 0)
+        if theta is not None:
+            f_t, rate = _frac_decimal(theta[0]), _frac_decimal(theta[1])
+            lines = _theta_lines(theta, t)
+            carrier = lines[0][1]
+            for k, amp in lines:
+                add("theta_reference", "both", (0, k, 0), f_t + k * rate, abs(k) * s_t, amp / carrier)
+        if gamma is not None:
+            f_g, rate = _frac_decimal(gamma[0]), _frac_decimal(gamma[1])
+            theta_rate = _frac_decimal(theta[1]) if theta is not None else Decimal(0)
+            s_m, p_m = swing_and_phase(gamma[5])
+            cos_between = _cos_units((p_m - p_t) % CYCLE)
+            lines = _gamma_lines(gamma, theta, t)
+            carrier = lines[0][2]
+            for i, j, amp in lines:
+                a, b = i * s_m, j * s_t
+                if a != 0 and b != 0:
+                    half = (a * a + b * b + 2 * a * b * cos_between).sqrt()
+                else:
+                    half = abs(a) + abs(b)
+                add("gamma_pac", "both", (i, j, 0), f_g + i * rate + j * theta_rate, half,
+                    amp / carrier)
+        if binaural is not None:
+            left, beat, cycle = binaural
+            if mute != "left":
+                add("binaural", "left", (0, 0, 0), _frac_decimal(left), Decimal(0), Decimal(1))
+            if mute != "right":
+                s_b = _frac_decimal(cycle[0]) if has_cycle(cycle) else Decimal(0)
+                add("binaural", "right", (0, 0, 1), _frac_decimal(left + beat), s_b, Decimal(1))
+        order = {layer: n for n, layer in enumerate(COMPONENT_LAYERS)}
+        rows.sort(key=lambda r: (order[r["layer"]], r["center"], r["gamma_mult"], r["theta_mult"],
+                                 r["beat_mult"], r["ear"]))
+        return rows
+
+
+def _cycle_member(cycle):
+    swing, period, start = cycle
+    return {"swing_hz": swing, "period_s": period, "start_phase_deg": start}
+
+
+def component_layer_objects(theta, gamma, binaural):
+    """The three layer objects as a recipe writes them (None where absent)."""
+    t = g = b = None
+    if theta is not None:
+        carrier, rate, depth, shape, cycle = theta
+        t = {"carrier_hz": carrier, "rate_hz": rate, "am_depth_percent": depth, "shape": shape}
+        if cycle is not None:
+            t["rate_cycle"] = _cycle_member(cycle)
+    if gamma is not None:
+        carrier, rate, depth, coupling, deg, cycle = gamma
+        g = {"carrier_hz": carrier, "rate_hz": rate, "am_depth_percent": depth,
+             "carrier_wave": "sine", "coupling": coupling}
+        if deg is not None:
+            g["coupling_phase_deg"] = deg
+        if cycle is not None:
+            g["rate_cycle"] = _cycle_member(cycle)
+    if binaural is not None:
+        left, beat, cycle = binaural
+        b = {"carrier_left_hz": left, "beat_rate_hz": beat}
+        if cycle is not None:
+            b["beat_rate_cycle"] = _cycle_member(cycle)
+    return t, g, b
+
+
+def _json_text(value):
+    """Compact JSON with every number as its shortest round-trip text."""
+    if isinstance(value, dict):
+        return "{" + ",".join(f"{json.dumps(k)}:{_json_text(v)}" for k, v in value.items()) + "}"
+    if isinstance(value, float):
+        return js_number(value)
+    return json.dumps(value)
+
+
+COMPONENT_CASE_LENGTH_S = 10.0
+
+
+def component_recipe_text(case, theta, gamma, binaural):
+    """A schema-valid recipe text for one component case: the case's layers
+    and nothing else that could change the table."""
+    recipe = {"schema_version": "1.0", "engine_version": "0.0.1", "seed": 42,
+              "author": "Arcani test fixtures", "date": "2026-11-16",
+              "rationale": f"Component vector case {case} (Story 3.1). A test recipe, not for listening.",
+              "length_s": COMPONENT_CASE_LENGTH_S, "loudness_target_lufs": -36.0}
+    t, g, b = component_layer_objects(theta, gamma, binaural)
+    if t is not None:
+        recipe["theta_reference"] = t
+    if g is not None:
+        recipe["gamma_pac"] = g
+    if b is not None:
+        recipe["binaural"] = b
+    return _json_text(recipe)
+
+
+_SINE_THETA = (450.0, 6.0, 75.0, "sine", None)
+_SINE_THETA_CYCLE = (450.0, 4.0, 75.0, "sine", THETA_CYCLE_COUPLED)
+
+
+def component_cases():
+    """(case, fixture or None, mute, theta, gamma, binaural): every Epic 2
+    shape fixture, then cases no fixture has. A fixture case is named after
+    its file, and its layers equal the file's."""
+    cases = []
+    for fixture, carrier, rate, depth, shape, _ in THETA_FIXTURES:
+        cases.append((fixture, "none", (carrier, rate, depth, shape, None), None, None))
+    for fixture, (carrier, rate, depth), theta, _ in GAMMA_FIXTURES:
+        cases.append((fixture, "none", None if theta is None else theta + (None,),
+                      (carrier, rate, depth, "uncoupled", None, None), None))
+    for fixture, shape, deg, depth in SWELL_FIXTURES:
+        theta = None if shape is None else SWELL_THETA + (shape, None)
+        cases.append((fixture, "none", theta, SWELL_GAMMA + (depth, "smooth_swell", deg, None), None))
+    for fixture, rate in BURST_FIXTURES:
+        cases.append((fixture, "none", BURST_THETA + (None,),
+                      (BURST_GAMMA[0], rate, BURST_GAMMA[1], "bursts", BURST_GAMMA[2], None), None))
+    for fixture, left, beat, cycle, _ in BINAURAL_FIXTURES:
+        cases.append((fixture, "none", None, None, (left, beat, cycle)))
+    for fixture, theta, gamma in RATE_CURVE_FIXTURES:
+        cases.append((fixture, "none", theta, gamma, None))
+    cases.append(("both-layers.json", "none", (200.0, 6.0, 0.0, "sine", None), None, (400.0, 6.0, None)))
+    out = [(fixture[:-len(".json")], fixture) + tuple(rest) for fixture, *rest in cases]
+    beat_6 = (400.0, 6.0, None)
+    out += [
+        # A muted ear has no binaural component.
+        ("binaural-beat-6-mute-left", "binaural-beat-6.json", "left", None, None, beat_6),
+        ("binaural-beat-6-mute-right", "binaural-beat-6.json", "right", None, None, beat_6),
+        # The edge factor at 2 k w = 1 within one rounding (k = 10 at 5 Hz).
+        ("theta-smoothed-on-off-5hz", None, "none", (450.0, 5.0, 75.0, "smoothed_on_off", None), None, None),
+        ("theta-sawtooth-5hz", None, "none", (450.0, 5.0, 75.0, "sawtooth", None), None, None),
+        # Lines below 0 Hz, listed at their absolute value; with a cycle, intervals that cross 0.
+        ("theta-100hz-smoothed-on-off-100pct", None, "none",
+         (100.0, 6.0, 100.0, "smoothed_on_off", None), None, None),
+        ("theta-100hz-smoothed-on-off-cycle-100pct", None, "none",
+         (100.0, 5.0, 100.0, "smoothed_on_off", (1.0, 60.0, 0.0)), None, None),
+        # A swell whose outer lines are under the threshold.
+        ("swell-10pct", None, "none", _SINE_THETA, (250.0, 40.0, 10.0, "smooth_swell", 0.0, None), None),
+        # Both cycles, 60 degrees apart: the square-root half width.
+        ("swell-cycles-60deg-apart", None, "none", _SINE_THETA_CYCLE,
+         (250.0, 45.0, 100.0, "smooth_swell", 0.0, (15.0, 60.0, 60.0)), None),
+        ("bursts-cycles-60deg-apart", None, "none", _SINE_THETA_CYCLE,
+         (250.0, 45.0, 100.0, "bursts", 0.0, (15.0, 60.0, 60.0)), None),
+        # Summed lines with a coupling phase that turns the gate phase.
+        ("bursts-60hz-135deg", None, "none", _SINE_THETA, (250.0, 60.0, 100.0, "bursts", 135.0, None), None),
+        ("bursts-45hz-45deg", None, "none", _SINE_THETA, (250.0, 45.0, 100.0, "bursts", 45.0, None), None),
+        # Whole by the binary64 test, though 10 times the binary64 5.7 is not exactly 57.
+        ("bursts-57hz-theta-5.7hz", None, "none", (450.0, 5.7, 75.0, "sine", None),
+         (250.0, 57.0, 100.0, "bursts", 0.0, None), None),
+        # Cycles of swing 0 count as no cycle: summed as bursts-60hz is.
+        ("bursts-60hz-zero-swing", None, "none", (450.0, 6.0, 75.0, "sine", (0.0, 60.0, 0.0)),
+         (250.0, 60.0, 100.0, "bursts", 0.0, (0.0, 60.0, 90.0)), None),
+        # All three layers, the binaural beat rate on the Sleep cycle.
+        ("three-layers", None, "none", _SINE_THETA, (250.0, 40.0, 100.0, "smooth_swell", 0.0, None),
+         (100.0, 1.5, SLEEP_CYCLE)),
+    ]
+    names = [c[0] for c in out]
+    assert len(set(names)) == len(names), names
+    return out
+
+
+# The hash probe's `components` source, in this order.
+COMPONENT_PROBE_CASES = ("theta-smoothed-on-off-1hz", "theta-sawtooth-6hz", "bursts-45hz", "bursts-60hz",
+                         "gamma-cycle-swell-theta-cycle", "binaural-cycle-sleep")
+
+
+@functools.lru_cache(maxsize=None)
+def _component_tables():
+    return tuple((case, fixture, mute, theta, gamma, binaural,
+                  tuple(component_table(theta, gamma, binaural, mute)))
+                 for case, fixture, mute, theta, gamma, binaural in component_cases())
+
+
+def component_case_rows():
+    rows = []
+    for case, fixture, mute, theta, gamma, binaural, table in _component_tables():
+        t, g, b = component_layer_objects(theta, gamma, binaural)
+        rows.append({
+            "case": case, "fixture": "none" if fixture is None else fixture, "mute": mute,
+            "theta_reference": "none" if t is None else _json_text(t),
+            "gamma_pac": "none" if g is None else _json_text(g),
+            "binaural": "none" if b is None else _json_text(b),
+            "recipe": component_recipe_text(case, theta, gamma, binaural),
+            "components": sum(2 if r["ear"] == "both" else 1 for r in table),
+        })
+    assert set(COMPONENT_PROBE_CASES) <= {r["case"] for r in rows}
+    return rows
+
+
+def component_rows():
+    rows = []
+    for case, _, _, _, _, _, table in _component_tables():
+        for r in table:
+            rows.append({
+                "case": case, "ear": r["ear"], "layer": r["layer"],
+                "gamma_mult": r["gamma_mult"], "theta_mult": r["theta_mult"], "beat_mult": r["beat_mult"],
+                "center": format_trimmed(r["center"]), "low": format_trimmed(r["low"]),
+                "high": format_trimmed(r["high"]), "level": format_trimmed(r["level"]),
+            })
+    return rows
+
+
+COMPONENT_COEFFICIENT_RATES_HZ = (1.0, 5.0, 6.0)
+COMPONENT_COEFFICIENT_K = (0, 1, 2, 3, 7, 10, 20, 40)
+
+
+def component_coefficient_rows():
+    """P(k, w), the coefficient, and its bound B(k) per form, theta rate, and k.
+    The coefficient is signed for the smoothed on-off envelope and the burst
+    gate, and a magnitude for the sawtooth (the reverse saw has the same)."""
+    rows = []
+    with localcontext() as ctx:
+        ctx.prec = PREC + 10
+        for form in ("smoothed_on_off", "sawtooth", "burst_gate"):
+            for rate in COMPONENT_COEFFICIENT_RATES_HZ:
+                if form == "burst_gate":
+                    h = (BURST_WIDTH_MS / 1000.0 / 2) * rate
+                    w = (BURST_EDGE_MS / 1000.0) * rate
+                else:
+                    h = float(THETA_HALF_ON_SHARE)
+                    w = theta_edge_s() * rate
+                for k in COMPONENT_COEFFICIENT_K:
+                    if form == "sawtooth":
+                        c = sawtooth_coefficient(k, w)
+                        b = sawtooth_bound(k, w) if k else None
+                    else:
+                        c = on_off_coefficient(k, h, w)
+                        b = on_off_bound(k, w) if k else None
+                    assert b is None or abs(c) <= b, (form, rate, k)
+                    rows.append({
+                        "form": form, "rate_hex": hexf(rate),
+                        "h_hex": "none" if form == "sawtooth" else hexf(h), "w_hex": hexf(w), "k": k,
+                        "p": "none" if k == 0 else format_trimmed(edge_factor(k, w)),
+                        "c": format_trimmed(c), "bound": "none" if b is None else format_trimmed(b),
+                    })
+    return rows
+
+
+def component_constants():
+    t = component_threshold()
+    return {
+        "level_db": dec(COMPONENT_LEVEL_DB),
+        "threshold": format_trimmed(t),
+        "threshold_hex": hexf(binary64(Fraction(t))),
+        "level_error": dec(COMPONENT_LEVEL_ERROR),
+        "frequency_error": dec(COMPONENT_FREQUENCY_ERROR),
+        "layers": list(COMPONENT_LAYERS),
+        "ears": ["left", "right"],
+        "no_model_rule": COMPONENT_NO_MODEL_RULE,
+        "case_length_s": dec(COMPONENT_CASE_LENGTH_S),
+        "probe_cases": list(COMPONENT_PROBE_CASES),
+    }
+
+
 # ------------------------------------------------------- 24-bit rounding
 
 Q24_MAX = 8388607   # 2^23 - 1
@@ -2569,7 +3097,7 @@ def quantize_rows():
 
 def build():
     return {
-        "spec": "docs/signal-spec.md (sections core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer, rate curve (the beat rate, Story 2.5; the theta and gamma rates, Story 2.6), loop (Story 2.7), and 24-bit rounding)",
+        "spec": "docs/signal-spec.md (sections core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer, rate curve (the beat rate, Story 2.5; the theta and gamma rates, Story 2.6), loop (Story 2.7), components (Story 3.1), and 24-bit rounding)",
         "generator": "tools/signal_spec_vectors.py",
         "cycle": str(CYCLE),
         "sine_coefficients": sine_coefficients(),
@@ -2660,6 +3188,10 @@ def build():
         "loop_whole_samples": loop_whole_sample_rows(),
         "loop_compile_cases": loop_compile_rows(),
         "loop_frames": loop_frame_rows(),
+        "component_constants": component_constants(),
+        "component_coefficients": component_coefficient_rows(),
+        "component_cases": component_case_rows(),
+        "components": component_rows(),
         "quantize_24": quantize_rows(),
     }
 
@@ -3009,6 +3541,28 @@ def tables(data):
                    f"| `{r['opening_hex']}` | `{r['body_hex']}` | {r['opening_end_frame']} | {r['body_frames']} "
                    f"| {r['end_frame']} | {r['seam_count']} | {', '.join(r['seam_frames'])} "
                    f"| {r['last_pass_frames']} |")
+    out.append("")
+    out.append("| Form | Theta rate (hex) | h (hex) | w (hex) | k | P(k, w) | Coefficient | Bound B(k) |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["component_coefficients"]:
+        h = r["h_hex"] if r["h_hex"] == "none" else f"`{r['h_hex']}`"
+        out.append(f"| {r['form']} | `{r['rate_hex']}` | {h} | `{r['w_hex']}` | {r['k']} | {r['p']} "
+                   f"| {r['c']} | {r['bound']} |")
+    out.append("")
+    out.append("| Case | Fixture | Muted ear | theta_reference | gamma_pac | binaural | Components |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["component_cases"]:
+        layers = [r[key] if r[key] == "none" else f"`{r[key]}`"
+                  for key in ("theta_reference", "gamma_pac", "binaural")]
+        out.append(f"| {r['case']} | {r['fixture']} | {r['mute']} | {layers[0]} | {layers[1]} | {layers[2]} "
+                   f"| {r['components']} |")
+    out.append("")
+    out.append("| Component case | Ear | Layer | gamma_mult | theta_mult | beat_mult | center_hz | low_hz "
+               "| high_hz | level |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["components"]:
+        out.append(f"| {r['case']} | {r['ear']} | {r['layer']} | {r['gamma_mult']} | {r['theta_mult']} "
+                   f"| {r['beat_mult']} | {r['center']} | {r['low']} | {r['high']} | {r['level']} |")
     out.append("")
     out.append("| Rule | Case | s (hex) | x = s * 2^23 (hex) | Value | Bytes (little-endian) |")
     out.append("| --- | --- | --- | --- | --- | --- |")

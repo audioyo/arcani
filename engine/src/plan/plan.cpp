@@ -90,6 +90,19 @@ CompileResult compile(std::string_view utf8, Mode mode, std::uint32_t sample_rat
     return r;
   }
 
+  // Story 3.1: the component table (docs/signal-spec.md, Components). Its own
+  // no-model error is unreachable here, since check_rules() has rejected every
+  // unmodeled shape with its own text.
+  validate::ComponentResult components = validate::build_components(
+      rec, mute == MuteEar::Left    ? validate::MutedEar::Left
+           : mute == MuteEar::Right ? validate::MutedEar::Right
+                                    : validate::MutedEar::None);
+  if (components.error) {
+    CompileResult r;
+    r.error = std::move(*components.error);
+    return r;
+  }
+
   if (mode == Mode::Final) {
     if (!rec.loudness_gain_db) {
       return fail("/loudness_gain_db", "absent", "final.required", "present in final mode");
@@ -103,6 +116,7 @@ CompileResult compile(std::string_view utf8, Mode mode, std::uint32_t sample_rat
   p.sample_rate = sample_rate;
   p.frame_count = core::seconds_to_samples(rec.length_s, sample_rate);
   p.recipe_hash = rec.hash;
+  p.components = std::move(components.components);
   p.seed = rec.seed;
   for (std::size_t i = 0; i < p.stages.size(); ++i) {
     p.stages[i] = kStages[i].kind;

@@ -2,7 +2,7 @@
 
 This file is the only source of signal formulas (AD-19). The engine (`engine/`) and the Python reference (`reference/`) each implement it on their own; neither defines a formula of its own, and neither is ported from the other. A shape or stage not in this file does not exist.
 
-Story 0.2 writes the core and sine sections. Story 1.2 writes the internal block size and the stub chain. Story 1.4 writes 24-bit rounding. Story 1.5 adds the theta reference oscillator to the stub chain. Story 2.1 writes the theta reference (envelope shapes, depth law). Story 2.2 writes the gamma PAC layer, uncoupled (AM law, constant depth). Story 2.3 writes coupling (coupling phase, smooth swell). Story 2.5 writes the binaural layer and the rate curve (beat rate cycle, closed-form phase integral). Story 2.4 writes bursts (burst gate, burst constants). Story 2.6 applies the rate curve to the theta and gamma rates. Story 2.7 writes the loop (opening, body, seams, and the end at the max run time). Later stories add ramps, the limiter, the resampler, the loudness window, and the spectral component model.
+Story 0.2 writes the core and sine sections. Story 1.2 writes the internal block size and the stub chain. Story 1.4 writes 24-bit rounding. Story 1.5 adds the theta reference oscillator to the stub chain. Story 2.1 writes the theta reference (envelope shapes, depth law). Story 2.2 writes the gamma PAC layer, uncoupled (AM law, constant depth). Story 2.3 writes coupling (coupling phase, smooth swell). Story 2.5 writes the binaural layer and the rate curve (beat rate cycle, closed-form phase integral). Story 2.4 writes bursts (burst gate, burst constants). Story 2.6 applies the rate curve to the theta and gamma rates. Story 2.7 writes the loop (opening, body, seams, and the end at the max run time). Story 3.1 writes the components (the spectral line model of every shape and the component table). Later stories add ramps, the limiter, the resampler, and the loudness window.
 
 **Conventions:**
 
@@ -2869,6 +2869,1175 @@ Per compile-accepted loop fixture and sample rate: the loop fields, the opening 
 | loop-swell-theta-cycle.json | 48000 | learn | 20 | `0x1.2c00000000000p+10` | `0x1.e000000000000p+5` | `0x1.e000000000000p+6` | 2880000 | 5760000 | 57600000 | 9 | 8640000, 14400000, 20160000, 25920000, 31680000, 37440000, 43200000, 48960000, 54720000 | 2880000 |
 | loop-bursts-theta-cycle.json | 48000 | learn | 20 | `0x1.2c00000000000p+10` | `0x1.e000000000000p+5` | `0x1.e000000000000p+6` | 2880000 | 5760000 | 57600000 | 9 | 8640000, 14400000, 20160000, 25920000, 31680000, 37440000, 43200000, 48960000, 54720000 | 2880000 |
 | loop-focus-no-cycle.json | 48000 | focus | 45 | `0x1.5180000000000p+11` | `0x0.0p+0` | `0x1.6900000000000p+6` | 0 | 4332000 | 129600000 | 29 | 4332000, 8664000, 12996000, 17328000, 21660000, 25992000, 30324000, 34656000, 38988000, 43320000, 47652000, 51984000, 56316000, 60648000, 64980000, 69312000, 73644000, 77976000, 82308000, 86640000, 90972000, 95304000, 99636000, 103968000, 108300000, 112632000, 116964000, 121296000, 125628000 | 3972000 |
+
+## Components
+
+Story 3.1 writes the spectral component model: for every v0.1 shape, the spectral lines each layer puts in each ear, in closed form. Compile builds a component table from this section and stores it in the plan; the Python reference builds the same table from this section on its own. The spacing rule of Story 3.2 reads the table. Nothing here changes a sample: the renderer never reads the table, and every fixture, vector, recipe hash, and pinned hash of the earlier sections is unchanged. This section adds no rejection of a recipe that compiles today.
+
+**Line model.** Every theta reference and gamma PAC layer is `a(t) * sin(2 * pi * f_c * t)`: a sine carrier at `f_c` times an amplitude `a >= 0` that repeats. Write `a` as a sum of sinusoids. Each one at frequency `f` and amplitude `2 * A` puts two lines in the layer, at `f_c - f` and `f_c + f`, each of amplitude `A`; the mean of `a` is the amplitude of the line at `f_c`, the carrier line. Since `a >= 0`, no line is stronger than the carrier line. A binaural ear is one unmodulated sine, one line.
+
+**Level.** The level of a line is its amplitude over the amplitude of its layer's carrier line, a linear ratio in (0, 1]. The binaural pair has level 1 in each ear.
+
+**Component.** A component is a line whose level is at least `T = 10^(-L / 20)`, with `L` the value of row `spectral-component-level` in dB: for 40 dB, `T = 0.01`. A line under `T` is not in the table. A line whose ideal level is within row `component-level-error` (1e-6, a ratio) of `T` may be in the table or out of it; no vector below has such a line.
+
+**Rates and cycles.** `f_T` and `f_G` are the theta and gamma carriers, `f_theta` and `f_M` the theta and gamma rates (`rate_hz`, the center with a rate cycle), `f_L` the left binaural carrier and `f_C = carrier_left_hz + beat_rate_hz` (Binaural layer, Oscillators), all binary64 recipe values. For this section a rate has a cycle when its `rate_cycle` (or `beat_rate_cycle`) is present with `swing_hz` above 0; a cycle of swing 0 moves nothing (`K = 0`, so `U = 0`) and counts as no cycle. `s_theta`, `s_M`, and `s_B` are the swings of the theta, gamma, and beat rate cycles, 0 without a cycle.
+
+**Table.** One table per plan, the left ear's rows first, then the right ear's; inside an ear the theta reference rows, then the gamma PAC rows, then the binaural row; inside a layer by ascending `center_hz`, then ascending `gamma_mult`, then ascending `theta_mult`. The theta reference and the gamma PAC layer are the same in both channels, so their rows appear in both ears with the same values. Each row holds:
+
+- `layer`: `theta_reference`, `gamma_pac`, or `binaural`
+- `ear`: `left` or `right`
+- `center_hz`: the line's frequency at the center rates
+- `low_hz`, `high_hz`: the exact interval the line's frequency covers over a whole rate cycle; both equal `center_hz` without a cycle
+- `level`: the level defined above
+- `gamma_mult`, `theta_mult`, `beat_mult`: integers `i`, `j`, and `b` such that the line's frequency at any moment is `f_c + i * gamma rate(t) + j * theta rate(t) + b * beat rate(t)`, with `f_c` the layer's carrier (`f_L` for both binaural ears) and each rate following its own cycle (Rate curve, Law). Story 3.2 reads them to find where along the cycles two components come closest.
+
+The table depends on the recipe's three layer objects and the muted ear only: never on the sample rate, the session length, the seed, `loop`, or any other field.
+
+**Theta reference.** `d = am_depth_percent / 100.0`. The envelope `e` (Theta reference, Envelope shapes) has Fourier coefficients `c_k`, `e(phi) = sum over k of c_k * exp(2 * pi * i * k * phi)`, with `phi` the fraction of the envelope cycle. The depth law `a = 1 - d * (1 - e)` gives:
+
+```
+carrier line (theta_mult 0):   f_T,                  amplitude 1 - d + d * c_0
+side lines (theta_mult +-k):   f_T +- k * f_theta,   amplitude d * |c_k|,   k = 1, 2, ...
+```
+
+With `h = 1/4` (half the on share, `H / 2^64`) and `w = E * rate_hz` (the edge share of the cycle, the binary64 `w` of Theta reference, Fixed constants):
+
+```
+P(k, w) = cos(pi * k * w) / (1 - (2 * k * w)^2),   and pi / 4 where 2 * k * w = 1
+
+sine:              c_0 = 1/2,       |c_1| = 1/4,   c_k = 0 for k >= 2
+smoothed_on_off:   c_0 = 2 * h - w, c_k = sin(pi * k * (2 * h - w)) / (pi * k) * P(k, w)
+sawtooth:          c_0 = 1/2,       |c_k| = |P(k, w) + sin(pi * k * w) / (pi * k * (1 - w))| / (2 * pi * k)
+reverse_saw:       the sawtooth's c_0 and |c_k| (a mirror image has the same line amplitudes)
+```
+
+`P(k, w)` is the transform of one raised-cosine edge: the smoothed on-off envelope is a rectangle of width `2 * h - w` (edge midpoint to edge midpoint) smoothed by the edge. At depth 0 every side line is 0 and the layer is the carrier alone. For the sine shape the levels are `(d / 4) / (1 - d / 2)`: 0.3 at 75 percent.
+
+**Gamma PAC layer, uncoupled.** `a = 1 - d * (1 - e)` with the sine envelope at the gamma rate:
+
+```
+carrier line (0, 0):     f_G,          amplitude 1 - d / 2
+side lines (+-1, 0):     f_G +- f_M,   amplitude d / 4
+```
+
+Rows are named `(gamma_mult, theta_mult)`.
+
+**Gamma PAC layer, smooth swell.** `a = 1 - (d * s) * (1 - e)` with `s` and `1 - e` each one raised cosine (Coupling, Swell law), so the product has nine lines:
+
+```
+(0, 0):       f_G,                     amplitude 1 - d / 4
+(0, +-1):     f_G +- f_theta,          amplitude d / 8
+(+-1, 0):     f_G +- f_M,              amplitude d / 8
+(+-1, +-1):   f_G +- f_M +- f_theta,   amplitude d / 16      (all four sign pairs)
+```
+
+The coupling phase turns the phases of these lines and moves none of them, so it changes no row. At 100 percent the levels are 1/6 and 1/12. Inside the locked ranges (gamma rate at least 30 Hz, theta rate at most 6 Hz) no two of the nine lines share a frequency.
+
+**Gamma PAC layer, bursts.** `a = 1 - (d * g) * (1 - e)`. The burst gate `g` (Bursts, Burst gate) is the smoothed on-off form about the coupling phase, so its coefficients `g_j` are the smoothed on-off `c_j` above with `h = w_H` and `w = w_W`, the binary64 products `0.025 * rate_hz` and `0.01 * rate_hz` of Bursts, Fixed constants, at the theta reference's `rate_hz`; `g_-j = g_j`, and `g_0 = 2 * h - w`. Each gate harmonic `j` carries the phase factor `z^j`, `z = exp(-2 * pi * i * C / 2^64)`, with `C` the coupling phase in phase units (Coupling, Coupling phase rule). The lines `(i, j)` lie at `f_G + i * f_M + j * f_theta` for `i` in {-1, 0, 1} and every integer `j`, with complex amplitudes:
+
+```
+(0, 0):               1 - d * g_0 / 2
+(0, j), j != 0:       -(d / 2) * g_j * z^j
+(+-1, j), every j:    (d / 4) * g_j * z^j
+```
+
+A line that shares its frequency with no other has the magnitude of its amplitude: `d * |g_j| / 2` for `(0, j)` and `d * |g_j| / 4` for `(+-1, j)`.
+
+**Bursts, lines at one frequency.** When neither the theta rate nor the gamma rate has a cycle, lines at the same frequency add as complex amplitudes and the table holds one row with the magnitude of the sum. Two burst lines share a frequency exactly when twice the gamma rate is a whole multiple of the theta rate. The test is the Cycle rule's (Loop), in binary64:
+
+```
+q = (2.0 * f_M) / f_theta      the doubling exact, the division one rounding
+whole when 0 < q < 2^30, q is an integer, and q * f_theta == 2.0 * f_M (one rounding); then n2 = q
+```
+
+The cap `2^30` keeps `n2` a 32-bit integer; inside the locked ranges `q` is at most 120 (2 times 60 Hz over 1 Hz), so it never decides a recipe.
+
+- **`n2` even (the gamma rate is a whole multiple `n = n2 / 2` of the theta rate, for example 60 Hz over 6 Hz):** every line lies at `f_G + m * f_theta` for an integer `m` and sums three members, `(0, m)`, `(1, m - n)`, and `(-1, m + n)`. The carrier line, `m = 0`, sums to `1 - d * g_0 / 2 + (d / 2) * g_n * cos(2 * pi * n * C / 2^64)`. The row is named `(0, m)`.
+- **`n2` odd (for example 45 Hz over 6 Hz, `n2 = 15`):** the lines `(0, j)` stand alone. The line at `f_G + f_M + j * f_theta` sums two members, `(1, j)` and `(-1, j + n2)`. The row is named after the member with the smaller `|theta_mult|` (they never tie, since `n2` is odd).
+- **Not whole:** no two lines share a frequency and every line stands alone.
+
+Levels are then the summed magnitudes over the summed carrier line. The binary64 test treats rates such as 57 Hz over 5.7 Hz as whole although 10 times the binary64 nearest 5.7 is not exactly 57: the members then lie within 1e-13 Hz of each other, far closer than any session can resolve. With a cycle on either rate the members sweep apart and every line is listed on its own, also in the special case where both cycles keep the ratio whole at every moment. Without a `theta_reference` field, or at gamma depth 0 (the only coupled recipes compile accepts without theta AM depth), the layer is the carrier alone, for the swell and for bursts.
+
+**Binaural layer.** One row per ear, level 1, `gamma_mult` and `theta_mult` 0:
+
+```
+left:    f_L,   beat_mult 0
+right:   f_C,   beat_mult 1,   interval [f_C - s_B, f_C + s_B]
+```
+
+A muted ear (Binaural layer, Muted ear) has no binaural row; the other ear keeps its row. Without a `binaural` field there is no binaural row.
+
+**Rate cycles.** Along a rate cycle the theta envelope, the swell, and the burst gate keep their shape as functions of the theta envelope phase (`W`, `Hb`, and `Wb` are fixed shares of the theta cycle, Rate curve), and the gamma envelope keeps its shape as a function of its phase. So no coefficient changes: every level is the level at the center rates, with `w` and `h` at the center `rate_hz`. Each line sweeps in frequency and keeps its power. A row `(i, j)` has `center_hz = f_c + i * f_M + j * f_theta` and moves by `i * s_M * sin(2 * pi * t / P + phi_M) + j * s_theta * sin(2 * pi * t / P + phi_theta)`, with `phi_M` and `phi_theta` the start phases of the gamma and theta cycles. Both periods are equal (row `rate-cycle-period` is one value), so the two terms add to one sinusoid of amplitude
+
+```
+half = sqrt((i * s_M)^2 + (j * s_theta)^2 + 2 * (i * s_M) * (j * s_theta) * cos(phi_M - phi_theta))
+low_hz = center_hz - half,   high_hz = center_hz + half
+```
+
+With one cycle, or `i = 0` or `j = 0`, `half` is `|i| * s_M + |j| * s_theta`. The interval is the range over a whole cycle whatever the session length, so it is a closed-form worst case and the session is never sampled. A story that unlocks the period must extend this paragraph first.
+
+**Frequencies below 0.** A line whose frequency is below 0 sounds at its absolute value. A row whose interval lies at or below 0 is listed mirrored: `center_hz`, `low_hz`, and `high_hz` become `-center_hz`, `-high_hz`, and `-low_hz`. A row whose interval crosses 0 is listed as `|center_hz|`, `low_hz = 0`, and `high_hz` the larger of `-low_hz` and `high_hz`. The multipliers keep describing the unmirrored frequency. A mirrored line is listed on its own even where it lands on another line of its layer. Inside the locked ranges this happens only to weak outer lines of a theta reference with a carrier near 100 Hz (for example a 100 Hz carrier amplitude-modulated at 6 Hz by the smoothed on-off envelope at 100 percent depth, whose line `theta_mult = -17` lies at 2 Hz).
+
+**Search bound.** The coefficient series never end, so the builder needs to know where no further component can lie. With
+
+```
+Pb(k, w) = 1 where (2 * k * w)^2 <= 2, else 1 / ((2 * k * w)^2 - 1)        |P(k, w)| <= Pb(k, w)
+smoothed on-off and burst gate:   |c_k| <= B(k) = Pb(k, w) / (pi * k)
+sawtooth and reverse saw:         |c_k| <= B(k) = (Pb(k, w) + 1 / (pi * k * (1 - w))) / (2 * pi * k)
+```
+
+`B(k)` never rises with `k`. So for a theta shape, once `d * B(k) < T * (1 - d + d * c_0)`, no line `k` or beyond is a component. For bursts with lines that stand alone, once `(d / 2) * B(j) < T * (1 - d * g_0 / 2)`, no line with `|theta_mult| >= j` is. For summed lines each sum has at most three members of total weight `d`: with `J` the first `j` where `d * B(j)` is under `T` times the summed carrier amplitude, no row beyond `|m| = n + J` (`n2` even), and no summed row whose two members both have `|theta_mult| >= J` (`n2` odd), is a component. The engine and the reference each stop by these bounds; neither samples a signal or takes a transform.
+
+**Unmodeled shape.** Compile rejects every shape this file does not model before the table is built, with the texts and in the order of the earlier sections (Theta reference: `shape not modeled in the signal spec`; Gamma PAC layer: `non-sine carrier not modeled`; Binaural layer: `non-sine binaural not modeled`). The table builder also refuses on its own: given a recipe with a custom theta shape, a non-sine gamma carrier wave, or a non-sine binaural waveform, it returns no table and an error with rule `no component model`, the parameter, value, and limit of the matching compile rule (`/theta_reference/shape`, `/gamma_pac/carrier_wave`, `/binaural/waveform`; checked in that order). A shape added later has no table until this section models it.
+
+**Carrier rule.** The carrier rule (row `carrier-rule`) is unchanged by this section. Its modulation rate is the layer's own named rate: the theta rate for the theta reference and the gamma rate for the gamma PAC layer, each at its highest value along a rate cycle (Rate curve, Range checks). Coupling does not change it: the swell's lines at `f_G +- f_M +- f_theta` and the burst gate's harmonics are components of this table, read by the spacing rule, and are not modulation rates for the carrier rule. This is an engineering default; no source sets a carrier-to-rate ratio for a carrier with nested AM (design log 2026-11-16 (vv), independent review of 2026-11-16).
+
+**Engine.** The builder uses binary64 addition, subtraction, multiplication, division, comparison, and square root (each one correctly rounded IEEE 754 operation), integer arithmetic, and the cycle cosine (Rate curve, Cycle cosine). It makes no transcendental library call, so the table has the same bytes on every platform; the hash probe component `components` checks that on all four.
+
+```
+T        the binary64 nearest 10^(-L / 20): 0x1.47ae147ae147bp-7 for 40 dB
+pi       0x1.921fb54442d18p+1
+cos2pi(x) = cycle_cosine(cycles-to-units rule (x))                       cos(2 * pi * x), x in cycles
+sin2pi(x) = cycle_cosine(cycles-to-units rule (x) - 2^62 mod 2^64)       sin(2 * pi * x)
+sin(pi * y) = sin2pi(y * 0.5),   cos(pi * y) = cos2pi(y * 0.5)
+z^j:  real part cycle_cosine(j * C mod 2^64), imaginary part -cycle_cosine(j * C - 2^62 mod 2^64)
+cos(phi_M - phi_theta) = cycle_cosine(P0_M - P0_theta mod 2^64),  each P0 by the coupling phase rule
+```
+
+`P(k, w)` loses every digit near `2 * k * w = 1` if divided as written, so with `x = 2 * k * w` and `delta = x - 1`:
+
+```
+|delta| >= 2^-5:   P = cos(pi * k * w) / (1 - x * x)
+|delta| <  2^-5:   y = (pi / 2) * delta
+                   S = 1 - y^2 / 6 + y^4 / 120 - y^6 / 5040          sin(y) / y, within 1e-16
+                   P = (pi / 2) * S / (2 + delta)
+```
+
+Both forms are the same function (`cos(pi * x / 2) = -sin(pi * delta / 2)` and `1 - x^2 = -delta * (2 + delta)`), and the second gives `pi / 4` at `delta = 0`. `center_hz` is `f_c + (i * f_M + j * f_theta)` in binary64, and `low_hz` and `high_hz` are `center_hz -+ half`. The vectors do not fix the engine's bits: the cycle cosine is within 1e-10 of the ideal cosine (row `cycle-cosine-error`), which keeps every level within about 1e-8 of its ideal, and the two rows below bound the result.
+
+**Error rows.** Against the vectors below, every `level` of the engine table and of the reference table is within row `component-level-error` (1e-6, a ratio), and every `center_hz`, `low_hz`, and `high_hz` within row `component-frequency-error` (1e-9 Hz). Both tables have exactly the vector rows: the same layers, ears, and multipliers, in the same order. Two rows of one layer can have equal ideal centers only with a rate cycle (their intervals then differ); a binary64 table orders such a pair by its own rounded centers, and in every vector case those centers are exact, so the multipliers decide. Both rows are engineering defaults (design log 2026-11-16 (vv)).
+
+**Reference.** The Python reference (`reference/components.py`, implemented from this section, never from engine code or engine output) builds the same table in binary64 with NumPy's sine, cosine, and square root, the same `delta` form of `P(k, w)` near `2 * k * w = 1`, and the same search bounds.
+
+**Cross-check.** The spectrum tool (`tests/assertions/spectrum.py`, unchanged) measures reference renders of the Epic 2 fixtures, one layer tap at a time, and the measurement is held to the table. A fixture without a rate cycle: every measured line within `L` dB of its tap's strongest line is a table row within rows `spectrum-frequency` and `spectrum-level`, and every table row is measured. A fixture with a rate cycle (120 s, two whole cycles): the table's intervals, each widened by the tool's resolution (`8 * fs / N` Hz for `N` samples, the window's main lobe) plus the row's sweep edge, merge into bands; the measured power of each band equals the sum of its rows' `level^2` within row `spectrum-level`, and no line at or above the threshold lies outside the bands. A swept line keeps its power, so a band is judged by power over whole cycles and not by peak height. The band power measure is calibrated first on Python-synthesized swept tones of known power. A table doctored in the test harness to drop one side frequency fails the cross-check.
+
+**Sweep edge.** A line swept sinusoidally over `[center_hz - A, center_hz + A]` with period `P` (row `rate-cycle-period`) is not a line that stops at `center_hz +- A`: it is the Bessel line spectrum of modulation index `beta = A * P`, lines `1 / P` apart at `center_hz + n / P` with amplitudes `|J_n(beta)|`, and near the turning points those lines reach past `A`. The sweep edge of a row is the smallest `d >= 0` such that every line with `n > (A + d) * P` is below the threshold `T` re that row's strongest Bessel line: with `n_last` the largest `|n|` where `|J_n(beta)| >= T * max |J_n(beta)|`, `d = n_last / P - A`. `A = (high_hz - low_hz) / 2`; a static row has `d = 0`. It is closed form, depends on `A`, `P`, and row `spectral-component-level` only, and is never tuned to a fixture (the cross-check tool computes `J_n(beta)` as the FFT of `exp(i beta sin t)` over one period, sampled finely enough that no line aliases). At the 60 s period it is, for example, 0.18 Hz for the Sleep beat rate cycle (`A` 1.5 Hz) and 0.38 Hz for a 15 Hz gamma rate swing. The table's intervals are unchanged; the edge belongs to the measurement.
+
+### Vectors: component coefficients
+
+`P(k, w)`, the coefficient, and its bound `B(k)` (25 significant digits, decimal arithmetic) per form, theta rate, and `k`. The coefficient is the signed `c_k` for the smoothed on-off envelope (`h = 1/4`) and the signed `g_k` for the burst gate (`h = 0.025 * rate`, `w = 0.01 * rate`), and `|c_k|` for the sawtooth, which the reverse saw shares. `h` and `w` are the binary64 values; `none` marks a column that does not apply (`h` for the sawtooth, `P` and `B` at `k = 0`). At 5 Hz and `k = 10`, `2 * k * w` is within one rounding of 1.
+
+| Form | Theta rate (hex) | h (hex) | w (hex) | k | P(k, w) | Coefficient | Bound B(k) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| smoothed_on_off | `0x1.0000000000000p+0` | `0x1.0000000000000p-2` | `0x1.47ae147ae147bp-7` | 0 | none | 0.4899999999999999997918332 | none |
+| smoothed_on_off | `0x1.0000000000000p+0` | `0x1.0000000000000p-2` | `0x1.47ae147ae147bp-7` | 1 | 0.9999065229749215256070436 | 0.3181230794908837305996322 | 0.3183098861837906715377675 |
+| smoothed_on_off | `0x1.0000000000000p+0` | `0x1.0000000000000p-2` | `0x1.47ae147ae147bp-7` | 2 | 0.999626130236650202260415 | 0.009989685324243824620788268 | 0.1591549430918953357688838 |
+| smoothed_on_off | `0x1.0000000000000p+0` | `0x1.0000000000000p-2` | `0x1.47ae147ae147bp-7` | 3 | 0.9991589367754717110224795 | -0.1055435616825619255752234 | 0.1061032953945968905125892 |
+| smoothed_on_off | `0x1.0000000000000p+0` | `0x1.0000000000000p-2` | `0x1.47ae147ae147bp-7` | 7 | 0.9954271337604522631284948 | -0.04417477431006762087924355 | 0.04547284088339866736253822 |
+| smoothed_on_off | `0x1.0000000000000p+0` | `0x1.0000000000000p-2` | `0x1.47ae147ae147bp-7` | 10 | 0.990683871140784970568088 | 0.009744680039464990121633162 | 0.03183098861837906715377675 |
+| smoothed_on_off | `0x1.0000000000000p+0` | `0x1.0000000000000p-2` | `0x1.47ae147ae147bp-7` | 20 | 0.9631154694939850271785595 | -0.009009842007626868948420242 | 0.01591549430918953357688838 |
+| smoothed_on_off | `0x1.0000000000000p+0` | `0x1.0000000000000p-2` | `0x1.47ae147ae147bp-7` | 40 | 0.8583805399304095058206808 | -0.006496453359643326632561376 | 0.007957747154594766788444188 |
+| smoothed_on_off | `0x1.4000000000000p+2` | `0x1.0000000000000p-2` | `0x1.999999999999ap-5` | 0 | none | 0.4499999999999999972244424 | none |
+| smoothed_on_off | `0x1.4000000000000p+2` | `0x1.0000000000000p-2` | `0x1.999999999999ap-5` | 1 | 0.9976649905001391171046604 | 0.3136568573939663950565502 | 0.3183098861837906715377675 |
+| smoothed_on_off | `0x1.4000000000000p+2` | `0x1.0000000000000p-2` | `0x1.999999999999ap-5` | 2 | 0.9906838711407849699238607 | 0.04872340019732495221093183 | 0.1591549430918953357688838 |
+| smoothed_on_off | `0x1.4000000000000p+2` | `0x1.0000000000000p-2` | `0x1.999999999999ap-5` | 3 | 0.9791280485586460002936488 | -0.09256552068525979308736338 | 0.1061032953945968905125892 |
+| smoothed_on_off | `0x1.4000000000000p+2` | `0x1.0000000000000p-2` | `0x1.999999999999ap-5` | 7 | 0.8901774504696995796115689 | -0.01837703493362224754268166 | 0.04547284088339866736253822 |
+| smoothed_on_off | `0x1.4000000000000p+2` | `0x1.0000000000000p-2` | `0x1.999999999999ap-5` | 10 | 0.7853981633974482878164827 | 0.02499999999999999930611061 | 0.03183098861837906715377675 |
+| smoothed_on_off | `0x1.4000000000000p+2` | `0x1.0000000000000p-2` | `0x1.999999999999ap-5` | 20 | 0.3333333333333332839900878 | 9.251858538542969800646748e-19 | 0.005305164769729843740307315 |
+| smoothed_on_off | `0x1.4000000000000p+2` | `0x1.0000000000000p-2` | `0x1.999999999999ap-5` | 40 | -0.06666666666666665877174738 | 1.850371707708594014911357e-19 | 0.0005305164769729843897371744 |
+| smoothed_on_off | `0x1.8000000000000p+2` | `0x1.0000000000000p-2` | `0x1.eb851eb851eb8p-5` | 0 | none | 0.440000000000000002220446 | none |
+| smoothed_on_off | `0x1.8000000000000p+2` | `0x1.0000000000000p-2` | `0x1.eb851eb851eb8p-5` | 1 | 0.9966388501711532886876347 | 0.3116208064038376776929744 | 0.3183098861837906715377675 |
+| smoothed_on_off | `0x1.8000000000000p+2` | `0x1.0000000000000p-2` | `0x1.eb851eb851eb8p-5` | 2 | 0.9866049298474654123415459 | 0.05780404058138905472803678 | 0.1591549430918953357688838 |
+| smoothed_on_off | `0x1.8000000000000p+2` | `0x1.0000000000000p-2` | `0x1.eb851eb851eb8p-5` | 3 | 0.9700458702918371788337791 | -0.08690250536559512426387538 | 0.1061032953945968905125892 |
+| smoothed_on_off | `0x1.8000000000000p+2` | `0x1.0000000000000p-2` | `0x1.eb851eb851eb8p-5` | 7 | 0.8447346710762730686894609 | -0.009552796631631646170243773 | 0.04547284088339866736253822 |
+| smoothed_on_off | `0x1.8000000000000p+2` | `0x1.0000000000000p-2` | `0x1.eb851eb851eb8p-5` | 10 | 0.7023113508521532559373328 | 0.02126112008610543364043356 | 0.03183098861837906715377675 |
+| smoothed_on_off | `0x1.8000000000000p+2` | `0x1.0000000000000p-2` | `0x1.eb851eb851eb8p-5` | 20 | 0.1699615534401150375138589 | 0.001589972118992976845382066 | 0.003343591241426372899652743 |
+| smoothed_on_off | `0x1.8000000000000p+2` | `0x1.0000000000000p-2` | `0x1.eb851eb851eb8p-5` | 40 | -0.01402073477200307229513128 | 0.0001061126683063339183468735 | 0.0003610593082846990655244806 |
+| sawtooth | `0x1.0000000000000p+0` | none | `0x1.47ae147ae147bp-7` | 0 | none | 0.5 | none |
+| sawtooth | `0x1.0000000000000p+0` | none | `0x1.47ae147ae147bp-7` | 1 | 0.9999065229749215256070436 | 0.160747427018308907468417 | 0.2103272580627729981250374 |
+| sawtooth | `0x1.0000000000000p+0` | none | `0x1.47ae147ae147bp-7` | 2 | 0.999626130236650202260415 | 0.08035100399612757645920018 | 0.09237055028866708347348029 |
+| sawtooth | `0x1.0000000000000p+0` | none | `0x1.47ae147ae147bp-7` | 3 | 0.9991589367754717110224795 | 0.05354211015747662287815496 | 0.05873746047184040774031166 |
+| sawtooth | `0x1.0000000000000p+0` | none | `0x1.47ae147ae147bp-7` | 7 | 0.9954271337604522631284948 | 0.02286026400893724364205517 | 0.02378075340028867372935388 |
+| sawtooth | `0x1.0000000000000p+0` | none | `0x1.47ae147ae147bp-7` | 10 | 0.990683871140784970568088 | 0.0159253546630221078021821 | 0.01642721745889831020044991 |
+| sawtooth | `0x1.0000000000000p+0` | none | `0x1.47ae147ae147bp-7` | 20 | 0.9631154694939850271785595 | 0.007739425217075830332483158 | 0.008085677942021960944334572 |
+| sawtooth | `0x1.0000000000000p+0` | none | `0x1.47ae147ae147bp-7` | 40 | 0.8583805399304095058206808 | 0.003445805001849718696869137 | 0.00401085627415418193319469 |
+| sawtooth | `0x1.4000000000000p+2` | none | `0x1.999999999999ap-5` | 0 | none | 0.5 | none |
+| sawtooth | `0x1.4000000000000p+2` | none | `0x1.999999999999ap-5` | 1 | 0.9976649905001391171046604 | 0.1671254859248428371254688 | 0.2124818818510204787898856 |
+| sawtooth | `0x1.4000000000000p+2` | none | `0x1.999999999999ap-5` | 2 | 0.9906838711407849699238607 | 0.08295585015037553716480308 | 0.09290920623572895363969233 |
+| sawtooth | `0x1.4000000000000p+2` | none | `0x1.999999999999ap-5` | 3 | 0.9791280485586460002936488 | 0.05463434779121388261559598 | 0.05897686311497901670307257 |
+| sawtooth | `0x1.4000000000000p+2` | none | `0x1.999999999999ap-5` | 7 | 0.8901774504696995796115689 | 0.02120913552342303384851313 | 0.02382472531433454068169772 |
+| sawtooth | `0x1.4000000000000p+2` | none | `0x1.999999999999ap-5` | 10 | 0.7853981633974482878164827 | 0.01303326938759125108326532 | 0.01644876369678078500709839 |
+| sawtooth | `0x1.4000000000000p+2` | none | `0x1.999999999999ap-5` | 20 | 0.3333333333333332839900878 | 0.002652582384864921846903989 | 0.002785899731762734727706162 |
+| sawtooth | `0x1.4000000000000p+2` | none | `0x1.999999999999ap-5` | 40 | -0.06666666666666665877174738 | 0.0002652582384864921832437528 | 0.0002985875752109454092567133 |
+| sawtooth | `0x1.8000000000000p+2` | none | `0x1.eb851eb851eb8p-5` | 0 | none | 0.5 | none |
+| sawtooth | `0x1.8000000000000p+2` | none | `0x1.eb851eb851eb8p-5` | 1 | 0.9966388501711532886876347 | 0.1687187742620996003634704 | 0.2130491897101601076861928 |
+| sawtooth | `0x1.8000000000000p+2` | none | `0x1.eb851eb851eb8p-5` | 2 | 0.9866049298474654123415459 | 0.08347147458918498291393791 | 0.09305103320051386086376913 |
+| sawtooth | `0x1.8000000000000p+2` | none | `0x1.eb851eb851eb8p-5` | 3 | 0.9700458702918371788337791 | 0.0546711963646387478204054 | 0.05903989732155008658044003 |
+| sawtooth | `0x1.8000000000000p+2` | none | `0x1.eb851eb851eb8p-5` | 7 | 0.8447346710762730686894609 | 0.02027157039339655276893622 | 0.02383630302574555351631623 |
+| sawtooth | `0x1.8000000000000p+2` | none | `0x1.eb851eb851eb8p-5` | 10 | 0.7023113508521532559373328 | 0.01169019705213784659281147 | 0.01645443677537218129606147 |
+| sawtooth | `0x1.8000000000000p+2` | none | `0x1.eb851eb851eb8p-5` | 20 | 0.1699615534401150375138589 | 0.001273315459914508037422728 | 0.001806531237258848379619644 |
+| sawtooth | `0x1.8000000000000p+2` | none | `0x1.eb851eb851eb8p-5` | 40 | -0.01402073477200307229513128 | 0.00002375143459541845822384691 | 0.0002142135582787650152105584 |
+| burst_gate | `0x1.0000000000000p+0` | `0x1.999999999999ap-6` | `0x1.47ae147ae147bp-7` | 0 | none | 0.04000000000000000256739074 | none |
+| burst_gate | `0x1.0000000000000p+0` | `0x1.999999999999ap-6` | `0x1.47ae147ae147bp-7` | 1 | 0.9999065229749215256070436 | 0.03989107806299663780804359 | 0.3183098861837906715377675 |
+| burst_gate | `0x1.0000000000000p+0` | `0x1.999999999999ap-6` | `0x1.47ae147ae147bp-7` | 2 | 0.999626130236650202260415 | 0.03956542698995835553794019 | 0.1591549430918953357688838 |
+| burst_gate | `0x1.0000000000000p+0` | `0x1.999999999999ap-6` | `0x1.47ae147ae147bp-7` | 3 | 0.9991589367754717110224795 | 0.03902637687512617747228426 | 0.1061032953945968905125892 |
+| burst_gate | `0x1.0000000000000p+0` | `0x1.999999999999ap-6` | `0x1.47ae147ae147bp-7` | 7 | 0.9954271337604522631284948 | 0.03487720462441975262513531 | 0.04547284088339866736253822 |
+| burst_gate | `0x1.0000000000000p+0` | `0x1.999999999999ap-6` | `0x1.47ae147ae147bp-7` | 10 | 0.990683871140784970568088 | 0.02999104133250169890143087 | 0.03183098861837906715377675 |
+| burst_gate | `0x1.0000000000000p+0` | `0x1.999999999999ap-6` | `0x1.47ae147ae147bp-7` | 20 | 0.9631154694939850271785595 | 0.009009842007626866785770232 | 0.01591549430918953357688838 |
+| burst_gate | `0x1.0000000000000p+0` | `0x1.999999999999ap-6` | `0x1.47ae147ae147bp-7` | 40 | 0.8583805399304095058206808 | -0.006496453359643325896333146 | 0.007957747154594766788444188 |
+| burst_gate | `0x1.4000000000000p+2` | `0x1.0000000000000p-3` | `0x1.999999999999ap-5` | 0 | none | 0.1999999999999999972244424 | none |
+| burst_gate | `0x1.4000000000000p+2` | `0x1.0000000000000p-3` | `0x1.999999999999ap-5` | 1 | 0.9976649905001391171046604 | 0.1866609814847948992875495 | 0.3183098861837906715377675 |
+| burst_gate | `0x1.4000000000000p+2` | `0x1.0000000000000p-3` | `0x1.999999999999ap-5` | 2 | 0.9906838711407849699238607 | 0.1499552066625084896300553 | 0.1591549430918953357688838 |
+| burst_gate | `0x1.4000000000000p+2` | `0x1.0000000000000p-3` | `0x1.999999999999ap-5` | 3 | 0.9791280485586460002936488 | 0.09880403705479338569102584 | 0.1061032953945968905125892 |
+| burst_gate | `0x1.4000000000000p+2` | `0x1.0000000000000p-3` | `0x1.999999999999ap-5` | 7 | 0.8901774504696995796115689 | -0.03849771929992361022961405 | 0.04547284088339866736253822 |
+| burst_gate | `0x1.4000000000000p+2` | `0x1.0000000000000p-3` | `0x1.999999999999ap-5` | 10 | 0.7853981633974482878164827 | -2.179917811255394876669652e-18 | 0.03183098861837906715377675 |
+| burst_gate | `0x1.4000000000000p+2` | `0x1.0000000000000p-3` | `0x1.999999999999ap-5` | 20 | 0.3333333333333332839900878 | -9.251858538542969800646748e-19 | 0.005305164769729843740307315 |
+| burst_gate | `0x1.4000000000000p+2` | `0x1.0000000000000p-3` | `0x1.999999999999ap-5` | 40 | -0.06666666666666665877174738 | 1.850371707708594014911357e-19 | 0.0005305164769729843897371744 |
+| burst_gate | `0x1.8000000000000p+2` | `0x1.3333333333334p-3` | `0x1.eb851eb851eb8p-5` | 0 | none | 0.240000000000000046629367 | none |
+| burst_gate | `0x1.8000000000000p+2` | `0x1.3333333333334p-3` | `0x1.eb851eb851eb8p-5` | 1 | 0.9966388501711532886876347 | 0.2171657231758480883838938 | 0.3183098861837906715377675 |
+| burst_gate | `0x1.8000000000000p+2` | `0x1.3333333333334p-3` | `0x1.eb851eb851eb8p-5` | 2 | 0.9866049298474654123415459 | 0.1567132023404966759103177 | 0.1591549430918953357688838 |
+| burst_gate | `0x1.8000000000000p+2` | `0x1.3333333333334p-3` | `0x1.eb851eb851eb8p-5` | 3 | 0.9700458702918371788337791 | 0.07930512445715061328982747 | 0.1061032953945968905125892 |
+| burst_gate | `0x1.8000000000000p+2` | `0x1.3333333333334p-3` | `0x1.eb851eb851eb8p-5` | 7 | 0.8447346710762730686894609 | -0.03243273401536222036102644 | 0.04547284088339866736253822 |
+| burst_gate | `0x1.8000000000000p+2` | `0x1.3333333333334p-3` | `0x1.eb851eb851eb8p-5` | 10 | 0.7023113508521532559373328 | 0.02126112008610544327833039 | 0.03183098861837906715377675 |
+| burst_gate | `0x1.8000000000000p+2` | `0x1.3333333333334p-3` | `0x1.eb851eb851eb8p-5` | 20 | 0.1699615534401150375138589 | 0.001589972118992970739076155 | 0.003343591241426372899652743 |
+| burst_gate | `0x1.8000000000000p+2` | `0x1.3333333333334p-3` | `0x1.eb851eb851eb8p-5` | 40 | -0.01402073477200307229513128 | 0.0001061126683063337259387699 | 0.0003610593082846990655244806 |
+
+### Vectors: component cases
+
+The recipes of the component vectors: every Epic 2 shape fixture (the case is named after the file in `recipes/fixtures/valid/`, and its three layer objects equal the file's), then cases no fixture has. Each layer cell is the layer object as the recipe writes it, `none` when absent; `Muted ear` is the compile option. `Components` is the table's row count, both ears. The vectors file also holds a complete recipe text per case (10 s, the case's layers and nothing else that could change the table), from which a test compiles the cases without a fixture. The cases `theta-smoothed-on-off-1hz`, `theta-sawtooth-6hz`, `bursts-45hz`, `bursts-60hz`, `gamma-cycle-swell-theta-cycle`, and `binaural-cycle-sleep`, in this order, are the hash probe's `components` source.
+
+| Case | Fixture | Muted ear | theta_reference | gamma_pac | binaural | Components |
+| --- | --- | --- | --- | --- | --- | --- |
+| theta-sine-1hz | theta-sine-1hz.json | none | `{"carrier_hz":450,"rate_hz":1,"am_depth_percent":75,"shape":"sine"}` | none | none | 6 |
+| theta-sine-6hz | theta-sine-6hz.json | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | none | none | 6 |
+| theta-smoothed-on-off-1hz | theta-smoothed-on-off-1hz.json | none | `{"carrier_hz":450,"rate_hz":1,"am_depth_percent":75,"shape":"smoothed_on_off"}` | none | none | 106 |
+| theta-smoothed-on-off-6hz | theta-smoothed-on-off-6hz.json | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"smoothed_on_off"}` | none | none | 54 |
+| theta-sawtooth-1hz | theta-sawtooth-1hz.json | none | `{"carrier_hz":450,"rate_hz":1,"am_depth_percent":75,"shape":"sawtooth"}` | none | none | 74 |
+| theta-sawtooth-6hz | theta-sawtooth-6hz.json | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sawtooth"}` | none | none | 46 |
+| theta-reverse-saw-1hz | theta-reverse-saw-1hz.json | none | `{"carrier_hz":450,"rate_hz":1,"am_depth_percent":75,"shape":"reverse_saw"}` | none | none | 74 |
+| theta-reverse-saw-6hz | theta-reverse-saw-6hz.json | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"reverse_saw"}` | none | none | 46 |
+| gamma-uncoupled-40hz-25pct | gamma-uncoupled-40hz-25pct.json | none | none | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":25,"carrier_wave":"sine","coupling":"uncoupled"}` | none | 6 |
+| gamma-uncoupled-40hz-100pct | gamma-uncoupled-40hz-100pct.json | none | none | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"uncoupled"}` | none | 6 |
+| gamma-uncoupled-60hz-25pct | gamma-uncoupled-60hz-25pct.json | none | none | `{"carrier_hz":250,"rate_hz":60,"am_depth_percent":25,"carrier_wave":"sine","coupling":"uncoupled"}` | none | 6 |
+| gamma-uncoupled-60hz-100pct | gamma-uncoupled-60hz-100pct.json | none | none | `{"carrier_hz":250,"rate_hz":60,"am_depth_percent":100,"carrier_wave":"sine","coupling":"uncoupled"}` | none | 6 |
+| theta-gamma-uncoupled | theta-gamma-uncoupled.json | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"uncoupled"}` | none | 12 |
+| swell-sine-0deg-100pct | swell-sine-0deg-100pct.json | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":0}` | none | 24 |
+| swell-sawtooth-90deg-25pct | swell-sawtooth-90deg-25pct.json | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sawtooth"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":25,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":90}` | none | 64 |
+| swell-smoothed-on-off-180deg-100pct | swell-smoothed-on-off-180deg-100pct.json | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"smoothed_on_off"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":180}` | none | 72 |
+| swell-reverse-saw-270deg-25pct | swell-reverse-saw-270deg-25pct.json | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"reverse_saw"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":25,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":270}` | none | 64 |
+| swell-gamma-depth-0-no-theta | swell-gamma-depth-0-no-theta.json | none | none | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":0,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":90}` | none | 2 |
+| bursts-40hz | bursts-40hz.json | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"bursts","coupling_phase_deg":0}` | none | 72 |
+| bursts-45hz | bursts-45hz.json | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":45,"am_depth_percent":100,"carrier_wave":"sine","coupling":"bursts","coupling_phase_deg":0}` | none | 72 |
+| bursts-60hz | bursts-60hz.json | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":60,"am_depth_percent":100,"carrier_wave":"sine","coupling":"bursts","coupling_phase_deg":0}` | none | 64 |
+| binaural-beat-0 | binaural-beat-0.json | none | none | none | `{"carrier_left_hz":400,"beat_rate_hz":0}` | 2 |
+| binaural-beat-6 | binaural-beat-6.json | none | none | none | `{"carrier_left_hz":400,"beat_rate_hz":6}` | 2 |
+| binaural-beat-29 | binaural-beat-29.json | none | none | none | `{"carrier_left_hz":400,"beat_rate_hz":29}` | 2 |
+| binaural-cycle-sleep | binaural-cycle-sleep.json | none | none | none | `{"carrier_left_hz":100,"beat_rate_hz":1.5,"beat_rate_cycle":{"swing_hz":1.5,"period_s":60,"start_phase_deg":270}}` | 2 |
+| theta-cycle-sine | theta-cycle-sine.json | none | `{"carrier_hz":450,"rate_hz":3.5,"am_depth_percent":75,"shape":"sine","rate_cycle":{"swing_hz":2.5,"period_s":60,"start_phase_deg":0}}` | none | none | 6 |
+| theta-cycle-smoothed-on-off | theta-cycle-smoothed-on-off.json | none | `{"carrier_hz":450,"rate_hz":3.5,"am_depth_percent":75,"shape":"smoothed_on_off","rate_cycle":{"swing_hz":2.5,"period_s":60,"start_phase_deg":0}}` | none | none | 62 |
+| gamma-cycle-uncoupled | gamma-cycle-uncoupled.json | none | none | `{"carrier_hz":250,"rate_hz":45,"am_depth_percent":100,"carrier_wave":"sine","coupling":"uncoupled","rate_cycle":{"swing_hz":15,"period_s":60,"start_phase_deg":0}}` | none | 6 |
+| swell-theta-cycle | swell-theta-cycle.json | none | `{"carrier_hz":450,"rate_hz":4,"am_depth_percent":75,"shape":"sine","rate_cycle":{"swing_hz":2,"period_s":60,"start_phase_deg":0}}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":0}` | none | 24 |
+| bursts-theta-cycle | bursts-theta-cycle.json | none | `{"carrier_hz":450,"rate_hz":4,"am_depth_percent":75,"shape":"sine","rate_cycle":{"swing_hz":2,"period_s":60,"start_phase_deg":0}}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"bursts","coupling_phase_deg":0}` | none | 76 |
+| gamma-cycle-swell-theta-cycle | gamma-cycle-swell-theta-cycle.json | none | `{"carrier_hz":450,"rate_hz":4,"am_depth_percent":75,"shape":"sine","rate_cycle":{"swing_hz":2,"period_s":60,"start_phase_deg":0}}` | `{"carrier_hz":250,"rate_hz":45,"am_depth_percent":100,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":0,"rate_cycle":{"swing_hz":15,"period_s":60,"start_phase_deg":0}}` | none | 24 |
+| both-layers | both-layers.json | none | `{"carrier_hz":200,"rate_hz":6,"am_depth_percent":0,"shape":"sine"}` | none | `{"carrier_left_hz":400,"beat_rate_hz":6}` | 4 |
+| binaural-beat-6-mute-left | binaural-beat-6.json | left | none | none | `{"carrier_left_hz":400,"beat_rate_hz":6}` | 1 |
+| binaural-beat-6-mute-right | binaural-beat-6.json | right | none | none | `{"carrier_left_hz":400,"beat_rate_hz":6}` | 1 |
+| theta-smoothed-on-off-5hz | none | none | `{"carrier_hz":450,"rate_hz":5,"am_depth_percent":75,"shape":"smoothed_on_off"}` | none | none | 54 |
+| theta-sawtooth-5hz | none | none | `{"carrier_hz":450,"rate_hz":5,"am_depth_percent":75,"shape":"sawtooth"}` | none | none | 54 |
+| theta-100hz-smoothed-on-off-100pct | none | none | `{"carrier_hz":100,"rate_hz":6,"am_depth_percent":100,"shape":"smoothed_on_off"}` | none | none | 62 |
+| theta-100hz-smoothed-on-off-cycle-100pct | none | none | `{"carrier_hz":100,"rate_hz":5,"am_depth_percent":100,"shape":"smoothed_on_off","rate_cycle":{"swing_hz":1,"period_s":60,"start_phase_deg":0}}` | none | none | 70 |
+| swell-10pct | none | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":10,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":0}` | none | 16 |
+| swell-cycles-60deg-apart | none | none | `{"carrier_hz":450,"rate_hz":4,"am_depth_percent":75,"shape":"sine","rate_cycle":{"swing_hz":2,"period_s":60,"start_phase_deg":0}}` | `{"carrier_hz":250,"rate_hz":45,"am_depth_percent":100,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":0,"rate_cycle":{"swing_hz":15,"period_s":60,"start_phase_deg":60}}` | none | 24 |
+| bursts-cycles-60deg-apart | none | none | `{"carrier_hz":450,"rate_hz":4,"am_depth_percent":75,"shape":"sine","rate_cycle":{"swing_hz":2,"period_s":60,"start_phase_deg":0}}` | `{"carrier_hz":250,"rate_hz":45,"am_depth_percent":100,"carrier_wave":"sine","coupling":"bursts","coupling_phase_deg":0,"rate_cycle":{"swing_hz":15,"period_s":60,"start_phase_deg":60}}` | none | 76 |
+| bursts-60hz-135deg | none | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":60,"am_depth_percent":100,"carrier_wave":"sine","coupling":"bursts","coupling_phase_deg":135}` | none | 68 |
+| bursts-45hz-45deg | none | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":45,"am_depth_percent":100,"carrier_wave":"sine","coupling":"bursts","coupling_phase_deg":45}` | none | 76 |
+| bursts-57hz-theta-5.7hz | none | none | `{"carrier_hz":450,"rate_hz":5.7,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":57,"am_depth_percent":100,"carrier_wave":"sine","coupling":"bursts","coupling_phase_deg":0}` | none | 56 |
+| bursts-60hz-zero-swing | none | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine","rate_cycle":{"swing_hz":0,"period_s":60,"start_phase_deg":0}}` | `{"carrier_hz":250,"rate_hz":60,"am_depth_percent":100,"carrier_wave":"sine","coupling":"bursts","coupling_phase_deg":0,"rate_cycle":{"swing_hz":0,"period_s":60,"start_phase_deg":90}}` | none | 64 |
+| three-layers | none | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":0}` | `{"carrier_left_hz":100,"beat_rate_hz":1.5,"beat_rate_cycle":{"swing_hz":1.5,"period_s":60,"start_phase_deg":270}}` | 26 |
+
+### Vectors: components
+
+The component table of every case: ideal values at 25 significant digits (exact sums of the binary64 recipe values for the frequencies; decimal arithmetic for the levels and the square-root half widths), in table order. Ear `both` marks a row that is in the left ear's table and in the right ear's with the same values; the table lists the left ear's rows first, then the right ear's.
+
+| Component case | Ear | Layer | gamma_mult | theta_mult | beat_mult | center_hz | low_hz | high_hz | level |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| theta-sine-1hz | both | theta_reference | 0 | -1 | 0 | 449 | 449 | 449 | 0.3 |
+| theta-sine-1hz | both | theta_reference | 0 | 0 | 0 | 450 | 450 | 450 | 1 |
+| theta-sine-1hz | both | theta_reference | 0 | 1 | 0 | 451 | 451 | 451 | 0.3 |
+| theta-sine-6hz | both | theta_reference | 0 | -1 | 0 | 444 | 444 | 444 | 0.3 |
+| theta-sine-6hz | both | theta_reference | 0 | 0 | 0 | 450 | 450 | 450 | 1 |
+| theta-sine-6hz | both | theta_reference | 0 | 1 | 0 | 456 | 456 | 456 | 0.3 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | -26 | 0 | 424 | 424 | 424 | 0.01017017514623816026999468 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | -25 | 0 | 425 | 425 | 425 | 0.01030963194117540617416497 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | -24 | 0 | 426 | 426 | 426 | 0.01044504474478513758658629 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | -23 | 0 | 427 | 427 | 427 | 0.01199640519449899365838479 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | -22 | 0 | 428 | 428 | 428 | 0.01070310387868838772866624 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | -21 | 0 | 429 | 429 | 429 | 0.01395607822076586768035451 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | -20 | 0 | 430 | 430 | 430 | 0.01094312794448607564862134 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | -19 | 0 | 431 | 431 | 431 | 0.01626843188051813917397751 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | -18 | 0 | 432 | 432 | 432 | 0.01116396901010942087012691 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | -17 | 0 | 433 | 433 | 433 | 0.01905121992910579604653599 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | -16 | 0 | 434 | 434 | 434 | 0.01136456350996138630828253 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | -15 | 0 | 435 | 435 | 435 | 0.02248555158346391757516041 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | -14 | 0 | 436 | 436 | 436 | 0.011543939410719978308406 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | -13 | 0 | 437 | 437 | 437 | 0.02686469880719885319755904 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | -12 | 0 | 438 | 438 | 438 | 0.01170122278975487000707238 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | -11 | 0 | 439 | 439 | 439 | 0.03269614073425735734058579 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | -10 | 0 | 440 | 440 | 440 | 0.0118356437726295426608465 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | -9 | 0 | 441 | 441 | 441 | 0.0409396575951610297349409 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | -8 | 0 | 442 | 442 | 442 | 0.01194654178123472868929656 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | -7 | 0 | 443 | 443 | 443 | 0.05365357203651937759969123 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | -6 | 0 | 444 | 444 | 444 | 0.0120333700496171895843573 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | -5 | 0 | 445 | 445 | 445 | 0.07619194916452624990870094 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | -4 | 0 | 446 | 446 | 446 | 0.01209569937048089664636472 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | -3 | 0 | 447 | 447 | 447 | 0.1281905607480509217836944 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | -2 | 0 | 448 | 448 | 448 | 0.01213322104159168982588745 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | -1 | 0 | 449 | 449 | 449 | 0.3863843070739478510284186 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | 0 | 0 | 450 | 450 | 450 | 1 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | 1 | 0 | 451 | 451 | 451 | 0.3863843070739478510284186 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | 2 | 0 | 452 | 452 | 452 | 0.01213322104159168982588745 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | 3 | 0 | 453 | 453 | 453 | 0.1281905607480509217836944 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | 4 | 0 | 454 | 454 | 454 | 0.01209569937048089664636472 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | 5 | 0 | 455 | 455 | 455 | 0.07619194916452624990870094 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | 6 | 0 | 456 | 456 | 456 | 0.0120333700496171895843573 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | 7 | 0 | 457 | 457 | 457 | 0.05365357203651937759969123 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | 8 | 0 | 458 | 458 | 458 | 0.01194654178123472868929656 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | 9 | 0 | 459 | 459 | 459 | 0.0409396575951610297349409 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | 10 | 0 | 460 | 460 | 460 | 0.0118356437726295426608465 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | 11 | 0 | 461 | 461 | 461 | 0.03269614073425735734058579 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | 12 | 0 | 462 | 462 | 462 | 0.01170122278975487000707238 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | 13 | 0 | 463 | 463 | 463 | 0.02686469880719885319755904 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | 14 | 0 | 464 | 464 | 464 | 0.011543939410719978308406 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | 15 | 0 | 465 | 465 | 465 | 0.02248555158346391757516041 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | 16 | 0 | 466 | 466 | 466 | 0.01136456350996138630828253 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | 17 | 0 | 467 | 467 | 467 | 0.01905121992910579604653599 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | 18 | 0 | 468 | 468 | 468 | 0.01116396901010942087012691 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | 19 | 0 | 469 | 469 | 469 | 0.01626843188051813917397751 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | 20 | 0 | 470 | 470 | 470 | 0.01094312794448607564862134 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | 21 | 0 | 471 | 471 | 471 | 0.01395607822076586768035451 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | 22 | 0 | 472 | 472 | 472 | 0.01070310387868838772866624 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | 23 | 0 | 473 | 473 | 473 | 0.01199640519449899365838479 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | 24 | 0 | 474 | 474 | 474 | 0.01044504474478513758658629 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | 25 | 0 | 475 | 475 | 475 | 0.01030963194117540617416497 |
+| theta-smoothed-on-off-1hz | both | theta_reference | 0 | 26 | 0 | 476 | 476 | 476 | 0.01017017514623816026999468 |
+| theta-smoothed-on-off-6hz | both | theta_reference | 0 | -15 | 0 | 360 | 360 | 360 | 0.01108043398984052926570631 |
+| theta-smoothed-on-off-6hz | both | theta_reference | 0 | -13 | 0 | 372 | 372 | 372 | 0.01311210043490642482263177 |
+| theta-smoothed-on-off-6hz | both | theta_reference | 0 | -12 | 0 | 378 | 378 | 378 | 0.01569163364012342348189589 |
+| theta-smoothed-on-off-6hz | both | theta_reference | 0 | -11 | 0 | 384 | 384 | 384 | 0.01169776304217646628211437 |
+| theta-smoothed-on-off-6hz | both | theta_reference | 0 | -10 | 0 | 390 | 390 | 390 | 0.02749282769755012962851796 |
+| theta-smoothed-on-off-6hz | both | theta_reference | 0 | -8 | 0 | 402 | 402 | 402 | 0.0411257277599059630088566 |
+| theta-smoothed-on-off-6hz | both | theta_reference | 0 | -7 | 0 | 408 | 408 | 408 | 0.0123527542650409217363989 |
+| theta-smoothed-on-off-6hz | both | theta_reference | 0 | -6 | 0 | 414 | 414 | 414 | 0.05487768470468967859368537 |
+| theta-smoothed-on-off-6hz | both | theta_reference | 0 | -5 | 0 | 420 | 420 | 420 | 0.04443966632720448938552023 |
+| theta-smoothed-on-off-6hz | both | theta_reference | 0 | -4 | 0 | 426 | 426 | 426 | 0.06672222548177402256078718 |
+| theta-smoothed-on-off-6hz | both | theta_reference | 0 | -3 | 0 | 432 | 432 | 432 | 0.1123739293520626603633903 |
+| theta-smoothed-on-off-6hz | both | theta_reference | 0 | -2 | 0 | 438 | 438 | 438 | 0.07474660420007205331301636 |
+| theta-smoothed-on-off-6hz | both | theta_reference | 0 | -1 | 0 | 444 | 444 | 444 | 0.4029579393153073406873639 |
+| theta-smoothed-on-off-6hz | both | theta_reference | 0 | 0 | 0 | 450 | 450 | 450 | 1 |
+| theta-smoothed-on-off-6hz | both | theta_reference | 0 | 1 | 0 | 456 | 456 | 456 | 0.4029579393153073406873639 |
+| theta-smoothed-on-off-6hz | both | theta_reference | 0 | 2 | 0 | 462 | 462 | 462 | 0.07474660420007205331301636 |
+| theta-smoothed-on-off-6hz | both | theta_reference | 0 | 3 | 0 | 468 | 468 | 468 | 0.1123739293520626603633903 |
+| theta-smoothed-on-off-6hz | both | theta_reference | 0 | 4 | 0 | 474 | 474 | 474 | 0.06672222548177402256078718 |
+| theta-smoothed-on-off-6hz | both | theta_reference | 0 | 5 | 0 | 480 | 480 | 480 | 0.04443966632720448938552023 |
+| theta-smoothed-on-off-6hz | both | theta_reference | 0 | 6 | 0 | 486 | 486 | 486 | 0.05487768470468967859368537 |
+| theta-smoothed-on-off-6hz | both | theta_reference | 0 | 7 | 0 | 492 | 492 | 492 | 0.0123527542650409217363989 |
+| theta-smoothed-on-off-6hz | both | theta_reference | 0 | 8 | 0 | 498 | 498 | 498 | 0.0411257277599059630088566 |
+| theta-smoothed-on-off-6hz | both | theta_reference | 0 | 10 | 0 | 510 | 510 | 510 | 0.02749282769755012962851796 |
+| theta-smoothed-on-off-6hz | both | theta_reference | 0 | 11 | 0 | 516 | 516 | 516 | 0.01169776304217646628211437 |
+| theta-smoothed-on-off-6hz | both | theta_reference | 0 | 12 | 0 | 522 | 522 | 522 | 0.01569163364012342348189589 |
+| theta-smoothed-on-off-6hz | both | theta_reference | 0 | 13 | 0 | 528 | 528 | 528 | 0.01311210043490642482263177 |
+| theta-smoothed-on-off-6hz | both | theta_reference | 0 | 15 | 0 | 540 | 540 | 540 | 0.01108043398984052926570631 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | -18 | 0 | 432 | 432 | 432 | 0.01039406004671614386897471 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | -17 | 0 | 433 | 433 | 433 | 0.0110421023446825174425238 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | -16 | 0 | 434 | 434 | 434 | 0.01176901255685798659425005 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | -15 | 0 | 435 | 435 | 435 | 0.0125905481470234976127296 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | -14 | 0 | 436 | 436 | 436 | 0.01352696971087971263426114 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | -13 | 0 | 437 | 437 | 437 | 0.01460477295932269684987009 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | -12 | 0 | 438 | 438 | 438 | 0.01585928669272645632044767 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | -11 | 0 | 439 | 439 | 439 | 0.01733868785141196779119064 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | -10 | 0 | 440 | 440 | 440 | 0.01911042559562652936261852 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | -9 | 0 | 441 | 441 | 441 | 0.02127192810464564088680405 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | -8 | 0 | 442 | 442 | 442 | 0.02396933947422243578910141 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | -7 | 0 | 443 | 443 | 443 | 0.02743231681072469237046621 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | -6 | 0 | 444 | 444 | 444 | 0.03204362441808697451017274 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | -5 | 0 | 445 | 445 | 445 | 0.03849224100751051941573261 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | -4 | 0 | 446 | 446 | 446 | 0.0481561277197099674716706 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | -3 | 0 | 447 | 447 | 447 | 0.06425053218897194745378595 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | -2 | 0 | 448 | 448 | 448 | 0.09642120479535309175104021 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | -1 | 0 | 449 | 449 | 449 | 0.1928969124219706889621004 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | 0 | 0 | 450 | 450 | 450 | 1 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | 1 | 0 | 451 | 451 | 451 | 0.1928969124219706889621004 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | 2 | 0 | 452 | 452 | 452 | 0.09642120479535309175104021 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | 3 | 0 | 453 | 453 | 453 | 0.06425053218897194745378595 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | 4 | 0 | 454 | 454 | 454 | 0.0481561277197099674716706 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | 5 | 0 | 455 | 455 | 455 | 0.03849224100751051941573261 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | 6 | 0 | 456 | 456 | 456 | 0.03204362441808697451017274 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | 7 | 0 | 457 | 457 | 457 | 0.02743231681072469237046621 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | 8 | 0 | 458 | 458 | 458 | 0.02396933947422243578910141 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | 9 | 0 | 459 | 459 | 459 | 0.02127192810464564088680405 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | 10 | 0 | 460 | 460 | 460 | 0.01911042559562652936261852 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | 11 | 0 | 461 | 461 | 461 | 0.01733868785141196779119064 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | 12 | 0 | 462 | 462 | 462 | 0.01585928669272645632044767 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | 13 | 0 | 463 | 463 | 463 | 0.01460477295932269684987009 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | 14 | 0 | 464 | 464 | 464 | 0.01352696971087971263426114 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | 15 | 0 | 465 | 465 | 465 | 0.0125905481470234976127296 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | 16 | 0 | 466 | 466 | 466 | 0.01176901255685798659425005 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | 17 | 0 | 467 | 467 | 467 | 0.0110421023446825174425238 |
+| theta-sawtooth-1hz | both | theta_reference | 0 | 18 | 0 | 468 | 468 | 468 | 0.01039406004671614386897471 |
+| theta-sawtooth-6hz | both | theta_reference | 0 | -11 | 0 | 384 | 384 | 384 | 0.01173505070096562016818699 |
+| theta-sawtooth-6hz | both | theta_reference | 0 | -10 | 0 | 390 | 390 | 390 | 0.01402823646256541591137377 |
+| theta-sawtooth-6hz | both | theta_reference | 0 | -9 | 0 | 396 | 396 | 396 | 0.01677563391710491291467184 |
+| theta-sawtooth-6hz | both | theta_reference | 0 | -8 | 0 | 402 | 402 | 402 | 0.02012858986417163051217268 |
+| theta-sawtooth-6hz | both | theta_reference | 0 | -7 | 0 | 408 | 408 | 408 | 0.02432588447207586332272347 |
+| theta-sawtooth-6hz | both | theta_reference | 0 | -6 | 0 | 414 | 414 | 414 | 0.02976706008985125072441451 |
+| theta-sawtooth-6hz | both | theta_reference | 0 | -5 | 0 | 420 | 420 | 420 | 0.03717371348990807944639298 |
+| theta-sawtooth-6hz | both | theta_reference | 0 | -4 | 0 | 426 | 426 | 426 | 0.0479926725228467046338403 |
+| theta-sawtooth-6hz | both | theta_reference | 0 | -3 | 0 | 432 | 432 | 432 | 0.06560543563756649738448648 |
+| theta-sawtooth-6hz | both | theta_reference | 0 | -2 | 0 | 438 | 438 | 438 | 0.1001657695070219794967255 |
+| theta-sawtooth-6hz | both | theta_reference | 0 | -1 | 0 | 444 | 444 | 444 | 0.2024625291145195204361645 |
+| theta-sawtooth-6hz | both | theta_reference | 0 | 0 | 0 | 450 | 450 | 450 | 1 |
+| theta-sawtooth-6hz | both | theta_reference | 0 | 1 | 0 | 456 | 456 | 456 | 0.2024625291145195204361645 |
+| theta-sawtooth-6hz | both | theta_reference | 0 | 2 | 0 | 462 | 462 | 462 | 0.1001657695070219794967255 |
+| theta-sawtooth-6hz | both | theta_reference | 0 | 3 | 0 | 468 | 468 | 468 | 0.06560543563756649738448648 |
+| theta-sawtooth-6hz | both | theta_reference | 0 | 4 | 0 | 474 | 474 | 474 | 0.0479926725228467046338403 |
+| theta-sawtooth-6hz | both | theta_reference | 0 | 5 | 0 | 480 | 480 | 480 | 0.03717371348990807944639298 |
+| theta-sawtooth-6hz | both | theta_reference | 0 | 6 | 0 | 486 | 486 | 486 | 0.02976706008985125072441451 |
+| theta-sawtooth-6hz | both | theta_reference | 0 | 7 | 0 | 492 | 492 | 492 | 0.02432588447207586332272347 |
+| theta-sawtooth-6hz | both | theta_reference | 0 | 8 | 0 | 498 | 498 | 498 | 0.02012858986417163051217268 |
+| theta-sawtooth-6hz | both | theta_reference | 0 | 9 | 0 | 504 | 504 | 504 | 0.01677563391710491291467184 |
+| theta-sawtooth-6hz | both | theta_reference | 0 | 10 | 0 | 510 | 510 | 510 | 0.01402823646256541591137377 |
+| theta-sawtooth-6hz | both | theta_reference | 0 | 11 | 0 | 516 | 516 | 516 | 0.01173505070096562016818699 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | -18 | 0 | 432 | 432 | 432 | 0.01039406004671614386897471 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | -17 | 0 | 433 | 433 | 433 | 0.0110421023446825174425238 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | -16 | 0 | 434 | 434 | 434 | 0.01176901255685798659425005 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | -15 | 0 | 435 | 435 | 435 | 0.0125905481470234976127296 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | -14 | 0 | 436 | 436 | 436 | 0.01352696971087971263426114 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | -13 | 0 | 437 | 437 | 437 | 0.01460477295932269684987009 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | -12 | 0 | 438 | 438 | 438 | 0.01585928669272645632044767 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | -11 | 0 | 439 | 439 | 439 | 0.01733868785141196779119064 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | -10 | 0 | 440 | 440 | 440 | 0.01911042559562652936261852 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | -9 | 0 | 441 | 441 | 441 | 0.02127192810464564088680405 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | -8 | 0 | 442 | 442 | 442 | 0.02396933947422243578910141 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | -7 | 0 | 443 | 443 | 443 | 0.02743231681072469237046621 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | -6 | 0 | 444 | 444 | 444 | 0.03204362441808697451017274 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | -5 | 0 | 445 | 445 | 445 | 0.03849224100751051941573261 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | -4 | 0 | 446 | 446 | 446 | 0.0481561277197099674716706 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | -3 | 0 | 447 | 447 | 447 | 0.06425053218897194745378595 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | -2 | 0 | 448 | 448 | 448 | 0.09642120479535309175104021 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | -1 | 0 | 449 | 449 | 449 | 0.1928969124219706889621004 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | 0 | 0 | 450 | 450 | 450 | 1 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | 1 | 0 | 451 | 451 | 451 | 0.1928969124219706889621004 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | 2 | 0 | 452 | 452 | 452 | 0.09642120479535309175104021 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | 3 | 0 | 453 | 453 | 453 | 0.06425053218897194745378595 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | 4 | 0 | 454 | 454 | 454 | 0.0481561277197099674716706 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | 5 | 0 | 455 | 455 | 455 | 0.03849224100751051941573261 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | 6 | 0 | 456 | 456 | 456 | 0.03204362441808697451017274 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | 7 | 0 | 457 | 457 | 457 | 0.02743231681072469237046621 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | 8 | 0 | 458 | 458 | 458 | 0.02396933947422243578910141 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | 9 | 0 | 459 | 459 | 459 | 0.02127192810464564088680405 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | 10 | 0 | 460 | 460 | 460 | 0.01911042559562652936261852 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | 11 | 0 | 461 | 461 | 461 | 0.01733868785141196779119064 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | 12 | 0 | 462 | 462 | 462 | 0.01585928669272645632044767 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | 13 | 0 | 463 | 463 | 463 | 0.01460477295932269684987009 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | 14 | 0 | 464 | 464 | 464 | 0.01352696971087971263426114 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | 15 | 0 | 465 | 465 | 465 | 0.0125905481470234976127296 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | 16 | 0 | 466 | 466 | 466 | 0.01176901255685798659425005 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | 17 | 0 | 467 | 467 | 467 | 0.0110421023446825174425238 |
+| theta-reverse-saw-1hz | both | theta_reference | 0 | 18 | 0 | 468 | 468 | 468 | 0.01039406004671614386897471 |
+| theta-reverse-saw-6hz | both | theta_reference | 0 | -11 | 0 | 384 | 384 | 384 | 0.01173505070096562016818699 |
+| theta-reverse-saw-6hz | both | theta_reference | 0 | -10 | 0 | 390 | 390 | 390 | 0.01402823646256541591137377 |
+| theta-reverse-saw-6hz | both | theta_reference | 0 | -9 | 0 | 396 | 396 | 396 | 0.01677563391710491291467184 |
+| theta-reverse-saw-6hz | both | theta_reference | 0 | -8 | 0 | 402 | 402 | 402 | 0.02012858986417163051217268 |
+| theta-reverse-saw-6hz | both | theta_reference | 0 | -7 | 0 | 408 | 408 | 408 | 0.02432588447207586332272347 |
+| theta-reverse-saw-6hz | both | theta_reference | 0 | -6 | 0 | 414 | 414 | 414 | 0.02976706008985125072441451 |
+| theta-reverse-saw-6hz | both | theta_reference | 0 | -5 | 0 | 420 | 420 | 420 | 0.03717371348990807944639298 |
+| theta-reverse-saw-6hz | both | theta_reference | 0 | -4 | 0 | 426 | 426 | 426 | 0.0479926725228467046338403 |
+| theta-reverse-saw-6hz | both | theta_reference | 0 | -3 | 0 | 432 | 432 | 432 | 0.06560543563756649738448648 |
+| theta-reverse-saw-6hz | both | theta_reference | 0 | -2 | 0 | 438 | 438 | 438 | 0.1001657695070219794967255 |
+| theta-reverse-saw-6hz | both | theta_reference | 0 | -1 | 0 | 444 | 444 | 444 | 0.2024625291145195204361645 |
+| theta-reverse-saw-6hz | both | theta_reference | 0 | 0 | 0 | 450 | 450 | 450 | 1 |
+| theta-reverse-saw-6hz | both | theta_reference | 0 | 1 | 0 | 456 | 456 | 456 | 0.2024625291145195204361645 |
+| theta-reverse-saw-6hz | both | theta_reference | 0 | 2 | 0 | 462 | 462 | 462 | 0.1001657695070219794967255 |
+| theta-reverse-saw-6hz | both | theta_reference | 0 | 3 | 0 | 468 | 468 | 468 | 0.06560543563756649738448648 |
+| theta-reverse-saw-6hz | both | theta_reference | 0 | 4 | 0 | 474 | 474 | 474 | 0.0479926725228467046338403 |
+| theta-reverse-saw-6hz | both | theta_reference | 0 | 5 | 0 | 480 | 480 | 480 | 0.03717371348990807944639298 |
+| theta-reverse-saw-6hz | both | theta_reference | 0 | 6 | 0 | 486 | 486 | 486 | 0.02976706008985125072441451 |
+| theta-reverse-saw-6hz | both | theta_reference | 0 | 7 | 0 | 492 | 492 | 492 | 0.02432588447207586332272347 |
+| theta-reverse-saw-6hz | both | theta_reference | 0 | 8 | 0 | 498 | 498 | 498 | 0.02012858986417163051217268 |
+| theta-reverse-saw-6hz | both | theta_reference | 0 | 9 | 0 | 504 | 504 | 504 | 0.01677563391710491291467184 |
+| theta-reverse-saw-6hz | both | theta_reference | 0 | 10 | 0 | 510 | 510 | 510 | 0.01402823646256541591137377 |
+| theta-reverse-saw-6hz | both | theta_reference | 0 | 11 | 0 | 516 | 516 | 516 | 0.01173505070096562016818699 |
+| gamma-uncoupled-40hz-25pct | both | gamma_pac | -1 | 0 | 0 | 210 | 210 | 210 | 0.07142857142857142857142857 |
+| gamma-uncoupled-40hz-25pct | both | gamma_pac | 0 | 0 | 0 | 250 | 250 | 250 | 1 |
+| gamma-uncoupled-40hz-25pct | both | gamma_pac | 1 | 0 | 0 | 290 | 290 | 290 | 0.07142857142857142857142857 |
+| gamma-uncoupled-40hz-100pct | both | gamma_pac | -1 | 0 | 0 | 210 | 210 | 210 | 0.5 |
+| gamma-uncoupled-40hz-100pct | both | gamma_pac | 0 | 0 | 0 | 250 | 250 | 250 | 1 |
+| gamma-uncoupled-40hz-100pct | both | gamma_pac | 1 | 0 | 0 | 290 | 290 | 290 | 0.5 |
+| gamma-uncoupled-60hz-25pct | both | gamma_pac | -1 | 0 | 0 | 190 | 190 | 190 | 0.07142857142857142857142857 |
+| gamma-uncoupled-60hz-25pct | both | gamma_pac | 0 | 0 | 0 | 250 | 250 | 250 | 1 |
+| gamma-uncoupled-60hz-25pct | both | gamma_pac | 1 | 0 | 0 | 310 | 310 | 310 | 0.07142857142857142857142857 |
+| gamma-uncoupled-60hz-100pct | both | gamma_pac | -1 | 0 | 0 | 190 | 190 | 190 | 0.5 |
+| gamma-uncoupled-60hz-100pct | both | gamma_pac | 0 | 0 | 0 | 250 | 250 | 250 | 1 |
+| gamma-uncoupled-60hz-100pct | both | gamma_pac | 1 | 0 | 0 | 310 | 310 | 310 | 0.5 |
+| theta-gamma-uncoupled | both | theta_reference | 0 | -1 | 0 | 444 | 444 | 444 | 0.3 |
+| theta-gamma-uncoupled | both | theta_reference | 0 | 0 | 0 | 450 | 450 | 450 | 1 |
+| theta-gamma-uncoupled | both | theta_reference | 0 | 1 | 0 | 456 | 456 | 456 | 0.3 |
+| theta-gamma-uncoupled | both | gamma_pac | -1 | 0 | 0 | 210 | 210 | 210 | 0.5 |
+| theta-gamma-uncoupled | both | gamma_pac | 0 | 0 | 0 | 250 | 250 | 250 | 1 |
+| theta-gamma-uncoupled | both | gamma_pac | 1 | 0 | 0 | 290 | 290 | 290 | 0.5 |
+| swell-sine-0deg-100pct | both | theta_reference | 0 | -1 | 0 | 444 | 444 | 444 | 0.3 |
+| swell-sine-0deg-100pct | both | theta_reference | 0 | 0 | 0 | 450 | 450 | 450 | 1 |
+| swell-sine-0deg-100pct | both | theta_reference | 0 | 1 | 0 | 456 | 456 | 456 | 0.3 |
+| swell-sine-0deg-100pct | both | gamma_pac | -1 | -1 | 0 | 204 | 204 | 204 | 0.08333333333333333333333333 |
+| swell-sine-0deg-100pct | both | gamma_pac | -1 | 0 | 0 | 210 | 210 | 210 | 0.1666666666666666666666667 |
+| swell-sine-0deg-100pct | both | gamma_pac | -1 | 1 | 0 | 216 | 216 | 216 | 0.08333333333333333333333333 |
+| swell-sine-0deg-100pct | both | gamma_pac | 0 | -1 | 0 | 244 | 244 | 244 | 0.1666666666666666666666667 |
+| swell-sine-0deg-100pct | both | gamma_pac | 0 | 0 | 0 | 250 | 250 | 250 | 1 |
+| swell-sine-0deg-100pct | both | gamma_pac | 0 | 1 | 0 | 256 | 256 | 256 | 0.1666666666666666666666667 |
+| swell-sine-0deg-100pct | both | gamma_pac | 1 | -1 | 0 | 284 | 284 | 284 | 0.08333333333333333333333333 |
+| swell-sine-0deg-100pct | both | gamma_pac | 1 | 0 | 0 | 290 | 290 | 290 | 0.1666666666666666666666667 |
+| swell-sine-0deg-100pct | both | gamma_pac | 1 | 1 | 0 | 296 | 296 | 296 | 0.08333333333333333333333333 |
+| swell-sawtooth-90deg-25pct | both | theta_reference | 0 | -11 | 0 | 384 | 384 | 384 | 0.01173505070096562016818699 |
+| swell-sawtooth-90deg-25pct | both | theta_reference | 0 | -10 | 0 | 390 | 390 | 390 | 0.01402823646256541591137377 |
+| swell-sawtooth-90deg-25pct | both | theta_reference | 0 | -9 | 0 | 396 | 396 | 396 | 0.01677563391710491291467184 |
+| swell-sawtooth-90deg-25pct | both | theta_reference | 0 | -8 | 0 | 402 | 402 | 402 | 0.02012858986417163051217268 |
+| swell-sawtooth-90deg-25pct | both | theta_reference | 0 | -7 | 0 | 408 | 408 | 408 | 0.02432588447207586332272347 |
+| swell-sawtooth-90deg-25pct | both | theta_reference | 0 | -6 | 0 | 414 | 414 | 414 | 0.02976706008985125072441451 |
+| swell-sawtooth-90deg-25pct | both | theta_reference | 0 | -5 | 0 | 420 | 420 | 420 | 0.03717371348990807944639298 |
+| swell-sawtooth-90deg-25pct | both | theta_reference | 0 | -4 | 0 | 426 | 426 | 426 | 0.0479926725228467046338403 |
+| swell-sawtooth-90deg-25pct | both | theta_reference | 0 | -3 | 0 | 432 | 432 | 432 | 0.06560543563756649738448648 |
+| swell-sawtooth-90deg-25pct | both | theta_reference | 0 | -2 | 0 | 438 | 438 | 438 | 0.1001657695070219794967255 |
+| swell-sawtooth-90deg-25pct | both | theta_reference | 0 | -1 | 0 | 444 | 444 | 444 | 0.2024625291145195204361645 |
+| swell-sawtooth-90deg-25pct | both | theta_reference | 0 | 0 | 0 | 450 | 450 | 450 | 1 |
+| swell-sawtooth-90deg-25pct | both | theta_reference | 0 | 1 | 0 | 456 | 456 | 456 | 0.2024625291145195204361645 |
+| swell-sawtooth-90deg-25pct | both | theta_reference | 0 | 2 | 0 | 462 | 462 | 462 | 0.1001657695070219794967255 |
+| swell-sawtooth-90deg-25pct | both | theta_reference | 0 | 3 | 0 | 468 | 468 | 468 | 0.06560543563756649738448648 |
+| swell-sawtooth-90deg-25pct | both | theta_reference | 0 | 4 | 0 | 474 | 474 | 474 | 0.0479926725228467046338403 |
+| swell-sawtooth-90deg-25pct | both | theta_reference | 0 | 5 | 0 | 480 | 480 | 480 | 0.03717371348990807944639298 |
+| swell-sawtooth-90deg-25pct | both | theta_reference | 0 | 6 | 0 | 486 | 486 | 486 | 0.02976706008985125072441451 |
+| swell-sawtooth-90deg-25pct | both | theta_reference | 0 | 7 | 0 | 492 | 492 | 492 | 0.02432588447207586332272347 |
+| swell-sawtooth-90deg-25pct | both | theta_reference | 0 | 8 | 0 | 498 | 498 | 498 | 0.02012858986417163051217268 |
+| swell-sawtooth-90deg-25pct | both | theta_reference | 0 | 9 | 0 | 504 | 504 | 504 | 0.01677563391710491291467184 |
+| swell-sawtooth-90deg-25pct | both | theta_reference | 0 | 10 | 0 | 510 | 510 | 510 | 0.01402823646256541591137377 |
+| swell-sawtooth-90deg-25pct | both | theta_reference | 0 | 11 | 0 | 516 | 516 | 516 | 0.01173505070096562016818699 |
+| swell-sawtooth-90deg-25pct | both | gamma_pac | -1 | -1 | 0 | 204 | 204 | 204 | 0.01666666666666666666666667 |
+| swell-sawtooth-90deg-25pct | both | gamma_pac | -1 | 0 | 0 | 210 | 210 | 210 | 0.03333333333333333333333333 |
+| swell-sawtooth-90deg-25pct | both | gamma_pac | -1 | 1 | 0 | 216 | 216 | 216 | 0.01666666666666666666666667 |
+| swell-sawtooth-90deg-25pct | both | gamma_pac | 0 | -1 | 0 | 244 | 244 | 244 | 0.03333333333333333333333333 |
+| swell-sawtooth-90deg-25pct | both | gamma_pac | 0 | 0 | 0 | 250 | 250 | 250 | 1 |
+| swell-sawtooth-90deg-25pct | both | gamma_pac | 0 | 1 | 0 | 256 | 256 | 256 | 0.03333333333333333333333333 |
+| swell-sawtooth-90deg-25pct | both | gamma_pac | 1 | -1 | 0 | 284 | 284 | 284 | 0.01666666666666666666666667 |
+| swell-sawtooth-90deg-25pct | both | gamma_pac | 1 | 0 | 0 | 290 | 290 | 290 | 0.03333333333333333333333333 |
+| swell-sawtooth-90deg-25pct | both | gamma_pac | 1 | 1 | 0 | 296 | 296 | 296 | 0.01666666666666666666666667 |
+| swell-smoothed-on-off-180deg-100pct | both | theta_reference | 0 | -15 | 0 | 360 | 360 | 360 | 0.01108043398984052926570631 |
+| swell-smoothed-on-off-180deg-100pct | both | theta_reference | 0 | -13 | 0 | 372 | 372 | 372 | 0.01311210043490642482263177 |
+| swell-smoothed-on-off-180deg-100pct | both | theta_reference | 0 | -12 | 0 | 378 | 378 | 378 | 0.01569163364012342348189589 |
+| swell-smoothed-on-off-180deg-100pct | both | theta_reference | 0 | -11 | 0 | 384 | 384 | 384 | 0.01169776304217646628211437 |
+| swell-smoothed-on-off-180deg-100pct | both | theta_reference | 0 | -10 | 0 | 390 | 390 | 390 | 0.02749282769755012962851796 |
+| swell-smoothed-on-off-180deg-100pct | both | theta_reference | 0 | -8 | 0 | 402 | 402 | 402 | 0.0411257277599059630088566 |
+| swell-smoothed-on-off-180deg-100pct | both | theta_reference | 0 | -7 | 0 | 408 | 408 | 408 | 0.0123527542650409217363989 |
+| swell-smoothed-on-off-180deg-100pct | both | theta_reference | 0 | -6 | 0 | 414 | 414 | 414 | 0.05487768470468967859368537 |
+| swell-smoothed-on-off-180deg-100pct | both | theta_reference | 0 | -5 | 0 | 420 | 420 | 420 | 0.04443966632720448938552023 |
+| swell-smoothed-on-off-180deg-100pct | both | theta_reference | 0 | -4 | 0 | 426 | 426 | 426 | 0.06672222548177402256078718 |
+| swell-smoothed-on-off-180deg-100pct | both | theta_reference | 0 | -3 | 0 | 432 | 432 | 432 | 0.1123739293520626603633903 |
+| swell-smoothed-on-off-180deg-100pct | both | theta_reference | 0 | -2 | 0 | 438 | 438 | 438 | 0.07474660420007205331301636 |
+| swell-smoothed-on-off-180deg-100pct | both | theta_reference | 0 | -1 | 0 | 444 | 444 | 444 | 0.4029579393153073406873639 |
+| swell-smoothed-on-off-180deg-100pct | both | theta_reference | 0 | 0 | 0 | 450 | 450 | 450 | 1 |
+| swell-smoothed-on-off-180deg-100pct | both | theta_reference | 0 | 1 | 0 | 456 | 456 | 456 | 0.4029579393153073406873639 |
+| swell-smoothed-on-off-180deg-100pct | both | theta_reference | 0 | 2 | 0 | 462 | 462 | 462 | 0.07474660420007205331301636 |
+| swell-smoothed-on-off-180deg-100pct | both | theta_reference | 0 | 3 | 0 | 468 | 468 | 468 | 0.1123739293520626603633903 |
+| swell-smoothed-on-off-180deg-100pct | both | theta_reference | 0 | 4 | 0 | 474 | 474 | 474 | 0.06672222548177402256078718 |
+| swell-smoothed-on-off-180deg-100pct | both | theta_reference | 0 | 5 | 0 | 480 | 480 | 480 | 0.04443966632720448938552023 |
+| swell-smoothed-on-off-180deg-100pct | both | theta_reference | 0 | 6 | 0 | 486 | 486 | 486 | 0.05487768470468967859368537 |
+| swell-smoothed-on-off-180deg-100pct | both | theta_reference | 0 | 7 | 0 | 492 | 492 | 492 | 0.0123527542650409217363989 |
+| swell-smoothed-on-off-180deg-100pct | both | theta_reference | 0 | 8 | 0 | 498 | 498 | 498 | 0.0411257277599059630088566 |
+| swell-smoothed-on-off-180deg-100pct | both | theta_reference | 0 | 10 | 0 | 510 | 510 | 510 | 0.02749282769755012962851796 |
+| swell-smoothed-on-off-180deg-100pct | both | theta_reference | 0 | 11 | 0 | 516 | 516 | 516 | 0.01169776304217646628211437 |
+| swell-smoothed-on-off-180deg-100pct | both | theta_reference | 0 | 12 | 0 | 522 | 522 | 522 | 0.01569163364012342348189589 |
+| swell-smoothed-on-off-180deg-100pct | both | theta_reference | 0 | 13 | 0 | 528 | 528 | 528 | 0.01311210043490642482263177 |
+| swell-smoothed-on-off-180deg-100pct | both | theta_reference | 0 | 15 | 0 | 540 | 540 | 540 | 0.01108043398984052926570631 |
+| swell-smoothed-on-off-180deg-100pct | both | gamma_pac | -1 | -1 | 0 | 204 | 204 | 204 | 0.08333333333333333333333333 |
+| swell-smoothed-on-off-180deg-100pct | both | gamma_pac | -1 | 0 | 0 | 210 | 210 | 210 | 0.1666666666666666666666667 |
+| swell-smoothed-on-off-180deg-100pct | both | gamma_pac | -1 | 1 | 0 | 216 | 216 | 216 | 0.08333333333333333333333333 |
+| swell-smoothed-on-off-180deg-100pct | both | gamma_pac | 0 | -1 | 0 | 244 | 244 | 244 | 0.1666666666666666666666667 |
+| swell-smoothed-on-off-180deg-100pct | both | gamma_pac | 0 | 0 | 0 | 250 | 250 | 250 | 1 |
+| swell-smoothed-on-off-180deg-100pct | both | gamma_pac | 0 | 1 | 0 | 256 | 256 | 256 | 0.1666666666666666666666667 |
+| swell-smoothed-on-off-180deg-100pct | both | gamma_pac | 1 | -1 | 0 | 284 | 284 | 284 | 0.08333333333333333333333333 |
+| swell-smoothed-on-off-180deg-100pct | both | gamma_pac | 1 | 0 | 0 | 290 | 290 | 290 | 0.1666666666666666666666667 |
+| swell-smoothed-on-off-180deg-100pct | both | gamma_pac | 1 | 1 | 0 | 296 | 296 | 296 | 0.08333333333333333333333333 |
+| swell-reverse-saw-270deg-25pct | both | theta_reference | 0 | -11 | 0 | 384 | 384 | 384 | 0.01173505070096562016818699 |
+| swell-reverse-saw-270deg-25pct | both | theta_reference | 0 | -10 | 0 | 390 | 390 | 390 | 0.01402823646256541591137377 |
+| swell-reverse-saw-270deg-25pct | both | theta_reference | 0 | -9 | 0 | 396 | 396 | 396 | 0.01677563391710491291467184 |
+| swell-reverse-saw-270deg-25pct | both | theta_reference | 0 | -8 | 0 | 402 | 402 | 402 | 0.02012858986417163051217268 |
+| swell-reverse-saw-270deg-25pct | both | theta_reference | 0 | -7 | 0 | 408 | 408 | 408 | 0.02432588447207586332272347 |
+| swell-reverse-saw-270deg-25pct | both | theta_reference | 0 | -6 | 0 | 414 | 414 | 414 | 0.02976706008985125072441451 |
+| swell-reverse-saw-270deg-25pct | both | theta_reference | 0 | -5 | 0 | 420 | 420 | 420 | 0.03717371348990807944639298 |
+| swell-reverse-saw-270deg-25pct | both | theta_reference | 0 | -4 | 0 | 426 | 426 | 426 | 0.0479926725228467046338403 |
+| swell-reverse-saw-270deg-25pct | both | theta_reference | 0 | -3 | 0 | 432 | 432 | 432 | 0.06560543563756649738448648 |
+| swell-reverse-saw-270deg-25pct | both | theta_reference | 0 | -2 | 0 | 438 | 438 | 438 | 0.1001657695070219794967255 |
+| swell-reverse-saw-270deg-25pct | both | theta_reference | 0 | -1 | 0 | 444 | 444 | 444 | 0.2024625291145195204361645 |
+| swell-reverse-saw-270deg-25pct | both | theta_reference | 0 | 0 | 0 | 450 | 450 | 450 | 1 |
+| swell-reverse-saw-270deg-25pct | both | theta_reference | 0 | 1 | 0 | 456 | 456 | 456 | 0.2024625291145195204361645 |
+| swell-reverse-saw-270deg-25pct | both | theta_reference | 0 | 2 | 0 | 462 | 462 | 462 | 0.1001657695070219794967255 |
+| swell-reverse-saw-270deg-25pct | both | theta_reference | 0 | 3 | 0 | 468 | 468 | 468 | 0.06560543563756649738448648 |
+| swell-reverse-saw-270deg-25pct | both | theta_reference | 0 | 4 | 0 | 474 | 474 | 474 | 0.0479926725228467046338403 |
+| swell-reverse-saw-270deg-25pct | both | theta_reference | 0 | 5 | 0 | 480 | 480 | 480 | 0.03717371348990807944639298 |
+| swell-reverse-saw-270deg-25pct | both | theta_reference | 0 | 6 | 0 | 486 | 486 | 486 | 0.02976706008985125072441451 |
+| swell-reverse-saw-270deg-25pct | both | theta_reference | 0 | 7 | 0 | 492 | 492 | 492 | 0.02432588447207586332272347 |
+| swell-reverse-saw-270deg-25pct | both | theta_reference | 0 | 8 | 0 | 498 | 498 | 498 | 0.02012858986417163051217268 |
+| swell-reverse-saw-270deg-25pct | both | theta_reference | 0 | 9 | 0 | 504 | 504 | 504 | 0.01677563391710491291467184 |
+| swell-reverse-saw-270deg-25pct | both | theta_reference | 0 | 10 | 0 | 510 | 510 | 510 | 0.01402823646256541591137377 |
+| swell-reverse-saw-270deg-25pct | both | theta_reference | 0 | 11 | 0 | 516 | 516 | 516 | 0.01173505070096562016818699 |
+| swell-reverse-saw-270deg-25pct | both | gamma_pac | -1 | -1 | 0 | 204 | 204 | 204 | 0.01666666666666666666666667 |
+| swell-reverse-saw-270deg-25pct | both | gamma_pac | -1 | 0 | 0 | 210 | 210 | 210 | 0.03333333333333333333333333 |
+| swell-reverse-saw-270deg-25pct | both | gamma_pac | -1 | 1 | 0 | 216 | 216 | 216 | 0.01666666666666666666666667 |
+| swell-reverse-saw-270deg-25pct | both | gamma_pac | 0 | -1 | 0 | 244 | 244 | 244 | 0.03333333333333333333333333 |
+| swell-reverse-saw-270deg-25pct | both | gamma_pac | 0 | 0 | 0 | 250 | 250 | 250 | 1 |
+| swell-reverse-saw-270deg-25pct | both | gamma_pac | 0 | 1 | 0 | 256 | 256 | 256 | 0.03333333333333333333333333 |
+| swell-reverse-saw-270deg-25pct | both | gamma_pac | 1 | -1 | 0 | 284 | 284 | 284 | 0.01666666666666666666666667 |
+| swell-reverse-saw-270deg-25pct | both | gamma_pac | 1 | 0 | 0 | 290 | 290 | 290 | 0.03333333333333333333333333 |
+| swell-reverse-saw-270deg-25pct | both | gamma_pac | 1 | 1 | 0 | 296 | 296 | 296 | 0.01666666666666666666666667 |
+| swell-gamma-depth-0-no-theta | both | gamma_pac | 0 | 0 | 0 | 250 | 250 | 250 | 1 |
+| bursts-40hz | both | theta_reference | 0 | -1 | 0 | 444 | 444 | 444 | 0.3 |
+| bursts-40hz | both | theta_reference | 0 | 0 | 0 | 450 | 450 | 450 | 1 |
+| bursts-40hz | both | theta_reference | 0 | 1 | 0 | 456 | 456 | 456 | 0.3 |
+| bursts-40hz | both | gamma_pac | -1 | -6 | 0 | 174 | 174 | 174 | 0.01308858740456726734294254 |
+| bursts-40hz | both | gamma_pac | 0 | -10 | 0 | 190 | 190 | 190 | 0.01208018186710536581910319 |
+| bursts-40hz | both | gamma_pac | -1 | -3 | 0 | 192 | 192 | 192 | 0.02252986490259960664515175 |
+| bursts-40hz | both | gamma_pac | -1 | -2 | 0 | 198 | 198 | 198 | 0.04452079611945928410859966 |
+| bursts-40hz | both | gamma_pac | -1 | -1 | 0 | 204 | 204 | 204 | 0.06169480772041139037996405 |
+| bursts-40hz | both | gamma_pac | 0 | -7 | 0 | 208 | 208 | 208 | 0.01842768978145580751153293 |
+| bursts-40hz | both | gamma_pac | -1 | 0 | 0 | 210 | 210 | 210 | 0.06818181818181819687156735 |
+| bursts-40hz | both | gamma_pac | 0 | -6 | 0 | 214 | 214 | 214 | 0.02617717480913453468588509 |
+| bursts-40hz | both | gamma_pac | -1 | 1 | 0 | 216 | 216 | 216 | 0.06169480772041139037996405 |
+| bursts-40hz | both | gamma_pac | 0 | -5 | 0 | 220 | 220 | 220 | 0.0195265200528625979907512 |
+| bursts-40hz | both | gamma_pac | -1 | 2 | 0 | 222 | 222 | 222 | 0.04452079611945928410859966 |
+| bursts-40hz | both | gamma_pac | -1 | 3 | 0 | 228 | 228 | 228 | 0.02252986490259960664515175 |
+| bursts-40hz | both | gamma_pac | 0 | -3 | 0 | 232 | 232 | 232 | 0.04505972980519921329030349 |
+| bursts-40hz | both | gamma_pac | 0 | -2 | 0 | 238 | 238 | 238 | 0.08904159223891856821719931 |
+| bursts-40hz | both | gamma_pac | 0 | -1 | 0 | 244 | 244 | 244 | 0.1233896154408227807599281 |
+| bursts-40hz | both | gamma_pac | -1 | 6 | 0 | 246 | 246 | 246 | 0.01308858740456726734294254 |
+| bursts-40hz | both | gamma_pac | 0 | 0 | 0 | 250 | 250 | 250 | 1 |
+| bursts-40hz | both | gamma_pac | 1 | -6 | 0 | 254 | 254 | 254 | 0.01308858740456726734294254 |
+| bursts-40hz | both | gamma_pac | 0 | 1 | 0 | 256 | 256 | 256 | 0.1233896154408227807599281 |
+| bursts-40hz | both | gamma_pac | 0 | 2 | 0 | 262 | 262 | 262 | 0.08904159223891856821719931 |
+| bursts-40hz | both | gamma_pac | 0 | 3 | 0 | 268 | 268 | 268 | 0.04505972980519921329030349 |
+| bursts-40hz | both | gamma_pac | 1 | -3 | 0 | 272 | 272 | 272 | 0.02252986490259960664515175 |
+| bursts-40hz | both | gamma_pac | 1 | -2 | 0 | 278 | 278 | 278 | 0.04452079611945928410859966 |
+| bursts-40hz | both | gamma_pac | 0 | 5 | 0 | 280 | 280 | 280 | 0.0195265200528625979907512 |
+| bursts-40hz | both | gamma_pac | 1 | -1 | 0 | 284 | 284 | 284 | 0.06169480772041139037996405 |
+| bursts-40hz | both | gamma_pac | 0 | 6 | 0 | 286 | 286 | 286 | 0.02617717480913453468588509 |
+| bursts-40hz | both | gamma_pac | 1 | 0 | 0 | 290 | 290 | 290 | 0.06818181818181819687156735 |
+| bursts-40hz | both | gamma_pac | 0 | 7 | 0 | 292 | 292 | 292 | 0.01842768978145580751153293 |
+| bursts-40hz | both | gamma_pac | 1 | 1 | 0 | 296 | 296 | 296 | 0.06169480772041139037996405 |
+| bursts-40hz | both | gamma_pac | 1 | 2 | 0 | 302 | 302 | 302 | 0.04452079611945928410859966 |
+| bursts-40hz | both | gamma_pac | 1 | 3 | 0 | 308 | 308 | 308 | 0.02252986490259960664515175 |
+| bursts-40hz | both | gamma_pac | 0 | 10 | 0 | 310 | 310 | 310 | 0.01208018186710536581910319 |
+| bursts-40hz | both | gamma_pac | 1 | 6 | 0 | 326 | 326 | 326 | 0.01308858740456726734294254 |
+| bursts-45hz | both | theta_reference | 0 | -1 | 0 | 444 | 444 | 444 | 0.3 |
+| bursts-45hz | both | theta_reference | 0 | 0 | 0 | 450 | 450 | 450 | 1 |
+| bursts-45hz | both | theta_reference | 0 | 1 | 0 | 456 | 456 | 456 | 0.3 |
+| bursts-45hz | both | gamma_pac | -1 | -6 | 0 | 169 | 169 | 169 | 0.01315763864758600564527987 |
+| bursts-45hz | both | gamma_pac | -1 | -3 | 0 | 187 | 187 | 187 | 0.02365069027828023665998026 |
+| bursts-45hz | both | gamma_pac | 0 | -10 | 0 | 190 | 190 | 190 | 0.01208018186710536581910319 |
+| bursts-45hz | both | gamma_pac | -1 | -2 | 0 | 193 | 193 | 193 | 0.04493838787631924831495603 |
+| bursts-45hz | both | gamma_pac | -1 | -1 | 0 | 199 | 199 | 199 | 0.06068925759849492904554546 |
+| bursts-45hz | both | gamma_pac | -1 | 0 | 0 | 205 | 205 | 205 | 0.06574748041132293066212678 |
+| bursts-45hz | both | gamma_pac | 0 | -7 | 0 | 208 | 208 | 208 | 0.01842768978145580751153293 |
+| bursts-45hz | both | gamma_pac | -1 | 1 | 0 | 211 | 211 | 211 | 0.05888447706759226768315421 |
+| bursts-45hz | both | gamma_pac | 0 | -6 | 0 | 214 | 214 | 214 | 0.02617717480913453468588509 |
+| bursts-45hz | both | gamma_pac | -1 | 2 | 0 | 217 | 217 | 217 | 0.04314450277109536796182053 |
+| bursts-45hz | both | gamma_pac | 0 | -5 | 0 | 220 | 220 | 220 | 0.0195265200528625979907512 |
+| bursts-45hz | both | gamma_pac | -1 | 3 | 0 | 223 | 223 | 223 | 0.02417691535886155585048615 |
+| bursts-45hz | both | gamma_pac | 0 | -3 | 0 | 232 | 232 | 232 | 0.04505972980519921329030349 |
+| bursts-45hz | both | gamma_pac | 0 | -2 | 0 | 238 | 238 | 238 | 0.08904159223891856821719931 |
+| bursts-45hz | both | gamma_pac | 0 | -1 | 0 | 244 | 244 | 244 | 0.1233896154408227807599281 |
+| bursts-45hz | both | gamma_pac | -1 | 7 | 0 | 247 | 247 | 247 | 0.01146524983690252994085212 |
+| bursts-45hz | both | gamma_pac | 0 | 0 | 0 | 250 | 250 | 250 | 1 |
+| bursts-45hz | both | gamma_pac | 1 | -7 | 0 | 253 | 253 | 253 | 0.01146524983690252994085212 |
+| bursts-45hz | both | gamma_pac | 0 | 1 | 0 | 256 | 256 | 256 | 0.1233896154408227807599281 |
+| bursts-45hz | both | gamma_pac | 0 | 2 | 0 | 262 | 262 | 262 | 0.08904159223891856821719931 |
+| bursts-45hz | both | gamma_pac | 0 | 3 | 0 | 268 | 268 | 268 | 0.04505972980519921329030349 |
+| bursts-45hz | both | gamma_pac | 1 | -3 | 0 | 277 | 277 | 277 | 0.02417691535886155585048615 |
+| bursts-45hz | both | gamma_pac | 0 | 5 | 0 | 280 | 280 | 280 | 0.0195265200528625979907512 |
+| bursts-45hz | both | gamma_pac | 1 | -2 | 0 | 283 | 283 | 283 | 0.04314450277109536796182053 |
+| bursts-45hz | both | gamma_pac | 0 | 6 | 0 | 286 | 286 | 286 | 0.02617717480913453468588509 |
+| bursts-45hz | both | gamma_pac | 1 | -1 | 0 | 289 | 289 | 289 | 0.05888447706759226768315421 |
+| bursts-45hz | both | gamma_pac | 0 | 7 | 0 | 292 | 292 | 292 | 0.01842768978145580751153293 |
+| bursts-45hz | both | gamma_pac | 1 | 0 | 0 | 295 | 295 | 295 | 0.06574748041132293066212678 |
+| bursts-45hz | both | gamma_pac | 1 | 1 | 0 | 301 | 301 | 301 | 0.06068925759849492904554546 |
+| bursts-45hz | both | gamma_pac | 1 | 2 | 0 | 307 | 307 | 307 | 0.04493838787631924831495603 |
+| bursts-45hz | both | gamma_pac | 0 | 10 | 0 | 310 | 310 | 310 | 0.01208018186710536581910319 |
+| bursts-45hz | both | gamma_pac | 1 | 3 | 0 | 313 | 313 | 313 | 0.02365069027828023665998026 |
+| bursts-45hz | both | gamma_pac | 1 | 6 | 0 | 331 | 331 | 331 | 0.01315763864758600564527987 |
+| bursts-60hz | both | theta_reference | 0 | -1 | 0 | 444 | 444 | 444 | 0.3 |
+| bursts-60hz | both | theta_reference | 0 | 0 | 0 | 450 | 450 | 450 | 1 |
+| bursts-60hz | both | theta_reference | 0 | 1 | 0 | 456 | 456 | 456 | 0.3 |
+| bursts-60hz | both | gamma_pac | 0 | -17 | 0 | 148 | 148 | 148 | 0.01005709561994841304111064 |
+| bursts-60hz | both | gamma_pac | 0 | -16 | 0 | 154 | 154 | 154 | 0.01099573431123077692022991 |
+| bursts-60hz | both | gamma_pac | 0 | -13 | 0 | 172 | 172 | 172 | 0.02476500476884419839819263 |
+| bursts-60hz | both | gamma_pac | 0 | -12 | 0 | 178 | 178 | 178 | 0.0404537282658711736251526 |
+| bursts-60hz | both | gamma_pac | 0 | -11 | 0 | 184 | 184 | 184 | 0.05135163876882537064841183 |
+| bursts-60hz | both | gamma_pac | 0 | -10 | 0 | 190 | 190 | 190 | 0.05587831275887256839789646 |
+| bursts-60hz | both | gamma_pac | 0 | -9 | 0 | 196 | 196 | 196 | 0.05474922547686588554066118 |
+| bursts-60hz | both | gamma_pac | 0 | -8 | 0 | 202 | 202 | 202 | 0.04954590781036907191135863 |
+| bursts-60hz | both | gamma_pac | 0 | -7 | 0 | 208 | 208 | 208 | 0.04088129298667393809253261 |
+| bursts-60hz | both | gamma_pac | 0 | -6 | 0 | 214 | 214 | 214 | 0.02752298739901722964179327 |
+| bursts-60hz | both | gamma_pac | 0 | -4 | 0 | 226 | 226 | 226 | 0.02101277077510202836102152 |
+| bursts-60hz | both | gamma_pac | 0 | -3 | 0 | 232 | 232 | 232 | 0.05498563161431248002783113 |
+| bursts-60hz | both | gamma_pac | 0 | -2 | 0 | 238 | 238 | 238 | 0.08857593334497534055662654 |
+| bursts-60hz | both | gamma_pac | 0 | -1 | 0 | 244 | 244 | 244 | 0.1135451940089543041360102 |
+| bursts-60hz | both | gamma_pac | 0 | 0 | 0 | 250 | 250 | 250 | 1 |
+| bursts-60hz | both | gamma_pac | 0 | 1 | 0 | 256 | 256 | 256 | 0.1135451940089543041360102 |
+| bursts-60hz | both | gamma_pac | 0 | 2 | 0 | 262 | 262 | 262 | 0.08857593334497534055662654 |
+| bursts-60hz | both | gamma_pac | 0 | 3 | 0 | 268 | 268 | 268 | 0.05498563161431248002783113 |
+| bursts-60hz | both | gamma_pac | 0 | 4 | 0 | 274 | 274 | 274 | 0.02101277077510202836102152 |
+| bursts-60hz | both | gamma_pac | 0 | 6 | 0 | 286 | 286 | 286 | 0.02752298739901722964179327 |
+| bursts-60hz | both | gamma_pac | 0 | 7 | 0 | 292 | 292 | 292 | 0.04088129298667393809253261 |
+| bursts-60hz | both | gamma_pac | 0 | 8 | 0 | 298 | 298 | 298 | 0.04954590781036907191135863 |
+| bursts-60hz | both | gamma_pac | 0 | 9 | 0 | 304 | 304 | 304 | 0.05474922547686588554066118 |
+| bursts-60hz | both | gamma_pac | 0 | 10 | 0 | 310 | 310 | 310 | 0.05587831275887256839789646 |
+| bursts-60hz | both | gamma_pac | 0 | 11 | 0 | 316 | 316 | 316 | 0.05135163876882537064841183 |
+| bursts-60hz | both | gamma_pac | 0 | 12 | 0 | 322 | 322 | 322 | 0.0404537282658711736251526 |
+| bursts-60hz | both | gamma_pac | 0 | 13 | 0 | 328 | 328 | 328 | 0.02476500476884419839819263 |
+| bursts-60hz | both | gamma_pac | 0 | 16 | 0 | 346 | 346 | 346 | 0.01099573431123077692022991 |
+| bursts-60hz | both | gamma_pac | 0 | 17 | 0 | 352 | 352 | 352 | 0.01005709561994841304111064 |
+| binaural-beat-0 | left | binaural | 0 | 0 | 0 | 400 | 400 | 400 | 1 |
+| binaural-beat-0 | right | binaural | 0 | 0 | 1 | 400 | 400 | 400 | 1 |
+| binaural-beat-6 | left | binaural | 0 | 0 | 0 | 400 | 400 | 400 | 1 |
+| binaural-beat-6 | right | binaural | 0 | 0 | 1 | 406 | 406 | 406 | 1 |
+| binaural-beat-29 | left | binaural | 0 | 0 | 0 | 400 | 400 | 400 | 1 |
+| binaural-beat-29 | right | binaural | 0 | 0 | 1 | 429 | 429 | 429 | 1 |
+| binaural-cycle-sleep | left | binaural | 0 | 0 | 0 | 100 | 100 | 100 | 1 |
+| binaural-cycle-sleep | right | binaural | 0 | 0 | 1 | 101.5 | 100 | 103 | 1 |
+| theta-cycle-sine | both | theta_reference | 0 | -1 | 0 | 446.5 | 444 | 449 | 0.3 |
+| theta-cycle-sine | both | theta_reference | 0 | 0 | 0 | 450 | 450 | 450 | 1 |
+| theta-cycle-sine | both | theta_reference | 0 | 1 | 0 | 453.5 | 451 | 456 | 0.3 |
+| theta-cycle-smoothed-on-off | both | theta_reference | 0 | -18 | 0 | 387 | 342 | 432 | 0.013740116479740641619221 |
+| theta-cycle-smoothed-on-off | both | theta_reference | 0 | -16 | 0 | 394 | 354 | 434 | 0.01802991018818051000103779 |
+| theta-cycle-smoothed-on-off | both | theta_reference | 0 | -14 | 0 | 401 | 366 | 436 | 0.02257910501314610323212852 |
+| theta-cycle-smoothed-on-off | both | theta_reference | 0 | -12 | 0 | 408 | 378 | 438 | 0.02718578340078472002893685 |
+| theta-cycle-smoothed-on-off | both | theta_reference | 0 | -11 | 0 | 411.5 | 384 | 439 | 0.01112472026136349153336644 |
+| theta-cycle-smoothed-on-off | both | theta_reference | 0 | -10 | 0 | 415 | 390 | 440 | 0.03162447591799606306195148 |
+| theta-cycle-smoothed-on-off | both | theta_reference | 0 | -9 | 0 | 418.5 | 396 | 441 | 0.02214189645745890249409123 |
+| theta-cycle-smoothed-on-off | both | theta_reference | 0 | -8 | 0 | 422 | 402 | 442 | 0.03566211647262352308395938 |
+| theta-cycle-smoothed-on-off | both | theta_reference | 0 | -7 | 0 | 425.5 | 408 | 443 | 0.03865565543838876874217388 |
+| theta-cycle-smoothed-on-off | both | theta_reference | 0 | -6 | 0 | 429 | 414 | 444 | 0.03907555857151286226450119 |
+| theta-cycle-smoothed-on-off | both | theta_reference | 0 | -5 | 0 | 432.5 | 420 | 445 | 0.06606634912255347412825131 |
+| theta-cycle-smoothed-on-off | both | theta_reference | 0 | -4 | 0 | 436 | 426 | 446 | 0.04166904225706647997028208 |
+| theta-cycle-smoothed-on-off | both | theta_reference | 0 | -3 | 0 | 439.5 | 432 | 447 | 0.1244493954239254628748719 |
+| theta-cycle-smoothed-on-off | both | theta_reference | 0 | -2 | 0 | 443 | 438 | 448 | 0.04328995211281833056314837 |
+| theta-cycle-smoothed-on-off | both | theta_reference | 0 | -1 | 0 | 446.5 | 444 | 449 | 0.3958565066538146902398455 |
+| theta-cycle-smoothed-on-off | both | theta_reference | 0 | 0 | 0 | 450 | 450 | 450 | 1 |
+| theta-cycle-smoothed-on-off | both | theta_reference | 0 | 1 | 0 | 453.5 | 451 | 456 | 0.3958565066538146902398455 |
+| theta-cycle-smoothed-on-off | both | theta_reference | 0 | 2 | 0 | 457 | 452 | 462 | 0.04328995211281833056314837 |
+| theta-cycle-smoothed-on-off | both | theta_reference | 0 | 3 | 0 | 460.5 | 453 | 468 | 0.1244493954239254628748719 |
+| theta-cycle-smoothed-on-off | both | theta_reference | 0 | 4 | 0 | 464 | 454 | 474 | 0.04166904225706647997028208 |
+| theta-cycle-smoothed-on-off | both | theta_reference | 0 | 5 | 0 | 467.5 | 455 | 480 | 0.06606634912255347412825131 |
+| theta-cycle-smoothed-on-off | both | theta_reference | 0 | 6 | 0 | 471 | 456 | 486 | 0.03907555857151286226450119 |
+| theta-cycle-smoothed-on-off | both | theta_reference | 0 | 7 | 0 | 474.5 | 457 | 492 | 0.03865565543838876874217388 |
+| theta-cycle-smoothed-on-off | both | theta_reference | 0 | 8 | 0 | 478 | 458 | 498 | 0.03566211647262352308395938 |
+| theta-cycle-smoothed-on-off | both | theta_reference | 0 | 9 | 0 | 481.5 | 459 | 504 | 0.02214189645745890249409123 |
+| theta-cycle-smoothed-on-off | both | theta_reference | 0 | 10 | 0 | 485 | 460 | 510 | 0.03162447591799606306195148 |
+| theta-cycle-smoothed-on-off | both | theta_reference | 0 | 11 | 0 | 488.5 | 461 | 516 | 0.01112472026136349153336644 |
+| theta-cycle-smoothed-on-off | both | theta_reference | 0 | 12 | 0 | 492 | 462 | 522 | 0.02718578340078472002893685 |
+| theta-cycle-smoothed-on-off | both | theta_reference | 0 | 14 | 0 | 499 | 464 | 534 | 0.02257910501314610323212852 |
+| theta-cycle-smoothed-on-off | both | theta_reference | 0 | 16 | 0 | 506 | 466 | 546 | 0.01802991018818051000103779 |
+| theta-cycle-smoothed-on-off | both | theta_reference | 0 | 18 | 0 | 513 | 468 | 558 | 0.013740116479740641619221 |
+| gamma-cycle-uncoupled | both | gamma_pac | -1 | 0 | 0 | 205 | 190 | 220 | 0.5 |
+| gamma-cycle-uncoupled | both | gamma_pac | 0 | 0 | 0 | 250 | 250 | 250 | 1 |
+| gamma-cycle-uncoupled | both | gamma_pac | 1 | 0 | 0 | 295 | 280 | 310 | 0.5 |
+| swell-theta-cycle | both | theta_reference | 0 | -1 | 0 | 446 | 444 | 448 | 0.3 |
+| swell-theta-cycle | both | theta_reference | 0 | 0 | 0 | 450 | 450 | 450 | 1 |
+| swell-theta-cycle | both | theta_reference | 0 | 1 | 0 | 454 | 452 | 456 | 0.3 |
+| swell-theta-cycle | both | gamma_pac | -1 | -1 | 0 | 206 | 204 | 208 | 0.08333333333333333333333333 |
+| swell-theta-cycle | both | gamma_pac | -1 | 0 | 0 | 210 | 210 | 210 | 0.1666666666666666666666667 |
+| swell-theta-cycle | both | gamma_pac | -1 | 1 | 0 | 214 | 212 | 216 | 0.08333333333333333333333333 |
+| swell-theta-cycle | both | gamma_pac | 0 | -1 | 0 | 246 | 244 | 248 | 0.1666666666666666666666667 |
+| swell-theta-cycle | both | gamma_pac | 0 | 0 | 0 | 250 | 250 | 250 | 1 |
+| swell-theta-cycle | both | gamma_pac | 0 | 1 | 0 | 254 | 252 | 256 | 0.1666666666666666666666667 |
+| swell-theta-cycle | both | gamma_pac | 1 | -1 | 0 | 286 | 284 | 288 | 0.08333333333333333333333333 |
+| swell-theta-cycle | both | gamma_pac | 1 | 0 | 0 | 290 | 290 | 290 | 0.1666666666666666666666667 |
+| swell-theta-cycle | both | gamma_pac | 1 | 1 | 0 | 294 | 292 | 296 | 0.08333333333333333333333333 |
+| bursts-theta-cycle | both | theta_reference | 0 | -1 | 0 | 446 | 444 | 448 | 0.3 |
+| bursts-theta-cycle | both | theta_reference | 0 | 0 | 0 | 450 | 450 | 450 | 1 |
+| bursts-theta-cycle | both | theta_reference | 0 | 1 | 0 | 454 | 452 | 456 | 0.3 |
+| bursts-theta-cycle | both | gamma_pac | -1 | -4 | 0 | 194 | 186 | 202 | 0.01910210255321981280518409 |
+| bursts-theta-cycle | both | gamma_pac | -1 | -3 | 0 | 198 | 192 | 204 | 0.02839007288777113670394092 |
+| bursts-theta-cycle | both | gamma_pac | -1 | -2 | 0 | 202 | 198 | 206 | 0.03629803421614158071295147 |
+| bursts-theta-cycle | both | gamma_pac | -1 | -1 | 0 | 206 | 204 | 208 | 0.04160807718641787330928049 |
+| bursts-theta-cycle | both | gamma_pac | -1 | 0 | 0 | 210 | 210 | 210 | 0.04347826086956522042461099 |
+| bursts-theta-cycle | both | gamma_pac | 0 | -10 | 0 | 210 | 190 | 230 | 0.01412272469487679550563413 |
+| bursts-theta-cycle | both | gamma_pac | -1 | 1 | 0 | 214 | 212 | 216 | 0.04160807718641787330928049 |
+| bursts-theta-cycle | both | gamma_pac | 0 | -9 | 0 | 214 | 196 | 232 | 0.01669269118263651240695541 |
+| bursts-theta-cycle | both | gamma_pac | -1 | 2 | 0 | 218 | 214 | 222 | 0.03629803421614158071295147 |
+| bursts-theta-cycle | both | gamma_pac | 0 | -8 | 0 | 218 | 202 | 234 | 0.01512169601217778793972533 |
+| bursts-theta-cycle | both | gamma_pac | -1 | 3 | 0 | 222 | 216 | 228 | 0.02839007288777113670394092 |
+| bursts-theta-cycle | both | gamma_pac | -1 | 4 | 0 | 226 | 218 | 234 | 0.01910210255321981280518409 |
+| bursts-theta-cycle | both | gamma_pac | 0 | -5 | 0 | 230 | 220 | 240 | 0.0195866130600584061653407 |
+| bursts-theta-cycle | both | gamma_pac | 0 | -4 | 0 | 234 | 226 | 242 | 0.03820420510643962561036817 |
+| bursts-theta-cycle | both | gamma_pac | 0 | -3 | 0 | 238 | 232 | 244 | 0.05678014577554227340788184 |
+| bursts-theta-cycle | both | gamma_pac | 0 | -2 | 0 | 242 | 238 | 246 | 0.07259606843228316142590294 |
+| bursts-theta-cycle | both | gamma_pac | 0 | -1 | 0 | 246 | 244 | 248 | 0.08321615437283574661856097 |
+| bursts-theta-cycle | both | gamma_pac | 0 | 0 | 0 | 250 | 250 | 250 | 1 |
+| bursts-theta-cycle | both | gamma_pac | 0 | 1 | 0 | 254 | 252 | 256 | 0.08321615437283574661856097 |
+| bursts-theta-cycle | both | gamma_pac | 0 | 2 | 0 | 258 | 254 | 262 | 0.07259606843228316142590294 |
+| bursts-theta-cycle | both | gamma_pac | 0 | 3 | 0 | 262 | 256 | 268 | 0.05678014577554227340788184 |
+| bursts-theta-cycle | both | gamma_pac | 0 | 4 | 0 | 266 | 258 | 274 | 0.03820420510643962561036817 |
+| bursts-theta-cycle | both | gamma_pac | 0 | 5 | 0 | 270 | 260 | 280 | 0.0195866130600584061653407 |
+| bursts-theta-cycle | both | gamma_pac | 1 | -4 | 0 | 274 | 266 | 282 | 0.01910210255321981280518409 |
+| bursts-theta-cycle | both | gamma_pac | 1 | -3 | 0 | 278 | 272 | 284 | 0.02839007288777113670394092 |
+| bursts-theta-cycle | both | gamma_pac | 0 | 8 | 0 | 282 | 266 | 298 | 0.01512169601217778793972533 |
+| bursts-theta-cycle | both | gamma_pac | 1 | -2 | 0 | 282 | 278 | 286 | 0.03629803421614158071295147 |
+| bursts-theta-cycle | both | gamma_pac | 0 | 9 | 0 | 286 | 268 | 304 | 0.01669269118263651240695541 |
+| bursts-theta-cycle | both | gamma_pac | 1 | -1 | 0 | 286 | 284 | 288 | 0.04160807718641787330928049 |
+| bursts-theta-cycle | both | gamma_pac | 0 | 10 | 0 | 290 | 270 | 310 | 0.01412272469487679550563413 |
+| bursts-theta-cycle | both | gamma_pac | 1 | 0 | 0 | 290 | 290 | 290 | 0.04347826086956522042461099 |
+| bursts-theta-cycle | both | gamma_pac | 1 | 1 | 0 | 294 | 292 | 296 | 0.04160807718641787330928049 |
+| bursts-theta-cycle | both | gamma_pac | 1 | 2 | 0 | 298 | 294 | 302 | 0.03629803421614158071295147 |
+| bursts-theta-cycle | both | gamma_pac | 1 | 3 | 0 | 302 | 296 | 308 | 0.02839007288777113670394092 |
+| bursts-theta-cycle | both | gamma_pac | 1 | 4 | 0 | 306 | 298 | 314 | 0.01910210255321981280518409 |
+| gamma-cycle-swell-theta-cycle | both | theta_reference | 0 | -1 | 0 | 446 | 444 | 448 | 0.3 |
+| gamma-cycle-swell-theta-cycle | both | theta_reference | 0 | 0 | 0 | 450 | 450 | 450 | 1 |
+| gamma-cycle-swell-theta-cycle | both | theta_reference | 0 | 1 | 0 | 454 | 452 | 456 | 0.3 |
+| gamma-cycle-swell-theta-cycle | both | gamma_pac | -1 | -1 | 0 | 201 | 184 | 218 | 0.08333333333333333333333333 |
+| gamma-cycle-swell-theta-cycle | both | gamma_pac | -1 | 0 | 0 | 205 | 190 | 220 | 0.1666666666666666666666667 |
+| gamma-cycle-swell-theta-cycle | both | gamma_pac | -1 | 1 | 0 | 209 | 196 | 222 | 0.08333333333333333333333333 |
+| gamma-cycle-swell-theta-cycle | both | gamma_pac | 0 | -1 | 0 | 246 | 244 | 248 | 0.1666666666666666666666667 |
+| gamma-cycle-swell-theta-cycle | both | gamma_pac | 0 | 0 | 0 | 250 | 250 | 250 | 1 |
+| gamma-cycle-swell-theta-cycle | both | gamma_pac | 0 | 1 | 0 | 254 | 252 | 256 | 0.1666666666666666666666667 |
+| gamma-cycle-swell-theta-cycle | both | gamma_pac | 1 | -1 | 0 | 291 | 278 | 304 | 0.08333333333333333333333333 |
+| gamma-cycle-swell-theta-cycle | both | gamma_pac | 1 | 0 | 0 | 295 | 280 | 310 | 0.1666666666666666666666667 |
+| gamma-cycle-swell-theta-cycle | both | gamma_pac | 1 | 1 | 0 | 299 | 282 | 316 | 0.08333333333333333333333333 |
+| both-layers | both | theta_reference | 0 | 0 | 0 | 200 | 200 | 200 | 1 |
+| both-layers | left | binaural | 0 | 0 | 0 | 400 | 400 | 400 | 1 |
+| both-layers | right | binaural | 0 | 0 | 1 | 406 | 406 | 406 | 1 |
+| binaural-beat-6-mute-left | right | binaural | 0 | 0 | 1 | 406 | 406 | 406 | 1 |
+| binaural-beat-6-mute-right | left | binaural | 0 | 0 | 0 | 400 | 400 | 400 | 1 |
+| theta-smoothed-on-off-5hz | both | theta_reference | 0 | -17 | 0 | 365 | 365 | 365 | 0.01004048201008241394038307 |
+| theta-smoothed-on-off-5hz | both | theta_reference | 0 | -15 | 0 | 375 | 375 | 375 | 0.01083608123178861931306407 |
+| theta-smoothed-on-off-5hz | both | theta_reference | 0 | -14 | 0 | 380 | 380 | 380 | 0.01437740745897904389062998 |
+| theta-smoothed-on-off-5hz | both | theta_reference | 0 | -12 | 0 | 390 | 390 | 390 | 0.02261821285755896919918687 |
+| theta-smoothed-on-off-5hz | both | theta_reference | 0 | -10 | 0 | 400 | 400 | 400 | 0.03191489361702127582301136 |
+| theta-smoothed-on-off-5hz | both | theta_reference | 0 | -8 | 0 | 410 | 410 | 410 | 0.04146672357219144687633228 |
+| theta-smoothed-on-off-5hz | both | theta_reference | 0 | -7 | 0 | 415 | 415 | 415 | 0.02346004459611350758442088 |
+| theta-smoothed-on-off-5hz | both | theta_reference | 0 | -6 | 0 | 420 | 420 | 420 | 0.05032092610642666246326455 |
+| theta-smoothed-on-off-5hz | both | theta_reference | 0 | -5 | 0 | 425 | 425 | 425 | 0.05418040615894309050040516 |
+| theta-smoothed-on-off-5hz | both | theta_reference | 0 | -4 | 0 | 430 | 430 | 430 | 0.05750962983591618655570309 |
+| theta-smoothed-on-off-5hz | both | theta_reference | 0 | -3 | 0 | 435 | 435 | 435 | 0.1181687498109699490408692 |
+| theta-smoothed-on-off-5hz | both | theta_reference | 0 | -2 | 0 | 440 | 440 | 440 | 0.0622000853582871732556235 |
+| theta-smoothed-on-off-5hz | both | theta_reference | 0 | -1 | 0 | 445 | 445 | 445 | 0.4004130094391060376611739 |
+| theta-smoothed-on-off-5hz | both | theta_reference | 0 | 0 | 0 | 450 | 450 | 450 | 1 |
+| theta-smoothed-on-off-5hz | both | theta_reference | 0 | 1 | 0 | 455 | 455 | 455 | 0.4004130094391060376611739 |
+| theta-smoothed-on-off-5hz | both | theta_reference | 0 | 2 | 0 | 460 | 460 | 460 | 0.0622000853582871732556235 |
+| theta-smoothed-on-off-5hz | both | theta_reference | 0 | 3 | 0 | 465 | 465 | 465 | 0.1181687498109699490408692 |
+| theta-smoothed-on-off-5hz | both | theta_reference | 0 | 4 | 0 | 470 | 470 | 470 | 0.05750962983591618655570309 |
+| theta-smoothed-on-off-5hz | both | theta_reference | 0 | 5 | 0 | 475 | 475 | 475 | 0.05418040615894309050040516 |
+| theta-smoothed-on-off-5hz | both | theta_reference | 0 | 6 | 0 | 480 | 480 | 480 | 0.05032092610642666246326455 |
+| theta-smoothed-on-off-5hz | both | theta_reference | 0 | 7 | 0 | 485 | 485 | 485 | 0.02346004459611350758442088 |
+| theta-smoothed-on-off-5hz | both | theta_reference | 0 | 8 | 0 | 490 | 490 | 490 | 0.04146672357219144687633228 |
+| theta-smoothed-on-off-5hz | both | theta_reference | 0 | 10 | 0 | 500 | 500 | 500 | 0.03191489361702127582301136 |
+| theta-smoothed-on-off-5hz | both | theta_reference | 0 | 12 | 0 | 510 | 510 | 510 | 0.02261821285755896919918687 |
+| theta-smoothed-on-off-5hz | both | theta_reference | 0 | 14 | 0 | 520 | 520 | 520 | 0.01437740745897904389062998 |
+| theta-smoothed-on-off-5hz | both | theta_reference | 0 | 15 | 0 | 525 | 525 | 525 | 0.01083608123178861931306407 |
+| theta-smoothed-on-off-5hz | both | theta_reference | 0 | 17 | 0 | 535 | 535 | 535 | 0.01004048201008241394038307 |
+| theta-sawtooth-5hz | both | theta_reference | 0 | -13 | 0 | 385 | 385 | 385 | 0.01000358041363602845719841 |
+| theta-sawtooth-5hz | both | theta_reference | 0 | -12 | 0 | 390 | 390 | 390 | 0.01160027341277447956203754 |
+| theta-sawtooth-5hz | both | theta_reference | 0 | -11 | 0 | 395 | 395 | 395 | 0.01345602291753970842675902 |
+| theta-sawtooth-5hz | both | theta_reference | 0 | -10 | 0 | 400 | 400 | 400 | 0.01563992326510950129991839 |
+| theta-sawtooth-5hz | both | theta_reference | 0 | -9 | 0 | 405 | 405 | 405 | 0.01825210453050174541769076 |
+| theta-sawtooth-5hz | both | theta_reference | 0 | -8 | 0 | 410 | 410 | 410 | 0.02144326838383980528588158 |
+| theta-sawtooth-5hz | both | theta_reference | 0 | -7 | 0 | 415 | 415 | 415 | 0.02545096262810764061821576 |
+| theta-sawtooth-5hz | both | theta_reference | 0 | -6 | 0 | 420 | 420 | 420 | 0.03067212010886577994975846 |
+| theta-sawtooth-5hz | both | theta_reference | 0 | -5 | 0 | 425 | 425 | 425 | 0.03782262896707610451178587 |
+| theta-sawtooth-5hz | both | theta_reference | 0 | -4 | 0 | 430 | 430 | 430 | 0.04833623543291059629171875 |
+| theta-sawtooth-5hz | both | theta_reference | 0 | -3 | 0 | 435 | 435 | 435 | 0.06556121734945665913871518 |
+| theta-sawtooth-5hz | both | theta_reference | 0 | -2 | 0 | 440 | 440 | 440 | 0.09954702018045064459776369 |
+| theta-sawtooth-5hz | both | theta_reference | 0 | -1 | 0 | 445 | 445 | 445 | 0.2005505831098114045505625 |
+| theta-sawtooth-5hz | both | theta_reference | 0 | 0 | 0 | 450 | 450 | 450 | 1 |
+| theta-sawtooth-5hz | both | theta_reference | 0 | 1 | 0 | 455 | 455 | 455 | 0.2005505831098114045505625 |
+| theta-sawtooth-5hz | both | theta_reference | 0 | 2 | 0 | 460 | 460 | 460 | 0.09954702018045064459776369 |
+| theta-sawtooth-5hz | both | theta_reference | 0 | 3 | 0 | 465 | 465 | 465 | 0.06556121734945665913871518 |
+| theta-sawtooth-5hz | both | theta_reference | 0 | 4 | 0 | 470 | 470 | 470 | 0.04833623543291059629171875 |
+| theta-sawtooth-5hz | both | theta_reference | 0 | 5 | 0 | 475 | 475 | 475 | 0.03782262896707610451178587 |
+| theta-sawtooth-5hz | both | theta_reference | 0 | 6 | 0 | 480 | 480 | 480 | 0.03067212010886577994975846 |
+| theta-sawtooth-5hz | both | theta_reference | 0 | 7 | 0 | 485 | 485 | 485 | 0.02545096262810764061821576 |
+| theta-sawtooth-5hz | both | theta_reference | 0 | 8 | 0 | 490 | 490 | 490 | 0.02144326838383980528588158 |
+| theta-sawtooth-5hz | both | theta_reference | 0 | 9 | 0 | 495 | 495 | 495 | 0.01825210453050174541769076 |
+| theta-sawtooth-5hz | both | theta_reference | 0 | 10 | 0 | 500 | 500 | 500 | 0.01563992326510950129991839 |
+| theta-sawtooth-5hz | both | theta_reference | 0 | 11 | 0 | 505 | 505 | 505 | 0.01345602291753970842675902 |
+| theta-sawtooth-5hz | both | theta_reference | 0 | 12 | 0 | 510 | 510 | 510 | 0.01160027341277447956203754 |
+| theta-sawtooth-5hz | both | theta_reference | 0 | 13 | 0 | 515 | 515 | 515 | 0.01000358041363602845719841 |
+| theta-100hz-smoothed-on-off-100pct | both | theta_reference | 0 | -17 | 0 | 2 | 2 | 2 | 0.01340682533315197762788953 |
+| theta-100hz-smoothed-on-off-100pct | both | theta_reference | 0 | -15 | 0 | 10 | 10 | 10 | 0.01947470216396214230342544 |
+| theta-100hz-smoothed-on-off-100pct | both | theta_reference | 0 | -14 | 0 | 16 | 16 | 16 | 0.01197035047744333911459297 |
+| theta-100hz-smoothed-on-off-100pct | both | theta_reference | 0 | -13 | 0 | 22 | 22 | 22 | 0.02304550985529007994116357 |
+| theta-100hz-smoothed-on-off-100pct | both | theta_reference | 0 | -12 | 0 | 28 | 28 | 28 | 0.02757923488264116848394783 |
+| theta-100hz-smoothed-on-off-100pct | both | theta_reference | 0 | -11 | 0 | 34 | 34 | 34 | 0.02055970474079500129960072 |
+| theta-100hz-smoothed-on-off-100pct | both | theta_reference | 0 | -10 | 0 | 40 | 40 | 40 | 0.04832072746842143984804544 |
+| theta-100hz-smoothed-on-off-100pct | both | theta_reference | 0 | -8 | 0 | 52 | 52 | 52 | 0.0722815821234710863431876 |
+| theta-100hz-smoothed-on-off-100pct | both | theta_reference | 0 | -7 | 0 | 58 | 58 | 58 | 0.02171090143552646845917247 |
+| theta-100hz-smoothed-on-off-100pct | both | theta_reference | 0 | -6 | 0 | 64 | 64 | 64 | 0.09645168826884852580334209 |
+| theta-100hz-smoothed-on-off-100pct | both | theta_reference | 0 | -5 | 0 | 70 | 70 | 70 | 0.07810608021145031450768452 |
+| theta-100hz-smoothed-on-off-100pct | both | theta_reference | 0 | -4 | 0 | 76 | 76 | 76 | 0.1172693659982694939426626 |
+| theta-100hz-smoothed-on-off-100pct | both | theta_reference | 0 | -3 | 0 | 82 | 82 | 82 | 0.1975056940127161905121015 |
+| theta-100hz-smoothed-on-off-100pct | both | theta_reference | 0 | -2 | 0 | 88 | 88 | 88 | 0.1313728195031569419007512 |
+| theta-100hz-smoothed-on-off-100pct | both | theta_reference | 0 | -1 | 0 | 94 | 94 | 94 | 0.7082291054632674457281589 |
+| theta-100hz-smoothed-on-off-100pct | both | theta_reference | 0 | 0 | 0 | 100 | 100 | 100 | 1 |
+| theta-100hz-smoothed-on-off-100pct | both | theta_reference | 0 | 1 | 0 | 106 | 106 | 106 | 0.7082291054632674457281589 |
+| theta-100hz-smoothed-on-off-100pct | both | theta_reference | 0 | 2 | 0 | 112 | 112 | 112 | 0.1313728195031569419007512 |
+| theta-100hz-smoothed-on-off-100pct | both | theta_reference | 0 | 3 | 0 | 118 | 118 | 118 | 0.1975056940127161905121015 |
+| theta-100hz-smoothed-on-off-100pct | both | theta_reference | 0 | 4 | 0 | 124 | 124 | 124 | 0.1172693659982694939426626 |
+| theta-100hz-smoothed-on-off-100pct | both | theta_reference | 0 | 5 | 0 | 130 | 130 | 130 | 0.07810608021145031450768452 |
+| theta-100hz-smoothed-on-off-100pct | both | theta_reference | 0 | 6 | 0 | 136 | 136 | 136 | 0.09645168826884852580334209 |
+| theta-100hz-smoothed-on-off-100pct | both | theta_reference | 0 | 7 | 0 | 142 | 142 | 142 | 0.02171090143552646845917247 |
+| theta-100hz-smoothed-on-off-100pct | both | theta_reference | 0 | 8 | 0 | 148 | 148 | 148 | 0.0722815821234710863431876 |
+| theta-100hz-smoothed-on-off-100pct | both | theta_reference | 0 | 10 | 0 | 160 | 160 | 160 | 0.04832072746842143984804544 |
+| theta-100hz-smoothed-on-off-100pct | both | theta_reference | 0 | 11 | 0 | 166 | 166 | 166 | 0.02055970474079500129960072 |
+| theta-100hz-smoothed-on-off-100pct | both | theta_reference | 0 | 12 | 0 | 172 | 172 | 172 | 0.02757923488264116848394783 |
+| theta-100hz-smoothed-on-off-100pct | both | theta_reference | 0 | 13 | 0 | 178 | 178 | 178 | 0.02304550985529007994116357 |
+| theta-100hz-smoothed-on-off-100pct | both | theta_reference | 0 | 14 | 0 | 184 | 184 | 184 | 0.01197035047744333911459297 |
+| theta-100hz-smoothed-on-off-100pct | both | theta_reference | 0 | 15 | 0 | 190 | 190 | 190 | 0.01947470216396214230342544 |
+| theta-100hz-smoothed-on-off-100pct | both | theta_reference | 0 | 17 | 0 | 202 | 202 | 202 | 0.01340682533315197762788953 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | -19 | 0 | 5 | 0 | 24 | 0.01391500476440262159232545 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | -17 | 0 | 15 | 0 | 32 | 0.01747787609162494283098442 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | -16 | 0 | 20 | 4 | 36 | 0.01347625941311710785966368 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | -15 | 0 | 25 | 10 | 40 | 0.01886280807015055959447147 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | -14 | 0 | 30 | 16 | 44 | 0.02502733891007463202345107 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | -13 | 0 | 35 | 22 | 48 | 0.01625319328949125336393738 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | -12 | 0 | 40 | 28 | 52 | 0.03937244460389894648710827 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | -10 | 0 | 50 | 40 | 60 | 0.05555555555555555435624056 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | -9 | 0 | 55 | 46 | 64 | 0.0101229335461519635321286 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | -8 | 0 | 60 | 52 | 68 | 0.07218281510714807438158793 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | -7 | 0 | 65 | 58 | 72 | 0.04083785540804943923562105 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | -6 | 0 | 70 | 64 | 76 | 0.08759568618526122748077513 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | -5 | 0 | 75 | 70 | 80 | 0.09431404035075278741491242 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | -4 | 0 | 80 | 76 | 84 | 0.1001093556402985472300861 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | -3 | 0 | 85 | 82 | 88 | 0.2057011570783550970184417 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | -2 | 0 | 90 | 88 | 92 | 0.1082742226607221166921181 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | -1 | 0 | 95 | 94 | 96 | 0.6970152386532586599803469 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | 0 | 0 | 100 | 100 | 100 | 1 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | 1 | 0 | 105 | 104 | 106 | 0.6970152386532586599803469 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | 2 | 0 | 110 | 108 | 112 | 0.1082742226607221166921181 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | 3 | 0 | 115 | 112 | 118 | 0.2057011570783550970184417 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | 4 | 0 | 120 | 116 | 124 | 0.1001093556402985472300861 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | 5 | 0 | 125 | 120 | 130 | 0.09431404035075278741491242 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | 6 | 0 | 130 | 124 | 136 | 0.08759568618526122748077513 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | 7 | 0 | 135 | 128 | 142 | 0.04083785540804943923562105 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | 8 | 0 | 140 | 132 | 148 | 0.07218281510714807438158793 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | 9 | 0 | 145 | 136 | 154 | 0.0101229335461519635321286 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | 10 | 0 | 150 | 140 | 160 | 0.05555555555555555435624056 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | 12 | 0 | 160 | 148 | 172 | 0.03937244460389894648710827 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | 13 | 0 | 165 | 152 | 178 | 0.01625319328949125336393738 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | 14 | 0 | 170 | 156 | 184 | 0.02502733891007463202345107 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | 15 | 0 | 175 | 160 | 190 | 0.01886280807015055959447147 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | 16 | 0 | 180 | 164 | 196 | 0.01347625941311710785966368 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | 17 | 0 | 185 | 168 | 202 | 0.01747787609162494283098442 |
+| theta-100hz-smoothed-on-off-cycle-100pct | both | theta_reference | 0 | 19 | 0 | 195 | 176 | 214 | 0.01391500476440262159232545 |
+| swell-10pct | both | theta_reference | 0 | -1 | 0 | 444 | 444 | 444 | 0.3 |
+| swell-10pct | both | theta_reference | 0 | 0 | 0 | 450 | 450 | 450 | 1 |
+| swell-10pct | both | theta_reference | 0 | 1 | 0 | 456 | 456 | 456 | 0.3 |
+| swell-10pct | both | gamma_pac | -1 | 0 | 0 | 210 | 210 | 210 | 0.01282051282051282124275018 |
+| swell-10pct | both | gamma_pac | 0 | -1 | 0 | 244 | 244 | 244 | 0.01282051282051282124275018 |
+| swell-10pct | both | gamma_pac | 0 | 0 | 0 | 250 | 250 | 250 | 1 |
+| swell-10pct | both | gamma_pac | 0 | 1 | 0 | 256 | 256 | 256 | 0.01282051282051282124275018 |
+| swell-10pct | both | gamma_pac | 1 | 0 | 0 | 290 | 290 | 290 | 0.01282051282051282124275018 |
+| swell-cycles-60deg-apart | both | theta_reference | 0 | -1 | 0 | 446 | 444 | 448 | 0.3 |
+| swell-cycles-60deg-apart | both | theta_reference | 0 | 0 | 0 | 450 | 450 | 450 | 1 |
+| swell-cycles-60deg-apart | both | theta_reference | 0 | 1 | 0 | 454 | 452 | 456 | 0.3 |
+| swell-cycles-60deg-apart | both | gamma_pac | -1 | -1 | 0 | 201 | 184.9065230605689187193051 | 217.0934769394310812806949 | 0.08333333333333333333333333 |
+| swell-cycles-60deg-apart | both | gamma_pac | -1 | 0 | 0 | 205 | 190 | 220 | 0.1666666666666666666666667 |
+| swell-cycles-60deg-apart | both | gamma_pac | -1 | 1 | 0 | 209 | 194.8932640203341156818296 | 223.1067359796658843181704 | 0.08333333333333333333333333 |
+| swell-cycles-60deg-apart | both | gamma_pac | 0 | -1 | 0 | 246 | 244 | 248 | 0.1666666666666666666666667 |
+| swell-cycles-60deg-apart | both | gamma_pac | 0 | 0 | 0 | 250 | 250 | 250 | 1 |
+| swell-cycles-60deg-apart | both | gamma_pac | 0 | 1 | 0 | 254 | 252 | 256 | 0.1666666666666666666666667 |
+| swell-cycles-60deg-apart | both | gamma_pac | 1 | -1 | 0 | 291 | 276.8932640203341156818296 | 305.1067359796658843181704 | 0.08333333333333333333333333 |
+| swell-cycles-60deg-apart | both | gamma_pac | 1 | 0 | 0 | 295 | 280 | 310 | 0.1666666666666666666666667 |
+| swell-cycles-60deg-apart | both | gamma_pac | 1 | 1 | 0 | 299 | 282.9065230605689187193051 | 315.0934769394310812806949 | 0.08333333333333333333333333 |
+| bursts-cycles-60deg-apart | both | theta_reference | 0 | -1 | 0 | 446 | 444 | 448 | 0.3 |
+| bursts-cycles-60deg-apart | both | theta_reference | 0 | 0 | 0 | 450 | 450 | 450 | 1 |
+| bursts-cycles-60deg-apart | both | theta_reference | 0 | 1 | 0 | 454 | 452 | 456 | 0.3 |
+| bursts-cycles-60deg-apart | both | gamma_pac | -1 | -4 | 0 | 189 | 168.7762515838433153217706 | 209.2237484161566846782294 | 0.01910210255321981280518409 |
+| bursts-cycles-60deg-apart | both | gamma_pac | -1 | -3 | 0 | 193 | 174.2650060048048051406192 | 211.7349939951951948593808 | 0.02839007288777113670394092 |
+| bursts-cycles-60deg-apart | both | gamma_pac | -1 | -2 | 0 | 197 | 179.6506484271025274135715 | 214.3493515728974725864285 | 0.03629803421614158071295147 |
+| bursts-cycles-60deg-apart | both | gamma_pac | -1 | -1 | 0 | 201 | 184.9065230605689187193051 | 217.0934769394310812806949 | 0.04160807718641787330928049 |
+| bursts-cycles-60deg-apart | both | gamma_pac | -1 | 0 | 0 | 205 | 190 | 220 | 0.04347826086956522042461099 |
+| bursts-cycles-60deg-apart | both | gamma_pac | -1 | 1 | 0 | 209 | 194.8932640203341156818296 | 223.1067359796658843181704 | 0.04160807718641787330928049 |
+| bursts-cycles-60deg-apart | both | gamma_pac | 0 | -10 | 0 | 210 | 190 | 230 | 0.01412272469487679550563413 |
+| bursts-cycles-60deg-apart | both | gamma_pac | -1 | 2 | 0 | 213 | 199.5463759529262899073551 | 226.4536240470737100926449 | 0.03629803421614158071295147 |
+| bursts-cycles-60deg-apart | both | gamma_pac | 0 | -9 | 0 | 214 | 196 | 232 | 0.01669269118263651240695541 |
+| bursts-cycles-60deg-apart | both | gamma_pac | -1 | 3 | 0 | 217 | 203.9233031693779796897737 | 230.0766968306220203102263 | 0.02839007288777113670394092 |
+| bursts-cycles-60deg-apart | both | gamma_pac | 0 | -8 | 0 | 218 | 202 | 234 | 0.01512169601217778793972533 |
+| bursts-cycles-60deg-apart | both | gamma_pac | -1 | 4 | 0 | 221 | 208.000000000000000464705 | 233.999999999999999535295 | 0.01910210255321981280518409 |
+| bursts-cycles-60deg-apart | both | gamma_pac | 0 | -5 | 0 | 230 | 220 | 240 | 0.0195866130600584061653407 |
+| bursts-cycles-60deg-apart | both | gamma_pac | 0 | -4 | 0 | 234 | 226 | 242 | 0.03820420510643962561036817 |
+| bursts-cycles-60deg-apart | both | gamma_pac | 0 | -3 | 0 | 238 | 232 | 244 | 0.05678014577554227340788184 |
+| bursts-cycles-60deg-apart | both | gamma_pac | 0 | -2 | 0 | 242 | 238 | 246 | 0.07259606843228316142590294 |
+| bursts-cycles-60deg-apart | both | gamma_pac | 0 | -1 | 0 | 246 | 244 | 248 | 0.08321615437283574661856097 |
+| bursts-cycles-60deg-apart | both | gamma_pac | 0 | 0 | 0 | 250 | 250 | 250 | 1 |
+| bursts-cycles-60deg-apart | both | gamma_pac | 0 | 1 | 0 | 254 | 252 | 256 | 0.08321615437283574661856097 |
+| bursts-cycles-60deg-apart | both | gamma_pac | 0 | 2 | 0 | 258 | 254 | 262 | 0.07259606843228316142590294 |
+| bursts-cycles-60deg-apart | both | gamma_pac | 0 | 3 | 0 | 262 | 256 | 268 | 0.05678014577554227340788184 |
+| bursts-cycles-60deg-apart | both | gamma_pac | 0 | 4 | 0 | 266 | 258 | 274 | 0.03820420510643962561036817 |
+| bursts-cycles-60deg-apart | both | gamma_pac | 0 | 5 | 0 | 270 | 260 | 280 | 0.0195866130600584061653407 |
+| bursts-cycles-60deg-apart | both | gamma_pac | 1 | -4 | 0 | 279 | 266.000000000000000464705 | 291.999999999999999535295 | 0.01910210255321981280518409 |
+| bursts-cycles-60deg-apart | both | gamma_pac | 0 | 8 | 0 | 282 | 266 | 298 | 0.01512169601217778793972533 |
+| bursts-cycles-60deg-apart | both | gamma_pac | 1 | -3 | 0 | 283 | 269.9233031693779796897737 | 296.0766968306220203102263 | 0.02839007288777113670394092 |
+| bursts-cycles-60deg-apart | both | gamma_pac | 0 | 9 | 0 | 286 | 268 | 304 | 0.01669269118263651240695541 |
+| bursts-cycles-60deg-apart | both | gamma_pac | 1 | -2 | 0 | 287 | 273.5463759529262899073551 | 300.4536240470737100926449 | 0.03629803421614158071295147 |
+| bursts-cycles-60deg-apart | both | gamma_pac | 0 | 10 | 0 | 290 | 270 | 310 | 0.01412272469487679550563413 |
+| bursts-cycles-60deg-apart | both | gamma_pac | 1 | -1 | 0 | 291 | 276.8932640203341156818296 | 305.1067359796658843181704 | 0.04160807718641787330928049 |
+| bursts-cycles-60deg-apart | both | gamma_pac | 1 | 0 | 0 | 295 | 280 | 310 | 0.04347826086956522042461099 |
+| bursts-cycles-60deg-apart | both | gamma_pac | 1 | 1 | 0 | 299 | 282.9065230605689187193051 | 315.0934769394310812806949 | 0.04160807718641787330928049 |
+| bursts-cycles-60deg-apart | both | gamma_pac | 1 | 2 | 0 | 303 | 285.6506484271025274135715 | 320.3493515728974725864285 | 0.03629803421614158071295147 |
+| bursts-cycles-60deg-apart | both | gamma_pac | 1 | 3 | 0 | 307 | 288.2650060048048051406192 | 325.7349939951951948593808 | 0.02839007288777113670394092 |
+| bursts-cycles-60deg-apart | both | gamma_pac | 1 | 4 | 0 | 311 | 290.7762515838433153217706 | 331.2237484161566846782294 | 0.01910210255321981280518409 |
+| bursts-60hz-135deg | both | theta_reference | 0 | -1 | 0 | 444 | 444 | 444 | 0.3 |
+| bursts-60hz-135deg | both | theta_reference | 0 | 0 | 0 | 450 | 450 | 450 | 1 |
+| bursts-60hz-135deg | both | theta_reference | 0 | 1 | 0 | 456 | 456 | 456 | 0.3 |
+| bursts-60hz-135deg | both | gamma_pac | 0 | -16 | 0 | 154 | 154 | 154 | 0.0131917089701894363670045 |
+| bursts-60hz-135deg | both | gamma_pac | 0 | -15 | 0 | 160 | 160 | 160 | 0.01090986928735403056192539 |
+| bursts-60hz-135deg | both | gamma_pac | 0 | -13 | 0 | 172 | 172 | 172 | 0.0229140759941414355285375 |
+| bursts-60hz-135deg | both | gamma_pac | 0 | -12 | 0 | 178 | 178 | 178 | 0.04492600379107866711508051 |
+| bursts-60hz-135deg | both | gamma_pac | 0 | -11 | 0 | 184 | 184 | 184 | 0.06251375651332588269415966 |
+| bursts-60hz-135deg | both | gamma_pac | 0 | -10 | 0 | 190 | 190 | 190 | 0.06879898371402344937171369 |
+| bursts-60hz-135deg | both | gamma_pac | 0 | -9 | 0 | 196 | 196 | 196 | 0.0611237353818047151179915 |
+| bursts-60hz-135deg | both | gamma_pac | 0 | -8 | 0 | 202 | 202 | 202 | 0.043632932029460057677048 |
+| bursts-60hz-135deg | both | gamma_pac | 0 | -7 | 0 | 208 | 208 | 208 | 0.02878423829725861147933435 |
+| bursts-60hz-135deg | both | gamma_pac | 0 | -6 | 0 | 214 | 214 | 214 | 0.02643588697855239528679296 |
+| bursts-60hz-135deg | both | gamma_pac | 0 | -5 | 0 | 220 | 220 | 220 | 0.02085660774930572607592604 |
+| bursts-60hz-135deg | both | gamma_pac | 0 | -4 | 0 | 226 | 226 | 226 | 0.01159545887357962098136327 |
+| bursts-60hz-135deg | both | gamma_pac | 0 | -3 | 0 | 232 | 232 | 232 | 0.04573627077382643856116023 |
+| bursts-60hz-135deg | both | gamma_pac | 0 | -2 | 0 | 238 | 238 | 238 | 0.0891268932644161580556205 |
+| bursts-60hz-135deg | both | gamma_pac | 0 | -1 | 0 | 244 | 244 | 244 | 0.1233952672235857811520466 |
+| bursts-60hz-135deg | both | gamma_pac | 0 | 0 | 0 | 250 | 250 | 250 | 1 |
+| bursts-60hz-135deg | both | gamma_pac | 0 | 1 | 0 | 256 | 256 | 256 | 0.1233952672235857811520466 |
+| bursts-60hz-135deg | both | gamma_pac | 0 | 2 | 0 | 262 | 262 | 262 | 0.0891268932644161580556205 |
+| bursts-60hz-135deg | both | gamma_pac | 0 | 3 | 0 | 268 | 268 | 268 | 0.04573627077382643856116023 |
+| bursts-60hz-135deg | both | gamma_pac | 0 | 4 | 0 | 274 | 274 | 274 | 0.01159545887357962098136327 |
+| bursts-60hz-135deg | both | gamma_pac | 0 | 5 | 0 | 280 | 280 | 280 | 0.02085660774930572607592604 |
+| bursts-60hz-135deg | both | gamma_pac | 0 | 6 | 0 | 286 | 286 | 286 | 0.02643588697855239528679296 |
+| bursts-60hz-135deg | both | gamma_pac | 0 | 7 | 0 | 292 | 292 | 292 | 0.02878423829725861147933435 |
+| bursts-60hz-135deg | both | gamma_pac | 0 | 8 | 0 | 298 | 298 | 298 | 0.043632932029460057677048 |
+| bursts-60hz-135deg | both | gamma_pac | 0 | 9 | 0 | 304 | 304 | 304 | 0.0611237353818047151179915 |
+| bursts-60hz-135deg | both | gamma_pac | 0 | 10 | 0 | 310 | 310 | 310 | 0.06879898371402344937171369 |
+| bursts-60hz-135deg | both | gamma_pac | 0 | 11 | 0 | 316 | 316 | 316 | 0.06251375651332588269415966 |
+| bursts-60hz-135deg | both | gamma_pac | 0 | 12 | 0 | 322 | 322 | 322 | 0.04492600379107866711508051 |
+| bursts-60hz-135deg | both | gamma_pac | 0 | 13 | 0 | 328 | 328 | 328 | 0.0229140759941414355285375 |
+| bursts-60hz-135deg | both | gamma_pac | 0 | 15 | 0 | 340 | 340 | 340 | 0.01090986928735403056192539 |
+| bursts-60hz-135deg | both | gamma_pac | 0 | 16 | 0 | 346 | 346 | 346 | 0.0131917089701894363670045 |
+| bursts-45hz-45deg | both | theta_reference | 0 | -1 | 0 | 444 | 444 | 444 | 0.3 |
+| bursts-45hz-45deg | both | theta_reference | 0 | 0 | 0 | 450 | 450 | 450 | 1 |
+| bursts-45hz-45deg | both | theta_reference | 0 | 1 | 0 | 456 | 456 | 456 | 0.3 |
+| bursts-45hz-45deg | both | gamma_pac | -1 | -6 | 0 | 169 | 169 | 169 | 0.01313750474108262089767719 |
+| bursts-45hz-45deg | both | gamma_pac | -1 | -3 | 0 | 187 | 187 | 187 | 0.02333587036237686487772713 |
+| bursts-45hz-45deg | both | gamma_pac | 0 | -10 | 0 | 190 | 190 | 190 | 0.01208018186710536581910319 |
+| bursts-45hz-45deg | both | gamma_pac | -1 | -2 | 0 | 193 | 193 | 193 | 0.04481705084155656283872755 |
+| bursts-45hz-45deg | both | gamma_pac | -1 | -1 | 0 | 199 | 199 | 199 | 0.06098792135165144271470535 |
+| bursts-45hz-45deg | both | gamma_pac | -1 | 0 | 0 | 205 | 205 | 205 | 0.06648276914340594123788391 |
+| bursts-45hz-45deg | both | gamma_pac | 0 | -7 | 0 | 208 | 208 | 208 | 0.01842768978145580751153293 |
+| bursts-45hz-45deg | both | gamma_pac | -1 | 1 | 0 | 211 | 211 | 211 | 0.059740664021283551631234 |
+| bursts-45hz-45deg | both | gamma_pac | 0 | -6 | 0 | 214 | 214 | 214 | 0.02617717480913453468588509 |
+| bursts-45hz-45deg | both | gamma_pac | -1 | 2 | 0 | 217 | 217 | 217 | 0.04355848261238513351447764 |
+| bursts-45hz-45deg | both | gamma_pac | 0 | -5 | 0 | 220 | 220 | 220 | 0.0195265200528625979907512 |
+| bursts-45hz-45deg | both | gamma_pac | -1 | 3 | 0 | 223 | 223 | 223 | 0.02372311059039057640049942 |
+| bursts-45hz-45deg | both | gamma_pac | 0 | -3 | 0 | 232 | 232 | 232 | 0.04505972980519921329030349 |
+| bursts-45hz-45deg | both | gamma_pac | 0 | -2 | 0 | 238 | 238 | 238 | 0.08904159223891856821719931 |
+| bursts-45hz-45deg | both | gamma_pac | -1 | 6 | 0 | 241 | 241 | 241 | 0.01082210980152747018152781 |
+| bursts-45hz-45deg | both | gamma_pac | 0 | -1 | 0 | 244 | 244 | 244 | 0.1233896154408227807599281 |
+| bursts-45hz-45deg | both | gamma_pac | -1 | 7 | 0 | 247 | 247 | 247 | 0.01092246967257112132933557 |
+| bursts-45hz-45deg | both | gamma_pac | 0 | 0 | 0 | 250 | 250 | 250 | 1 |
+| bursts-45hz-45deg | both | gamma_pac | 1 | -7 | 0 | 253 | 253 | 253 | 0.01092246967257112132933557 |
+| bursts-45hz-45deg | both | gamma_pac | 0 | 1 | 0 | 256 | 256 | 256 | 0.1233896154408227807599281 |
+| bursts-45hz-45deg | both | gamma_pac | 1 | -6 | 0 | 259 | 259 | 259 | 0.01082210980152747018152781 |
+| bursts-45hz-45deg | both | gamma_pac | 0 | 2 | 0 | 262 | 262 | 262 | 0.08904159223891856821719931 |
+| bursts-45hz-45deg | both | gamma_pac | 0 | 3 | 0 | 268 | 268 | 268 | 0.04505972980519921329030349 |
+| bursts-45hz-45deg | both | gamma_pac | 1 | -3 | 0 | 277 | 277 | 277 | 0.02372311059039057640049942 |
+| bursts-45hz-45deg | both | gamma_pac | 0 | 5 | 0 | 280 | 280 | 280 | 0.0195265200528625979907512 |
+| bursts-45hz-45deg | both | gamma_pac | 1 | -2 | 0 | 283 | 283 | 283 | 0.04355848261238513351447764 |
+| bursts-45hz-45deg | both | gamma_pac | 0 | 6 | 0 | 286 | 286 | 286 | 0.02617717480913453468588509 |
+| bursts-45hz-45deg | both | gamma_pac | 1 | -1 | 0 | 289 | 289 | 289 | 0.059740664021283551631234 |
+| bursts-45hz-45deg | both | gamma_pac | 0 | 7 | 0 | 292 | 292 | 292 | 0.01842768978145580751153293 |
+| bursts-45hz-45deg | both | gamma_pac | 1 | 0 | 0 | 295 | 295 | 295 | 0.06648276914340594123788391 |
+| bursts-45hz-45deg | both | gamma_pac | 1 | 1 | 0 | 301 | 301 | 301 | 0.06098792135165144271470535 |
+| bursts-45hz-45deg | both | gamma_pac | 1 | 2 | 0 | 307 | 307 | 307 | 0.04481705084155656283872755 |
+| bursts-45hz-45deg | both | gamma_pac | 0 | 10 | 0 | 310 | 310 | 310 | 0.01208018186710536581910319 |
+| bursts-45hz-45deg | both | gamma_pac | 1 | 3 | 0 | 313 | 313 | 313 | 0.02333587036237686487772713 |
+| bursts-45hz-45deg | both | gamma_pac | 1 | 6 | 0 | 331 | 331 | 331 | 0.01313750474108262089767719 |
+| bursts-57hz-theta-5.7hz | both | theta_reference | 0 | -1 | 0 | 444.2999999999999998223643 | 444.2999999999999998223643 | 444.2999999999999998223643 | 0.3 |
+| bursts-57hz-theta-5.7hz | both | theta_reference | 0 | 0 | 0 | 450 | 450 | 450 | 1 |
+| bursts-57hz-theta-5.7hz | both | theta_reference | 0 | 1 | 0 | 455.7000000000000001776357 | 455.7000000000000001776357 | 455.7000000000000001776357 | 0.3 |
+| bursts-57hz-theta-5.7hz | both | gamma_pac | 0 | -13 | 0 | 175.8999999999999976907361 | 175.8999999999999976907361 | 175.8999999999999976907361 | 0.02301086962524139919458799 |
+| bursts-57hz-theta-5.7hz | both | gamma_pac | 0 | -12 | 0 | 181.5999999999999978683718 | 181.5999999999999978683718 | 181.5999999999999978683718 | 0.03662346546008854260846594 |
+| bursts-57hz-theta-5.7hz | both | gamma_pac | 0 | -11 | 0 | 187.2999999999999980460075 | 187.2999999999999980460075 | 187.2999999999999980460075 | 0.04769027494697553224572326 |
+| bursts-57hz-theta-5.7hz | both | gamma_pac | 0 | -10 | 0 | 192.9999999999999982236432 | 192.9999999999999982236432 | 192.9999999999999982236432 | 0.05465616093103521256866199 |
+| bursts-57hz-theta-5.7hz | both | gamma_pac | 0 | -9 | 0 | 198.6999999999999984012788 | 198.6999999999999984012788 | 198.6999999999999984012788 | 0.05677402354348381732725439 |
+| bursts-57hz-theta-5.7hz | both | gamma_pac | 0 | -8 | 0 | 204.3999999999999985789145 | 204.3999999999999985789145 | 204.3999999999999985789145 | 0.0535564623825700978467957 |
+| bursts-57hz-theta-5.7hz | both | gamma_pac | 0 | -7 | 0 | 210.0999999999999987565502 | 210.0999999999999987565502 | 210.0999999999999987565502 | 0.04427502004704189211347751 |
+| bursts-57hz-theta-5.7hz | both | gamma_pac | 0 | -6 | 0 | 215.7999999999999989341859 | 215.7999999999999989341859 | 215.7999999999999989341859 | 0.02800226712243316457813879 |
+| bursts-57hz-theta-5.7hz | both | gamma_pac | 0 | -4 | 0 | 227.1999999999999992894573 | 227.1999999999999992894573 | 227.1999999999999992894573 | 0.02557041853902539446031326 |
+| bursts-57hz-theta-5.7hz | both | gamma_pac | 0 | -3 | 0 | 232.8999999999999994670929 | 232.8999999999999994670929 | 232.8999999999999994670929 | 0.05828197736132381972406328 |
+| bursts-57hz-theta-5.7hz | both | gamma_pac | 0 | -2 | 0 | 238.5999999999999996447286 | 238.5999999999999996447286 | 238.5999999999999996447286 | 0.08836080446405475461661174 |
+| bursts-57hz-theta-5.7hz | both | gamma_pac | 0 | -1 | 0 | 244.2999999999999998223643 | 244.2999999999999998223643 | 244.2999999999999998223643 | 0.1096846008747705152095357 |
+| bursts-57hz-theta-5.7hz | both | gamma_pac | 0 | 0 | 0 | 250 | 250 | 250 | 1 |
+| bursts-57hz-theta-5.7hz | both | gamma_pac | 0 | 1 | 0 | 255.7000000000000001776357 | 255.7000000000000001776357 | 255.7000000000000001776357 | 0.1096846008747705152095357 |
+| bursts-57hz-theta-5.7hz | both | gamma_pac | 0 | 2 | 0 | 261.4000000000000003552714 | 261.4000000000000003552714 | 261.4000000000000003552714 | 0.08836080446405475461661174 |
+| bursts-57hz-theta-5.7hz | both | gamma_pac | 0 | 3 | 0 | 267.1000000000000005329071 | 267.1000000000000005329071 | 267.1000000000000005329071 | 0.05828197736132381972406328 |
+| bursts-57hz-theta-5.7hz | both | gamma_pac | 0 | 4 | 0 | 272.8000000000000007105427 | 272.8000000000000007105427 | 272.8000000000000007105427 | 0.02557041853902539446031326 |
+| bursts-57hz-theta-5.7hz | both | gamma_pac | 0 | 6 | 0 | 284.2000000000000010658141 | 284.2000000000000010658141 | 284.2000000000000010658141 | 0.02800226712243316457813879 |
+| bursts-57hz-theta-5.7hz | both | gamma_pac | 0 | 7 | 0 | 289.9000000000000012434498 | 289.9000000000000012434498 | 289.9000000000000012434498 | 0.04427502004704189211347751 |
+| bursts-57hz-theta-5.7hz | both | gamma_pac | 0 | 8 | 0 | 295.6000000000000014210855 | 295.6000000000000014210855 | 295.6000000000000014210855 | 0.0535564623825700978467957 |
+| bursts-57hz-theta-5.7hz | both | gamma_pac | 0 | 9 | 0 | 301.3000000000000015987212 | 301.3000000000000015987212 | 301.3000000000000015987212 | 0.05677402354348381732725439 |
+| bursts-57hz-theta-5.7hz | both | gamma_pac | 0 | 10 | 0 | 307.0000000000000017763568 | 307.0000000000000017763568 | 307.0000000000000017763568 | 0.05465616093103521256866199 |
+| bursts-57hz-theta-5.7hz | both | gamma_pac | 0 | 11 | 0 | 312.7000000000000019539925 | 312.7000000000000019539925 | 312.7000000000000019539925 | 0.04769027494697553224572326 |
+| bursts-57hz-theta-5.7hz | both | gamma_pac | 0 | 12 | 0 | 318.4000000000000021316282 | 318.4000000000000021316282 | 318.4000000000000021316282 | 0.03662346546008854260846594 |
+| bursts-57hz-theta-5.7hz | both | gamma_pac | 0 | 13 | 0 | 324.1000000000000023092639 | 324.1000000000000023092639 | 324.1000000000000023092639 | 0.02301086962524139919458799 |
+| bursts-60hz-zero-swing | both | theta_reference | 0 | -1 | 0 | 444 | 444 | 444 | 0.3 |
+| bursts-60hz-zero-swing | both | theta_reference | 0 | 0 | 0 | 450 | 450 | 450 | 1 |
+| bursts-60hz-zero-swing | both | theta_reference | 0 | 1 | 0 | 456 | 456 | 456 | 0.3 |
+| bursts-60hz-zero-swing | both | gamma_pac | 0 | -17 | 0 | 148 | 148 | 148 | 0.01005709561994841304111064 |
+| bursts-60hz-zero-swing | both | gamma_pac | 0 | -16 | 0 | 154 | 154 | 154 | 0.01099573431123077692022991 |
+| bursts-60hz-zero-swing | both | gamma_pac | 0 | -13 | 0 | 172 | 172 | 172 | 0.02476500476884419839819263 |
+| bursts-60hz-zero-swing | both | gamma_pac | 0 | -12 | 0 | 178 | 178 | 178 | 0.0404537282658711736251526 |
+| bursts-60hz-zero-swing | both | gamma_pac | 0 | -11 | 0 | 184 | 184 | 184 | 0.05135163876882537064841183 |
+| bursts-60hz-zero-swing | both | gamma_pac | 0 | -10 | 0 | 190 | 190 | 190 | 0.05587831275887256839789646 |
+| bursts-60hz-zero-swing | both | gamma_pac | 0 | -9 | 0 | 196 | 196 | 196 | 0.05474922547686588554066118 |
+| bursts-60hz-zero-swing | both | gamma_pac | 0 | -8 | 0 | 202 | 202 | 202 | 0.04954590781036907191135863 |
+| bursts-60hz-zero-swing | both | gamma_pac | 0 | -7 | 0 | 208 | 208 | 208 | 0.04088129298667393809253261 |
+| bursts-60hz-zero-swing | both | gamma_pac | 0 | -6 | 0 | 214 | 214 | 214 | 0.02752298739901722964179327 |
+| bursts-60hz-zero-swing | both | gamma_pac | 0 | -4 | 0 | 226 | 226 | 226 | 0.02101277077510202836102152 |
+| bursts-60hz-zero-swing | both | gamma_pac | 0 | -3 | 0 | 232 | 232 | 232 | 0.05498563161431248002783113 |
+| bursts-60hz-zero-swing | both | gamma_pac | 0 | -2 | 0 | 238 | 238 | 238 | 0.08857593334497534055662654 |
+| bursts-60hz-zero-swing | both | gamma_pac | 0 | -1 | 0 | 244 | 244 | 244 | 0.1135451940089543041360102 |
+| bursts-60hz-zero-swing | both | gamma_pac | 0 | 0 | 0 | 250 | 250 | 250 | 1 |
+| bursts-60hz-zero-swing | both | gamma_pac | 0 | 1 | 0 | 256 | 256 | 256 | 0.1135451940089543041360102 |
+| bursts-60hz-zero-swing | both | gamma_pac | 0 | 2 | 0 | 262 | 262 | 262 | 0.08857593334497534055662654 |
+| bursts-60hz-zero-swing | both | gamma_pac | 0 | 3 | 0 | 268 | 268 | 268 | 0.05498563161431248002783113 |
+| bursts-60hz-zero-swing | both | gamma_pac | 0 | 4 | 0 | 274 | 274 | 274 | 0.02101277077510202836102152 |
+| bursts-60hz-zero-swing | both | gamma_pac | 0 | 6 | 0 | 286 | 286 | 286 | 0.02752298739901722964179327 |
+| bursts-60hz-zero-swing | both | gamma_pac | 0 | 7 | 0 | 292 | 292 | 292 | 0.04088129298667393809253261 |
+| bursts-60hz-zero-swing | both | gamma_pac | 0 | 8 | 0 | 298 | 298 | 298 | 0.04954590781036907191135863 |
+| bursts-60hz-zero-swing | both | gamma_pac | 0 | 9 | 0 | 304 | 304 | 304 | 0.05474922547686588554066118 |
+| bursts-60hz-zero-swing | both | gamma_pac | 0 | 10 | 0 | 310 | 310 | 310 | 0.05587831275887256839789646 |
+| bursts-60hz-zero-swing | both | gamma_pac | 0 | 11 | 0 | 316 | 316 | 316 | 0.05135163876882537064841183 |
+| bursts-60hz-zero-swing | both | gamma_pac | 0 | 12 | 0 | 322 | 322 | 322 | 0.0404537282658711736251526 |
+| bursts-60hz-zero-swing | both | gamma_pac | 0 | 13 | 0 | 328 | 328 | 328 | 0.02476500476884419839819263 |
+| bursts-60hz-zero-swing | both | gamma_pac | 0 | 16 | 0 | 346 | 346 | 346 | 0.01099573431123077692022991 |
+| bursts-60hz-zero-swing | both | gamma_pac | 0 | 17 | 0 | 352 | 352 | 352 | 0.01005709561994841304111064 |
+| three-layers | both | theta_reference | 0 | -1 | 0 | 444 | 444 | 444 | 0.3 |
+| three-layers | both | theta_reference | 0 | 0 | 0 | 450 | 450 | 450 | 1 |
+| three-layers | both | theta_reference | 0 | 1 | 0 | 456 | 456 | 456 | 0.3 |
+| three-layers | both | gamma_pac | -1 | -1 | 0 | 204 | 204 | 204 | 0.08333333333333333333333333 |
+| three-layers | both | gamma_pac | -1 | 0 | 0 | 210 | 210 | 210 | 0.1666666666666666666666667 |
+| three-layers | both | gamma_pac | -1 | 1 | 0 | 216 | 216 | 216 | 0.08333333333333333333333333 |
+| three-layers | both | gamma_pac | 0 | -1 | 0 | 244 | 244 | 244 | 0.1666666666666666666666667 |
+| three-layers | both | gamma_pac | 0 | 0 | 0 | 250 | 250 | 250 | 1 |
+| three-layers | both | gamma_pac | 0 | 1 | 0 | 256 | 256 | 256 | 0.1666666666666666666666667 |
+| three-layers | both | gamma_pac | 1 | -1 | 0 | 284 | 284 | 284 | 0.08333333333333333333333333 |
+| three-layers | both | gamma_pac | 1 | 0 | 0 | 290 | 290 | 290 | 0.1666666666666666666666667 |
+| three-layers | both | gamma_pac | 1 | 1 | 0 | 296 | 296 | 296 | 0.08333333333333333333333333 |
+| three-layers | left | binaural | 0 | 0 | 0 | 100 | 100 | 100 | 1 |
+| three-layers | right | binaural | 0 | 0 | 1 | 101.5 | 100 | 103 | 1 |
 
 ## 24-bit rounding
 

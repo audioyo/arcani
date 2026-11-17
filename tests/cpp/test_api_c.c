@@ -22,6 +22,7 @@ typedef arc_status (*seek_fn)(arc_renderer*, uint64_t, arc_error*);
 typedef void (*destroy_fn)(arc_renderer*);
 typedef const char* (*recipe_hash_fn)(const arc_plan*); /* Story 1.4 */
 typedef uint64_t (*seed_fn)(const arc_plan*);            /* Story 1.4 */
+typedef arc_status (*component_fn)(const arc_plan*, size_t, arc_component*, arc_error*); /* Story 3.1 */
 
 int arc_test_c_header(void);
 
@@ -41,6 +42,8 @@ int arc_test_c_header(void) {
   destroy_fn destroy = arc_renderer_destroy;
   recipe_hash_fn recipe_hash = arc_plan_recipe_hash;
   seed_fn seed = arc_plan_seed;
+  count_fn component_count = arc_plan_component_count; /* Story 3.1 */
+  component_fn component = arc_plan_component;
 
   arc_error error;
   arc_compile_options options;
@@ -49,6 +52,9 @@ int arc_test_c_header(void) {
   arc_mode mode = ARC_MODE_MEASURE;
   arc_mute_ear mute = ARC_MUTE_NONE;
   arc_stage_kind kind = ARC_STAGE_THETA_REFERENCE;
+  arc_component line;
+  arc_component_layer layer = ARC_COMPONENT_THETA_REFERENCE;
+  arc_ear ear = ARC_EAR_LEFT;
   int sum = 0;
 
   error.parameter[0] = '\0';
@@ -63,6 +69,15 @@ int arc_test_c_header(void) {
   taps.stereo_bus = NULL;
   taps.binaural_join = NULL;
   taps.master = NULL;
+  line.layer = ARC_COMPONENT_GAMMA_PAC;
+  line.ear = ARC_EAR_RIGHT;
+  line.center_hz = 250.0;
+  line.low_hz = 250.0;
+  line.high_hz = 250.0;
+  line.level = 1.0;
+  line.gamma_mult = 0;
+  line.theta_mult = 0;
+  line.beat_mult = 0;
 
   sum += (int)status + (int)mode + (int)mute + (int)kind;
   sum += ARC_ERR_INVALID_ARGUMENT + ARC_ERR_REJECTED + ARC_ERR_OUT_OF_MEMORY + ARC_ERR_INTERNAL;
@@ -72,6 +87,9 @@ int arc_test_c_header(void) {
          (frame_count != NULL) + (stage_count != NULL) + (stage != NULL) + (warning_count != NULL) +
          (warning != NULL) + (create != NULL) + (render != NULL) + (seek != NULL) + (destroy != NULL);
   sum += (recipe_hash != NULL) + (seed != NULL);
+  sum += (component_count != NULL) + (component != NULL) + (int)layer + (int)ear + ARC_COMPONENT_BINAURAL;
+  sum += (int)line.layer + (int)line.ear + (int)line.gamma_mult + (int)line.theta_mult + (int)line.beat_mult +
+         (line.level > 0.0) + (line.low_hz <= line.center_hz) + (line.center_hz <= line.high_hz);
   sum += (int)sizeof error + error.parameter[0] + (int)options.sample_rate + (taps.master == NULL);
   return sum;
 }

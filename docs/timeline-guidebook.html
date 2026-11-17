@@ -274,7 +274,7 @@
    Update after every completed section plus commit and/or push.
    ===================================================================== */
 
-var LAST_UPDATED = "2026-11-15";
+var LAST_UPDATED = "2026-11-16";
 var CURRENT = "3.1";   // story id being worked on
 var NEXT    = "3.2";   // story id that comes next
 
@@ -557,12 +557,15 @@ var EPICS = [
   frs: "FR-9 (spacing rule)",
   retro: "optional",
   stories: [
-  { id:"3.1", title:"Spectral component table per shape", status:"backlog",
+  { id:"3.1", title:"Spectral component table per shape", status:"review",
     plain:"One analytic table of every layer's spectral lines, so the validator and the tests agree on what each layer puts in each ear.",
-    steps:S7(), acs:[
-      [" ","signal-spec components section for every shape; component = any line within 40 dB of the layer's strongest"],
-      [" ","Compiler lists per ear and per layer every component frequency (or interval) and level; unmodeled shape rejected"],
-      [" ","Measured reference spectra match the analytic table; a dropped side frequency must-fail is caught"]
+    spec:["spec-3-1-spectral-component-table-per-shape.md"],
+    steps:[true,true,true,false,false,false,false],
+    stepNotes:["5e94841: spec 2026-11-16 (Audio delegated the decisions for Stories 3.1 to 3.3); carrier rule kept as is after an independent review; signal spec Components section with 3 new vector tables (44 in all), two new error rows, design log (vv), and the contracts for the tests; not pushed","9396e92: fresh-context QA agent's failing tests; burst line sum (b5c9121) and band check sweep edge (37f956c) amendments approved","b6951f4: engine component table, C API, tap dump components mode, hash probe components component, reference table, cross-check tool; 4/4 ctest entries, 3,178 pytest pass, 4 hash-entry tests wait for the four-platform full run","","","",""],
+    acs:[
+      ["x","signal-spec components section for every shape; component = any line within 40 dB of the layer's strongest"],
+      ["x","Compiler lists per ear and per layer every component frequency (or interval) and level; unmodeled shape rejected"],
+      ["x","Measured reference spectra match the analytic table; a dropped side frequency must-fail is caught"]
     ] },
   { id:"3.2", title:"Spacing rule per ear, whole session", status:"backlog",
     plain:"Reject any recipe whose layers come within 50 Hz of each other in either ear, anywhere in the session.",
@@ -730,6 +733,8 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-16","91243a9","3.1","Failing tests (9396e92) and implementation (b6951f4) committed; 4/4 ctest entries, 3,178 pytest pass, 4 hash-entry tests wait for the four-platform full run; sprint-status.yaml set to review; not pushed"],
+  ["2026-11-16","5e94841","3.1","Spec, carrier rule review, signal spec Components section with vectors (46 cases, 877 table rows), threshold rows component-level-error and component-frequency-error, and design log (vv) committed; 4/4 ctest entries and the full pytest suite pass; failing tests come next; not pushed"],
   ["2026-11-15","8e1198c","2.7","PR #18 merged into main after fast and full checks on 0e571ed were green, every job within budget; loop hashes equal on all four platforms; sprint-status.yaml set to done; Epic 2 stories complete"],
   ["2026-11-15","0e571ed","2.7","Loop probe hashes pinned from full run 43757385873; fast 43794452447 and full 43794458051 green"],
   ["2026-11-15","257c970","2.7","Review pass 1 done: 16 findings, 2 patched (78e01a8 replay must-fail, spec encoding), 12 rejected, 2 CI gate; 2,831 pytest pass, 4 hash-entry tests wait for the full run; sprint-status.yaml set to review"],

@@ -232,6 +232,36 @@ arc_status arc_plan_loop(const arc_plan* plan, arc_loop_frames* out_loop, arc_er
   return ARC_OK;
 }
 
+size_t arc_plan_component_count(const arc_plan* plan) {
+  return plan == nullptr ? 0 : plan->plan.components.size();
+}
+
+arc_status arc_plan_component(const arc_plan* plan, size_t index, arc_component* out_component,
+                              arc_error* error) {
+  if (plan == nullptr) {
+    return null_argument(error, "plan");
+  }
+  if (out_component == nullptr) {
+    return null_argument(error, "out_component");
+  }
+  const auto& rows = plan->plan.components;
+  if (index >= rows.size()) {
+    return bad_index(error, index, rows.size());
+  }
+  const arcani::validate::Component& c = rows[index];
+  std::memset(out_component, 0, sizeof *out_component);
+  out_component->layer = static_cast<arc_component_layer>(static_cast<int>(c.layer));
+  out_component->ear = static_cast<arc_ear>(static_cast<int>(c.ear));
+  out_component->center_hz = c.center_hz;
+  out_component->low_hz = c.low_hz;
+  out_component->high_hz = c.high_hz;
+  out_component->level = c.level;
+  out_component->gamma_mult = c.gamma_mult;
+  out_component->theta_mult = c.theta_mult;
+  out_component->beat_mult = c.beat_mult;
+  return ARC_OK;
+}
+
 size_t arc_plan_warning_count(const arc_plan* plan) {
   return plan == nullptr ? 0 : plan->plan.warnings.size();
 }

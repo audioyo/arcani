@@ -110,7 +110,10 @@ seek to 55 s); their entries also arrive only after a green four-platform
 full run. Story 2.7 adds `loop-44100` and `loop-48000`, scope `engine`, each
 2 * 2 * 5 * fs samples (the swell loop fixture, 5 s from frame 0 and 5 s
 after a seek to 2.5 s before its seam 9); their entries also arrive only
-after a green four-platform full run. No other entry.
+after a green four-platform full run. Story 3.1 adds `components`, scope
+`engine`, 6600 samples (the component tables of the six probe cases, every
+bit of each row as 16-bit words; tests/python/test_probe_components.py); its
+entry also arrives only after a green four-platform full run. No other entry.
 
 Bound has one source (Story 0.3): `bound_dbfs` in `ci/hash_tolerance.json`
 equals the value of threshold row `cross-platform-fallback`, read through the
@@ -836,10 +839,10 @@ def real_rates():
 
 
 def test_real_expected_file_has_every_component_with_its_scope():
-    """Stories 1.6 to 2.7: the sine, stub chain, theta, gamma, swell, binaural, burst, rate-curve, and loop entries, scoped; probe-arith is the only probe entry."""
+    """Stories 1.6 to 3.1: the sine, stub chain, theta, gamma, swell, binaural, burst, rate-curve, loop, and component table entries, scoped; probe-arith is the only probe entry."""
     components = load_ci("hash_expected.json")["components"]
     rates = real_rates()
-    want = {"probe-arith": ("probe", 4096)}
+    want = {"probe-arith": ("probe", 4096), "components": ("engine", 6600)}  # components: Story 3.1
     for fs in rates:
         want[f"sine-{fs}"] = ("engine", 3 * fs)
         want[f"stub-chain-{fs}"] = ("engine", 2 * fs)

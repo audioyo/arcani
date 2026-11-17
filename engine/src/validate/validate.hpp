@@ -144,6 +144,13 @@ inline constexpr std::string_view kPhaseNeedsCoupledLimit = "absent with couplin
 inline constexpr std::string_view kNonSineBinauralRule = "non-sine binaural not modeled";
 inline constexpr std::string_view kModeledBinauralWaveforms = "sine";
 
+// The integer test of a binary64 x >= 0 (docs/signal-spec.md, Loop,
+// Whole-sample rule): true at or above 2^53 (every such binary64 is whole) and,
+// below it, when x converts to an unsigned 64-bit integer and back exactly.
+// Its caller ensures x >= 0. The Loop rules and the component table's burst
+// ratio test (Story 3.1) use it.
+bool is_whole(double x) noexcept;
+
 // Carrier rule: every modulated carrier is at least this many times its
 // modulation rate (threshold row carrier-rule).
 inline constexpr double kCarrierRatio = 4.0;

@@ -130,6 +130,51 @@ typedef struct arc_loop_frames {
 /* Fills *out_loop. ARC_ERR_INVALID_ARGUMENT for a NULL plan or out_loop. */
 arc_status arc_plan_loop(const arc_plan* plan, arc_loop_frames* out_loop, arc_error* error);
 
+/* Spectral component table (docs/signal-spec.md, Components; Story 3.1).
+   Per ear (the left ear's rows first) and per layer (theta reference, gamma
+   PAC layer, binaural), by ascending center_hz: every spectral line whose
+   level is at least the threshold of row spectral-component-level re its
+   layer's carrier line. The line's frequency at any moment is the layer's
+   carrier plus gamma_mult times the gamma rate, theta_mult times the theta
+   rate, and beat_mult times the beat rate, each following its rate cycle;
+   [low_hz, high_hz] is the range it covers over a whole cycle (both equal
+   center_hz without one). A line whose frequency lies below 0 Hz sounds at
+   its absolute value and is listed mirrored (center_hz, low_hz, high_hz
+   become -center_hz, -high_hz, -low_hz; an interval that crosses 0 is listed
+   as |center_hz|, 0, and the larger end), while the multipliers keep
+   describing the unmirrored frequency. The table is the same at every sample rate, and a
+   muted ear has no binaural row. The renderer never reads it. */
+typedef enum arc_component_layer {
+  ARC_COMPONENT_THETA_REFERENCE = 0,
+  ARC_COMPONENT_GAMMA_PAC = 1,
+  ARC_COMPONENT_BINAURAL = 2
+} arc_component_layer;
+
+typedef enum arc_ear {
+  ARC_EAR_LEFT = 0,
+  ARC_EAR_RIGHT = 1
+} arc_ear;
+
+typedef struct arc_component {
+  arc_component_layer layer;
+  arc_ear ear;
+  double center_hz;
+  double low_hz;
+  double high_hz;
+  double level; /* line amplitude over the layer's carrier line, in (0, 1] */
+  int32_t gamma_mult;
+  int32_t theta_mult;
+  int32_t beat_mult;
+} arc_component;
+
+/* Component count; 0 for NULL. */
+size_t arc_plan_component_count(const arc_plan* plan);
+/* Fills *out_component with row `index` of the table.
+   ARC_ERR_INVALID_ARGUMENT for a NULL plan or out_component, or an index at
+   or past the count. */
+arc_status arc_plan_component(const arc_plan* plan, size_t index, arc_component* out_component,
+                              arc_error* error);
+
 /* Non-blocking warning count; 0 for NULL. A warning is an arc_error. */
 size_t arc_plan_warning_count(const arc_plan* plan);
 arc_status arc_plan_warning(const arc_plan* plan, size_t index, arc_error* out_warning,

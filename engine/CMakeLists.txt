@@ -22,6 +22,7 @@ set(_arcani_engine_sources
   src/recipe/recipe.cpp
   src/plan/plan.cpp
   src/render/renderer.cpp
+  src/validate/components.cpp
   src/validate/validate.cpp)
 if(ARCANI_ENGINE_TEST_EXTRA_SOURCE)
   list(APPEND _arcani_engine_sources "${ARCANI_ENGINE_TEST_EXTRA_SOURCE}")
