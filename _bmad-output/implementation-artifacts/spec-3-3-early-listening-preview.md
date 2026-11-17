@@ -3,7 +3,7 @@ title: 'Story 3.3: Early listening preview'
 type: 'feature'
 created: '2026-11-17'
 baseline_commit: '6760a4b8da36daf741d97da0dc2764ba480d5658'
-status: 'in-progress'
+status: 'in-review'
 route: 'dispatch'
 review_loop_iteration: 0
 context:
@@ -70,11 +70,11 @@ Decisions (approved 2026-11-17 by the orchestrator under Audio's delegation; Aud
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `docs/signal-spec.md`, vectors -- Preview section with three vector tables -- the spec merges first.
-- [ ] `thresholds.tsv`, design log (xx), the two checklist fixtures, hash vectors, `recipes/README.md`, the listening checklist -- data and records.
-- [ ] tests -- a fresh-context QA agent writes them failing, from the contracts below -- tests first.
-- [ ] `cli/preview.*`, `cli/report.*`, `cli/main.cpp`, `cli/CMakeLists.txt`, `reference/preview.py`, `tools/render_previews.py` -- implementation.
-- [ ] rows lose `pending`; design log (xx) gains the implementation and results; guidebook; `sprint-status.yaml` -- records.
+- [x] `docs/signal-spec.md`, vectors -- Preview section with three vector tables -- the spec merges first.
+- [x] `thresholds.tsv`, design log (xx), the two checklist fixtures, hash vectors, `recipes/README.md`, the listening checklist -- data and records.
+- [x] tests -- a fresh-context QA agent writes them failing, from the contracts below -- tests first.
+- [x] `cli/preview.*`, `cli/report.*`, `cli/main.cpp`, `cli/CMakeLists.txt`, `reference/preview.py`, `tools/render_previews.py` -- implementation.
+- [x] rows lose `pending`; design log (xx) gains the implementation and results; guidebook; `sprint-status.yaml` -- records.
 - [ ] render the six previews; Audio listens on earbuds and on headphones and fills the checklist; proposed changes logged and routed; `deferred-work.md` rows closed -- listening.
 
 **Acceptance Criteria:**
@@ -235,6 +235,22 @@ uv run --locked python tools/render_previews.py [--out-dir DIR] [--rate 44100|48
 - `tests/python/test_render_previews.py`: `--list` names the six preview set paths and creates nothing; refused directories (`docs`, `.`, `recipes/fixtures`, `buildx`, `build/../docs`) exit 2 and are not created; an allowed directory under `build/` and one in `tmp_path` render `--fixture recipes/fixtures/valid/stub-chain-1s-beat-6.json` into `<stem>.preview.wav` and `<stem>.preview.report.json` with a `preview` member; a missing `--renderer` exits 3. Must-fail: the refusal check run on a doctored repository root (a `tmp_path` tree) refuses its own non-build directory and allows its `build/`.
 - `tests/python/test_listening_checklist.py`: the checklist exists, names all six preview files, has a table per render with `Earbuds` and `Headphones` columns, the Focus and Learn seam times equal `opening_end_s` and `first_seam_s` of the vectors, the per-pass and two-pass totals equal the vectors' `seconds` summed, the required lines are present (the free-running gamma envelope inside the bursts, the Sleep beat cycle, the 60 Hz checks), and `## Proposed changes` and `## Result` sections exist with "Nothing needs changing" as an option. Also: no file under `ci/`, `tools/hash_*.py`, or `tests/hashprobe/` names `previews` or `.preview.`, and `git check-ignore` ignores `build/previews/x.preview.wav`. Must-fails: a doctored checklist text with a wrong seam time, with a missing Headphones column, and a doctored `ci/` text naming `build/previews`, each caught.
 - Row coverage: each of the three rows is read through `row()` by at least one assertion.
+
+### Contract decisions (2026-11-17, orchestrator under Audio's delegation, on the QA points)
+
+1. A bad `preview-peak-level` row (exit 3) is tested only through `cli::preview_rows` and `cli::preview_amplitude`, since `arcani-render` reads the tables from the compiled-in `ARCANI_TABLES_DIR`. Accepted.
+2. Checklist "each carrier's tone": each distinct carrier in the preview set has a harsh-or-not line somewhere in the checklist; the 450 Hz theta carrier is covered by the starter lines. Accepted.
+3. `render_previews.py`: numbers in its stdout lines are shortest round-trip text; the refusal line names the resolved absolute path; a relative `--out-dir` is relative to the current directory; the repository root is the parent of `tools/` (not found through git); a `--rate` other than 44100 and 48000 is a usage error, exit 2.
+
+### Engagement 3 (2026-11-17): implementation
+
+- **CLI:** `cli/preview.{hpp,cpp}` in `arcani_cli_core` as contracted. `seconds_to_samples` rounds by exact truncation and fraction below 2^53 (no rounding-mode call). `preview_amplitude` uses multiplication, division, comparison, and `std::sqrt` only; its `TableError` names the row and the value (the row's own text through `preview_rows`, else the shortest text). `preview_layers` counts the distinct layers among each ear's `arc_plan_component` rows. `cli::PreviewReport` and `Report::preview`, written after the spacing block (or loop, or frames). `cli/main.cpp`: `--preview` is the only option without a value, a usage error twice or with `--mode final`; the three rows are read before compile; the WAV header, the render loop, `frames`, and the render speed assertion use `F`; `apply_gain` runs on each block before `append_samples`. Usage text gains ` [--preview]`.
+- **Reference:** `reference/preview.py` (standard library only; `math.sqrt`, `math.ldexp`, `round` ties to even), and its line in `reference/README.md`.
+- **Tool:** `tools/render_previews.py` (standard library only); the preview set from `preview_constants.fixtures` in the vectors file, read only when no `--fixture` is given.
+- **Records:** the three rows lose `pending`; design log (xx) gains the implementation and the results; guidebook step 3; spec status `in-review`. Sprint status stays `in-progress`: the story closes only after Audio listens.
+- **No test expectation was edited, and no test looked wrong.**
+- **Previews rendered** (dev PC, 48 kHz, `uv run --locked python tools/render_previews.py`, into `build/previews/`, not committed): six WAVs and six reports, 1,140 s in all, every report `"signed": false`, g `0.015811388300841896`. Measured sample peaks (left, right): Focus -30.08, -30.08 dBFS; Learn -30.01, -30.01; Relax -30.08, -30.08; Sleep -30.06, -30.00 (265,252 of the 265,271 steps the bound allows); the 60 Hz swell -30.43, -30.43; the 60 Hz bursts -30.43, -30.43.
+- **Verification (dev PC):** `cmake --workflow --preset windows-clang-cl` exit 0, ctest 4 of 4 entries (`arcani_tests` 452 test cases, all pass); `[preview]` 18 cases and `[cli]` 46 cases pass. Python: `test_preview_engine.py` and `test_render_previews.py` 29 passed in 16 s (the story's CI cost); `test_preview_reference.py`, `test_reference_independent.py`, `test_listening_checklist.py`, and `test_signal_spec_core.py` 209 passed. `check_engine_source`, `check_fp_pragmas`, `check_wording`, `check_table_log --base main`, and `signal_spec_vectors --check` exit 0. The full pytest run and `check_row_coverage` (which needs that run's usage file) are left to the orchestrator.
 
 ## Spec Change Log
 
