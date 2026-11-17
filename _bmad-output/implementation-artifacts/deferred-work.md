@@ -103,3 +103,15 @@
 - source_spec: none
   summary: In Story 3.2, report the worst-case spacing margin per starter and per ear (distance to the 50 Hz placeholder), so when a critical-band source replaces the placeholder it is clear at once which starters still pass.
   evidence: Progress review 2026-11-16: 50 Hz is a placeholder (design log 2026-10-27 (e), project plan spacing note); Story 3.2 checks the whole session, including rate curves.
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-1-spectral-component-table-per-shape.md`
+  summary: In Story 3.2, report where in the session or rate range the minimum distance occurs (the table holds only whole-session intervals plus the rate multipliers), and judge rows that sweep with the same cycle by their actual distance over the cycle, not by interval overlap, so lines that move together are not rejected for crossing intervals they never share at one instant.
+  evidence: Story 3.1 review (blind hunter): theta rows and gamma `(i, j)` rows both move with the theta cycle; interval overlap over-rejects them. No starter has a theta or gamma rate cycle, so no starter is affected; the Epic 2 rate-cycle fixtures are.
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-1-spectral-component-table-per-shape.md`
+  summary: Decide in Story 3.2 whether the carrier rule is restated on the component table (AD-20 title: "Carrier and spacing rules come from one spectral component table") or AD-20's wording is narrowed; Story 3.1 kept `check_carrier_rule` on the recipe fields by its frozen decision.
+  evidence: Story 3.1 review (blind hunter); the rule 4 review of 2026-11-16 defines the modulation rate as the layer's own named rate, which the table's multipliers also give.
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-1-spectral-component-table-per-shape.md`
+  summary: Story 3.3 listening checklist must carry a line for a 250 Hz carrier with gamma AM at 60 Hz, coupled (smooth swell and bursts), per the carrier rule review condition.
+  evidence: Rule 4 review `review-carrier-rule-coupled-gamma-2026-11-16.md`, condition 2; today it exists only in the Story 3.1 spec and design log (vv).
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-1-spectral-component-table-per-shape.md`
+  summary: `docs/project-plan.md` still names a 300 Hz starter gamma carrier (lines 96, 103, 149, 318) and a 240/360 Hz example (108); the starters use 250 Hz (design log 2026-10-27 (m)).
+  evidence: Found by the carrier rule review and the Story 3.1 blind hunter; pre-existing, not caused by Story 3.1.

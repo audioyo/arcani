@@ -3,7 +3,7 @@ title: 'Story 3.1: Spectral component table per shape'
 type: 'feature'
 created: '2026-11-16'
 baseline_commit: 'dbb346fb9a5d2d25267214ee789bcc756daaf837'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 context:
@@ -223,6 +223,30 @@ def check_bands(name, x, fs, table) -> list      # report assertion dicts
 ## Spec Change Log
 
 ## Review Triage Log
+
+Pass 1 (2026-11-16): blind hunter (BH), edge case hunter (EC), and verification gap (VG), each in a fresh context, on diff dbb346f..87cb559. The generated `signal_spec_vectors.json` and the guidebook were left out.
+
+| # | Finding | Verdict | Evidence | Route |
+|---|---------|---------|----------|-------|
+| 1 | VG: phase-dependent model parts (summed bursts at nonzero coupling phase, cycles with different start phases) never checked against a render | medium | true; every rendered fixture sits at phase 0; vectors share the spec formula | patch (done, 7031c7d) |
+| 2 | VG: `sweep_edge_hz` not pinned; calibration period 10 s never lets the edge decide | medium | true; doctoring the edge kept every test green | patch (done, 7031c7d) |
+| 3 | VG: coefficient vectors read by no test | low | true; only row counts reached them | patch (done, b877a15, 7031c7d) |
+| 4 | BH: right ear theta and gamma rows never cross-checked | low | true; only `[0::2]` measured | patch (done, 7031c7d) |
+| 5 | BH: `check_static` matching not one to one | low | true; a duplicated row passed | patch (done, b41510b) |
+| 6 | BH: band check cannot see a missing weak row in a merged band | low | true by design (band power); static check carries per-row presence | patch, docstring (done, b41510b) |
+| 7 | EC, BH: engine caps the summed burst ratio at 2^30, spec and reference do not | low | true; unreachable inside locked ranges (ratio at most 120) | patch (done, b877a15) |
+| 8 | EC, BH: two-cycle half width assumes one shared period | low | true; row `rate-cycle-period` is one value, so unreachable; comment names the dependence | patch (done, 1a4cc8e, b877a15, b41510b) |
+| 9 | BH: `is_whole` defined twice; unclear branch comment | low | true | patch (done, 1a4cc8e) |
+| 10 | BH: `arc_component` header comment wrong for rows mirrored below 0 Hz | low | true; spec states the mirror rule, header did not | patch (done, 1a4cc8e) |
+| 11 | BH: glossary and thresholds-and-ranges lack the modulation rate definition the rule 4 review asked for | low | true | patch (done, 45aa426) |
+| 12 | BH: table lacks where in the session the minimum distance occurs; interval overlap over-rejects lines that sweep together | medium | true for Story 3.2's needs; no starter has a theta or gamma cycle | defer (Story 3.2) |
+| 13 | BH: carrier rule does not read the table, as AD-20's title says | low | true; frozen decision keeps `check_carrier_rule` | defer (Story 3.2 decides) |
+| 14 | BH: 3.3 listening line for 250 Hz carrier with coupled AM at 60 Hz not tracked | low | true | defer (Story 3.3) |
+| 15 | BH: `docs/project-plan.md` still names a 300 Hz starter gamma carrier | low | pre-existing | defer |
+| 16 | EC: `build_components` returns a carrier-only table for coupled gamma with depth and no theta | false | compile rejects it first in `check_rules()` (AD-5 rule); the builder is internal | reject |
+| 17 | EC: reference raises KeyError for coupled gamma without a coupling phase | false | a loud failure on input compile rejects | reject |
+| 18 | EC, BH: half width wrong for rows folded at 0 Hz in `check_bands` | maybe-false, low | `component_check.py` reads the half width from the multipliers when `low_hz` is 0; no fixture reaches it | reject |
+| 19 | EC, BH, VG: four tests fail until `ci/hash_expected.json` has `components` | low | true; same gate as Stories 2.2 to 2.7 (design log (kk)); pins wait on a four-platform full run | CI gate before merge |
 
 ## Design Notes
 
