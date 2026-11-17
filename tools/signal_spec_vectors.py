@@ -1,4 +1,4 @@
-"""Writes the worked test vectors of docs/signal-spec.md: core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer and rate curve, loop, components, 24-bit rounding.
+"""Writes the worked test vectors of docs/signal-spec.md: core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer and rate curve, loop, components, spacing, preview, 24-bit rounding.
 
 Usage:
   python tools/signal_spec_vectors.py            write tests/data/signal_spec_vectors.json
@@ -93,6 +93,12 @@ engine or from binary64 library calls:
   that minimum by exact bisection on the fraction (decimal cosine), with
   the rates there. Rows mirrored below 0 Hz are compared as their listed
   intervals. Nothing is sampled.
+- Preview (Story 3.3): the preview gain g = 10^(P/20) / n_max by the
+  spec's binary64 steps (exact powers of ten, the binary64 nearest sqrt(10)
+  from decimal arithmetic, checked exactly against both neighbors, then two
+  divisions), written as bits, with the exact value at 25 digits; the layer
+  count per ear from the recipe fields; the preview frame count by the
+  seconds-to-samples rule and exact integer sums.
 - 24-bit rounding (Story 1.4): x = s * 2^23 in exact Fraction arithmetic,
   clamped to [-8388608, 8388607], else rounded to the nearest integer, ties
   to even; NaN gives 0. Written as 3 bytes, little-endian two's complement.
@@ -3581,6 +3587,214 @@ def spacing_constants():
     }
 
 
+# ---------------------------------------------------------------- preview
+
+PREVIEW_LENGTH_S = 180.0        # row preview-length
+PREVIEW_SEAM_TAIL_S = 30.0      # row preview-seam-tail
+PREVIEW_PEAK_DBFS = -30.0       # row preview-peak-level
+PREVIEW_PEAK_MIN_DBFS = -440.0  # 10^22 is the largest power of ten binary64 holds exactly
+PREVIEW_PEAK_MAX_DBFS = 0.0     # full scale: a higher peak would clip at 24-bit rounding
+PREVIEW_OUT_DIR = "build/previews"
+PREVIEW_WAV_SUFFIX = ".preview.wav"
+PREVIEW_REPORT_SUFFIX = ".preview.report.json"
+PREVIEW_LISTENING_RATE = 48000
+# Row texts that are a table error for row preview-peak-level (Preview, Gain).
+PREVIEW_INVALID_PEAKS = ("-25", "-30.5", "-0.5", "10", "-450")
+# (P in dB, n_max): the -30 dB cases for 1, 2, and 3 layers, then the rule's
+# other branches (even and odd powers of sqrt(10), both bounds).
+PREVIEW_GAIN_CASES = ((-30.0, 1), (-30.0, 2), (-30.0, 3), (0.0, 1), (-10.0, 1), (-20.0, 1),
+                      (-40.0, 1), (-50.0, 2), (-430.0, 1), (-440.0, 1))
+PREVIEW_FIXTURE_DATE = "2026-11-17"
+
+# (fixture, rationale, length_s, loop or None, theta, gamma, binaural): the
+# two Story 3.3 checklist fixtures, the carrier rule review condition 2 (a
+# 250 Hz carrier with gamma AM at 60 Hz, coupled).
+PREVIEW_FIXTURES = (
+    ("preview-gamma-250-am-60-swell.json",
+     "Listening preview fixture (Story 3.3), the carrier rule review condition 2 "
+     "(review-carrier-rule-coupled-gamma-2026-11-16.md). Theta reference: a 450 Hz carrier amplitude-modulated "
+     "by the sine envelope at 6 Hz, 75 percent AM depth. Gamma PAC layer: a 250 Hz sine carrier "
+     "amplitude-modulated at 60 Hz, its AM depth swelling to 100 percent at the 0 degree coupling phase "
+     "(smooth swell). No binaural layer. 180 s, no loop, no ramps or fades (Epic 4). Not a starter recipe.",
+     180.0, None, (450.0, 6.0, 75.0, "sine", None), (250.0, 60.0, 100.0, "smooth_swell", 0.0, None), None),
+    ("preview-gamma-250-am-60-bursts.json",
+     "Listening preview fixture (Story 3.3), the carrier rule review condition 2 "
+     "(review-carrier-rule-coupled-gamma-2026-11-16.md). Theta reference: a 450 Hz carrier amplitude-modulated "
+     "by the sine envelope at 6 Hz, 75 percent AM depth. Gamma PAC layer: a 250 Hz sine carrier "
+     "amplitude-modulated at 60 Hz, its AM depth opening to 100 percent for 50 ms bursts centered on the "
+     "0 degree coupling phase. No binaural layer. 180 s, no loop, no ramps or fades (Epic 4). Not a starter "
+     "recipe.",
+     180.0, None, (450.0, 6.0, 75.0, "sine", None), (250.0, 60.0, 100.0, "bursts", 0.0, None), None),
+)
+
+# The preview set: the four starter layer fixtures, then the two checklist fixtures.
+PREVIEW_STARTERS = tuple(f for f in SPACING_FIXTURES if f[0].startswith("starter-"))
+PREVIEW_SET = PREVIEW_STARTERS + PREVIEW_FIXTURES
+
+# (case, fixture, muted ear): the layer count per ear (Preview, Layers).
+PREVIEW_LAYER_CASES = tuple((f[0][:-len(".json")], f[0], "none") for f in PREVIEW_SET) + (
+    ("starter-sleep-layers-mute-left", "starter-sleep-layers.json", "left"),
+    ("starter-sleep-layers-mute-right", "starter-sleep-layers.json", "right"),
+    ("theta-reference-only", "theta-reference-only.json", "none"),
+    ("binaural-only", "binaural-only.json", "none"),
+    ("binaural-only-mute-left", "binaural-only.json", "left"),
+    ("minimal-no-layers", "minimal-no-layers.json", "none"),
+)
+
+
+def preview_fixture_text(fixture):
+    """The text of one Story 3.3 checklist fixture file in recipes/fixtures/valid/."""
+    for name, rationale, length, loop, theta, gamma, binaural in PREVIEW_FIXTURES:
+        if name == fixture:
+            recipe = spacing_recipe(rationale, length, loop, theta, gamma, binaural, date=PREVIEW_FIXTURE_DATE)
+            return json.dumps(_plain_numbers(recipe), indent=2, ensure_ascii=False) + "\n"
+    raise KeyError(fixture)
+
+
+@functools.lru_cache(maxsize=None)
+def sqrt10():
+    """The binary64 nearest sqrt(10), from decimal arithmetic, checked exactly against both neighbors."""
+    with localcontext() as ctx:
+        ctx.prec = PREC
+        root = Decimal(10).sqrt()
+    s = binary64(Fraction(root))
+    for v in (math.nextafter(s, 0.0), math.nextafter(s, math.inf)):
+        assert abs(Fraction(s) ** 2 - 10) < abs(Fraction(v) ** 2 - 10)
+    return s
+
+
+def preview_peak_valid(p):
+    """Preview, Gain: P lies in [-440, 0] dB and is a whole multiple of 10 dB."""
+    if not (PREVIEW_PEAK_MIN_DBFS <= p <= PREVIEW_PEAK_MAX_DBFS):
+        return False
+    m = p / 10.0
+    return is_binary64_integer(m) and m * 10.0 == p
+
+
+def preview_amplitude(p):
+    """Preview, Gain: 10^(P/20) by the spec's binary64 steps."""
+    assert preview_peak_valid(p)
+    k = int(-(p / 10.0))
+    x = 1.0
+    for _ in range(k // 2):
+        x = x * 10.0
+    if k % 2:
+        x = x * sqrt10()
+    return 1.0 / x
+
+
+def preview_gain(p, layers_max):
+    """Preview, Gain: g = 10^(P/20) / n_max, with n_max 0 counted as 1."""
+    return preview_amplitude(p) / float(max(layers_max, 1))
+
+
+def preview_gain_ideal(p, layers_max):
+    """The exact 10^(P/20) / max(n_max, 1), at 25 digits."""
+    with localcontext() as ctx:
+        ctx.prec = PREC
+        k = int(-p) // 10
+        x = Decimal(10) ** (k // 2)
+        if k % 2:
+            x = x * Decimal(10).sqrt()
+        return format_ideal((1 / x) / max(layers_max, 1))
+
+
+def preview_layers(recipe, mute="none"):
+    """Preview, Layers: per ear the theta reference, the gamma PAC layer, and that ear's binaural carrier."""
+    shared = int("theta_reference" in recipe) + int("gamma_pac" in recipe)
+    binaural = "binaural" in recipe
+    return {ear: shared + (1 if binaural and mute != ear else 0) for ear in EARS}
+
+
+def _preview_recipe(fixture):
+    """The recipe dict of a preview fixture, from the generator values or, for an older fixture, its file."""
+    for entry in PREVIEW_SET:
+        name, rationale, length, loop, theta, gamma, binaural = entry
+        if name == fixture:
+            date = PREVIEW_FIXTURE_DATE if entry in PREVIEW_FIXTURES else "2026-11-16"
+            return spacing_recipe(rationale, length, loop, theta, gamma, binaural, date=date)
+    text = (REPO_ROOT / "recipes" / "fixtures" / "valid" / fixture).read_text(encoding="utf-8")
+    return json.loads(text)
+
+
+def preview_frames(recipe, fs):
+    """Preview, Frames: (F, O, B, N, L, T); O and B are None without a loop."""
+    n, _ = samples(float(recipe["length_s"]), fs)
+    l_frames, _ = samples(PREVIEW_LENGTH_S, fs)
+    t_frames, _ = samples(PREVIEW_SEAM_TAIL_S, fs)
+    loop = recipe.get("loop")
+    if loop is None:
+        return min(l_frames, n), None, None, n, l_frames, t_frames
+    o, _ = samples(float(loop["opening_s"]), fs)
+    b, _ = samples(float(loop["body_s"]), fs)
+    return min(o + b + t_frames, n), o, b, n, l_frames, t_frames
+
+
+def preview_gain_rows():
+    rows = []
+    for p, layers in PREVIEW_GAIN_CASES:
+        a = preview_amplitude(p)
+        g = preview_gain(p, layers)
+        rows.append({"peak_dbfs": dec(p), "layers_max": layers, "amplitude_hex": hexf(a), "gain_hex": hexf(g),
+                     "gain_bits": bits(g), "ideal": preview_gain_ideal(p, layers)})
+    return rows
+
+
+def preview_layer_rows():
+    rows = []
+    for case, fixture, mute in PREVIEW_LAYER_CASES:
+        layers = preview_layers(_preview_recipe(fixture), mute)
+        n_max = max(layers.values())
+        g = preview_gain(PREVIEW_PEAK_DBFS, n_max)
+        rows.append({"case": case, "fixture": fixture, "mute": mute, "left": layers["left"],
+                     "right": layers["right"], "layers_max": n_max, "gain_hex": hexf(g), "gain_bits": bits(g)})
+    return rows
+
+
+def preview_frame_rows():
+    rows = []
+    for fs in RATES:
+        for fixture, *_ in PREVIEW_SET:
+            recipe = _preview_recipe(fixture)
+            f, o, b, n, l_frames, t_frames = preview_frames(recipe, fs)
+            seconds = f / fs   # binary64, one division
+            looping = o is not None
+            layers = preview_layers(recipe)
+            n_max = max(layers.values())
+            g = preview_gain(PREVIEW_PEAK_DBFS, n_max)
+            rows.append({
+                "fixture": fixture, "fs": fs, "looping": "yes" if looping else "no",
+                "length_s": dec(float(recipe["length_s"])), "end_frame": str(n),
+                "opening_end_frame": str(o) if looping else "none",
+                "first_seam_frame": str(o + b) if looping else "none",
+                "opening_end_s": dec(o / fs) if looping else "none",
+                "first_seam_s": dec((o + b) / fs) if looping else "none",
+                "length_frames": str(l_frames), "tail_frames": str(t_frames),
+                "preview_frames": str(f), "seconds": dec(seconds),
+                "layers_max": n_max, "gain_hex": hexf(g), "gain_bits": bits(g),
+            })
+    return rows
+
+
+def preview_constants():
+    return {
+        "length_s": dec(PREVIEW_LENGTH_S),
+        "seam_tail_s": dec(PREVIEW_SEAM_TAIL_S),
+        "peak_dbfs": dec(PREVIEW_PEAK_DBFS),
+        "peak_min_dbfs": dec(PREVIEW_PEAK_MIN_DBFS),
+        "peak_max_dbfs": dec(PREVIEW_PEAK_MAX_DBFS),
+        "sqrt10_hex": hexf(sqrt10()),
+        "invalid_peaks": list(PREVIEW_INVALID_PEAKS),
+        "out_dir": PREVIEW_OUT_DIR,
+        "wav_suffix": PREVIEW_WAV_SUFFIX,
+        "report_suffix": PREVIEW_REPORT_SUFFIX,
+        "listening_rate": PREVIEW_LISTENING_RATE,
+        "fixtures": [f[0] for f in PREVIEW_SET],
+        "starter_fixtures": [f[0] for f in PREVIEW_STARTERS],
+        "checklist_fixtures": [f[0] for f in PREVIEW_FIXTURES],
+    }
+
+
 # ------------------------------------------------------- 24-bit rounding
 
 Q24_MAX = 8388607   # 2^23 - 1
@@ -3662,7 +3876,7 @@ def quantize_rows():
 
 def build():
     return {
-        "spec": "docs/signal-spec.md (sections core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer, rate curve (the beat rate, Story 2.5; the theta and gamma rates, Story 2.6), loop (Story 2.7), components (Story 3.1), spacing (Story 3.2), and 24-bit rounding)",
+        "spec": "docs/signal-spec.md (sections core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer, rate curve (the beat rate, Story 2.5; the theta and gamma rates, Story 2.6), loop (Story 2.7), components (Story 3.1), spacing (Story 3.2), preview (Story 3.3), and 24-bit rounding)",
         "generator": "tools/signal_spec_vectors.py",
         "cycle": str(CYCLE),
         "sine_coefficients": sine_coefficients(),
@@ -3761,6 +3975,10 @@ def build():
         "spacing_cases": spacing_case_rows(),
         "spacing_margins": spacing_margin_rows(),
         "spacing_pairs": spacing_pair_rows(),
+        "preview_constants": preview_constants(),
+        "preview_gains": preview_gain_rows(),
+        "preview_layers": preview_layer_rows(),
+        "preview_frames": preview_frame_rows(),
         "quantize_24": quantize_rows(),
     }
 
@@ -4160,6 +4378,28 @@ def tables(data):
                    f"| `{r['swing_gamma_hex']}` | `{r['start_gamma_hex']}` | `{r['swing_theta_hex']}` "
                    f"| `{r['start_theta_hex']}` | `{r['swing_beat_hex']}` | `{r['start_beat_hex']}` "
                    f"| {r['x']} | {r['y']} | {r['h']} | {r['distance']} | {r['first']} |")
+    out.append("")
+    out.append("| P (dB) | n_max | 10^(P/20) (hex) | Gain g (hex) | g bits | Ideal g |")
+    out.append("| --- | --- | --- | --- | --- | --- |")
+    for r in data["preview_gains"]:
+        out.append(f"| {r['peak_dbfs']} | {r['layers_max']} | `{r['amplitude_hex']}` | `{r['gain_hex']}` "
+                   f"| `{r['gain_bits']}` | {r['ideal']} |")
+    out.append("")
+    out.append("| Layer case | Fixture | Muted ear | Left | Right | n_max | Gain g at -30 dB (hex) | g bits |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["preview_layers"]:
+        out.append(f"| {r['case']} | {r['fixture']} | {r['mute']} | {r['left']} | {r['right']} "
+                   f"| {r['layers_max']} | `{r['gain_hex']}` | `{r['gain_bits']}` |")
+    out.append("")
+    out.append("| Fixture | fs | Looping | length_s | End N | Opening end O | First body seam O + B "
+               "| Opening end (s) | First body seam (s) | L | T | Preview frames F | Seconds F / fs | n_max "
+               "| Gain g (hex) | g bits |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["preview_frames"]:
+        out.append(f"| {r['fixture']} | {r['fs']} | {r['looping']} | {r['length_s']} | {r['end_frame']} "
+                   f"| {r['opening_end_frame']} | {r['first_seam_frame']} | {r['opening_end_s']} "
+                   f"| {r['first_seam_s']} | {r['length_frames']} | {r['tail_frames']} | {r['preview_frames']} "
+                   f"| {r['seconds']} | {r['layers_max']} | `{r['gain_hex']}` | `{r['gain_bits']}` |")
     out.append("")
     out.append("| Rule | Case | s (hex) | x = s * 2^23 (hex) | Value | Bytes (little-endian) |")
     out.append("| --- | --- | --- | --- | --- | --- |")
