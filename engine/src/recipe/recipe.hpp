@@ -27,6 +27,7 @@ struct Error {
   std::string rule;       // unknown_property, required, type, pattern, enum, minimum,
                           // maximum, schema_version.major, or the json.* parser rule
   std::string limit;      // what the rule allows, for example the supported majors "1"
+  std::string detail{};   // Story 3.2: the spacing rule's pair and where; empty for every other rule
 };
 
 // Theta reference envelope shape (docs/signal-spec.md, Theta reference).

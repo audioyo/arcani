@@ -562,9 +562,11 @@ TEST_CASE("rate curves: W, Hb, and Wb stay set at the center theta rate", "[rate
 }
 
 TEST_CASE("rate curves: a muted ear leaves the theta and gamma cycles", "[rate-curves][plan][isolation]") {
+  // Story 3.2: the binaural pair is 100 and 106 Hz (it was 400 and 406 Hz,
+  // 38 Hz from the 444 Hz theta line), 50 Hz from every other layer's line.
   const std::string text =
       recipe_text({theta_member("4", cycle_member("2")), gamma_member("smooth_swell", "45", cycle_member("15")),
-                   "\"binaural\": {\"carrier_left_hz\": 400, \"beat_rate_hz\": 6}"});
+                   "\"binaural\": {\"carrier_left_hz\": 100, \"beat_rate_hz\": 6}"});
   for (const std::uint32_t fs : spec::sample_rates()) {
     INFO("fs " << fs);
     const plan::Plan both = compile_plan(text, fs);
@@ -821,7 +823,10 @@ TEST_CASE("rate curves: the coupled gamma tap reads only the curved theta envelo
     const char* carrier;
     const char* depth;
   };
-  const Theta others[] = {{"sawtooth", "300", "25"}, {"reverse_saw", "100", "100"}, {"smoothed_on_off", "500", "50"}};
+  // Story 3.2: each other theta stays at least 50 Hz from the gamma lines
+  // (the 250 Hz carrier at 45 +- 15 Hz with its theta lines); it was 300 Hz
+  // sawtooth and 100 Hz reverse_saw.
+  const Theta others[] = {{"sawtooth", "420", "25"}, {"reverse_saw", "500", "100"}, {"smoothed_on_off", "500", "50"}};
   for (const std::string& coupling : {std::string("smooth_swell"), std::string("bursts")}) {
     for (const std::uint32_t fs : spec::sample_rates()) {
       const std::string gamma = gamma_member(coupling, "45", cycle_member("15"));

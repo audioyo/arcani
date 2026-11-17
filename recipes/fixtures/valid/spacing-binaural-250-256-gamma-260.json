@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-16",
+  "rationale": "Spacing must-fail fixture (Story 3.2): a binaural layer of two pure sines, 250 Hz in the left ear and 256 Hz in the right ear, beside a gamma PAC layer: a 300 Hz sine carrier amplitude-modulated at 40 Hz, uncoupled, 100 percent AM depth, whose lower side frequency sits at 260 Hz, 4 Hz from the right binaural carrier. Rejected at compile by the spacing rule in the right ear. A test fixture, not for listening.",
+  "length_s": 10,
+  "loudness_target_lufs": -36,
+  "gamma_pac": {
+    "carrier_hz": 300,
+    "rate_hz": 40,
+    "am_depth_percent": 100,
+    "carrier_wave": "sine",
+    "coupling": "uncoupled"
+  },
+  "binaural": {
+    "carrier_left_hz": 250,
+    "beat_rate_hz": 6
+  }
+}

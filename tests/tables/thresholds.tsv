@@ -9,7 +9,8 @@ coupling-timing-calibration	0.2	ms		Design log 2026-11-10 (nn): decided by Audio
 coupling-independence	0	samples of gamma peak time change	Coupling independence	thresholds-and-ranges.md, Test thresholds; AD-5	
 envelope-shape	0	envelope samples failing the reference match	Envelope shape	thresholds-and-ranges.md, Test thresholds; FR-13	
 carrier-rule	4	times the modulation rate	Carrier rule	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-9	
-spacing-rule	50	Hz	Spacing rule	thresholds-and-ranges.md, Test thresholds; design log 2026-10-27 (e), (i); AD-20	3-2-spacing-rule-per-ear-whole-session
+spacing-rule	50	Hz	Spacing rule	thresholds-and-ranges.md, Test thresholds; design log 2026-10-27 (e), (i); AD-20	
+spacing-time-error	1	ms		Design log 2026-11-16 (ww): engineering default from the Story 3.2 decision: the first time at which a spacing error's minimum distance occurs is within 1 ms of the ideal time, measured around the rate cycle; docs/signal-spec.md, Spacing, Error rows	
 spectral-component-level	40	dB below the layer's strongest line	Spacing rule	thresholds-and-ranges.md, Test thresholds; design log 2026-10-27 (i); AD-20	
 component-level-error	0.000001	ratio		Design log 2026-11-16 (vv): engineering default: every level of the engine component table and of the reference component table is within 1e-6 of the signal spec vector, and a line whose ideal level is within 1e-6 of the component threshold may be in the table or out of it; docs/signal-spec.md, Components, Error rows	
 component-frequency-error	0.000000001	Hz		Design log 2026-11-16 (vv): engineering default: every center, low, and high frequency of the engine component table and of the reference component table is within 1e-9 Hz of the signal spec vector; docs/signal-spec.md, Components, Error rows	

@@ -28,6 +28,7 @@
 #include "core/envelope.hpp"
 #include "recipe/recipe.hpp"
 #include "validate/components.hpp"
+#include "validate/spacing.hpp"
 
 namespace arcani::plan {
 
@@ -162,6 +163,9 @@ struct Plan {
   // Story 3.1 (docs/signal-spec.md, Components): the component table, left
   // ear rows first. The renderer never reads it; Story 3.2's spacing rule does.
   std::vector<validate::Component> components;
+  // Story 3.2 (docs/signal-spec.md, Spacing, Margins): per ear the worst
+  // spacing pair, empty with fewer than two layers in that ear.
+  std::array<std::optional<validate::SpacingPair>, 2> spacing{};
   std::array<StageKind, 5> stages{};
   std::vector<recipe::Error> warnings;  // non-blocking; empty in v0.1
 };

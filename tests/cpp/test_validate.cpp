@@ -323,7 +323,12 @@ struct Values {
   std::string theta_rate_hz = "6";
   std::string theta_am_depth_percent = "75";
   std::string theta_shape = "\"sine\"";
-  std::string carrier_left_hz = "400";
+  // Story 3.2 (spacing rule, 50 Hz per ear between layers): the binaural
+  // pair sits at 900 Hz left and 906 Hz right, far from every theta and
+  // gamma component these recipes make (it was 400 Hz, 10 Hz from a line of
+  // the 300 Hz smoothed_on_off theta and 34 Hz from the 500 Hz gamma carrier
+  // at 60 Hz). No case here reads its value.
+  std::string carrier_left_hz = "900";
   std::string beat_rate_hz = "6";
   // Story 2.2. The gamma layer is off by default, so every earlier case
   // keeps its recipe. Empty text omits that gamma field; the two string
@@ -790,7 +795,26 @@ TEST_CASE("valid/ means schema-valid: the out-of-range hash fixture is rejected 
       "loop-focus-cap-46.json", "loop-learn-cap-45.json", "loop-learn-cap-19.json",
       "loop-length-not-cap.json", "loop-opening-negative.json", "loop-body-zero.json",
       "loop-opening-not-whole-samples.json", "loop-body-not-whole-samples.json", "loop-body-off-cycle.json",
-      "loop-gamma-body-off-cycle.json", "loop-binaural-body-off-cycle.json", "loop-exceeds-session.json"};
+      "loop-gamma-body-off-cycle.json", "loop-binaural-body-off-cycle.json", "loop-exceeds-session.json",
+      // Story 3.2: the spacing must-fail fixture, the only fixture the signal
+      // spec names as a collision (checked below and in test_spacing.cpp).
+      "spacing-binaural-250-256-gamma-260.json"};
+  // Story 3.2: the spacing must-fail fixture is rejected by the spacing rule
+  // in the right ear, 4 Hz, in both modes (the rule runs before
+  // final.required).
+  for (const arc_mode mode : kModes) {
+    INFO("spacing must-fail fixture, mode " << mode);
+    const api::Compiled c = api::compile(api::valid("spacing-binaural-250-256-gamma-260.json"),
+                                         api::options(mode, 48000));
+    INFO(api::describe(c.error));
+    CHECK(c.status == ARC_ERR_REJECTED);
+    CHECK(c.plan == nullptr);
+    REQUIRE(api::all_written(c.error));
+    CHECK(std::string(c.error.parameter) == "/binaural/carrier_left_hz");
+    CHECK(std::string(c.error.value) == "4");
+    CHECK(std::string(c.error.rule) == "spacing_rule");
+    CHECK(std::string(c.error.limit) == ">= 50 Hz (row spacing-rule)");
+  }
   // The Story 2.7 names above are exactly the rejected loop compile cases of
   // the spec vectors.
   {
@@ -1023,9 +1047,15 @@ TEST_CASE("theta: check order inside theta_reference, ranges before the shape ru
 
 namespace {
 
+// Story 3.2: the theta reference moves to a 100 Hz carrier (lines 94 to
+// 106 Hz), at least 50 Hz below every gamma component of these recipes; at
+// 300 Hz its 294 Hz line sat 4 Hz from the 290 Hz line of the 250 Hz gamma
+// carrier at 40 Hz, which the spacing rule rejects. Nothing here reads the
+// theta carrier, and 100 Hz is still in row theta-carrier and the carrier rule.
 Values with_gamma() {
   Values v;
   v.gamma = true;
+  v.theta_carrier_hz = "100";
   return v;
 }
 
@@ -2556,6 +2586,10 @@ TEST_CASE("rate curves: the gamma carrier rule judges the carrier against r + s"
     Values center = with_gamma();
     center.gamma_carrier_hz = "200";
     center.gamma_rate_hz = "45";
+    // Story 3.2: the theta reference at 1 Hz (lines 99 to 101 Hz) keeps the
+    // 155 Hz gamma line 54 Hz away; at 6 Hz its 106 Hz line is 49 Hz away,
+    // which the spacing rule rejects.
+    center.theta_rate_hz = "1";
     expect_plan(center);
     Values v = with_gamma_cycle("45", "10");
     v.gamma_carrier_hz = "200";

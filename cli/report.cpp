@@ -95,6 +95,76 @@ std::optional<LoopReport> loop_report(const arc_loop_frames& frames) {
   return loop;
 }
 
+namespace {
+
+const char* const kLayerNames[] = {"theta_reference", "gamma_pac", "binaural"};
+
+bool row_name(const arc_plan* plan, std::size_t index, std::string& out, std::string& rule) {
+  arc_component c;
+  arc_error e;
+  std::memset(&e, 0, sizeof e);
+  if (arc_plan_component(plan, index, &c, &e) != ARC_OK) {
+    rule = e.rule;
+    return false;
+  }
+  const int layer = static_cast<int>(c.layer);
+  if (layer < 0 || layer > 2) {
+    rule = "component layer out of range";
+    return false;
+  }
+  out = std::string(kLayerNames[layer]) + " (" + std::to_string(c.gamma_mult) + ", " +
+        std::to_string(c.theta_mult) + ", " + std::to_string(c.beat_mult) + ") at " + json_number(c.center_hz) +
+        " Hz";
+  return true;
+}
+
+std::string spacing_ear_json(const std::optional<SpacingEar>& e) {
+  if (!e) {
+    return "null";
+  }
+  return "{\"min_distance_hz\": " + json_number(e->min_distance_hz) + ", \"margin_hz\": " +
+         json_number(e->margin_hz) + ", \"component_1\": " + integer(e->component_1) +
+         ", \"component_2\": " + integer(e->component_2) + ", \"pair\": " + json_string(e->pair) + "}";
+}
+
+}  // namespace
+
+bool spacing_report(const arc_plan* plan, std::optional<SpacingReport>& out_report, std::string& rule) {
+  out_report.reset();
+  SpacingReport report;
+  bool any = false;
+  for (const arc_ear ear : {ARC_EAR_LEFT, ARC_EAR_RIGHT}) {
+    arc_spacing s;
+    arc_error e;
+    std::memset(&s, 0, sizeof s);
+    std::memset(&e, 0, sizeof e);
+    if (arc_plan_spacing(plan, ear, &s, &e) != ARC_OK) {
+      rule = e.rule;
+      return false;
+    }
+    if (s.has_pair == 0) {
+      continue;  // no pair in this ear: the normal path
+    }
+    SpacingEar out;
+    out.min_distance_hz = s.min_distance_hz;
+    out.margin_hz = s.margin_hz;
+    out.component_1 = s.component_1;
+    out.component_2 = s.component_2;
+    std::string a;
+    std::string b;
+    if (!row_name(plan, s.component_1, a, rule) || !row_name(plan, s.component_2, b, rule)) {
+      return false;
+    }
+    out.pair = a + " and " + b;
+    (ear == ARC_EAR_LEFT ? report.left : report.right) = out;
+    any = true;
+  }
+  if (any) {
+    out_report = report;
+  }
+  return true;
+}
+
 std::string report_json(const Report& report) {
   const DeterminismKey& key = report.determinism_key;
   std::string out = "{\n";
@@ -113,6 +183,12 @@ std::string report_json(const Report& report) {
     }
     out += "],\n";
     out += "    \"end_frame\": " + integer(loop.end_frame) + "\n";
+    out += "  },\n";
+  }
+  if (report.spacing) {
+    out += "  \"spacing\": {\n";
+    out += "    \"left\": " + spacing_ear_json(report.spacing->left) + ",\n";
+    out += "    \"right\": " + spacing_ear_json(report.spacing->right) + "\n";
     out += "  },\n";
   }
   out += "  \"determinism_key\": {\n";

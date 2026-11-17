@@ -36,7 +36,7 @@ namespace {
 
 using arcani::core::FpModeGuard;
 
-static_assert(sizeof(arc_mode) == sizeof(int) && sizeof(arc_mute_ear) == sizeof(int),
+static_assert(sizeof(arc_mode) == sizeof(int) && sizeof(arc_mute_ear) == sizeof(int) && sizeof(arc_ear) == sizeof(int),
               "the options enums are read as int");
 static_assert(static_cast<int>(arcani::plan::StageKind::ThetaReference) == ARC_STAGE_THETA_REFERENCE &&
               static_cast<int>(arcani::plan::StageKind::GammaPac) == ARC_STAGE_GAMMA_PAC &&
@@ -46,9 +46,10 @@ static_assert(static_cast<int>(arcani::plan::StageKind::ThetaReference) == ARC_S
               "StageKind values equal arc_stage_kind");
 
 // Copies text into one error field, NUL-terminated. A longer text is cut to at most
-// ARC_ERROR_FIELD_BYTES - 1 bytes ending in "...", never inside a UTF-8 sequence.
-void write_field(char (&dest)[ARC_ERROR_FIELD_BYTES], std::string_view text) noexcept {
-  constexpr std::size_t kMax = ARC_ERROR_FIELD_BYTES - 1;
+// the field size less 1 byte, ending in "...", never inside a UTF-8 sequence.
+template <std::size_t N>
+void write_field(char (&dest)[N], std::string_view text) noexcept {
+  constexpr std::size_t kMax = N - 1;
   if (text.size() <= kMax) {
     std::memcpy(dest, text.data(), text.size());
     dest[text.size()] = '\0';
@@ -66,7 +67,7 @@ void write_field(char (&dest)[ARC_ERROR_FIELD_BYTES], std::string_view text) noe
 }
 
 void fill(arc_error* e, std::string_view parameter, std::string_view value, std::string_view rule,
-          std::string_view limit) noexcept {
+          std::string_view limit, std::string_view detail = {}) noexcept {
   if (e == nullptr) {
     return;
   }
@@ -74,10 +75,11 @@ void fill(arc_error* e, std::string_view parameter, std::string_view value, std:
   write_field(e->value, value);
   write_field(e->rule, rule);
   write_field(e->limit, limit);
+  write_field(e->detail, detail);
 }
 
 void fill(arc_error* e, const arcani::recipe::Error& from) noexcept {
-  fill(e, from.parameter, from.value, from.rule, from.limit);
+  fill(e, from.parameter, from.value, from.rule, from.limit, from.detail);
 }
 
 // Decimal text of an unsigned integer, without allocation.
@@ -259,6 +261,30 @@ arc_status arc_plan_component(const arc_plan* plan, size_t index, arc_component*
   out_component->gamma_mult = c.gamma_mult;
   out_component->theta_mult = c.theta_mult;
   out_component->beat_mult = c.beat_mult;
+  return ARC_OK;
+}
+
+arc_status arc_plan_spacing(const arc_plan* plan, arc_ear ear, arc_spacing* out_spacing, arc_error* error) {
+  if (plan == nullptr) {
+    return null_argument(error, "plan");
+  }
+  if (out_spacing == nullptr) {
+    return null_argument(error, "out_spacing");
+  }
+  int ear_value = 0;
+  std::memcpy(&ear_value, &ear, sizeof ear_value);
+  if (ear_value != ARC_EAR_LEFT && ear_value != ARC_EAR_RIGHT) {
+    return bad_enum(error, "ear", ear_value, "0 (left) 1 (right)");
+  }
+  std::memset(out_spacing, 0, sizeof *out_spacing);
+  const auto& worst = plan->plan.spacing[static_cast<std::size_t>(ear_value)];
+  if (worst) {
+    out_spacing->has_pair = 1;
+    out_spacing->min_distance_hz = worst->min_distance_hz;
+    out_spacing->margin_hz = worst->margin_hz;
+    out_spacing->component_1 = worst->component_1;
+    out_spacing->component_2 = worst->component_2;
+  }
   return ARC_OK;
 }
 

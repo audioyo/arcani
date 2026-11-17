@@ -85,6 +85,14 @@ engine or from binary64 library calls:
   gate in decimal arithmetic at 70 digits (decimal pi, sine, cosine, and
   square root), written with 25 significant digits; coincident burst lines
   are summed as complex amplitudes. Nothing is sampled or transformed.
+- Spacing (Story 3.2): per ear, every pair of component rows of different
+  layers. The distance c + A sin(theta) + B cos(theta) over the one shared
+  rate cycle in decimal arithmetic (exact centers, decimal cosines and
+  sines of the start phases, exact at the quarter points), its minimum
+  max(0, |c| - H) with H = sqrt(A^2 + B^2), and the first cycle fraction of
+  that minimum by exact bisection on the fraction (decimal cosine), with
+  the rates there. Rows mirrored below 0 Hz are compared as their listed
+  intervals. Nothing is sampled.
 - 24-bit rounding (Story 1.4): x = s * 2^23 in exact Fraction arithmetic,
   clamped to [-8388608, 8388607], else rounded to the nearest integer, ties
   to even; NaN gives 0. Written as 3 bytes, little-endian two's complement.
@@ -2763,8 +2771,10 @@ def component_table(theta, gamma, binaural, mute="none"):
             if level < t:
                 return
             c, lo, hi = _interval(center, half)
+            # Story 3.2 reads whether the row is listed mirrored (Frequencies below 0).
             rows.append({"layer": layer, "ear": ear, "gamma_mult": mults[0], "theta_mult": mults[1],
-                         "beat_mult": mults[2], "center": c, "low": lo, "high": hi, "level": level})
+                         "beat_mult": mults[2], "center": c, "low": lo, "high": hi, "level": level,
+                         "mirrored": center - half < 0})
 
         s_t, p_t = swing_and_phase(theta[4]) if theta is not None else (Decimal(0), 0)
         if theta is not None:
@@ -3016,6 +3026,561 @@ def component_constants():
     }
 
 
+# --------------------------------------------------------------- spacing
+#
+# Story 3.2: the spacing rule on the component table (docs/signal-spec.md,
+# Spacing). Every pair of rows of different layers in one ear; the distance
+# of two lines is c + H sin(theta + psi) over the one shared rate cycle, so
+# the minimum over a whole cycle is max(0, |c| - H) in closed form. Ideal
+# values in 70-digit decimal arithmetic; the first time of the minimum by
+# exact bisection on the cycle fraction (100 halvings), never by sampling.
+
+SPACING_RULE_HZ = 50.0               # row spacing-rule
+SPACING_TIME_ERROR_S = 0.001         # row spacing-time-error
+SPACING_RULE = "spacing_rule"
+SPACING_LIMIT = ">= 50 Hz (row spacing-rule)"
+SPACING_WHOLE_SESSION = "whole session"
+SPACING_LISTED_INTERVALS = "listed intervals, a row mirrored below 0 Hz"
+SPACING_CARRIER_FIELDS = {"gamma_pac": "/gamma_pac/carrier_hz", "binaural": "/binaural/carrier_left_hz"}
+SPACING_BISECTIONS = 100
+EARS = ("left", "right")
+
+
+def _cos_units_exact(units):
+    """cos(2 pi units / 2^64) as a Decimal, exact at the quarter points."""
+    units %= CYCLE
+    if units % QUARTER == 0:
+        return Decimal((1, 0, -1, 0)[units // QUARTER])
+    return _cos_units(units)
+
+
+def _sin_units_exact(units):
+    """sin(2 pi units / 2^64) as a Decimal, exact at the quarter points."""
+    return _cos_units_exact(units - QUARTER)
+
+
+def _cos_cycles(x):
+    """cos(2 pi x) for a Fraction x of cycles, as a Decimal."""
+    return decimal_sin_cycles(Fraction(x) + Fraction(1, 4))
+
+
+def acos_cycles(v):
+    """The x in [0, 1/2] cycles with cos(2 pi x) = v (v in [-1, 1]), by exact
+    bisection on x: the smallest x where the cosine is at or below v, within 2^-100."""
+    if v >= 1:
+        return Fraction(0)
+    if v <= -1:
+        return Fraction(1, 2)
+    lo, hi = Fraction(0), Fraction(1, 2)
+    for _ in range(SPACING_BISECTIONS):
+        mid = (lo + hi) / 2
+        if _cos_cycles(mid) <= v:
+            hi = mid
+        else:
+            lo = mid
+    return hi
+
+
+def _spacing_cycles(theta, gamma, binaural):
+    """{rate: (center, swing, P0 units, period)} for the gamma, theta, and beat
+    rates (None where the layer is absent). A rate without a cycle has swing 0."""
+    out = {"gamma": None, "theta": None, "beat": None}
+
+    def one(center, cycle):
+        if has_cycle(cycle):
+            return (_frac_decimal(center), _frac_decimal(cycle[0]), coupling_phase_units(cycle[2])[0],
+                    _frac_decimal(cycle[1]))
+        return (_frac_decimal(center), Decimal(0), 0, None)
+
+    if theta is not None:
+        out["theta"] = one(theta[1], theta[4])
+    if gamma is not None:
+        out["gamma"] = one(gamma[1], gamma[5])
+    if binaural is not None:
+        out["beat"] = one(binaural[1], binaural[2])
+    return out
+
+
+def _sweeps(row, cycles):
+    """A row sweeps when it has a nonzero multiplier on a rate with a cycle."""
+    for key, rate in (("gamma_mult", "gamma"), ("theta_mult", "theta"), ("beat_mult", "beat")):
+        if row[key] != 0 and cycles[rate] is not None and cycles[rate][1] > 0:
+            return True
+    return False
+
+
+def spacing_pair(r1, r2, cycles):
+    """The closed-form minimum distance of two rows over a whole rate cycle
+    (docs/signal-spec.md, Spacing), and where it first occurs. r1 is the
+    earlier row in table order. Returns a dict of Decimals and Fractions."""
+    with localcontext() as ctx:
+        ctx.prec = PREC + 10
+        sweeps = _sweeps(r1, cycles) or _sweeps(r2, cycles)
+        out = {"sweeps": sweeps, "mirrored": r1["mirrored"] or r2["mirrored"]}
+        if out["mirrored"]:
+            out["distance"] = max(Decimal(0), r2["low"] - r1["high"], r1["low"] - r2["high"])
+            out["where"] = "whole" if not sweeps else "intervals"
+            return out
+        c = r1["center"] - r2["center"]
+        terms = []
+        for key, rate in (("gamma_mult", "gamma"), ("theta_mult", "theta"), ("beat_mult", "beat")):
+            d = r1[key] - r2[key]
+            cyc = cycles[rate]
+            if d != 0 and cyc is not None and cyc[1] > 0:
+                terms.append((d * cyc[1], cyc[2]))
+        big_a = sum((amp * _cos_units_exact(p0) for amp, p0 in terms), Decimal(0))
+        big_b = sum((amp * _sin_units_exact(p0) for amp, p0 in terms), Decimal(0))
+        h = (big_a * big_a + big_b * big_b).sqrt()
+        out.update({"c": c, "A": big_a, "B": big_b, "H": h, "distance": max(Decimal(0), abs(c) - h)})
+        if not sweeps:
+            out["where"] = "whole"
+            return out
+        if h == 0:
+            x = Fraction(0)
+        else:
+            sigma = 1 if c >= 0 else -1
+            alpha = acos_cycles(-sigma * big_b / h)
+            m = alpha if -sigma * big_a >= 0 else (1 - alpha) % 1
+            if abs(c) >= h:
+                x = m
+            else:
+                beta = acos_cycles(abs(c) / h)
+                roots = ((m - beta) % 1, (m + beta) % 1)
+                # No vector root lies within 10 ms of the cycle start, where the
+                # first of the two roots is not well conditioned.
+                assert all(min(r, 1 - r) > Fraction(1, 6000) for r in roots), roots
+                x = min(roots)
+        out["where"] = "time"
+        out["x"] = x
+        period = next(cyc[3] for cyc in cycles.values() if cyc is not None and cyc[3] is not None)
+        out["time"] = _frac_decimal(x) * period
+        rates = {}
+        for rate, cyc in cycles.items():
+            if cyc is None:
+                rates[rate] = None
+            elif cyc[1] == 0:
+                rates[rate] = cyc[0]
+            else:
+                rates[rate] = cyc[0] + cyc[1] * decimal_sin_cycles(x + Fraction(cyc[2], CYCLE))
+        out["rates"] = rates
+        return out
+
+
+def _ear_rows(table):
+    """The left and right ear tables, each in table order, with global indices
+    (the left ear's rows first)."""
+    left = [r for r in table if r["ear"] in ("both", "left")]
+    right = [r for r in table if r["ear"] in ("both", "right")]
+    return {"left": list(enumerate(left)), "right": [(len(left) + k, r) for k, r in enumerate(right)]}
+
+
+def spacing_result(theta, gamma, binaural, mute="none"):
+    """Per ear the pair count and the worst pair, and the reported failure
+    (docs/signal-spec.md, Spacing). Each pair is (distance, index_1, index_2,
+    row_1, row_2, pair dict)."""
+    table = component_table(theta, gamma, binaural, mute)
+    cycles = _spacing_cycles(theta, gamma, binaural)
+    limit = exact_decimal(SPACING_RULE_HZ)
+    ears, failing = {}, []
+    for e, ear in enumerate(EARS):
+        rows = _ear_rows(table)[ear]
+        pairs = []
+        for a in range(len(rows)):
+            for b in range(a + 1, len(rows)):
+                (i1, r1), (i2, r2) = rows[a], rows[b]
+                if r1["layer"] == r2["layer"]:
+                    continue
+                pairs.append((spacing_pair(r1, r2, cycles), i1, i2, r1, r2))
+        worst = min(pairs, key=lambda p: (p[0]["distance"], p[1], p[2])) if pairs else None
+        ears[ear] = {"pairs": len(pairs), "worst": worst, "all": pairs}
+        failing += [(p[0]["distance"], e, p[1], p[2], ear, p) for p in pairs if p[0]["distance"] < limit]
+    failure = min(failing, key=lambda f: f[:4])[4:] if failing else None
+    return {"table": table, "cycles": cycles, "ears": ears, "failure": failure}
+
+
+def _mults(row):
+    return f"({row['gamma_mult']}, {row['theta_mult']}, {row['beat_mult']})"
+
+
+def spacing_where_text(pair):
+    """The where part of the detail, ideal values at 25 digits."""
+    if pair["where"] == "whole":
+        return SPACING_WHOLE_SESSION
+    if pair["where"] == "intervals":
+        return SPACING_LISTED_INTERVALS
+    parts = [f"first at {format_trimmed(pair['time'])} s"]
+    for rate in ("gamma", "theta", "beat"):
+        v = pair["rates"][rate]
+        parts.append(f"{rate} rate " + ("none" if v is None else f"{format_trimmed(v)} Hz"))
+    return ", ".join(parts)
+
+
+def spacing_detail(ear, r1, r2, pair):
+    return (f"{ear} ear: {r1['layer']} {_mults(r1)} at {format_trimmed(r1['center'])} Hz and "
+            f"{r2['layer']} {_mults(r2)} at {format_trimmed(r2['center'])} Hz; {spacing_where_text(pair)}")
+
+
+SPACING_CASE_LENGTH_S = 10.0
+STARTER_LOOP_OPENING_S = 60.0
+STARTER_LOOP_BODY_S = 120.0
+AD5_THETA = (450.0, 6.0, 75.0, "sine", None)
+AD5_BINAURAL = (
+    ("no-binaural", None),
+    ("beat-0", (100.0, 0.0, None)),
+    ("beat-4", (100.0, 4.0, None)),
+    ("beat-10", (100.0, 10.0, None)),
+    ("cycle-0deg", (100.0, 1.5, (1.5, 60.0, 0.0))),
+    ("cycle-90deg", (100.0, 1.5, (1.5, 60.0, 90.0))),
+    ("cycle-270deg", (100.0, 1.5, (1.5, 60.0, 270.0))),
+)
+
+# (fixture, rationale, length_s, loop or None, theta, gamma, binaural): the
+# four starter layer configurations (starter-recipes.md; design log (m), (n))
+# and the must-fail fixture. No ramps or fades (Epic 4); not the Epic 6
+# starter recipes.
+SPACING_FIXTURES = (
+    ("starter-focus-layers.json",
+     "Starter layer configuration (Story 3.2): Focus, from starter-recipes.md and design log 2026-10-27 (m). "
+     "Theta reference: a 450 Hz carrier amplitude-modulated by the sine envelope at 6 Hz, 75 percent AM depth. "
+     "Gamma PAC layer: a 250 Hz sine carrier amplitude-modulated at 40 Hz, its AM depth opening to 100 percent "
+     "for 50 ms bursts centered on the 0 degree coupling phase. No binaural layer. Loops at the 45 min cap, "
+     "opening 60 s, body 120 s. No ramps or fades (Epic 4). Not the Epic 6 starter recipe.",
+     2700.0, ("focus", 60.0, 120.0, 45.0), (450.0, 6.0, 75.0, "sine", None),
+     (250.0, 40.0, 100.0, "bursts", 0.0, None), None),
+    ("starter-learn-layers.json",
+     "Starter layer configuration (Story 3.2): Learn, from starter-recipes.md and design log 2026-10-27 (m). "
+     "Theta reference: a 450 Hz carrier amplitude-modulated by the sine envelope at 5.5 Hz, 75 percent AM depth. "
+     "Gamma PAC layer: a 250 Hz sine carrier amplitude-modulated at 40 Hz, its AM depth swelling to 100 percent "
+     "at the 0 degree coupling phase (smooth swell). No binaural layer. Loops at the 20 min cap, opening 60 s, "
+     "body 120 s. No ramps or fades (Epic 4). Not the Epic 6 starter recipe.",
+     1200.0, ("learn", 60.0, 120.0, 20.0), (450.0, 5.5, 75.0, "sine", None),
+     (250.0, 40.0, 100.0, "smooth_swell", 0.0, None), None),
+    ("starter-relax-layers.json",
+     "Starter layer configuration (Story 3.2): Relax, from starter-recipes.md and design log 2026-10-27 (m). "
+     "Theta reference: a 450 Hz carrier amplitude-modulated by the sine envelope at 6 Hz, 75 percent AM depth. "
+     "Gamma PAC layer: a 250 Hz sine carrier amplitude-modulated at 40 Hz, its AM depth swelling to 25 percent "
+     "at the 0 degree coupling phase (smooth swell). No binaural layer. 30 min, no loop. No level ramps or "
+     "fades (Epic 4). Not the Epic 6 starter recipe.",
+     1800.0, None, (450.0, 6.0, 75.0, "sine", None),
+     (250.0, 40.0, 25.0, "smooth_swell", 0.0, None), None),
+    ("starter-sleep-layers.json",
+     "Starter layer configuration (Story 3.2): Sleep, from starter-recipes.md and design log 2026-10-27 (m), (n). "
+     "Theta reference: a 450 Hz carrier amplitude-modulated by the sine envelope at a steady 2 Hz, 75 percent "
+     "AM depth. Binaural layer: a 100 Hz pure sine in the left ear and a pure sine in the right ear whose "
+     "binaural beat rate cycles sinusoidally over 0 to 3 Hz every 60 s, starting at 0 Hz and rising. No gamma "
+     "PAC layer. 45 min, no loop. No fade (Epic 4). Not the Epic 6 starter recipe.",
+     2700.0, None, (450.0, 2.0, 75.0, "sine", None), None, (100.0, 1.5, SLEEP_CYCLE)),
+    ("spacing-binaural-250-256-gamma-260.json",
+     "Spacing must-fail fixture (Story 3.2): a binaural layer of two pure sines, 250 Hz in the left ear and "
+     "256 Hz in the right ear, beside a gamma PAC layer: a 300 Hz sine carrier amplitude-modulated at 40 Hz, "
+     "uncoupled, 100 percent AM depth, whose lower side frequency sits at 260 Hz, 4 Hz from the right "
+     "binaural carrier. Rejected at compile by the spacing rule in the right ear. A test fixture, not for "
+     "listening.",
+     SPACING_CASE_LENGTH_S, None, None, (300.0, 40.0, 100.0, "uncoupled", None, None), (250.0, 6.0, None)),
+)
+
+
+def spacing_recipe(rationale, length, loop, theta, gamma, binaural, date="2026-11-16"):
+    """A schema-valid recipe dict (numbers as binary64) with the given layers."""
+    recipe = {"schema_version": "1.0", "engine_version": "0.0.1", "seed": 42,
+              "author": "Arcani test fixtures", "date": date, "rationale": rationale,
+              "length_s": length, "loudness_target_lufs": -36.0}
+    t, g, b = component_layer_objects(theta, gamma, binaural)
+    if t is not None:
+        recipe["theta_reference"] = t
+    if g is not None:
+        recipe["gamma_pac"] = g
+    if b is not None:
+        recipe["binaural"] = b
+    if loop is not None:
+        mode, opening, body, cap = loop
+        recipe["loop"] = {"mode": mode, "opening_s": opening, "body_s": body, "max_run_time_min": cap}
+    return recipe
+
+
+def _plain_numbers(value):
+    """The recipe with every integral binary64 written as an integer, as the fixture files are."""
+    if isinstance(value, dict):
+        return {k: _plain_numbers(v) for k, v in value.items()}
+    if isinstance(value, float) and value == int(value) and abs(value) < 2**53:
+        return int(value)
+    return value
+
+
+def spacing_fixture_text(fixture):
+    """The text of one Story 3.2 fixture file in recipes/fixtures/valid/."""
+    for name, rationale, length, loop, theta, gamma, binaural in SPACING_FIXTURES:
+        if name == fixture:
+            recipe = spacing_recipe(rationale, length, loop, theta, gamma, binaural)
+            return json.dumps(_plain_numbers(recipe), indent=2, ensure_ascii=False) + "\n"
+    raise KeyError(fixture)
+
+
+def spacing_cases():
+    """(case, fixture or None, mute, theta, gamma, binaural, recipe text): every
+    component case, the Story 3.2 fixtures, the AD-5 sweep recipes, then cases
+    no fixture has."""
+    cases = []
+    for case, fixture, mute, theta, gamma, binaural in component_cases():
+        cases.append((case, fixture, mute, theta, gamma, binaural,
+                      component_recipe_text(case, theta, gamma, binaural)))
+    for name, rationale, length, loop, theta, gamma, binaural in SPACING_FIXTURES:
+        cases.append((name[:-len(".json")], name, "none", theta, gamma, binaural,
+                      _json_text(spacing_recipe(rationale, length, loop, theta, gamma, binaural))))
+    for coupling in ("smooth_swell", "bursts"):
+        gamma = (250.0, 40.0, 100.0, coupling, 0.0, None)
+        for setting, binaural in AD5_BINAURAL:
+            name = f"ad5-{'swell' if coupling == 'smooth_swell' else 'bursts'}-{setting}"
+            cases.append((name, None, "none", AD5_THETA, gamma, binaural,
+                          _json_text(spacing_recipe(f"Spacing vector case {name} (Story 3.2): the AD-5 sweep "
+                                                    "recipe of tests/python/test_binaural_ad5.py. A test recipe, "
+                                                    "not for listening.", SPACING_CASE_LENGTH_S, None,
+                                                    AD5_THETA, gamma, binaural))))
+    extra = (
+        # Exactly 50 Hz passes with margin 0; 49.99 Hz fails.
+        ("spacing-exactly-50hz", (450.0, 6.0, 0.0, "sine", None), None, (400.0, 0.0, None)),
+        ("spacing-49.99hz", (450.0, 6.0, 0.0, "sine", None), None, (400.01, 0.0, None)),
+        # A beat rate cycle that comes within 50 Hz only at its turning point (beat rate 3 Hz at 30 s).
+        ("spacing-turning-point", (154.5, 2.0, 75.0, "sine", None), None, (100.0, 1.5, SLEEP_CYCLE)),
+        # A gamma rate cycle that crosses the left binaural carrier: distance 0, first at gamma rate 50 Hz.
+        ("spacing-gamma-cycle-crossing", None, (250.0, 45.0, 100.0, "uncoupled", None, (15.0, 60.0, 0.0)),
+         (200.0, 6.0, None)),
+        # Lines that sweep together: theta (0, 1) and gamma (-1, 0) move as one (H = 0); their intervals
+        # are 46.5 Hz apart, their distance is 51.5 Hz at every moment.
+        ("spacing-sweep-together", (200.0, 3.5, 75.0, "sine", (2.5, 60.0, 0.0)),
+         (300.0, 45.0, 100.0, "uncoupled", None, (2.5, 60.0, 180.0)), None),
+        # Sweeping together in part: both cycles 60 degrees apart (the three-term law).
+        ("spacing-cycles-60deg-apart", (330.0, 4.0, 75.0, "sine", (2.0, 60.0, 0.0)),
+         (250.0, 45.0, 100.0, "smooth_swell", 0.0, (15.0, 60.0, 60.0)), None),
+        # All three cycles at once: the swell row (-1, -1) against the right binaural carrier.
+        ("spacing-three-cycles", (450.0, 4.0, 75.0, "sine", (2.0, 60.0, 0.0)),
+         (250.0, 45.0, 100.0, "smooth_swell", 0.0, (15.0, 60.0, 30.0)), (150.0, 1.5, SLEEP_CYCLE)),
+        # A theta row listed mirrored from below 0 Hz (its interval crosses 0 along the theta
+        # cycle), against a 1 Hz binaural carrier: compared as listed intervals.
+        ("spacing-mirrored-row", (100.0, 5.0, 100.0, "smoothed_on_off", (1.0, 60.0, 0.0)), None,
+         (1.0, 0.0, None)),
+        # One layer: no pair.
+        ("spacing-one-layer", (450.0, 6.0, 75.0, "sine", None), None, None),
+    )
+    for name, theta, gamma, binaural in extra:
+        cases.append((name, None, "none", theta, gamma, binaural,
+                      _json_text(spacing_recipe(f"Spacing vector case {name} (Story 3.2). A test recipe, not "
+                                                "for listening.", SPACING_CASE_LENGTH_S, None, theta, gamma,
+                                                binaural))))
+    names = [c[0] for c in cases]
+    assert len(set(names)) == len(names), names
+    return cases
+
+
+@functools.lru_cache(maxsize=None)
+def _spacing_results():
+    return tuple((case, fixture, mute, theta, gamma, binaural, text,
+                  spacing_result(theta, gamma, binaural, mute))
+                 for case, fixture, mute, theta, gamma, binaural, text in spacing_cases())
+
+
+def _decimal_text(x):
+    return format_trimmed(x)
+
+
+def spacing_case_rows():
+    rows = []
+    for case, fixture, mute, theta, gamma, binaural, text, res in _spacing_results():
+        t, g, b = component_layer_objects(theta, gamma, binaural)
+        row = {
+            "case": case, "fixture": "none" if fixture is None else fixture, "mute": mute,
+            "theta_reference": "none" if t is None else _json_text(t),
+            "gamma_pac": "none" if g is None else _json_text(g),
+            "binaural": "none" if b is None else _json_text(b),
+            "recipe": text,
+            "components": sum(2 if r["ear"] == "both" else 1 for r in res["table"]),
+        }
+        if res["failure"] is None:
+            row.update({"result": "pass", "parameter": "none", "value": "none", "rule": "none",
+                        "limit": "none", "detail": "none"})
+        else:
+            ear, (pair, i1, i2, r1, r2) = res["failure"]
+            row.update({"result": "rejected", "parameter": SPACING_CARRIER_FIELDS[r2["layer"]],
+                        "value": _decimal_text(pair["distance"]), "rule": SPACING_RULE,
+                        "limit": SPACING_LIMIT, "detail": spacing_detail(ear, r1, r2, pair)})
+        rows.append(row)
+    return rows
+
+
+def acos_units_engine(v):
+    """Spec engine step: the smallest integer x in [0, 2^63] with
+    cycle_cosine(x) <= v, by integer bisection."""
+    if cycle_cosine(0) <= v:
+        return 0
+    lo, hi = 0, HALF
+    while hi - lo > 1:
+        mid = lo + (hi - lo) // 2
+        if cycle_cosine(mid) <= v:
+            hi = mid
+        else:
+            lo = mid
+    return hi
+
+
+def engine_spacing_pair(r1, r2, theta, gamma, binaural, timed):
+    """The spec's binary64 steps for one pair (Spacing, Engine): the minimum
+    distance and, when timed and a row sweeps, the first time in seconds.
+    Used here only to check that the steps meet the error rows on every vector."""
+    def one(center, cycle):
+        if has_cycle(cycle):
+            p0 = coupling_phase_units(cycle[2])[0]
+            return center, cycle[0], p0, cycle_cosine(p0), cycle_cosine((p0 - QUARTER) % CYCLE), cycle[1]
+        return center, 0.0, 0, 0.0, 0.0, None
+
+    cyc = {"gamma": None if gamma is None else one(gamma[1], gamma[5]),
+           "theta": None if theta is None else one(theta[1], theta[4]),
+           "beat": None if binaural is None else one(binaural[1], binaural[2])}
+    keys = (("gamma_mult", "gamma"), ("theta_mult", "theta"), ("beat_mult", "beat"))
+    if r1["mirrored"] or r2["mirrored"]:
+        lo1, hi1, lo2, hi2 = (float(r1["low"]), float(r1["high"]), float(r2["low"]), float(r2["high"]))
+        return max(0.0, lo2 - hi1, lo1 - hi2), None
+    terms = []
+    for key, rate in keys:
+        v = cyc[rate]
+        swing, cos_p, sin_p = (0.0, 0.0, 0.0) if v is None else (v[1], v[3], v[4])
+        terms.append((float(r1[key] - r2[key]) * swing, cos_p, sin_p))
+    (a, ca, sa), (b, cb, sb), (e, ce, se) = terms
+    x = (a * ca + b * cb) + e * ce
+    y = (a * sa + b * sb) + e * se
+    h = math.sqrt(x * x + y * y)
+    c = float(r1["center"]) - float(r2["center"])
+    dist = abs(c) - h
+    if dist < 0:
+        dist = 0.0
+    sweeps = any(r[key] != 0 and cyc[rate] is not None and cyc[rate][1] > 0
+                 for r in (r1, r2) for key, rate in keys)
+    if not timed or not sweeps:
+        return dist, None
+    if h == 0:
+        u = 0
+    else:
+        sigma = 1.0 if c >= 0 else -1.0
+        alpha = acos_units_engine((-sigma * y) / h)
+        m = alpha if -sigma * x >= 0 else (CYCLE - alpha) % CYCLE
+        if abs(c) >= h:
+            u = m
+        else:
+            beta = acos_units_engine(abs(c) / h)
+            u = min((m - beta) % CYCLE, (m + beta) % CYCLE)
+    period = next(v[5] for v in cyc.values() if v is not None and v[5] is not None)
+    return dist, (float(u) * 2.0**-64) * period
+
+
+SPACING_ENGINE_TIME_CHECK = Decimal("1e-6")   # s, far inside row spacing-time-error
+
+
+def _check_engine_spacing():
+    """Every vector pair: the spec's binary64 steps are within row
+    component-frequency-error of the ideal distance; every worst or failing
+    pair's time within SPACING_ENGINE_TIME_CHECK of the ideal, around the cycle."""
+    worst = Decimal(0)
+    for _, _, _, theta, gamma, binaural, _, res in _spacing_results():
+        timed = {(p[1], p[2]) for p in (res["ears"][ear]["worst"] for ear in EARS) if p is not None}
+        for ear in EARS:
+            for ideal, i1, i2, r1, r2 in res["ears"][ear]["all"]:
+                dist, t = engine_spacing_pair(r1, r2, theta, gamma, binaural, (i1, i2) in timed)
+                err = abs(Decimal(dist) - ideal["distance"])
+                assert err <= Decimal(COMPONENT_FREQUENCY_ERROR), (r1, r2, err)
+                worst = max(worst, err)
+                if t is not None and ideal["where"] == "time":
+                    diff = abs(Decimal(t) - ideal["time"]) % 60
+                    assert min(diff, 60 - diff) <= SPACING_ENGINE_TIME_CHECK, (r1, r2, t, ideal["time"])
+    return worst
+
+
+def spacing_margin_rows():
+    """Per case and ear: the pair count, and the worst pair with its minimum
+    distance, margin, rows, and where it first occurs."""
+    _check_engine_spacing()
+    rows = []
+    limit = exact_decimal(SPACING_RULE_HZ)
+    for case, _, _, _, _, _, _, res in _spacing_results():
+        for ear in EARS:
+            info = res["ears"][ear]
+            row = {"case": case, "ear": ear, "pairs": info["pairs"]}
+            if info["worst"] is None:
+                row.update({"distance": "none", "margin": "none", "index_1": "none", "row_1": "none",
+                            "index_2": "none", "row_2": "none", "where": "none"})
+            else:
+                pair, i1, i2, r1, r2 = info["worst"]
+                row.update({
+                    "distance": _decimal_text(pair["distance"]),
+                    "margin": _decimal_text(pair["distance"] - limit),
+                    "index_1": str(i1), "row_1": f"{r1['layer']} {_mults(r1)}",
+                    "index_2": str(i2), "row_2": f"{r2['layer']} {_mults(r2)}",
+                    "where": spacing_where_text(pair),
+                })
+            rows.append(row)
+    return rows
+
+
+# (label, c, di, dj, db, (s_M, deg_M), (s_theta, deg_theta), (s_B, deg_B)):
+# the closed form on its own, for an engine helper and the reference. A
+# swing of 0 is no cycle. Rates are not given here (centers 0), so the pair
+# rows carry the first cycle fraction x = t / P instead of the time.
+SPACING_PAIR_CASES = (
+    ("static", 4.0, 0, 0, 0, (0.0, 0.0), (0.0, 0.0), (0.0, 0.0)),
+    ("static negative", -51.5, 0, 0, 0, (0.0, 0.0), (0.0, 0.0), (0.0, 0.0)),
+    ("one cycle, turning point", 51.0, 0, 0, -1, (0.0, 0.0), (0.0, 0.0), (1.5, 270.0)),
+    ("one cycle, crossing", 5.0, -1, 0, 0, (15.0, 0.0), (0.0, 0.0), (0.0, 0.0)),
+    ("one cycle, crossing, c negative", -5.0, -1, 0, 0, (15.0, 0.0), (0.0, 0.0), (0.0, 0.0)),
+    ("one cycle, touching", 15.0, 1, 0, 0, (15.0, 0.0), (0.0, 0.0), (0.0, 0.0)),
+    ("one cycle, c zero", 0.0, 1, 0, 0, (15.0, 90.0), (0.0, 0.0), (0.0, 0.0)),
+    ("sweep together", -51.5, 1, 1, 0, (2.5, 180.0), (2.5, 0.0), (0.0, 0.0)),
+    ("two cycles, 60 degrees apart", 60.0, -1, 2, 0, (15.0, 60.0), (2.0, 0.0), (0.0, 0.0)),
+    ("three cycles", 52.5, 1, -2, 1, (15.0, 90.0), (2.0, 0.0), (1.5, 270.0)),
+    ("three cycles, crossing", 7.25, 1, -3, -1, (15.0, 45.0), (2.5, 300.0), (1.5, 10.0)),
+    ("multiplier on a rate without a cycle", 55.0, 1, 0, 0, (0.0, 0.0), (2.0, 0.0), (0.0, 0.0)),
+)
+
+
+def spacing_pair_rows():
+    rows = []
+    with localcontext() as ctx:
+        ctx.prec = PREC + 10
+        for label, c, di, dj, db, gm, th, bt in SPACING_PAIR_CASES:
+            cycles = {"gamma": (Decimal(0), _frac_decimal(gm[0]), coupling_phase_units(gm[1])[0],
+                                Decimal(60) if gm[0] > 0 else None),
+                      "theta": (Decimal(0), _frac_decimal(th[0]), coupling_phase_units(th[1])[0],
+                                Decimal(60) if th[0] > 0 else None),
+                      "beat": (Decimal(0), _frac_decimal(bt[0]), coupling_phase_units(bt[1])[0],
+                               Decimal(60) if bt[0] > 0 else None)}
+            r1 = {"gamma_mult": di, "theta_mult": dj, "beat_mult": db, "center": _frac_decimal(c),
+                  "mirrored": False}
+            r2 = {"gamma_mult": 0, "theta_mult": 0, "beat_mult": 0, "center": Decimal(0), "mirrored": False}
+            p = spacing_pair(r1, r2, cycles)
+            rows.append({
+                "label": label, "c_hex": hexf(c), "di": di, "dj": dj, "db": db,
+                "swing_gamma_hex": hexf(gm[0]), "start_gamma_hex": hexf(gm[1]),
+                "swing_theta_hex": hexf(th[0]), "start_theta_hex": hexf(th[1]),
+                "swing_beat_hex": hexf(bt[0]), "start_beat_hex": hexf(bt[1]),
+                "x": _decimal_text(p["A"]), "y": _decimal_text(p["B"]), "h": _decimal_text(p["H"]),
+                "distance": _decimal_text(p["distance"]),
+                "first": "none" if p["where"] != "time" else _decimal_text(_frac_decimal(p["x"])),
+            })
+    return rows
+
+
+def spacing_constants():
+    return {
+        "rule_hz": dec(SPACING_RULE_HZ),
+        "time_error_s": dec(SPACING_TIME_ERROR_S),
+        "rule": SPACING_RULE,
+        "limit": SPACING_LIMIT,
+        "whole_session": SPACING_WHOLE_SESSION,
+        "listed_intervals": SPACING_LISTED_INTERVALS,
+        "carrier_fields": dict(SPACING_CARRIER_FIELDS),
+        "fixtures": [f[0] for f in SPACING_FIXTURES],
+        "must_fail_fixture": "spacing-binaural-250-256-gamma-260.json",
+        "starter_fixtures": [f[0] for f in SPACING_FIXTURES if f[0].startswith("starter-")],
+    }
+
+
 # ------------------------------------------------------- 24-bit rounding
 
 Q24_MAX = 8388607   # 2^23 - 1
@@ -3097,7 +3662,7 @@ def quantize_rows():
 
 def build():
     return {
-        "spec": "docs/signal-spec.md (sections core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer, rate curve (the beat rate, Story 2.5; the theta and gamma rates, Story 2.6), loop (Story 2.7), components (Story 3.1), and 24-bit rounding)",
+        "spec": "docs/signal-spec.md (sections core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer, rate curve (the beat rate, Story 2.5; the theta and gamma rates, Story 2.6), loop (Story 2.7), components (Story 3.1), spacing (Story 3.2), and 24-bit rounding)",
         "generator": "tools/signal_spec_vectors.py",
         "cycle": str(CYCLE),
         "sine_coefficients": sine_coefficients(),
@@ -3192,6 +3757,10 @@ def build():
         "component_coefficients": component_coefficient_rows(),
         "component_cases": component_case_rows(),
         "components": component_rows(),
+        "spacing_constants": spacing_constants(),
+        "spacing_cases": spacing_case_rows(),
+        "spacing_margins": spacing_margin_rows(),
+        "spacing_pairs": spacing_pair_rows(),
         "quantize_24": quantize_rows(),
     }
 
@@ -3563,6 +4132,34 @@ def tables(data):
     for r in data["components"]:
         out.append(f"| {r['case']} | {r['ear']} | {r['layer']} | {r['gamma_mult']} | {r['theta_mult']} "
                    f"| {r['beat_mult']} | {r['center']} | {r['low']} | {r['high']} | {r['level']} |")
+    out.append("")
+    out.append("| Case | Fixture | Muted ear | theta_reference | gamma_pac | binaural | Components | Result "
+               "| Parameter | Value | Rule | Limit | Detail |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["spacing_cases"]:
+        layers = [r[key] if r[key] == "none" else f"`{r[key]}`"
+                  for key in ("theta_reference", "gamma_pac", "binaural")]
+        cells = [r[key] if r[key] == "none" else f"`{r[key]}`" for key in ("parameter", "limit")]
+        out.append(f"| {r['case']} | {r['fixture']} | {r['mute']} | {layers[0]} | {layers[1]} | {layers[2]} "
+                   f"| {r['components']} | {r['result']} | {cells[0]} | {r['value']} | {r['rule']} "
+                   f"| {cells[1]} | {r['detail']} |")
+    out.append("")
+    out.append("| Spacing case | Ear | Pairs | Min distance (Hz) | Margin (Hz) | Row 1 | Index 1 | Row 2 | Index 2 "
+               "| Where |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["spacing_margins"]:
+        out.append(f"| {r['case']} | {r['ear']} | {r['pairs']} | {r['distance']} | {r['margin']} | {r['row_1']} "
+                   f"| {r['index_1']} | {r['row_2']} | {r['index_2']} | {r['where']} |")
+    out.append("")
+    out.append("| Pair case | c (hex) | di | dj | db | Gamma swing (hex) | Gamma start (hex) | Theta swing (hex) "
+               "| Theta start (hex) | Beat swing (hex) | Beat start (hex) | X | Y | H | Min distance "
+               "| First cycle fraction |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["spacing_pairs"]:
+        out.append(f"| {r['label']} | `{r['c_hex']}` | {r['di']} | {r['dj']} | {r['db']} "
+                   f"| `{r['swing_gamma_hex']}` | `{r['start_gamma_hex']}` | `{r['swing_theta_hex']}` "
+                   f"| `{r['start_theta_hex']}` | `{r['swing_beat_hex']}` | `{r['start_beat_hex']}` "
+                   f"| {r['x']} | {r['y']} | {r['h']} | {r['distance']} | {r['first']} |")
     out.append("")
     out.append("| Rule | Case | s (hex) | x = s * 2^23 (hex) | Value | Bytes (little-endian) |")
     out.append("| --- | --- | --- | --- | --- | --- |")

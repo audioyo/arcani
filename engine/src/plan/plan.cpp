@@ -103,6 +103,15 @@ CompileResult compile(std::string_view utf8, Mode mode, std::uint32_t sample_rat
     return r;
   }
 
+  // Story 3.2: the spacing rule on the table (docs/signal-spec.md, Spacing),
+  // after every earlier rule and before final.required.
+  validate::SpacingResult spacing = validate::check_spacing(rec, components.components);
+  if (spacing.error) {
+    CompileResult r;
+    r.error = std::move(*spacing.error);
+    return r;
+  }
+
   if (mode == Mode::Final) {
     if (!rec.loudness_gain_db) {
       return fail("/loudness_gain_db", "absent", "final.required", "present in final mode");
@@ -117,6 +126,7 @@ CompileResult compile(std::string_view utf8, Mode mode, std::uint32_t sample_rat
   p.frame_count = core::seconds_to_samples(rec.length_s, sample_rate);
   p.recipe_hash = rec.hash;
   p.components = std::move(components.components);
+  p.spacing = spacing.ears;
   p.seed = rec.seed;
   for (std::size_t i = 0; i < p.stages.size(); ++i) {
     p.stages[i] = kStages[i].kind;

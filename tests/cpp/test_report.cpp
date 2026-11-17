@@ -251,6 +251,80 @@ TEST_CASE("report check: a looping report passes, doctored loop blocks fail", "[
   }
 }
 
+// Story 3.2: a report of a recipe with a spacing pair, the spacing block after
+// loop (or after frames) and before determinism_key (docs/signal-spec.md,
+// Spacing, Report).
+const char* const kGoodSpacingReport = R"({
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "sample_rate": 48000,
+  "mode": "measure",
+  "frames": 480000,
+  "spacing": {
+    "left": {"min_distance_hz": 118, "margin_hz": 68, "component_1": 0, "component_2": 35, "pair": "theta_reference (0, -1, 0) at 444 Hz and gamma_pac (1, 6, 0) at 326 Hz"},
+    "right": null
+  },
+  "determinism_key": {
+    "recipe_hash": "779404f01db97e80f86e776b2803e468629ff28710ef3d5ae542f4ca049e6868",
+    "asset_hashes": [],
+    "engine_version": "0.0.1",
+    "sample_rate": 48000
+  },
+  "assertions": []
+})";
+
+TEST_CASE("report check: a spacing report passes, doctored spacing blocks fail", "[report][mustfail][spacing]") {
+  const std::string good = kGoodSpacingReport;
+  for (const std::string& p : h::report_problems(parse_ok(good))) {
+    UNSCOPED_INFO(p);
+  }
+  CHECK(h::report_problems(parse_ok(good)).empty());
+  // Both ears with a pair, and spacing after a loop block.
+  const std::string both = replaced(good, R"("right": null)",
+                                    R"("right": {"min_distance_hz": 50, "margin_hz": 0, "component_1": 36, "component_2": 71, "pair": "x"})");
+  CHECK(h::report_problems(parse_ok(both)).empty());
+  const std::string looped = replaced(good, R"("frames": 480000,)", R"("frames": 480000,
+  "loop": {"opening_end_frame": 2880000, "seam_frames": [], "end_frame": 480000},)");
+  CHECK_FALSE(h::report_problems(parse_ok(looped)).empty());  // opening past the end: the loop check still runs
+  const std::string looped_ok = replaced(good, R"("frames": 480000,)", R"("frames": 480000,
+  "loop": {"opening_end_frame": 0, "seam_frames": [], "end_frame": 480000},)");
+  CHECK(h::report_problems(parse_ok(looped_ok)).empty());
+  const std::pair<const char*, const char*> doctors[] = {
+      // Spacing before frames, or after determinism_key.
+      {R"("frames": 480000,
+  "spacing")", R"("spacing")"},
+      {R"("spacing": {)", R"("spacings": {)"},
+      {R"("right": null)", R"("middle": null)"},
+      {R"("left": {"min_distance_hz": 118, "margin_hz": 68, "component_1": 0, "component_2": 35, "pair": "theta_reference (0, -1, 0) at 444 Hz and gamma_pac (1, 6, 0) at 326 Hz"},)",
+       R"("left": null,)"},
+      {R"("min_distance_hz": 118, "margin_hz": 68)", R"("margin_hz": 68, "min_distance_hz": 118)"},
+      {R"("min_distance_hz": 118)", R"("min_distance_hz": "118")"},
+      {R"("margin_hz": 68)", R"("margin_hz": -1)"},
+      {R"("margin_hz": 68)", R"("margin_hz": 119)"},
+      {R"("component_1": 0)", R"("component_1": 35)"},
+      {R"("component_2": 35)", R"("component_2": 3.5)"},
+      {R"("pair": "theta_reference (0, -1, 0) at 444 Hz and gamma_pac (1, 6, 0) at 326 Hz")", R"("pair": "")"},
+      {R"(, "pair": "theta_reference (0, -1, 0) at 444 Hz and gamma_pac (1, 6, 0) at 326 Hz"})", R"(})"},
+  };
+  for (const auto& [from, to] : doctors) {
+    const std::string bad = replaced(good, from, to);
+    INFO("doctored: " << from << " -> " << to);
+    CHECK_FALSE(h::report_problems(parse_ok(bad)).empty());
+  }
+  // Spacing moved after determinism_key.
+  {
+    const std::string block = R"(
+  "spacing": {
+    "left": {"min_distance_hz": 118, "margin_hz": 68, "component_1": 0, "component_2": 35, "pair": "theta_reference (0, -1, 0) at 444 Hz and gamma_pac (1, 6, 0) at 326 Hz"},
+    "right": null
+  },)";
+    std::string moved = replaced(good, block, "");
+    moved = replaced(moved, R"(  "assertions": [])", R"(  "spacing": {"left": null, "right": {"min_distance_hz": 1, "margin_hz": 0, "component_1": 0, "component_2": 1, "pair": "x"}},
+  "assertions": [])");
+    CHECK_FALSE(h::report_problems(parse_ok(moved)).empty());
+  }
+}
+
 #if defined(ARCANI_HAVE_CLI_CORE) && __has_include("report.hpp")
 
 #include "report.hpp"
@@ -703,10 +777,151 @@ void check_loop_report() {
   }
 }
 
+// ------------------------------------------------------------ spacing block (Story 3.2)
+//
+// Contract (Story 3.2 spec, Implementation Notes):
+//   struct SpacingEar { double min_distance_hz; double margin_hz;
+//     std::uint64_t component_1; std::uint64_t component_2; std::string pair; };
+//   struct SpacingReport { std::optional<SpacingEar> left; std::optional<SpacingEar> right; };
+//   Report gains std::optional<SpacingReport> spacing after loop.
+// report_json writes it after loop (or frames) and before determinism_key,
+// only when present, each ear on one line, null for an ear without a pair:
+//   "  \"spacing\": {\n"
+//   "    \"left\": {\"min_distance_hz\": D, \"margin_hz\": M, \"component_1\": I,
+//                  \"component_2\": J, \"pair\": \"...\"},\n"
+//   "    \"right\": null\n"
+//   "  },\n"
+// Without it the report bytes are unchanged.
+
+template <class R>
+concept ReportHasSpacing = requires(R r) {
+  { r.spacing.has_value() } -> std::convertible_to<bool>;
+  r.spacing->left;
+  r.spacing->right;
+  r.spacing->left->min_distance_hz;
+  r.spacing->left->margin_hz;
+  r.spacing->left->component_1;
+  r.spacing->left->component_2;
+  r.spacing->left->pair;
+  r.spacing.reset();
+};
+
+// The report text with `block` inserted right before the determinism_key line.
+[[maybe_unused]] std::string with_block_before_key(const std::string& text, const std::string& block) {
+  const std::string key_line = "  \"determinism_key\": {";
+  const auto at = text.find(key_line);
+  REQUIRE(at != std::string::npos);
+  std::string out = text;
+  out.insert(at, block);
+  return out;
+}
+
+template <class R = cli::Report>
+void check_spacing_block() {
+  if constexpr (ReportHasSpacing<R>) {
+    using SpacingReport = typename decltype(R::spacing)::value_type;
+    using SpacingEar = typename decltype(SpacingReport::left)::value_type;
+    static_assert(std::is_same_v<decltype(SpacingEar::min_distance_hz), double>);
+    static_assert(std::is_same_v<decltype(SpacingEar::margin_hz), double>);
+    static_assert(std::is_same_v<decltype(SpacingEar::component_1), std::uint64_t>);
+    static_assert(std::is_same_v<decltype(SpacingEar::component_2), std::uint64_t>);
+    static_assert(std::is_same_v<decltype(SpacingEar::pair), std::string>);
+    R r = sample_report();
+    r.frames = 480000;
+    const std::string without = cli::report_json(r);
+    CHECK(without.find("\"spacing\"") == std::string::npos);
+
+    SpacingEar left;
+    left.min_distance_hz = 118.0;
+    left.margin_hz = 68.0;
+    left.component_1 = 0;
+    left.component_2 = 35;
+    left.pair = "theta_reference (0, -1, 0) at 444 Hz and gamma_pac (1, 6, 0) at 326 Hz";
+    SpacingReport s;
+    s.left = left;
+    r.spacing = s;
+    const std::string one = cli::report_json(r);
+    INFO(one);
+    CHECK(one == with_block_before_key(
+                     without, "  \"spacing\": {\n"
+                              "    \"left\": {\"min_distance_hz\": 118, \"margin_hz\": 68, \"component_1\": 0, "
+                              "\"component_2\": 35, \"pair\": \"theta_reference (0, -1, 0) at 444 Hz and gamma_pac "
+                              "(1, 6, 0) at 326 Hz\"},\n"
+                              "    \"right\": null\n"
+                              "  },\n"));
+    const json::Value v = parse_ok(one);
+    for (const std::string& p : h::report_problems(v)) {
+      UNSCOPED_INFO(p);
+    }
+    CHECK(h::report_problems(v).empty());
+
+    // Both ears, numbers as shortest round-trip texts.
+    SpacingEar right = left;
+    right.min_distance_hz = 0.1 + 0.2 + 50.0;
+    right.margin_hz = right.min_distance_hz - 50.0;
+    right.component_1 = 36;
+    right.component_2 = 71;
+    right.pair = "binaural \"q\"";
+    s.right = right;
+    r.spacing = s;
+    const std::string two = cli::report_json(r);
+    CHECK(two == with_block_before_key(
+                     without, "  \"spacing\": {\n"
+                              "    \"left\": {\"min_distance_hz\": 118, \"margin_hz\": 68, \"component_1\": 0, "
+                              "\"component_2\": 35, \"pair\": \"theta_reference (0, -1, 0) at 444 Hz and gamma_pac "
+                              "(1, 6, 0) at 326 Hz\"},\n"
+                              "    \"right\": {\"min_distance_hz\": " +
+                                  cli::json_number(right.min_distance_hz) +
+                                  ", \"margin_hz\": " + cli::json_number(right.margin_hz) +
+                                  ", \"component_1\": 36, \"component_2\": 71, \"pair\": " +
+                                  cli::json_string(right.pair) +
+                                  "}\n"
+                                  "  },\n"));
+
+    // Only the right ear.
+    s.left.reset();
+    r.spacing = s;
+    const std::string right_only = cli::report_json(r);
+    CHECK(right_only.find("    \"left\": null,\n") != std::string::npos);
+    CHECK(h::report_problems(parse_ok(right_only)).empty());
+
+    // With a loop block: spacing after it.
+    if constexpr (ReportHasLoop<R>) {
+      using LoopReport = typename decltype(R::loop)::value_type;
+      LoopReport lr;
+      lr.opening_end_frame = 0;
+      lr.seam_frames = {};
+      lr.end_frame = 480000;
+      r.loop = lr;
+      const std::string looped = cli::report_json(r);
+      const auto loop_at = looped.find("  \"loop\": {");
+      const auto spacing_at = looped.find("  \"spacing\": {");
+      const auto key_at = looped.find("  \"determinism_key\": {");
+      REQUIRE(loop_at != std::string::npos);
+      REQUIRE(spacing_at != std::string::npos);
+      CHECK(loop_at < spacing_at);
+      CHECK(spacing_at < key_at);
+      CHECK(h::report_problems(parse_ok(looped)).empty());
+      r.loop.reset();
+    }
+
+    // Removed again: the bytes of the report without it.
+    r.spacing.reset();
+    CHECK(cli::report_json(r) == without);
+  } else {
+    FAIL("not implemented: cli::Report has no std::optional<cli::SpacingReport> spacing (Story 3.2)");
+  }
+}
+
 }  // namespace
 
 TEST_CASE("report_json writes the loop block right after frames only when present", "[report][cli][loop]") {
   check_loop_block();
+}
+
+TEST_CASE("report_json writes the spacing block before determinism_key only when present",
+          "[report][cli][spacing]") {
+  check_spacing_block();
 }
 
 TEST_CASE("loop_report lists every seam of an arc_loop_frames; none when not looping", "[report][cli][loop]") {

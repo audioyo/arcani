@@ -881,3 +881,143 @@ TEST_CASE("the arcani-render WAV equals the in-process render at every block-siz
     }
   }
 }
+
+// ------------------------------------------------------------------ spacing
+
+// Story 3.2 (docs/signal-spec.md, Spacing, Report and Compile order; spec
+// Implementation Notes, Command-line renderer). A spacing rejection prints
+// the rejected line with " detail=<detail>" before the newline and writes no
+// WAV and no report; every other rejection prints the same bytes as before.
+// A recipe with a spacing pair in an ear gets a spacing block in its report,
+// each ear's values those of arc_plan_spacing and its pair named from
+// arc_plan_component; a recipe without one gets no spacing member. Short
+// renders only (10 s and 1 s recipes).
+
+#ifdef ARC_ERROR_DETAIL_BYTES
+
+#include "spacing_helpers.hpp"
+
+namespace {
+
+const arcani::test::spec::SpacingCaseVector& spacing_case(const std::string& name) {
+  for (const auto& c : arcani::test::spec::kSpacingCases) {
+    if (name == c.name) {
+      return c;
+    }
+  }
+  FAIL("no spacing case " << name);
+  return arcani::test::spec::kSpacingCases[0];
+}
+
+std::string component_name(const arc_plan* p, std::size_t index) {
+  namespace sp = arcani::test::spacing;
+  arc_component c;
+  arc_error e;
+  arcani::test::api::poison(e);
+  REQUIRE(arc_plan_component(p, index, &c, &e) == ARC_OK);
+  return std::string(sp::kLayers[static_cast<int>(c.layer)]) + " (" + std::to_string(c.gamma_mult) + ", " +
+         std::to_string(c.theta_mult) + ", " + std::to_string(c.beat_mult) + ") at " + sp::shortest(c.center_hz) +
+         " Hz";
+}
+
+// The spacing block the report must hold for `text` at `rate`, built from the C API.
+std::string expected_spacing_block(const std::string& text, std::uint32_t rate) {
+  namespace api = arcani::test::api;
+  namespace sp = arcani::test::spacing;
+  api::PlanPtr plan = api::compile_ok(text, api::options(ARC_MODE_MEASURE, rate));
+  std::string block = "  \"spacing\": {\n";
+  const char* const names[] = {"left", "right"};
+  for (int ear = 0; ear < 2; ++ear) {
+    arc_spacing s;
+    arc_error e;
+    api::poison(e);
+    REQUIRE(arc_plan_spacing(plan.get(), ear == 0 ? ARC_EAR_LEFT : ARC_EAR_RIGHT, &s, &e) == ARC_OK);
+    block += std::string("    \"") + names[ear] + "\": ";
+    if (s.has_pair == 0) {
+      block += "null";
+    } else {
+      block += "{\"min_distance_hz\": " + sp::shortest(s.min_distance_hz) + ", \"margin_hz\": " +
+               sp::shortest(s.margin_hz) + ", \"component_1\": " + std::to_string(s.component_1) +
+               ", \"component_2\": " + std::to_string(s.component_2) + ", \"pair\": \"" +
+               component_name(plan.get(), s.component_1) + " and " + component_name(plan.get(), s.component_2) +
+               "\"}";
+    }
+    block += ear == 0 ? ",\n" : "\n";
+  }
+  return block + "  },\n";
+}
+
+}  // namespace
+
+TEST_CASE("a spacing rejection prints the detail, writes nothing, and other rejections keep their bytes",
+          "[cli][spacing]") {
+  namespace api = arcani::test::api;
+  namespace spec = arcani::test::spec;
+  ScopedEnv env(kEnv, nullptr);
+  const fs::path dir = case_dir("spacing-rejected");
+  const fs::path wav = dir / "x.wav";
+  const RunResult r = run_cli({fixture_path(spec::kSpacing_must_fail_fixture), "--out", wav.string()});
+  INFO("stdout: " << r.out << "\nstderr: " << r.err);
+  CHECK(r.exit_code == 1);
+  const api::Compiled c = api::compile(api::valid(spec::kSpacing_must_fail_fixture), api::options(ARC_MODE_MEASURE, 48000));
+  REQUIRE(c.status == ARC_ERR_REJECTED);
+  REQUIRE(api::written(c.error.detail));
+  CHECK(std::string(c.error.rule) == "spacing_rule");
+  CHECK_FALSE(std::string(c.error.detail).empty());
+  CHECK(r.err == rejected_line(c.error) + " detail=" + c.error.detail + "\n");
+  CHECK(r.err ==
+        "rejected: parameter=/binaural/carrier_left_hz value=4 rule=spacing_rule limit=>= 50 Hz (row spacing-rule) "
+        "detail=right ear: gamma_pac (-1, 0, 0) at 260 Hz and binaural (0, 0, 1) at 256 Hz; whole session\n");
+  CHECK(listing(dir).empty());
+  // A rejection by another rule: no detail suffix.
+  const fs::path other = case_dir("spacing-other-rejection");
+  const RunResult n = run_cli({fixture_path("gamma-carrier-wave-triangle.json"), "--out", (other / "x.wav").string()});
+  CHECK(n.exit_code == 1);
+  CHECK(n.err.find(" detail=") == std::string::npos);
+  const api::Compiled t = api::compile(api::valid("gamma-carrier-wave-triangle.json"), api::options(ARC_MODE_MEASURE, 48000));
+  REQUIRE(api::written(t.error.detail));
+  CHECK(std::string(t.error.detail).empty());
+  CHECK(n.err == rejected_line(t.error) + "\n");
+}
+
+TEST_CASE("a report holds the spacing block only when an ear has a pair", "[cli][spacing]") {
+  namespace api = arcani::test::api;
+  ScopedEnv env(kEnv, nullptr);
+  const std::uint32_t rate = 48000;
+  for (const char* name : {"spacing-exactly-50hz", "spacing-sweep-together", "ad5-swell-cycle-270deg"}) {
+    INFO("case " << name);
+    const std::string text = spacing_case(name).recipe;
+    const fs::path dir = case_dir(std::string("spacing-report-") + name);
+    const fs::path recipe = dir / "r.json";
+    write_text(recipe, text);
+    const RunResult r = run_cli({recipe.string(), "--out", (dir / "x.wav").string()});
+    INFO("stdout: " << r.out << "\nstderr: " << r.err);
+    REQUIRE(r.exit_code == 0);
+    fs::remove(dir / "x.wav");
+    const std::string report = read_text_file(dir / "x.report.json");
+    require_report(dir / "x.report.json");
+    const std::string block = expected_spacing_block(text, rate);
+    INFO(report << "\nwant block:\n" << block);
+    const auto at = report.find(block);
+    REQUIRE(at != std::string::npos);
+    CHECK(report.compare(at + block.size(), 22, "  \"determinism_key\": {") == 0);
+  }
+  // No pair in either ear (binaural only, or no layers): no spacing member.
+  for (const char* fixture : {api::kBeat0, api::kNoLayers}) {
+    INFO(fixture);
+    const fs::path dir = case_dir(std::string("spacing-report-none-") + fixture);
+    const RunResult r = run_cli({fixture_path(fixture), "--out", (dir / "x.wav").string()});
+    REQUIRE(r.exit_code == 0);
+    const std::string report = read_text_file(dir / "x.report.json");
+    CHECK(report.find("\"spacing\"") == std::string::npos);
+    CHECK(require_report(dir / "x.report.json").find("spacing") == nullptr);
+  }
+}
+
+#else
+
+TEST_CASE("arcani-render reports spacing (Story 3.2)", "[cli][spacing]") {
+  FAIL("not implemented: arc_error::detail (ARC_ERROR_DETAIL_BYTES) and arc_plan_spacing (Story 3.2)");
+}
+
+#endif

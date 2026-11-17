@@ -335,6 +335,7 @@ ComponentResult build_components(const recipe::Recipe& r, MutedEar mute) {
     c.gamma_mult = i;
     c.theta_mult = j;
     c.beat_mult = b;
+    c.mirrored = center - half < 0.0;
     return c;
   };
 

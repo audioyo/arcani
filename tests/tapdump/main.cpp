@@ -43,6 +43,18 @@
 //   arc_plan_component in table order (ear left or right; layer
 //   theta_reference, gamma_pac, or binaural; the four doubles as %.17g), LF
 //   line ends. Prints "arcani-tapdump: components N".
+//
+// Story 3.2 adds the spacing margins (docs/signal-spec.md, Spacing):
+//
+// --spacing [--mute left|right]: compiles with that muted ear, renders
+//   nothing, and writes OUT_DIR/spacing.tsv: the header
+//   ear<TAB>has_pair<TAB>min_distance_hz<TAB>margin_hz<TAB>component_1
+//   <TAB>component_2, then one line per ear of arc_plan_spacing (left, then
+//   right; has_pair 0 or 1; the doubles as %.17g; 0 in every field without a
+//   pair), LF line ends. Prints "arcani-tapdump: spacing".
+//
+// A rejection prints the rejected line, with " detail=<detail>" appended
+// when the error's detail is not empty (the spacing rule).
 
 #include <arcani/arcani.h>
 
@@ -61,7 +73,8 @@ const char* const kUsage =
     "usage: arcani-tapdump RECIPE RATE OUT_DIR [EXTRA_FRAMES]\n"
     "       arcani-tapdump RECIPE RATE OUT_DIR --window START FRAMES\n"
     "       arcani-tapdump RECIPE RATE OUT_DIR --output-only\n"
-    "       arcani-tapdump RECIPE RATE OUT_DIR --components [--mute left|right]\n";
+    "       arcani-tapdump RECIPE RATE OUT_DIR --components [--mute left|right]\n"
+    "       arcani-tapdump RECIPE RATE OUT_DIR --spacing [--mute left|right]\n";
 
 bool parse_u64(const char* text, std::uint64_t& out) {
   if (text == nullptr || *text == '\0') {
@@ -121,7 +134,7 @@ bool write_f64(const std::string& path, const std::vector<double>& samples) {
   return written && closed;
 }
 
-enum class Mode { Whole, Window, OutputOnly, Components };
+enum class Mode { Whole, Window, OutputOnly, Components, Spacing };
 
 struct Args {
   Mode mode = Mode::Whole;
@@ -139,8 +152,8 @@ bool parse_args(int argc, char** argv, Args& a) {
   if (argc == 4) {
     return true;
   }
-  if (std::strcmp(argv[4], "--components") == 0) {
-    a.mode = Mode::Components;
+  if (std::strcmp(argv[4], "--components") == 0 || std::strcmp(argv[4], "--spacing") == 0) {
+    a.mode = std::strcmp(argv[4], "--spacing") == 0 ? Mode::Spacing : Mode::Components;
     if (argc == 5) {
       return true;
     }
@@ -244,6 +257,38 @@ int dump_components(const arc_plan* plan, const std::string& out_dir, arc_error&
   return 0;
 }
 
+// Writes the plan's spacing margins to OUT_DIR/spacing.tsv.
+int dump_spacing(const arc_plan* plan, const std::string& out_dir, arc_error& error) {
+  static const char* const kEars[] = {"left", "right"};
+  std::string text = "ear\thas_pair\tmin_distance_hz\tmargin_hz\tcomponent_1\tcomponent_2\n";
+  for (int ear = 0; ear < 2; ++ear) {
+    arc_spacing s;
+    if (arc_plan_spacing(plan, ear == 0 ? ARC_EAR_LEFT : ARC_EAR_RIGHT, &s, &error) != ARC_OK) {
+      std::fprintf(stderr, "arcani-tapdump: spacing failed: %s\n", error.rule);
+      return 1;
+    }
+    char line[256];
+    std::snprintf(line, sizeof line, "%s\t%d\t%.17g\t%.17g\t%llu\t%llu\n", kEars[ear], static_cast<int>(s.has_pair),
+                  s.min_distance_hz, s.margin_hz, static_cast<unsigned long long>(s.component_1),
+                  static_cast<unsigned long long>(s.component_2));
+    text += line;
+  }
+  const std::string path = out_dir + "/spacing.tsv";
+  std::FILE* f = std::fopen(path.c_str(), "wb");
+  if (f == nullptr) {
+    std::fprintf(stderr, "arcani-tapdump: cannot write %s\n", path.c_str());
+    return 1;
+  }
+  const bool written = std::fwrite(text.data(), 1, text.size(), f) == text.size();
+  const bool closed = std::fclose(f) == 0;
+  if (!written || !closed) {
+    std::fprintf(stderr, "arcani-tapdump: cannot write %s\n", path.c_str());
+    return 1;
+  }
+  std::printf("arcani-tapdump: spacing\n");
+  return 0;
+}
+
 // Streams the whole session's output, kChunkFrames frames per call, to out.f64.
 int dump_output(arc_renderer* renderer, std::uint64_t frames, const std::string& out_dir, arc_error& error) {
   const std::string path = out_dir + "/out.f64";
@@ -296,9 +341,19 @@ int main(int argc, char** argv) {
   std::memset(&error, 0, sizeof error);
   arc_plan* plan = nullptr;
   if (arc_compile(recipe.data(), recipe.size(), &options, &plan, &error) != ARC_OK) {
-    std::fprintf(stderr, "arcani-tapdump: rejected: parameter=%s value=%s rule=%s limit=%s\n",
-                 error.parameter, error.value, error.rule, error.limit);
+    if (error.detail[0] != '\0') {
+      std::fprintf(stderr, "arcani-tapdump: rejected: parameter=%s value=%s rule=%s limit=%s detail=%s\n",
+                   error.parameter, error.value, error.rule, error.limit, error.detail);
+    } else {
+      std::fprintf(stderr, "arcani-tapdump: rejected: parameter=%s value=%s rule=%s limit=%s\n",
+                   error.parameter, error.value, error.rule, error.limit);
+    }
     return 1;
+  }
+  if (args.mode == Mode::Spacing) {
+    const int status = dump_spacing(plan, argv[3], error);
+    arc_plan_release(plan);
+    return status;
   }
   if (args.mode == Mode::Components) {
     const int status = dump_components(plan, argv[3], error);

@@ -42,6 +42,9 @@ struct Component {
   std::int32_t gamma_mult = 0;
   std::int32_t theta_mult = 0;
   std::int32_t beat_mult = 0;
+  // Story 3.2: the unmirrored interval reaches below 0 Hz (center - half < 0),
+  // so the row is listed mirrored (Components, Frequencies below 0).
+  bool mirrored = false;
 };
 
 // The compile option mute_binaural_ear: a muted ear has no binaural row.

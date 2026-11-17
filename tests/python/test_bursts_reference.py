@@ -245,6 +245,16 @@ def burst_gamma(rate=40, depth=100, phase=0, coupling="bursts"):
     return g
 
 
+# Story 3.2 (spacing rule, 50 Hz per ear between layers): the timing recipes'
+# theta reference is a 500 Hz carrier, not the fixtures' 450 Hz one. At 450 Hz,
+# amplitude-modulated at 6 Hz by the smoothed on-off envelope at 75 percent
+# depth, its line 90 Hz below the carrier (360 Hz) sat 34 Hz from the burst
+# line at 326 Hz of the 250 Hz gamma carrier at 100 percent depth. At 500 Hz
+# every timing recipe keeps at least 84 Hz between layers (reference
+# spacing_margins). The burst timing depends on the theta rate and shape only.
+TIMING_THETA_CARRIER_HZ = 500
+
+
 def timing_recipe(shape, phase, depth, coupling="bursts", rate=40, with_theta=True):
     recipe = {
         "schema_version": "1.0", "engine_version": "0.0.1", "seed": 42,
@@ -253,7 +263,7 @@ def timing_recipe(shape, phase, depth, coupling="bursts", rate=40, with_theta=Tr
         "length_s": LENGTH_S, "loudness_target_lufs": -36,
     }
     if with_theta:
-        recipe["theta_reference"] = dict(THETA, shape=shape)
+        recipe["theta_reference"] = dict(THETA, carrier_hz=TIMING_THETA_CARRIER_HZ, shape=shape)
     recipe["gamma_pac"] = burst_gamma(rate, depth, phase, coupling)
     return recipe
 
