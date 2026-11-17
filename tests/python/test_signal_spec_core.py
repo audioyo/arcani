@@ -294,8 +294,9 @@ def test_spec_tables_equal_json(vectors):
     # and gamma rates (2: theta and gamma rate cycles, theta and gamma rate
     # curve samples), loop (3: whole samples, loop compile cases, loop
     # frames), components (3: component coefficients, component cases,
-    # components), 24-bit rounding (1).
-    assert len(generated) == 44, generated
+    # components), spacing (3: spacing cases, spacing margins, spacing
+    # pairs), 24-bit rounding (1).
+    assert len(generated) == 47, generated
     assert len(in_doc) == len(generated), [b[0] for b in in_doc]
     assert not problems, "\n".join(problems)
 

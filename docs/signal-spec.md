@@ -2,7 +2,7 @@
 
 This file is the only source of signal formulas (AD-19). The engine (`engine/`) and the Python reference (`reference/`) each implement it on their own; neither defines a formula of its own, and neither is ported from the other. A shape or stage not in this file does not exist.
 
-Story 0.2 writes the core and sine sections. Story 1.2 writes the internal block size and the stub chain. Story 1.4 writes 24-bit rounding. Story 1.5 adds the theta reference oscillator to the stub chain. Story 2.1 writes the theta reference (envelope shapes, depth law). Story 2.2 writes the gamma PAC layer, uncoupled (AM law, constant depth). Story 2.3 writes coupling (coupling phase, smooth swell). Story 2.5 writes the binaural layer and the rate curve (beat rate cycle, closed-form phase integral). Story 2.4 writes bursts (burst gate, burst constants). Story 2.6 applies the rate curve to the theta and gamma rates. Story 2.7 writes the loop (opening, body, seams, and the end at the max run time). Story 3.1 writes the components (the spectral line model of every shape and the component table). Later stories add ramps, the limiter, the resampler, and the loudness window.
+Story 0.2 writes the core and sine sections. Story 1.2 writes the internal block size and the stub chain. Story 1.4 writes 24-bit rounding. Story 1.5 adds the theta reference oscillator to the stub chain. Story 2.1 writes the theta reference (envelope shapes, depth law). Story 2.2 writes the gamma PAC layer, uncoupled (AM law, constant depth). Story 2.3 writes coupling (coupling phase, smooth swell). Story 2.5 writes the binaural layer and the rate curve (beat rate cycle, closed-form phase integral). Story 2.4 writes bursts (burst gate, burst constants). Story 2.6 applies the rate curve to the theta and gamma rates. Story 2.7 writes the loop (opening, body, seams, and the end at the max run time). Story 3.1 writes the components (the spectral line model of every shape and the component table). Story 3.2 writes the spacing rule (the closed-form minimum distance per ear and pair, the error detail, and the margins). Later stories add ramps, the limiter, the resampler, and the loudness window.
 
 **Conventions:**
 
@@ -4038,6 +4038,391 @@ The component table of every case: ideal values at 25 significant digits (exact 
 | three-layers | both | gamma_pac | 1 | 1 | 0 | 296 | 296 | 296 | 0.08333333333333333333333333 |
 | three-layers | left | binaural | 0 | 0 | 0 | 100 | 100 | 100 | 1 |
 | three-layers | right | binaural | 0 | 0 | 1 | 101.5 | 100 | 103 | 1 |
+
+## Spacing
+
+Story 3.2 writes the spacing rule. Compile reads the component table (Components) and checks, in each ear, the distance between every component of one layer and every component of another, over the whole session in closed form. A recipe that fails returns no plan. Nothing here changes a sample, a component row, or any vector, fixture byte, recipe hash, or pinned hash of the earlier sections. A recipe with fewer than two layers in each ear meets no pair, so its compile result and its report bytes are unchanged.
+
+**Rule.** In each ear, every component row of one layer must stay at least `S` from every component row of another layer at every moment, with `S` the value of row `spacing-rule` (50 Hz, a placeholder: design log 2026-10-27 (e)). The pairs are the theta reference against the gamma PAC layer, the theta reference against the binaural layer, and the gamma PAC layer against the binaural layer, each in the ear the two rows share. A layer's own rows are never compared with one another. The two binaural rows are in different ears, so they are never compared; each still counts against the other layers in its own ear. A muted ear has no binaural row (Components, Binaural layer), so it has no binaural pair. A pair passes when its minimum distance is at least `S`, compared in binary64: exactly 50 Hz passes, anything less fails.
+
+**Table index.** The index of a row is its position in the whole table of the plan (Components, Table): the left ear's rows first from 0, then the right ear's. In a pair, row 1 is the row with the smaller index and row 2 the other. Since the table orders the layers theta reference, gamma PAC layer, binaural, row 2's layer is the later one in field order.
+
+**Distance of two rows.** By its multipliers (Components, Table) a row's frequency at time `t` is its `center_hz` plus `i * s_M * sin(theta + phi_M) + j * s_theta * sin(theta + phi_theta) + b * s_B * sin(theta + phi_B)`, with `theta = 2 * pi * t / P` and every cycle on the one period `P` of row `rate-cycle-period` (Rate curve, Law; Components, Rate cycles). `s_M`, `s_theta`, and `s_B` are the swings of the gamma, theta, and beat rate cycles (0 without a cycle, or with swing 0), and `phi_M`, `phi_theta`, `phi_B` their start phases, `2 * pi * P0 / 2^64` with `P0` by the coupling phase rule of the cycle's `start_phase_deg`. For two rows of one ear, neither listed mirrored (below), the frequency of row 1 less that of row 2 is
+
+```
+D(t) = c + X * sin(theta) + Y * cos(theta)
+c          = center_hz(1) - center_hz(2)
+di, dj, db = gamma_mult(1) - gamma_mult(2), theta_mult(1) - theta_mult(2), beat_mult(1) - beat_mult(2)
+a = di * s_M,   b = dj * s_theta,   e = db * s_B
+X = a * cos(phi_M) + b * cos(phi_theta) + e * cos(phi_B)
+Y = a * sin(phi_M) + b * sin(phi_theta) + e * sin(phi_B)
+H = sqrt(X^2 + Y^2)
+```
+
+so `D` is one sinusoid of amplitude `H` about `c`, and
+
+```
+H^2 = a^2 + b^2 + e^2 + 2 a b cos(phi_M - phi_theta) + 2 a e cos(phi_M - phi_B) + 2 b e cos(phi_theta - phi_B)
+minimum distance = max(0, |c| - H)
+```
+
+This is the half-width law of Components, Rate cycles, extended to three terms and applied to the difference of the two rows' multipliers. It is the minimum of `|D(t)|` over a whole cycle, whatever the session length, so a collision at any instant of the session is found and the session is never sampled. Two rows that sweep together are judged by their real distance, not by their intervals: a theta reference row and a gamma PAC row with the same `theta_mult` on the same theta cycle have `dj = 0`, and the theta cycle adds nothing to `H`. A rate without a cycle adds no term, whatever the multiplier on it.
+
+**Rows mirrored below 0 Hz.** A row is listed mirrored when its unmirrored interval reaches below 0 Hz (`center - half < 0` before the mirror, Components, Frequencies below 0). A pair with such a row is compared by the two listed intervals at their worst case, `max(0, low_hz(2) - high_hz(1), low_hz(1) - high_hz(2))`. Inside the locked ranges only weak outer lines of a theta reference with a carrier near 100 Hz are mirrored (Components, Frequencies below 0).
+
+**Where the minimum occurs.** A row sweeps when it has a nonzero multiplier on a rate whose cycle has a swing above 0. The detail of a spacing error names where the minimum occurs:
+
+- `whole session` when neither row sweeps: the distance is the same at every moment.
+- `listed intervals, a row mirrored below 0 Hz` when a row is mirrored and a row sweeps: the worst case of two intervals has no single moment.
+- Otherwise the first time `t` in `[0, P)` from the session start at which `|D(t)|` is at its minimum, and the gamma, theta, and beat rates at that time (each rate by Rate curve, Law; `none` for a layer the recipe does not have). With `H = 0` the distance never changes and the time is 0 s. With `|c| >= H` the minimum is at the one turning point of `D` each cycle that lies nearest 0. With `|c| < H` the distance is 0 at two times each cycle, and the first of them is given. The time is in the first cycle whatever the session length, since the rule judges the whole cycle; a session shorter than `P` may end before it.
+
+**Which failure.** Among all failing pairs in both ears, compile reports the one with the smallest minimum distance. Ties go to the left ear first, then to the smaller index of row 1, then of row 2.
+
+**Error.** Rule `spacing_rule`. Parameter: the carrier field of row 2's layer, `/gamma_pac/carrier_hz` or `/binaural/carrier_left_hz`. Value: the minimum distance, as the shortest round-trip text of its binary64 (as every range error). Limit: `>= 50 Hz (row spacing-rule)`, the row value written the same way. Detail:
+
+```
+<ear> ear: <layer 1> (<i>, <j>, <b>) at <center 1> Hz and <layer 2> (<i>, <j>, <b>) at <center 2> Hz; <where>
+<where>:  whole session
+       |  listed intervals, a row mirrored below 0 Hz
+       |  first at <t> s, gamma rate <rate> Hz, theta rate <rate> Hz, beat rate <rate> Hz
+```
+
+`<ear>` is `left` or `right`; each layer is written as in the table (`theta_reference`, `gamma_pac`, `binaural`) with its row's `gamma_mult`, `theta_mult`, and `beat_mult`; each center is the row's `center_hz`; a rate of a missing layer is written `none` in place of `<rate> Hz`. Every number is the shortest round-trip text of a binary64. For example the must-fail fixture gives parameter `/binaural/carrier_left_hz`, value `4`, rule `spacing_rule`, limit `>= 50 Hz (row spacing-rule)`, detail `right ear: gamma_pac (-1, 0, 0) at 260 Hz and binaural (0, 0, 1) at 256 Hz; whole session`. Every other rule leaves the detail empty.
+
+**Compile order.** The spacing rule runs once the component table is built, so after every earlier compile rule (the range checks with the loop rules, the carrier rules, the shape and carrier wave rules, the coupling rules, and the binaural waveform rule), and before `final.required`, in both compile modes. A rejected recipe has no plan, so the command-line renderer writes no WAV.
+
+**Margins.** A plan keeps, per ear, the pair with the smallest minimum distance (ties to the smaller index of row 1, then of row 2), its minimum distance, its margin (the minimum distance less `S`, one binary64 subtraction, 0 or more in a plan that compiled), and the two row indices. An ear with fewer than two layers has no pair and no margin.
+
+**Report.** The command-line renderer's report gains a member `spacing`, after `loop` (or after `frames` without one) and before `determinism_key`, written only when at least one ear has a pair, so every other report is unchanged byte for byte:
+
+```
+  "spacing": {
+    "left": {"min_distance_hz": 118, "margin_hz": 68, "component_1": 0, "component_2": 35, "pair": "theta_reference (0, -1, 0) at 444 Hz and gamma_pac (1, 6, 0) at 326 Hz"},
+    "right": {"min_distance_hz": 118, "margin_hz": 68, "component_1": 36, "component_2": 71, "pair": "theta_reference (0, -1, 0) at 444 Hz and gamma_pac (1, 6, 0) at 326 Hz"}
+  },
+```
+
+Each ear is an object, or `null` without a pair. The numbers are written as every report number is (shortest round-trip text); `pair` is the first part of the detail grammar, without the ear.
+
+**Engine.** The rule uses binary64 addition, subtraction, multiplication, division, comparison, and square root, integer arithmetic, and the cycle cosine (Rate curve, Cycle cosine). It makes no transcendental library call. Once per plan, for each rate with a cycle of swing above 0:
+
+```
+P0      = coupling phase rule (start_phase_deg)
+cos_phi = cycle_cosine(P0)
+sin_phi = cycle_cosine(P0 - 2^62 mod 2^64)
+```
+
+and `s = 0`, `cos_phi = sin_phi = 0.0` for a rate without one, or for a layer the recipe does not have. Per pair, in this order:
+
+```
+a    = double(di) * s_M,   b = double(dj) * s_theta,   e = double(db) * s_B     one rounding each
+X    = (a * cos_M + b * cos_theta) + e * cos_B
+Y    = (a * sin_M + b * sin_theta) + e * sin_B
+H    = sqrt(X * X + Y * Y)
+c    = center_hz(1) - center_hz(2)
+dist = |c| - H, and +0.0 where that is below 0
+```
+
+A pair with a mirrored row has `dist = max(+0.0, low_hz(2) - high_hz(1), low_hz(1) - high_hz(2))`, each subtraction one rounding. The pair passes when `dist >= S`. Evaluating `H` as `sqrt(X^2 + Y^2)` keeps the error of the cycle cosine linear in the swings (about 1e-10 Hz per pair inside the locked ranges); the three-term law with `cos(phi_M - phi_theta)` is the same value but loses digits where its terms cancel.
+
+The time of the failing pair is found by integer bisection on the cycle phase. `acos_units(v)` is the smallest integer `x` in `[0, 2^63]` with `cycle_cosine(x) <= v`:
+
+```
+acos_units(v):
+  if cycle_cosine(0) <= v: return 0
+  lo = 0, hi = 2^63
+  while hi - lo > 1:
+    mid = lo + (hi - lo) / 2                  integer
+    if cycle_cosine(mid) <= v: hi = mid  else: lo = mid
+  return hi
+```
+
+With `u` the cycle phase advance from the session start:
+
+```
+if neither row sweeps:  where = whole session
+else if a row is mirrored:  where = listed intervals, a row mirrored below 0 Hz
+else if H == 0:  u = 0
+else:
+  sigma = 1.0 if c >= 0 else -1.0             (c = -0.0 counts as >= 0)
+  alpha = acos_units((-sigma * Y) / H)        the turning point of D nearest 0: cos(theta) = -sigma Y / H
+  m     = alpha if -sigma * X >= 0 else 2^64 - alpha mod 2^64      and sin(theta) = -sigma X / H
+  if |c| >= H:  u = m
+  else:
+    beta = acos_units(|c| / H)               D is 0 at m - beta and m + beta
+    u    = min(m - beta mod 2^64, m + beta mod 2^64)
+t    = (double(u) * 0x1p-64) * period_s
+rate = rate_hz + s * cycle_cosine(P0 + u - 2^62 mod 2^64)       per rate with a cycle; rate_hz without one
+```
+
+`period_s` is the period of any cycle of the pair (all are row `rate-cycle-period`). Only the reported failure needs a time, so a compile makes at most two bisections of 63 steps each.
+
+**Error rows.** Against the vectors below, the engine's and the reference's minimum distances and margins are within row `component-frequency-error` (1e-9 Hz); the vector generator runs the binary64 steps above on every pair of every case and holds each within that row (worst 1.4e-10 Hz). Each first time is within row `spacing-time-error` (1 ms), measured around the cycle (a time within it of `P` is within it of 0 s); the cycle cosine's error moves a bisected angle by at most about `sqrt(2 * e_c)` radians, under 1.4e-4 s at the 60 s period, and the generator's run of these steps is within 1e-6 s. Each rate at that time is within row `frequency-accuracy` (0.01 Hz): a rate moves at most `2 * pi * s / P`, under 1.6 Hz per second at the widest swing, so 1 ms moves it under 0.002 Hz. Each center in the detail is within row `component-frequency-error`. Three conditions no vector meets: a pair whose ideal minimum distance is within row `component-frequency-error` of `S` may pass or fail, apart from the exact cases (two static rows whose centers differ by exactly `S` in binary64, as in `spacing-exactly-50hz`); a zero of `D` within row `spacing-time-error` of the cycle start may be reported or passed over for the other zero; and a pair whose ideal `H` is not 0 but under 1e-6 Hz has a time that may lie anywhere, since its distance changes by less than that over the cycle. `spacing-time-error` is an engineering default (design log 2026-11-16 (ww)).
+
+**Reference.** The Python reference (`reference/spacing.py`, implemented from this section, never from engine code or engine output) computes every distance, margin, failure, and detail on its own from its own component table (`reference/components.py`), in binary64 with NumPy's sine, cosine, arc cosine, and square root. It may find the time in closed form; it must agree with the error rows above.
+
+**Fixtures.** `starter-focus-layers.json`, `starter-learn-layers.json`, `starter-relax-layers.json`, and `starter-sleep-layers.json` are the layer configurations of the four starters (`starter-recipes.md`; design log 2026-10-27 (m), (n)): Focus, a 450 Hz carrier amplitude-modulated by the sine envelope at 6 Hz, 75 percent depth, and a 250 Hz sine carrier amplitude-modulated at 40 Hz with 50 ms bursts at the 0 degree coupling phase, 100 percent depth, looping at its 45 min cap; Learn, the same theta reference at 5.5 Hz with a smooth swell peaking at 0 degrees, 100 percent depth, looping at its 20 min cap; Relax, the theta reference at 6 Hz with a smooth swell at 0 degrees, 25 percent depth, 30 min; Sleep, the theta reference at a steady 2 Hz and a binaural layer with a 100 Hz left carrier and a beat rate that cycles over 0 to 3 Hz every 60 s from 0 Hz rising, 45 min. Focus and Learn open with 60 s and loop a 120 s body. None has a ramp, a fade, or a level field (Epic 4), and none is an Epic 6 starter recipe. Story 3.3 renders its previews from them. `spacing-binaural-250-256-gamma-260.json` is the must-fail fixture: a 300 Hz sine carrier amplitude-modulated at 40 Hz, uncoupled, 100 percent depth (lines at 260, 300, and 340 Hz), beside a binaural layer of a 250 Hz left carrier and a 256 Hz right carrier, 10 s. Its worst pair is in the right ear, 4 Hz apart.
+
+**Existing recipes.** Every fixture in `recipes/fixtures/valid/` that compiled before this story still compiles: none of them has a pair closer than 64 Hz (Vectors: spacing margins). The coupled gamma plus binaural recipes of the AD-5 sweep (`tests/python/test_binaural_ad5.py`, cases `ad5-*` below) pass with at least 14 Hz to spare. The must-fail fixture is the only fixture this section names as a collision.
+
+**Carrier rule.** The carrier rule (row `carrier-rule`) still reads the recipe fields, unchanged (Components, Carrier rule). AD-20's "one table" is read this way: the spacing rule, the tests, and the carrier guard read the component table, and the carrier rule's input is the layer's named rate, which the table's multipliers name (design log 2026-11-16 (ww)).
+
+**Vectors.** The cases are every component case (Vectors: component cases), the Story 3.2 fixtures, the fourteen AD-5 sweep recipes, and cases no fixture has: exactly 50 Hz (`spacing-exactly-50hz`, a 450 Hz carrier at 0 percent depth beside a 400 Hz binaural pair with beat 0), 49.99 Hz (`spacing-49.99hz`, the binaural pair at 400.01 Hz), a beat rate cycle that comes within 50 Hz only at its turning point (`spacing-turning-point`, beat rate 3 Hz at 30 s), a gamma rate cycle whose line crosses the left binaural carrier (`spacing-gamma-cycle-crossing`, first at gamma rate 50 Hz), lines that sweep together (`spacing-sweep-together`: their intervals are 46.5 Hz apart, their distance is 51.5 Hz at every moment), cycles 60 degrees apart (`spacing-cycles-60deg-apart`), all three cycles (`spacing-three-cycles`), a mirrored row (`spacing-mirrored-row`), and one layer (`spacing-one-layer`). The vectors file also holds a complete recipe text per case, as for the component cases. Values are ideal, at 25 significant digits, from the generator's decimal arithmetic: centers as in the component vectors, cosines and sines of the start phases in decimal (exact at the quarter points), and each first time by exact bisection on the cycle fraction. A detail's numbers are the ideal values; the engine writes its own binary64 values, so a test reads the detail by its grammar and compares the words exactly and the numbers within the error rows. The pair vectors give the closed form on its own, with the first cycle fraction `t / P` in place of the time.
+
+### Vectors: spacing cases
+
+Every spacing case: the component cases first (by their names in Vectors: component cases), then the Story 3.2 fixtures, the AD-5 sweep recipes (`ad5-swell-*` and `ad5-bursts-*`, the seven binaural settings of `tests/python/test_binaural_ad5.py` beside the swell or the burst gamma PAC layer), and the cases no fixture has. Each layer cell is the layer object as the recipe writes it, `none` when absent; `Components` is the component row count, both ears. A rejected case gives the error: the value is the ideal minimum distance and the detail holds ideal numbers (Vectors, above). `none` marks a field of a case that passes.
+
+| Case | Fixture | Muted ear | theta_reference | gamma_pac | binaural | Components | Result | Parameter | Value | Rule | Limit | Detail |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| theta-sine-1hz | theta-sine-1hz.json | none | `{"carrier_hz":450,"rate_hz":1,"am_depth_percent":75,"shape":"sine"}` | none | none | 6 | pass | none | none | none | none | none |
+| theta-sine-6hz | theta-sine-6hz.json | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | none | none | 6 | pass | none | none | none | none | none |
+| theta-smoothed-on-off-1hz | theta-smoothed-on-off-1hz.json | none | `{"carrier_hz":450,"rate_hz":1,"am_depth_percent":75,"shape":"smoothed_on_off"}` | none | none | 106 | pass | none | none | none | none | none |
+| theta-smoothed-on-off-6hz | theta-smoothed-on-off-6hz.json | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"smoothed_on_off"}` | none | none | 54 | pass | none | none | none | none | none |
+| theta-sawtooth-1hz | theta-sawtooth-1hz.json | none | `{"carrier_hz":450,"rate_hz":1,"am_depth_percent":75,"shape":"sawtooth"}` | none | none | 74 | pass | none | none | none | none | none |
+| theta-sawtooth-6hz | theta-sawtooth-6hz.json | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sawtooth"}` | none | none | 46 | pass | none | none | none | none | none |
+| theta-reverse-saw-1hz | theta-reverse-saw-1hz.json | none | `{"carrier_hz":450,"rate_hz":1,"am_depth_percent":75,"shape":"reverse_saw"}` | none | none | 74 | pass | none | none | none | none | none |
+| theta-reverse-saw-6hz | theta-reverse-saw-6hz.json | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"reverse_saw"}` | none | none | 46 | pass | none | none | none | none | none |
+| gamma-uncoupled-40hz-25pct | gamma-uncoupled-40hz-25pct.json | none | none | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":25,"carrier_wave":"sine","coupling":"uncoupled"}` | none | 6 | pass | none | none | none | none | none |
+| gamma-uncoupled-40hz-100pct | gamma-uncoupled-40hz-100pct.json | none | none | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"uncoupled"}` | none | 6 | pass | none | none | none | none | none |
+| gamma-uncoupled-60hz-25pct | gamma-uncoupled-60hz-25pct.json | none | none | `{"carrier_hz":250,"rate_hz":60,"am_depth_percent":25,"carrier_wave":"sine","coupling":"uncoupled"}` | none | 6 | pass | none | none | none | none | none |
+| gamma-uncoupled-60hz-100pct | gamma-uncoupled-60hz-100pct.json | none | none | `{"carrier_hz":250,"rate_hz":60,"am_depth_percent":100,"carrier_wave":"sine","coupling":"uncoupled"}` | none | 6 | pass | none | none | none | none | none |
+| theta-gamma-uncoupled | theta-gamma-uncoupled.json | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"uncoupled"}` | none | 12 | pass | none | none | none | none | none |
+| swell-sine-0deg-100pct | swell-sine-0deg-100pct.json | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":0}` | none | 24 | pass | none | none | none | none | none |
+| swell-sawtooth-90deg-25pct | swell-sawtooth-90deg-25pct.json | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sawtooth"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":25,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":90}` | none | 64 | pass | none | none | none | none | none |
+| swell-smoothed-on-off-180deg-100pct | swell-smoothed-on-off-180deg-100pct.json | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"smoothed_on_off"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":180}` | none | 72 | pass | none | none | none | none | none |
+| swell-reverse-saw-270deg-25pct | swell-reverse-saw-270deg-25pct.json | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"reverse_saw"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":25,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":270}` | none | 64 | pass | none | none | none | none | none |
+| swell-gamma-depth-0-no-theta | swell-gamma-depth-0-no-theta.json | none | none | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":0,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":90}` | none | 2 | pass | none | none | none | none | none |
+| bursts-40hz | bursts-40hz.json | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"bursts","coupling_phase_deg":0}` | none | 72 | pass | none | none | none | none | none |
+| bursts-45hz | bursts-45hz.json | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":45,"am_depth_percent":100,"carrier_wave":"sine","coupling":"bursts","coupling_phase_deg":0}` | none | 72 | pass | none | none | none | none | none |
+| bursts-60hz | bursts-60hz.json | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":60,"am_depth_percent":100,"carrier_wave":"sine","coupling":"bursts","coupling_phase_deg":0}` | none | 64 | pass | none | none | none | none | none |
+| binaural-beat-0 | binaural-beat-0.json | none | none | none | `{"carrier_left_hz":400,"beat_rate_hz":0}` | 2 | pass | none | none | none | none | none |
+| binaural-beat-6 | binaural-beat-6.json | none | none | none | `{"carrier_left_hz":400,"beat_rate_hz":6}` | 2 | pass | none | none | none | none | none |
+| binaural-beat-29 | binaural-beat-29.json | none | none | none | `{"carrier_left_hz":400,"beat_rate_hz":29}` | 2 | pass | none | none | none | none | none |
+| binaural-cycle-sleep | binaural-cycle-sleep.json | none | none | none | `{"carrier_left_hz":100,"beat_rate_hz":1.5,"beat_rate_cycle":{"swing_hz":1.5,"period_s":60,"start_phase_deg":270}}` | 2 | pass | none | none | none | none | none |
+| theta-cycle-sine | theta-cycle-sine.json | none | `{"carrier_hz":450,"rate_hz":3.5,"am_depth_percent":75,"shape":"sine","rate_cycle":{"swing_hz":2.5,"period_s":60,"start_phase_deg":0}}` | none | none | 6 | pass | none | none | none | none | none |
+| theta-cycle-smoothed-on-off | theta-cycle-smoothed-on-off.json | none | `{"carrier_hz":450,"rate_hz":3.5,"am_depth_percent":75,"shape":"smoothed_on_off","rate_cycle":{"swing_hz":2.5,"period_s":60,"start_phase_deg":0}}` | none | none | 62 | pass | none | none | none | none | none |
+| gamma-cycle-uncoupled | gamma-cycle-uncoupled.json | none | none | `{"carrier_hz":250,"rate_hz":45,"am_depth_percent":100,"carrier_wave":"sine","coupling":"uncoupled","rate_cycle":{"swing_hz":15,"period_s":60,"start_phase_deg":0}}` | none | 6 | pass | none | none | none | none | none |
+| swell-theta-cycle | swell-theta-cycle.json | none | `{"carrier_hz":450,"rate_hz":4,"am_depth_percent":75,"shape":"sine","rate_cycle":{"swing_hz":2,"period_s":60,"start_phase_deg":0}}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":0}` | none | 24 | pass | none | none | none | none | none |
+| bursts-theta-cycle | bursts-theta-cycle.json | none | `{"carrier_hz":450,"rate_hz":4,"am_depth_percent":75,"shape":"sine","rate_cycle":{"swing_hz":2,"period_s":60,"start_phase_deg":0}}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"bursts","coupling_phase_deg":0}` | none | 76 | pass | none | none | none | none | none |
+| gamma-cycle-swell-theta-cycle | gamma-cycle-swell-theta-cycle.json | none | `{"carrier_hz":450,"rate_hz":4,"am_depth_percent":75,"shape":"sine","rate_cycle":{"swing_hz":2,"period_s":60,"start_phase_deg":0}}` | `{"carrier_hz":250,"rate_hz":45,"am_depth_percent":100,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":0,"rate_cycle":{"swing_hz":15,"period_s":60,"start_phase_deg":0}}` | none | 24 | pass | none | none | none | none | none |
+| both-layers | both-layers.json | none | `{"carrier_hz":200,"rate_hz":6,"am_depth_percent":0,"shape":"sine"}` | none | `{"carrier_left_hz":400,"beat_rate_hz":6}` | 4 | pass | none | none | none | none | none |
+| binaural-beat-6-mute-left | binaural-beat-6.json | left | none | none | `{"carrier_left_hz":400,"beat_rate_hz":6}` | 1 | pass | none | none | none | none | none |
+| binaural-beat-6-mute-right | binaural-beat-6.json | right | none | none | `{"carrier_left_hz":400,"beat_rate_hz":6}` | 1 | pass | none | none | none | none | none |
+| theta-smoothed-on-off-5hz | none | none | `{"carrier_hz":450,"rate_hz":5,"am_depth_percent":75,"shape":"smoothed_on_off"}` | none | none | 54 | pass | none | none | none | none | none |
+| theta-sawtooth-5hz | none | none | `{"carrier_hz":450,"rate_hz":5,"am_depth_percent":75,"shape":"sawtooth"}` | none | none | 54 | pass | none | none | none | none | none |
+| theta-100hz-smoothed-on-off-100pct | none | none | `{"carrier_hz":100,"rate_hz":6,"am_depth_percent":100,"shape":"smoothed_on_off"}` | none | none | 62 | pass | none | none | none | none | none |
+| theta-100hz-smoothed-on-off-cycle-100pct | none | none | `{"carrier_hz":100,"rate_hz":5,"am_depth_percent":100,"shape":"smoothed_on_off","rate_cycle":{"swing_hz":1,"period_s":60,"start_phase_deg":0}}` | none | none | 70 | pass | none | none | none | none | none |
+| swell-10pct | none | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":10,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":0}` | none | 16 | pass | none | none | none | none | none |
+| swell-cycles-60deg-apart | none | none | `{"carrier_hz":450,"rate_hz":4,"am_depth_percent":75,"shape":"sine","rate_cycle":{"swing_hz":2,"period_s":60,"start_phase_deg":0}}` | `{"carrier_hz":250,"rate_hz":45,"am_depth_percent":100,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":0,"rate_cycle":{"swing_hz":15,"period_s":60,"start_phase_deg":60}}` | none | 24 | pass | none | none | none | none | none |
+| bursts-cycles-60deg-apart | none | none | `{"carrier_hz":450,"rate_hz":4,"am_depth_percent":75,"shape":"sine","rate_cycle":{"swing_hz":2,"period_s":60,"start_phase_deg":0}}` | `{"carrier_hz":250,"rate_hz":45,"am_depth_percent":100,"carrier_wave":"sine","coupling":"bursts","coupling_phase_deg":0,"rate_cycle":{"swing_hz":15,"period_s":60,"start_phase_deg":60}}` | none | 76 | pass | none | none | none | none | none |
+| bursts-60hz-135deg | none | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":60,"am_depth_percent":100,"carrier_wave":"sine","coupling":"bursts","coupling_phase_deg":135}` | none | 68 | pass | none | none | none | none | none |
+| bursts-45hz-45deg | none | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":45,"am_depth_percent":100,"carrier_wave":"sine","coupling":"bursts","coupling_phase_deg":45}` | none | 76 | pass | none | none | none | none | none |
+| bursts-57hz-theta-5.7hz | none | none | `{"carrier_hz":450,"rate_hz":5.7,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":57,"am_depth_percent":100,"carrier_wave":"sine","coupling":"bursts","coupling_phase_deg":0}` | none | 56 | pass | none | none | none | none | none |
+| bursts-60hz-zero-swing | none | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine","rate_cycle":{"swing_hz":0,"period_s":60,"start_phase_deg":0}}` | `{"carrier_hz":250,"rate_hz":60,"am_depth_percent":100,"carrier_wave":"sine","coupling":"bursts","coupling_phase_deg":0,"rate_cycle":{"swing_hz":0,"period_s":60,"start_phase_deg":90}}` | none | 64 | pass | none | none | none | none | none |
+| three-layers | none | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":0}` | `{"carrier_left_hz":100,"beat_rate_hz":1.5,"beat_rate_cycle":{"swing_hz":1.5,"period_s":60,"start_phase_deg":270}}` | 26 | pass | none | none | none | none | none |
+| starter-focus-layers | starter-focus-layers.json | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"bursts","coupling_phase_deg":0}` | none | 72 | pass | none | none | none | none | none |
+| starter-learn-layers | starter-learn-layers.json | none | `{"carrier_hz":450,"rate_hz":5.5,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":0}` | none | 24 | pass | none | none | none | none | none |
+| starter-relax-layers | starter-relax-layers.json | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":25,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":0}` | none | 24 | pass | none | none | none | none | none |
+| starter-sleep-layers | starter-sleep-layers.json | none | `{"carrier_hz":450,"rate_hz":2,"am_depth_percent":75,"shape":"sine"}` | none | `{"carrier_left_hz":100,"beat_rate_hz":1.5,"beat_rate_cycle":{"swing_hz":1.5,"period_s":60,"start_phase_deg":270}}` | 8 | pass | none | none | none | none | none |
+| spacing-binaural-250-256-gamma-260 | spacing-binaural-250-256-gamma-260.json | none | none | `{"carrier_hz":300,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"uncoupled"}` | `{"carrier_left_hz":250,"beat_rate_hz":6}` | 8 | rejected | `/binaural/carrier_left_hz` | 4 | spacing_rule | `>= 50 Hz (row spacing-rule)` | right ear: gamma_pac (-1, 0, 0) at 260 Hz and binaural (0, 0, 1) at 256 Hz; whole session |
+| ad5-swell-no-binaural | none | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":0}` | none | 24 | pass | none | none | none | none | none |
+| ad5-swell-beat-0 | none | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":0}` | `{"carrier_left_hz":100,"beat_rate_hz":0}` | 26 | pass | none | none | none | none | none |
+| ad5-swell-beat-4 | none | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":0}` | `{"carrier_left_hz":100,"beat_rate_hz":4}` | 26 | pass | none | none | none | none | none |
+| ad5-swell-beat-10 | none | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":0}` | `{"carrier_left_hz":100,"beat_rate_hz":10}` | 26 | pass | none | none | none | none | none |
+| ad5-swell-cycle-0deg | none | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":0}` | `{"carrier_left_hz":100,"beat_rate_hz":1.5,"beat_rate_cycle":{"swing_hz":1.5,"period_s":60,"start_phase_deg":0}}` | 26 | pass | none | none | none | none | none |
+| ad5-swell-cycle-90deg | none | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":0}` | `{"carrier_left_hz":100,"beat_rate_hz":1.5,"beat_rate_cycle":{"swing_hz":1.5,"period_s":60,"start_phase_deg":90}}` | 26 | pass | none | none | none | none | none |
+| ad5-swell-cycle-270deg | none | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":0}` | `{"carrier_left_hz":100,"beat_rate_hz":1.5,"beat_rate_cycle":{"swing_hz":1.5,"period_s":60,"start_phase_deg":270}}` | 26 | pass | none | none | none | none | none |
+| ad5-bursts-no-binaural | none | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"bursts","coupling_phase_deg":0}` | none | 72 | pass | none | none | none | none | none |
+| ad5-bursts-beat-0 | none | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"bursts","coupling_phase_deg":0}` | `{"carrier_left_hz":100,"beat_rate_hz":0}` | 74 | pass | none | none | none | none | none |
+| ad5-bursts-beat-4 | none | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"bursts","coupling_phase_deg":0}` | `{"carrier_left_hz":100,"beat_rate_hz":4}` | 74 | pass | none | none | none | none | none |
+| ad5-bursts-beat-10 | none | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"bursts","coupling_phase_deg":0}` | `{"carrier_left_hz":100,"beat_rate_hz":10}` | 74 | pass | none | none | none | none | none |
+| ad5-bursts-cycle-0deg | none | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"bursts","coupling_phase_deg":0}` | `{"carrier_left_hz":100,"beat_rate_hz":1.5,"beat_rate_cycle":{"swing_hz":1.5,"period_s":60,"start_phase_deg":0}}` | 74 | pass | none | none | none | none | none |
+| ad5-bursts-cycle-90deg | none | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"bursts","coupling_phase_deg":0}` | `{"carrier_left_hz":100,"beat_rate_hz":1.5,"beat_rate_cycle":{"swing_hz":1.5,"period_s":60,"start_phase_deg":90}}` | 74 | pass | none | none | none | none | none |
+| ad5-bursts-cycle-270deg | none | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | `{"carrier_hz":250,"rate_hz":40,"am_depth_percent":100,"carrier_wave":"sine","coupling":"bursts","coupling_phase_deg":0}` | `{"carrier_left_hz":100,"beat_rate_hz":1.5,"beat_rate_cycle":{"swing_hz":1.5,"period_s":60,"start_phase_deg":270}}` | 74 | pass | none | none | none | none | none |
+| spacing-exactly-50hz | none | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":0,"shape":"sine"}` | none | `{"carrier_left_hz":400,"beat_rate_hz":0}` | 4 | pass | none | none | none | none | none |
+| spacing-49.99hz | none | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":0,"shape":"sine"}` | none | `{"carrier_left_hz":400.01,"beat_rate_hz":0}` | 4 | rejected | `/binaural/carrier_left_hz` | 49.99000000000000909494702 | spacing_rule | `>= 50 Hz (row spacing-rule)` | left ear: theta_reference (0, 0, 0) at 450 Hz and binaural (0, 0, 0) at 400.009999999999990905053 Hz; whole session |
+| spacing-turning-point | none | none | `{"carrier_hz":154.5,"rate_hz":2,"am_depth_percent":75,"shape":"sine"}` | none | `{"carrier_left_hz":100,"beat_rate_hz":1.5,"beat_rate_cycle":{"swing_hz":1.5,"period_s":60,"start_phase_deg":270}}` | 8 | rejected | `/binaural/carrier_left_hz` | 49.5 | spacing_rule | `>= 50 Hz (row spacing-rule)` | right ear: theta_reference (0, -1, 0) at 152.5 Hz and binaural (0, 0, 1) at 101.5 Hz; first at 30 s, gamma rate none, theta rate 2 Hz, beat rate 3 Hz |
+| spacing-gamma-cycle-crossing | none | none | none | `{"carrier_hz":250,"rate_hz":45,"am_depth_percent":100,"carrier_wave":"sine","coupling":"uncoupled","rate_cycle":{"swing_hz":15,"period_s":60,"start_phase_deg":0}}` | `{"carrier_left_hz":200,"beat_rate_hz":6}` | 8 | rejected | `/binaural/carrier_left_hz` | 0 | spacing_rule | `>= 50 Hz (row spacing-rule)` | left ear: gamma_pac (-1, 0, 0) at 205 Hz and binaural (0, 0, 0) at 200 Hz; first at 3.245203439081781894874333 s, gamma rate 50 Hz, theta rate none, beat rate 6 Hz |
+| spacing-sweep-together | none | none | `{"carrier_hz":200,"rate_hz":3.5,"am_depth_percent":75,"shape":"sine","rate_cycle":{"swing_hz":2.5,"period_s":60,"start_phase_deg":0}}` | `{"carrier_hz":300,"rate_hz":45,"am_depth_percent":100,"carrier_wave":"sine","coupling":"uncoupled","rate_cycle":{"swing_hz":2.5,"period_s":60,"start_phase_deg":180}}` | none | 12 | pass | none | none | none | none | none |
+| spacing-cycles-60deg-apart | none | none | `{"carrier_hz":330,"rate_hz":4,"am_depth_percent":75,"shape":"sine","rate_cycle":{"swing_hz":2,"period_s":60,"start_phase_deg":0}}` | `{"carrier_hz":250,"rate_hz":45,"am_depth_percent":100,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":0,"rate_cycle":{"swing_hz":15,"period_s":60,"start_phase_deg":60}}` | none | 24 | rejected | `/gamma_pac/carrier_hz` | 9.650648427102527413571512 | spacing_rule | `>= 50 Hz (row spacing-rule)` | left ear: theta_reference (0, -1, 0) at 326 Hz and gamma_pac (1, 1, 0) at 299 Hz; first at 6.919585980315692181925021 s, gamma rate 59.69795565145799160515493 Hz, theta rate 5.325697960719740490636779 Hz, beat rate none |
+| spacing-three-cycles | none | none | `{"carrier_hz":450,"rate_hz":4,"am_depth_percent":75,"shape":"sine","rate_cycle":{"swing_hz":2,"period_s":60,"start_phase_deg":0}}` | `{"carrier_hz":250,"rate_hz":45,"am_depth_percent":100,"carrier_wave":"sine","coupling":"smooth_swell","coupling_phase_deg":0,"rate_cycle":{"swing_hz":15,"period_s":60,"start_phase_deg":30}}` | `{"carrier_left_hz":150,"beat_rate_hz":1.5,"beat_rate_cycle":{"swing_hz":1.5,"period_s":60,"start_phase_deg":270}}` | 26 | rejected | `/binaural/carrier_left_hz` | 33.35343614798906135974977 | spacing_rule | `>= 50 Hz (row spacing-rule)` | right ear: gamma_pac (-1, -1, 0) at 201 Hz and binaural (0, 0, 1) at 151.5 Hz; first at 11.36431899488366587844316 s, gamma rate 59.84716898968423022001511 Hz, theta rate 5.856788997852274996349927 Hz, beat rate 0.9426058644744334238852001 Hz |
+| spacing-mirrored-row | none | none | `{"carrier_hz":100,"rate_hz":5,"am_depth_percent":100,"shape":"smoothed_on_off","rate_cycle":{"swing_hz":1,"period_s":60,"start_phase_deg":0}}` | none | `{"carrier_left_hz":1,"beat_rate_hz":0}` | 72 | rejected | `/binaural/carrier_left_hz` | 0 | spacing_rule | `>= 50 Hz (row spacing-rule)` | left ear: theta_reference (0, -19, 0) at 5 Hz and binaural (0, 0, 0) at 1 Hz; listed intervals, a row mirrored below 0 Hz |
+| spacing-one-layer | none | none | `{"carrier_hz":450,"rate_hz":6,"am_depth_percent":75,"shape":"sine"}` | none | none | 6 | pass | none | none | none | none | none |
+
+### Vectors: spacing margins
+
+Per case and ear: the number of pairs compared, and the worst pair with its ideal minimum distance and margin (less row `spacing-rule`), both rows by layer and multipliers with their table index, and where the minimum first occurs (ideal numbers). `none` marks an ear with no pair.
+
+| Spacing case | Ear | Pairs | Min distance (Hz) | Margin (Hz) | Row 1 | Index 1 | Row 2 | Index 2 | Where |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| theta-sine-1hz | left | 0 | none | none | none | none | none | none | none |
+| theta-sine-1hz | right | 0 | none | none | none | none | none | none | none |
+| theta-sine-6hz | left | 0 | none | none | none | none | none | none | none |
+| theta-sine-6hz | right | 0 | none | none | none | none | none | none | none |
+| theta-smoothed-on-off-1hz | left | 0 | none | none | none | none | none | none | none |
+| theta-smoothed-on-off-1hz | right | 0 | none | none | none | none | none | none | none |
+| theta-smoothed-on-off-6hz | left | 0 | none | none | none | none | none | none | none |
+| theta-smoothed-on-off-6hz | right | 0 | none | none | none | none | none | none | none |
+| theta-sawtooth-1hz | left | 0 | none | none | none | none | none | none | none |
+| theta-sawtooth-1hz | right | 0 | none | none | none | none | none | none | none |
+| theta-sawtooth-6hz | left | 0 | none | none | none | none | none | none | none |
+| theta-sawtooth-6hz | right | 0 | none | none | none | none | none | none | none |
+| theta-reverse-saw-1hz | left | 0 | none | none | none | none | none | none | none |
+| theta-reverse-saw-1hz | right | 0 | none | none | none | none | none | none | none |
+| theta-reverse-saw-6hz | left | 0 | none | none | none | none | none | none | none |
+| theta-reverse-saw-6hz | right | 0 | none | none | none | none | none | none | none |
+| gamma-uncoupled-40hz-25pct | left | 0 | none | none | none | none | none | none | none |
+| gamma-uncoupled-40hz-25pct | right | 0 | none | none | none | none | none | none | none |
+| gamma-uncoupled-40hz-100pct | left | 0 | none | none | none | none | none | none | none |
+| gamma-uncoupled-40hz-100pct | right | 0 | none | none | none | none | none | none | none |
+| gamma-uncoupled-60hz-25pct | left | 0 | none | none | none | none | none | none | none |
+| gamma-uncoupled-60hz-25pct | right | 0 | none | none | none | none | none | none | none |
+| gamma-uncoupled-60hz-100pct | left | 0 | none | none | none | none | none | none | none |
+| gamma-uncoupled-60hz-100pct | right | 0 | none | none | none | none | none | none | none |
+| theta-gamma-uncoupled | left | 9 | 154 | 104 | theta_reference (0, -1, 0) | 0 | gamma_pac (1, 0, 0) | 5 | whole session |
+| theta-gamma-uncoupled | right | 9 | 154 | 104 | theta_reference (0, -1, 0) | 6 | gamma_pac (1, 0, 0) | 11 | whole session |
+| swell-sine-0deg-100pct | left | 27 | 148 | 98 | theta_reference (0, -1, 0) | 0 | gamma_pac (1, 1, 0) | 11 | whole session |
+| swell-sine-0deg-100pct | right | 27 | 148 | 98 | theta_reference (0, -1, 0) | 12 | gamma_pac (1, 1, 0) | 23 | whole session |
+| swell-sawtooth-90deg-25pct | left | 207 | 88 | 38 | theta_reference (0, -11, 0) | 0 | gamma_pac (1, 1, 0) | 31 | whole session |
+| swell-sawtooth-90deg-25pct | right | 207 | 88 | 38 | theta_reference (0, -11, 0) | 32 | gamma_pac (1, 1, 0) | 63 | whole session |
+| swell-smoothed-on-off-180deg-100pct | left | 243 | 64 | 14 | theta_reference (0, -15, 0) | 0 | gamma_pac (1, 1, 0) | 35 | whole session |
+| swell-smoothed-on-off-180deg-100pct | right | 243 | 64 | 14 | theta_reference (0, -15, 0) | 36 | gamma_pac (1, 1, 0) | 71 | whole session |
+| swell-reverse-saw-270deg-25pct | left | 207 | 88 | 38 | theta_reference (0, -11, 0) | 0 | gamma_pac (1, 1, 0) | 31 | whole session |
+| swell-reverse-saw-270deg-25pct | right | 207 | 88 | 38 | theta_reference (0, -11, 0) | 32 | gamma_pac (1, 1, 0) | 63 | whole session |
+| swell-gamma-depth-0-no-theta | left | 0 | none | none | none | none | none | none | none |
+| swell-gamma-depth-0-no-theta | right | 0 | none | none | none | none | none | none | none |
+| bursts-40hz | left | 99 | 118 | 68 | theta_reference (0, -1, 0) | 0 | gamma_pac (1, 6, 0) | 35 | whole session |
+| bursts-40hz | right | 99 | 118 | 68 | theta_reference (0, -1, 0) | 36 | gamma_pac (1, 6, 0) | 71 | whole session |
+| bursts-45hz | left | 99 | 113 | 63 | theta_reference (0, -1, 0) | 0 | gamma_pac (1, 6, 0) | 35 | whole session |
+| bursts-45hz | right | 99 | 113 | 63 | theta_reference (0, -1, 0) | 36 | gamma_pac (1, 6, 0) | 71 | whole session |
+| bursts-60hz | left | 87 | 92 | 42 | theta_reference (0, -1, 0) | 0 | gamma_pac (0, 17, 0) | 31 | whole session |
+| bursts-60hz | right | 87 | 92 | 42 | theta_reference (0, -1, 0) | 32 | gamma_pac (0, 17, 0) | 63 | whole session |
+| binaural-beat-0 | left | 0 | none | none | none | none | none | none | none |
+| binaural-beat-0 | right | 0 | none | none | none | none | none | none | none |
+| binaural-beat-6 | left | 0 | none | none | none | none | none | none | none |
+| binaural-beat-6 | right | 0 | none | none | none | none | none | none | none |
+| binaural-beat-29 | left | 0 | none | none | none | none | none | none | none |
+| binaural-beat-29 | right | 0 | none | none | none | none | none | none | none |
+| binaural-cycle-sleep | left | 0 | none | none | none | none | none | none | none |
+| binaural-cycle-sleep | right | 0 | none | none | none | none | none | none | none |
+| theta-cycle-sine | left | 0 | none | none | none | none | none | none | none |
+| theta-cycle-sine | right | 0 | none | none | none | none | none | none | none |
+| theta-cycle-smoothed-on-off | left | 0 | none | none | none | none | none | none | none |
+| theta-cycle-smoothed-on-off | right | 0 | none | none | none | none | none | none | none |
+| gamma-cycle-uncoupled | left | 0 | none | none | none | none | none | none | none |
+| gamma-cycle-uncoupled | right | 0 | none | none | none | none | none | none | none |
+| swell-theta-cycle | left | 27 | 148 | 98 | theta_reference (0, -1, 0) | 0 | gamma_pac (1, 1, 0) | 11 | first at 15 s, gamma rate 40 Hz, theta rate 6 Hz, beat rate none |
+| swell-theta-cycle | right | 27 | 148 | 98 | theta_reference (0, -1, 0) | 12 | gamma_pac (1, 1, 0) | 23 | first at 15 s, gamma rate 40 Hz, theta rate 6 Hz, beat rate none |
+| bursts-theta-cycle | left | 105 | 130 | 80 | theta_reference (0, -1, 0) | 0 | gamma_pac (1, 4, 0) | 37 | first at 15 s, gamma rate 40 Hz, theta rate 6 Hz, beat rate none |
+| bursts-theta-cycle | right | 105 | 130 | 80 | theta_reference (0, -1, 0) | 38 | gamma_pac (1, 4, 0) | 75 | first at 15 s, gamma rate 40 Hz, theta rate 6 Hz, beat rate none |
+| gamma-cycle-swell-theta-cycle | left | 27 | 128 | 78 | theta_reference (0, -1, 0) | 0 | gamma_pac (1, 1, 0) | 11 | first at 15 s, gamma rate 60 Hz, theta rate 6 Hz, beat rate none |
+| gamma-cycle-swell-theta-cycle | right | 27 | 128 | 78 | theta_reference (0, -1, 0) | 12 | gamma_pac (1, 1, 0) | 23 | first at 15 s, gamma rate 60 Hz, theta rate 6 Hz, beat rate none |
+| both-layers | left | 1 | 200 | 150 | theta_reference (0, 0, 0) | 0 | binaural (0, 0, 0) | 1 | whole session |
+| both-layers | right | 1 | 206 | 156 | theta_reference (0, 0, 0) | 2 | binaural (0, 0, 1) | 3 | whole session |
+| binaural-beat-6-mute-left | left | 0 | none | none | none | none | none | none | none |
+| binaural-beat-6-mute-left | right | 0 | none | none | none | none | none | none | none |
+| binaural-beat-6-mute-right | left | 0 | none | none | none | none | none | none | none |
+| binaural-beat-6-mute-right | right | 0 | none | none | none | none | none | none | none |
+| theta-smoothed-on-off-5hz | left | 0 | none | none | none | none | none | none | none |
+| theta-smoothed-on-off-5hz | right | 0 | none | none | none | none | none | none | none |
+| theta-sawtooth-5hz | left | 0 | none | none | none | none | none | none | none |
+| theta-sawtooth-5hz | right | 0 | none | none | none | none | none | none | none |
+| theta-100hz-smoothed-on-off-100pct | left | 0 | none | none | none | none | none | none | none |
+| theta-100hz-smoothed-on-off-100pct | right | 0 | none | none | none | none | none | none | none |
+| theta-100hz-smoothed-on-off-cycle-100pct | left | 0 | none | none | none | none | none | none | none |
+| theta-100hz-smoothed-on-off-cycle-100pct | right | 0 | none | none | none | none | none | none | none |
+| swell-10pct | left | 15 | 154 | 104 | theta_reference (0, -1, 0) | 0 | gamma_pac (1, 0, 0) | 7 | whole session |
+| swell-10pct | right | 15 | 154 | 104 | theta_reference (0, -1, 0) | 8 | gamma_pac (1, 0, 0) | 15 | whole session |
+| swell-cycles-60deg-apart | left | 27 | 129.6506484271025274135715 | 79.65064842710252741357151 | theta_reference (0, -1, 0) | 0 | gamma_pac (1, 1, 0) | 11 | first at 6.919585980315692181925021 s, gamma rate 59.69795565145799160515493 Hz, theta rate 5.325697960719740490636779 Hz, beat rate none |
+| swell-cycles-60deg-apart | right | 27 | 129.6506484271025274135715 | 79.65064842710252741357151 | theta_reference (0, -1, 0) | 12 | gamma_pac (1, 1, 0) | 23 | first at 6.919585980315692181925021 s, gamma rate 59.69795565145799160515493 Hz, theta rate 5.325697960719740490636779 Hz, beat rate none |
+| bursts-cycles-60deg-apart | left | 105 | 113.2055052822966318923305 | 63.20550528229663189233049 | theta_reference (0, -1, 0) | 0 | gamma_pac (1, 4, 0) | 37 | first at 8.902204074395090009932678 s, gamma rate 58.7649440322337060820848 Hz, theta rate 5.605910137093932405116943 Hz, beat rate none |
+| bursts-cycles-60deg-apart | right | 105 | 113.2055052822966318923305 | 63.20550528229663189233049 | theta_reference (0, -1, 0) | 38 | gamma_pac (1, 4, 0) | 75 | first at 8.902204074395090009932678 s, gamma rate 58.7649440322337060820848 Hz, theta rate 5.605910137093932405116943 Hz, beat rate none |
+| bursts-60hz-135deg | left | 93 | 98 | 48 | theta_reference (0, -1, 0) | 0 | gamma_pac (0, 16, 0) | 33 | whole session |
+| bursts-60hz-135deg | right | 93 | 98 | 48 | theta_reference (0, -1, 0) | 34 | gamma_pac (0, 16, 0) | 67 | whole session |
+| bursts-45hz-45deg | left | 105 | 113 | 63 | theta_reference (0, -1, 0) | 0 | gamma_pac (1, 6, 0) | 37 | whole session |
+| bursts-45hz-45deg | right | 105 | 113 | 63 | theta_reference (0, -1, 0) | 38 | gamma_pac (1, 6, 0) | 75 | whole session |
+| bursts-57hz-theta-5.7hz | left | 75 | 120.1999999999999975131004 | 70.19999999999999751310042 | theta_reference (0, -1, 0) | 0 | gamma_pac (0, 13, 0) | 27 | whole session |
+| bursts-57hz-theta-5.7hz | right | 75 | 120.1999999999999975131004 | 70.19999999999999751310042 | theta_reference (0, -1, 0) | 28 | gamma_pac (0, 13, 0) | 55 | whole session |
+| bursts-60hz-zero-swing | left | 87 | 92 | 42 | theta_reference (0, -1, 0) | 0 | gamma_pac (0, 17, 0) | 31 | whole session |
+| bursts-60hz-zero-swing | right | 87 | 92 | 42 | theta_reference (0, -1, 0) | 32 | gamma_pac (0, 17, 0) | 63 | whole session |
+| three-layers | left | 39 | 104 | 54 | gamma_pac (-1, -1, 0) | 3 | binaural (0, 0, 0) | 12 | whole session |
+| three-layers | right | 39 | 101 | 51 | gamma_pac (-1, -1, 0) | 16 | binaural (0, 0, 1) | 25 | first at 30 s, gamma rate 40 Hz, theta rate 6 Hz, beat rate 3 Hz |
+| starter-focus-layers | left | 99 | 118 | 68 | theta_reference (0, -1, 0) | 0 | gamma_pac (1, 6, 0) | 35 | whole session |
+| starter-focus-layers | right | 99 | 118 | 68 | theta_reference (0, -1, 0) | 36 | gamma_pac (1, 6, 0) | 71 | whole session |
+| starter-learn-layers | left | 27 | 149 | 99 | theta_reference (0, -1, 0) | 0 | gamma_pac (1, 1, 0) | 11 | whole session |
+| starter-learn-layers | right | 27 | 149 | 99 | theta_reference (0, -1, 0) | 12 | gamma_pac (1, 1, 0) | 23 | whole session |
+| starter-relax-layers | left | 27 | 148 | 98 | theta_reference (0, -1, 0) | 0 | gamma_pac (1, 1, 0) | 11 | whole session |
+| starter-relax-layers | right | 27 | 148 | 98 | theta_reference (0, -1, 0) | 12 | gamma_pac (1, 1, 0) | 23 | whole session |
+| starter-sleep-layers | left | 3 | 348 | 298 | theta_reference (0, -1, 0) | 0 | binaural (0, 0, 0) | 3 | whole session |
+| starter-sleep-layers | right | 3 | 345 | 295 | theta_reference (0, -1, 0) | 4 | binaural (0, 0, 1) | 7 | first at 30 s, gamma rate none, theta rate 2 Hz, beat rate 3 Hz |
+| spacing-binaural-250-256-gamma-260 | left | 3 | 10 | -40 | gamma_pac (-1, 0, 0) | 0 | binaural (0, 0, 0) | 3 | whole session |
+| spacing-binaural-250-256-gamma-260 | right | 3 | 4 | -46 | gamma_pac (-1, 0, 0) | 4 | binaural (0, 0, 1) | 7 | whole session |
+| ad5-swell-no-binaural | left | 27 | 148 | 98 | theta_reference (0, -1, 0) | 0 | gamma_pac (1, 1, 0) | 11 | whole session |
+| ad5-swell-no-binaural | right | 27 | 148 | 98 | theta_reference (0, -1, 0) | 12 | gamma_pac (1, 1, 0) | 23 | whole session |
+| ad5-swell-beat-0 | left | 39 | 104 | 54 | gamma_pac (-1, -1, 0) | 3 | binaural (0, 0, 0) | 12 | whole session |
+| ad5-swell-beat-0 | right | 39 | 104 | 54 | gamma_pac (-1, -1, 0) | 16 | binaural (0, 0, 1) | 25 | whole session |
+| ad5-swell-beat-4 | left | 39 | 104 | 54 | gamma_pac (-1, -1, 0) | 3 | binaural (0, 0, 0) | 12 | whole session |
+| ad5-swell-beat-4 | right | 39 | 100 | 50 | gamma_pac (-1, -1, 0) | 16 | binaural (0, 0, 1) | 25 | whole session |
+| ad5-swell-beat-10 | left | 39 | 104 | 54 | gamma_pac (-1, -1, 0) | 3 | binaural (0, 0, 0) | 12 | whole session |
+| ad5-swell-beat-10 | right | 39 | 94 | 44 | gamma_pac (-1, -1, 0) | 16 | binaural (0, 0, 1) | 25 | whole session |
+| ad5-swell-cycle-0deg | left | 39 | 104 | 54 | gamma_pac (-1, -1, 0) | 3 | binaural (0, 0, 0) | 12 | whole session |
+| ad5-swell-cycle-0deg | right | 39 | 101 | 51 | gamma_pac (-1, -1, 0) | 16 | binaural (0, 0, 1) | 25 | first at 15 s, gamma rate 40 Hz, theta rate 6 Hz, beat rate 3 Hz |
+| ad5-swell-cycle-90deg | left | 39 | 104 | 54 | gamma_pac (-1, -1, 0) | 3 | binaural (0, 0, 0) | 12 | whole session |
+| ad5-swell-cycle-90deg | right | 39 | 101 | 51 | gamma_pac (-1, -1, 0) | 16 | binaural (0, 0, 1) | 25 | first at 0 s, gamma rate 40 Hz, theta rate 6 Hz, beat rate 3 Hz |
+| ad5-swell-cycle-270deg | left | 39 | 104 | 54 | gamma_pac (-1, -1, 0) | 3 | binaural (0, 0, 0) | 12 | whole session |
+| ad5-swell-cycle-270deg | right | 39 | 101 | 51 | gamma_pac (-1, -1, 0) | 16 | binaural (0, 0, 1) | 25 | first at 30 s, gamma rate 40 Hz, theta rate 6 Hz, beat rate 3 Hz |
+| ad5-bursts-no-binaural | left | 99 | 118 | 68 | theta_reference (0, -1, 0) | 0 | gamma_pac (1, 6, 0) | 35 | whole session |
+| ad5-bursts-no-binaural | right | 99 | 118 | 68 | theta_reference (0, -1, 0) | 36 | gamma_pac (1, 6, 0) | 71 | whole session |
+| ad5-bursts-beat-0 | left | 135 | 74 | 24 | gamma_pac (-1, -6, 0) | 3 | binaural (0, 0, 0) | 36 | whole session |
+| ad5-bursts-beat-0 | right | 135 | 74 | 24 | gamma_pac (-1, -6, 0) | 40 | binaural (0, 0, 1) | 73 | whole session |
+| ad5-bursts-beat-4 | left | 135 | 74 | 24 | gamma_pac (-1, -6, 0) | 3 | binaural (0, 0, 0) | 36 | whole session |
+| ad5-bursts-beat-4 | right | 135 | 70 | 20 | gamma_pac (-1, -6, 0) | 40 | binaural (0, 0, 1) | 73 | whole session |
+| ad5-bursts-beat-10 | left | 135 | 74 | 24 | gamma_pac (-1, -6, 0) | 3 | binaural (0, 0, 0) | 36 | whole session |
+| ad5-bursts-beat-10 | right | 135 | 64 | 14 | gamma_pac (-1, -6, 0) | 40 | binaural (0, 0, 1) | 73 | whole session |
+| ad5-bursts-cycle-0deg | left | 135 | 74 | 24 | gamma_pac (-1, -6, 0) | 3 | binaural (0, 0, 0) | 36 | whole session |
+| ad5-bursts-cycle-0deg | right | 135 | 71 | 21 | gamma_pac (-1, -6, 0) | 40 | binaural (0, 0, 1) | 73 | first at 15 s, gamma rate 40 Hz, theta rate 6 Hz, beat rate 3 Hz |
+| ad5-bursts-cycle-90deg | left | 135 | 74 | 24 | gamma_pac (-1, -6, 0) | 3 | binaural (0, 0, 0) | 36 | whole session |
+| ad5-bursts-cycle-90deg | right | 135 | 71 | 21 | gamma_pac (-1, -6, 0) | 40 | binaural (0, 0, 1) | 73 | first at 0 s, gamma rate 40 Hz, theta rate 6 Hz, beat rate 3 Hz |
+| ad5-bursts-cycle-270deg | left | 135 | 74 | 24 | gamma_pac (-1, -6, 0) | 3 | binaural (0, 0, 0) | 36 | whole session |
+| ad5-bursts-cycle-270deg | right | 135 | 71 | 21 | gamma_pac (-1, -6, 0) | 40 | binaural (0, 0, 1) | 73 | first at 30 s, gamma rate 40 Hz, theta rate 6 Hz, beat rate 3 Hz |
+| spacing-exactly-50hz | left | 1 | 50 | 0 | theta_reference (0, 0, 0) | 0 | binaural (0, 0, 0) | 1 | whole session |
+| spacing-exactly-50hz | right | 1 | 50 | 0 | theta_reference (0, 0, 0) | 2 | binaural (0, 0, 1) | 3 | whole session |
+| spacing-49.99hz | left | 1 | 49.99000000000000909494702 | -0.009999999999990905052982271 | theta_reference (0, 0, 0) | 0 | binaural (0, 0, 0) | 1 | whole session |
+| spacing-49.99hz | right | 1 | 49.99000000000000909494702 | -0.009999999999990905052982271 | theta_reference (0, 0, 0) | 2 | binaural (0, 0, 1) | 3 | whole session |
+| spacing-turning-point | left | 3 | 52.5 | 2.5 | theta_reference (0, -1, 0) | 0 | binaural (0, 0, 0) | 3 | whole session |
+| spacing-turning-point | right | 3 | 49.5 | -0.5 | theta_reference (0, -1, 0) | 4 | binaural (0, 0, 1) | 7 | first at 30 s, gamma rate none, theta rate 2 Hz, beat rate 3 Hz |
+| spacing-gamma-cycle-crossing | left | 3 | 0 | -50 | gamma_pac (-1, 0, 0) | 0 | binaural (0, 0, 0) | 3 | first at 3.245203439081781894874333 s, gamma rate 50 Hz, theta rate none, beat rate 6 Hz |
+| spacing-gamma-cycle-crossing | right | 3 | 0 | -50 | gamma_pac (-1, 0, 0) | 4 | binaural (0, 0, 1) | 7 | first at 30.63709228821239067956841 s, gamma rate 44 Hz, theta rate none, beat rate 6 Hz |
+| spacing-sweep-together | left | 9 | 51.5 | 1.5 | theta_reference (0, 1, 0) | 2 | gamma_pac (-1, 0, 0) | 3 | first at 0 s, gamma rate 45 Hz, theta rate 3.5 Hz, beat rate none |
+| spacing-sweep-together | right | 9 | 51.5 | 1.5 | theta_reference (0, 1, 0) | 8 | gamma_pac (-1, 0, 0) | 9 | first at 0 s, gamma rate 45 Hz, theta rate 3.5 Hz, beat rate none |
+| spacing-cycles-60deg-apart | left | 27 | 9.650648427102527413571512 | -40.34935157289747258642849 | theta_reference (0, -1, 0) | 0 | gamma_pac (1, 1, 0) | 11 | first at 6.919585980315692181925021 s, gamma rate 59.69795565145799160515493 Hz, theta rate 5.325697960719740490636779 Hz, beat rate none |
+| spacing-cycles-60deg-apart | right | 27 | 9.650648427102527413571512 | -40.34935157289747258642849 | theta_reference (0, -1, 0) | 12 | gamma_pac (1, 1, 0) | 23 | first at 6.919585980315692181925021 s, gamma rate 59.69795565145799160515493 Hz, theta rate 5.325697960719740490636779 Hz, beat rate none |
+| spacing-three-cycles | left | 39 | 34.23809306113811167369197 | -15.76190693886188832630803 | gamma_pac (-1, -1, 0) | 3 | binaural (0, 0, 0) | 12 | first at 10.57004076952525702566888 s, gamma rate 59.97328215870493474158382 Hz, theta rate 5.78862478015695358472421 Hz, beat rate 0.828835314440430857251503 Hz |
+| spacing-three-cycles | right | 39 | 33.35343614798906135974977 | -16.64656385201093864025023 | gamma_pac (-1, -1, 0) | 16 | binaural (0, 0, 1) | 25 | first at 11.36431899488366587844316 s, gamma rate 59.84716898968423022001511 Hz, theta rate 5.856788997852274996349927 Hz, beat rate 0.9426058644744334238852001 Hz |
+| spacing-mirrored-row | left | 35 | 0 | -50 | theta_reference (0, -19, 0) | 0 | binaural (0, 0, 0) | 35 | listed intervals, a row mirrored below 0 Hz |
+| spacing-mirrored-row | right | 35 | 0 | -50 | theta_reference (0, -19, 0) | 36 | binaural (0, 0, 1) | 71 | listed intervals, a row mirrored below 0 Hz |
+| spacing-one-layer | left | 0 | none | none | none | none | none | none | none |
+| spacing-one-layer | right | 0 | none | none | none | none | none | none | none |
+
+### Vectors: spacing pairs
+
+The closed form on its own, for a direct test of an engine helper and of the reference: two rows that differ by `c` in center and by `di`, `dj`, `db` in multipliers, with each cycle's swing and start phase (a swing of 0 is no cycle). `X`, `Y`, `H`, and the minimum distance are ideal; `First cycle fraction` is `t / P` of the first time of the minimum (`none` when no row sweeps; 0 when `H` is 0).
+
+| Pair case | c (hex) | di | dj | db | Gamma swing (hex) | Gamma start (hex) | Theta swing (hex) | Theta start (hex) | Beat swing (hex) | Beat start (hex) | X | Y | H | Min distance | First cycle fraction |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| static | `0x1.0000000000000p+2` | 0 | 0 | 0 | `0x0.0p+0` | `0x0.0p+0` | `0x0.0p+0` | `0x0.0p+0` | `0x0.0p+0` | `0x0.0p+0` | 0 | 0 | 0 | 4 | none |
+| static negative | `-0x1.9c00000000000p+5` | 0 | 0 | 0 | `0x0.0p+0` | `0x0.0p+0` | `0x0.0p+0` | `0x0.0p+0` | `0x0.0p+0` | `0x0.0p+0` | 0 | 0 | 0 | 51.5 | none |
+| one cycle, turning point | `0x1.9800000000000p+5` | 0 | 0 | -1 | `0x0.0p+0` | `0x0.0p+0` | `0x0.0p+0` | `0x0.0p+0` | `0x1.8000000000000p+0` | `0x1.0e00000000000p+8` | 0 | 1.5 | 1.5 | 49.5 | 0.5 |
+| one cycle, crossing | `0x1.4000000000000p+2` | -1 | 0 | 0 | `0x1.e000000000000p+3` | `0x0.0p+0` | `0x0.0p+0` | `0x0.0p+0` | `0x0.0p+0` | `0x0.0p+0` | -15 | 0 | 15 | 0 | 0.05408672398469636491457222 |
+| one cycle, crossing, c negative | `-0x1.4000000000000p+2` | -1 | 0 | 0 | `0x1.e000000000000p+3` | `0x0.0p+0` | `0x0.0p+0` | `0x0.0p+0` | `0x0.0p+0` | `0x0.0p+0` | -15 | 0 | 15 | 0 | 0.5540867239846963649145722 |
+| one cycle, touching | `0x1.e000000000000p+3` | 1 | 0 | 0 | `0x1.e000000000000p+3` | `0x0.0p+0` | `0x0.0p+0` | `0x0.0p+0` | `0x0.0p+0` | `0x0.0p+0` | 15 | 0 | 15 | 0 | 0.75 |
+| one cycle, c zero | `0x0.0p+0` | 1 | 0 | 0 | `0x1.e000000000000p+3` | `0x1.6800000000000p+6` | `0x0.0p+0` | `0x0.0p+0` | `0x0.0p+0` | `0x0.0p+0` | 0 | 15 | 15 | 0 | 0.25 |
+| sweep together | `-0x1.9c00000000000p+5` | 1 | 1 | 0 | `0x1.4000000000000p+1` | `0x1.6800000000000p+7` | `0x1.4000000000000p+1` | `0x0.0p+0` | `0x0.0p+0` | `0x0.0p+0` | 0 | 0 | 0 | 51.5 | 0 |
+| two cycles, 60 degrees apart | `0x1.e000000000000p+5` | -1 | 2 | 0 | `0x1.e000000000000p+3` | `0x1.e000000000000p+5` | `0x1.0000000000000p+1` | `0x0.0p+0` | `0x0.0p+0` | `0x0.0p+0` | -3.500000000000000755145681 | -12.99038105676657926547229 | 13.45362404707371009264494 | 46.54637595292628990735506 | 0.04188649421571613417042726 |
+| three cycles | `0x1.a400000000000p+5` | 1 | -2 | 1 | `0x1.e000000000000p+3` | `0x1.6800000000000p+6` | `0x1.0000000000000p+1` | `0x0.0p+0` | `0x1.8000000000000p+0` | `0x1.0e00000000000p+8` | -4 | 13.5 | 14.08012784032872337897366 | 38.41987215967127662102634 | 0.4541545517173471692216805 |
+| three cycles, crossing | `0x1.d000000000000p+2` | 1 | -3 | -1 | `0x1.e000000000000p+3` | `0x1.6800000000000p+5` | `0x1.4000000000000p+1` | `0x1.2c00000000000p+8` | `0x1.8000000000000p+0` | `0x1.4000000000000p+3` | 5.379390088279899264147597 | 16.84131997968110633580789 | 17.67958982499000292692198 | 0 | 0.366455609512654160403007 |
+| multiplier on a rate without a cycle | `0x1.b800000000000p+5` | 1 | 0 | 0 | `0x0.0p+0` | `0x0.0p+0` | `0x1.0000000000000p+1` | `0x0.0p+0` | `0x0.0p+0` | `0x0.0p+0` | 0 | 0 | 0 | 55 | none |
 
 ## 24-bit rounding
 
