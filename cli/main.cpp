@@ -260,8 +260,15 @@ int run(const Args& args) {
   std::memset(&error, 0, sizeof error);
   const arc_status status = arc_compile(text->data(), text->size(), &options, &plan.plan, &error);
   if (status == ARC_ERR_REJECTED) {
-    std::fprintf(stderr, "rejected: parameter=%s value=%s rule=%s limit=%s\n", error.parameter,
-                 error.value, error.rule, error.limit);
+    // Story 3.2: the detail follows only when it is not empty, so every
+    // other rejection prints the same bytes as before.
+    if (error.detail[0] != '\0') {
+      std::fprintf(stderr, "rejected: parameter=%s value=%s rule=%s limit=%s detail=%s\n", error.parameter,
+                   error.value, error.rule, error.limit, error.detail);
+    } else {
+      std::fprintf(stderr, "rejected: parameter=%s value=%s rule=%s limit=%s\n", error.parameter,
+                   error.value, error.rule, error.limit);
+    }
     return kExitRejected;
   }
   if (status != ARC_OK) {
@@ -320,6 +327,7 @@ int run(const Args& args) {
   report.mode = args.mode == ARC_MODE_FINAL ? "final" : "measure";
   report.frames = frames;
   report.loop = cli::loop_report(loop);
+  report.spacing = cli::spacing_report(plan.plan);
   report.determinism_key.recipe_hash = arc_plan_recipe_hash(plan.plan);
   report.determinism_key.engine_version = report.engine_version;
   report.determinism_key.sample_rate = args.rate;

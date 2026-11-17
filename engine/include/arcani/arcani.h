@@ -5,9 +5,10 @@
    plays a plan as interleaved stereo binary64 frames.
 
    Errors: every call that can fail returns an arc_status and, when `error`
-   is not NULL, writes all four arc_error fields (each NUL-terminated; a
-   longer text is cut to at most ARC_ERROR_FIELD_BYTES - 1 bytes ending in
-   "...", never inside a UTF-8 sequence).
+   is not NULL, writes all five arc_error fields (each NUL-terminated; a
+   longer text is cut to at most its size less 1 byte, ending in "...",
+   never inside a UTF-8 sequence). The detail is empty for every rule but
+   the spacing rule (Story 3.2).
    A successful call makes no promise about `error`.
 
    Real-time contract: arc_render and arc_seek never allocate, lock, block,
@@ -32,6 +33,8 @@ extern "C" {
 
 /* Size in bytes of each arc_error field, terminator included. */
 #define ARC_ERROR_FIELD_BYTES 256
+/* Size in bytes of arc_error::detail, terminator included (Story 3.2). */
+#define ARC_ERROR_DETAIL_BYTES 512
 
 typedef enum arc_status {
   ARC_OK = 0,
@@ -69,6 +72,7 @@ typedef struct arc_error {
   char value[ARC_ERROR_FIELD_BYTES];     /* the offending value as text */
   char rule[ARC_ERROR_FIELD_BYTES];      /* the rule that refused it, never empty */
   char limit[ARC_ERROR_FIELD_BYTES];     /* what the rule allows */
+  char detail[ARC_ERROR_DETAIL_BYTES];   /* the spacing rule's pair and where (Story 3.2); else "" */
 } arc_error;
 
 typedef struct arc_compile_options {
@@ -174,6 +178,24 @@ size_t arc_plan_component_count(const arc_plan* plan);
    or past the count. */
 arc_status arc_plan_component(const arc_plan* plan, size_t index, arc_component* out_component,
                               arc_error* error);
+
+/* Spacing rule margins (docs/signal-spec.md, Spacing, Margins; Story 3.2).
+   Per ear, the pair of component rows of different layers with the
+   smallest minimum distance over the whole session (ties to the smaller
+   index of row 1, then of row 2). The result is the same at every sample
+   rate and honors mute_binaural_ear. */
+typedef struct arc_spacing {
+  int32_t has_pair;       /* 0: fewer than two layers in this ear; every other field 0 */
+  double min_distance_hz; /* the smallest minimum distance of any pair in this ear */
+  double margin_hz;       /* min_distance_hz less the value of row spacing-rule */
+  size_t component_1;     /* arc_plan_component index of the pair's row 1 (the smaller index) */
+  size_t component_2;     /* and of row 2 */
+} arc_spacing;
+
+/* Fills *out_spacing with the worst pair of one ear. ARC_ERR_INVALID_ARGUMENT
+   for a NULL plan or out_spacing, or an ear other than ARC_EAR_LEFT and
+   ARC_EAR_RIGHT. */
+arc_status arc_plan_spacing(const arc_plan* plan, arc_ear ear, arc_spacing* out_spacing, arc_error* error);
 
 /* Non-blocking warning count; 0 for NULL. A warning is an arc_error. */
 size_t arc_plan_warning_count(const arc_plan* plan);

@@ -45,6 +45,23 @@ struct LoopReport {
   std::uint64_t end_frame = 0;
 };
 
+// The spacing block of a recipe with a spacing pair in at least one ear
+// (docs/signal-spec.md, Spacing, Report; Story 3.2): per ear the worst
+// pair's minimum distance, margin, both component indices, and the pair
+// named as in the error detail.
+struct SpacingEar {
+  double min_distance_hz = 0.0;
+  double margin_hz = 0.0;
+  std::uint64_t component_1 = 0;
+  std::uint64_t component_2 = 0;
+  std::string pair;
+};
+
+struct SpacingReport {
+  std::optional<SpacingEar> left;
+  std::optional<SpacingEar> right;
+};
+
 struct Report {
   std::string engine_version;
   std::uint64_t seed = 0;
@@ -52,6 +69,7 @@ struct Report {
   std::string mode;  // "measure" or "final"
   std::uint64_t frames = 0;
   std::optional<LoopReport> loop;  // written only when present
+  std::optional<SpacingReport> spacing;  // Story 3.2; written only when present
   DeterminismKey determinism_key;
   std::vector<Assertion> assertions;
 };
@@ -67,8 +85,13 @@ std::string json_number(double x);
 // opening_end_frame + k * body_frames. Empty when looping is 0.
 std::optional<LoopReport> loop_report(const arc_loop_frames& frames);
 
-// The report as one UTF-8 JSON object, members in struct order. The loop
-// member is left out when absent, so a report without one is unchanged.
+// The spacing block from arc_plan_spacing and arc_plan_component; empty
+// when neither ear has a pair (or a call fails).
+std::optional<SpacingReport> spacing_report(const arc_plan* plan);
+
+// The report as one UTF-8 JSON object, members in struct order. The loop and
+// spacing members are left out when absent, so a report without them is
+// unchanged.
 std::string report_json(const Report& report);
 
 // True only when the value of ARCANI_REFERENCE_MACHINE (nullptr when unset)
