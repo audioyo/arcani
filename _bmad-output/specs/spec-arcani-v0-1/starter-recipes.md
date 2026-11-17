@@ -12,7 +12,7 @@ Values from `docs/listening-modes.md`, picked by Audio on 2026-10-27 and logged 
 Sources and status per value:
 - 40 Hz gamma rate: design log (a). 250 Hz gamma PAC carrier: Ross et al. 2003 (lower carriers drive larger responses); passes the carrier rule at 40 and 60 Hz.
 - 5.5 Hz Learn theta rate: Roberts et al. 2018. 6 Hz Focus and Relax: listening-modes.md.
-- 450 Hz theta reference carrier: engineering default (design log (g)). In Sleep it must be at least 156 Hz to clear the 100/103 Hz binaural pair.
+- 450 Hz theta reference carrier: engineering default (design log (g)). In Sleep it must be at least 155 Hz to clear the 100/103 Hz binaural pair (103 + 50 + 2, the steady 2 Hz theta rate of entry (n)); the spacing rule finds 345 Hz in the right ear (design log 2026-11-16 (ww)).
 - Relax 30 min: Jirakittayakorn and Wongsawat 2017 (30 min sessions).
 - Engineering defaults, checked by ear: Relax depth 25 percent, Sleep 45 min with a 5 min fade, Learn 5 min ramp-in, loop max run times, -36 LUFS-I target.
 - Theta reference AM depth: 75 percent in every starter (engineering default, design log 2026-10-29 (s)).
@@ -35,5 +35,5 @@ Each recipe carries these, matching `docs/listening-modes.md`. Describe the soun
 
 ## Known risks
 
-- **Focus spacing.** Bursts on the 250 Hz gamma PAC carrier spread energy around 210 to 290 Hz and beyond. Any burst component within 40 dB of the layer's strongest line that reaches 394 Hz or above collides with the 450 Hz theta reference (444 to 456 Hz). The move from 300 Hz to 250 Hz widened the margin; smoothing burst edges fixes any remaining collision. The validator must pass, so this is resolved in the Focus story.
+- **Focus spacing.** Bursts on the 250 Hz gamma PAC carrier spread energy around 210 to 290 Hz and beyond. Any burst component within 40 dB of the layer's strongest line that reaches 394 Hz or above would collide with the 450 Hz theta reference (444 to 456 Hz). Settled by Story 3.2 for these values: the highest burst component is at 326 Hz, 118 Hz below the 444 Hz theta line (margin 68 Hz over the 50 Hz placeholder; design log 2026-11-16 (ww)). It must be checked again if a critical-band source raises the minimum above 118 Hz.
 - **Focus citation.** The 40 Hz default rests on the auditory response literature (design log (a)), not on Alekseichuk et al. 2016, which used 80 Hz electrical gamma and found 40 Hz did nothing.

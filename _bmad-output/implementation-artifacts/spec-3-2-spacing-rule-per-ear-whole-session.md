@@ -3,7 +3,7 @@ title: 'Story 3.2: Spacing rule per ear, whole session'
 type: 'feature'
 created: '2026-11-16'
 baseline_commit: '12e3ad2aa60ff159e40025f305aaba3482b9c793'
-status: 'in-progress'
+status: 'in-review'
 route: 'dispatch'
 review_loop_iteration: 0
 context:
@@ -72,9 +72,9 @@ Decisions (2026-11-16, build agent; Audio delegated every decision and approval 
 **Execution:**
 - [x] `docs/signal-spec.md`, vectors -- Spacing section with vectors (pair distances, margins, error texts, first-time cases) -- the spec merges first.
 - [x] fixtures, hash vectors, `thresholds.tsv`, design log (ww) -- data.
-- [ ] tests -- a fresh-context QA agent writes them failing -- tests first.
-- [ ] `engine/src/validate/spacing.*`, plan, error `detail`, C API, CLI report, reference, tap dump -- implementation.
-- [ ] `deferred-work.md`, `starter-recipes.md`, guidebook, `sprint-status.yaml` -- records.
+- [x] tests -- a fresh-context QA agent writes them failing -- tests first.
+- [x] `engine/src/validate/spacing.*`, plan, error `detail`, C API, CLI report, reference, tap dump -- implementation.
+- [x] `deferred-work.md`, `starter-recipes.md`, guidebook, `sprint-status.yaml` -- records.
 
 **Acceptance Criteria:**
 - Given a recipe's component table, when the spacing rule runs, then in each ear it checks 50 Hz between rows of different layers, exactly 50 Hz passes and less fails.
@@ -204,6 +204,23 @@ def pair_form(c_hz, di, dj, db, gamma=(0.0, 0.0), theta=(0.0, 0.0), beat=(0.0, 0
   It holds `SPACING_HZ = 50.0  # row spacing-rule`, as `reference/components.py` holds `LEVEL_DB`, and a test cross-checks the constant against the row; its numbers in the detail are its own shortest round-trip floats.
 
 **Suggested test files (the QA agent may split differently).** `tests/cpp/test_spacing.cpp` (every case of `kSpacingCases` compiled from its recipe text and from its fixture where it has one, at both rates and in both modes: rejected or not, the four error fields and the detail by its grammar; `arc_plan_spacing` against `kSpacingMargins` per ear, indices equal and the rows' layers and multipliers equal to `row_1` and `row_2`; `spacing_pair_form` and `acos_units` against `kSpacingPairs`; muted ears; C API argument errors; must-fails doctored in the harness, for example a component table with one row moved by 1e-9 Hz across the limit passed to `check_spacing`, and the exact 50 Hz case moved to 49.99 Hz), `tests/python/test_spacing_reference.py` (the reference against the vectors; fixture layer objects equal the case cells; the starter fixtures' values against `starter-recipes.md`), `tests/python/test_spacing_engine.py` (the tap dump's `spacing.tsv` and the CLI report's `spacing` block against the reference within the rows; a report of a recipe without a pair unchanged byte for byte; the must-fail fixture writes no WAV), plus the harness recipe moves of finding 3 and the expected-rejected fixture list in `test_validate.cpp`.
+
+### Contract amendment (2026-11-17, orchestrator under Audio's delegation, on the QA finding)
+
+`check_spacing` (engine) and `spacing_margins` (reference) return the per-ear margins for a rejected recipe too, with margins below 0, as Vectors: spacing margins show. A plan that compiled still has every margin at 0 or more.
+
+### Engagement 3 (2026-11-17): implementation
+
+- **Engine:** `engine/src/validate/spacing.{hpp,cpp}`: `check_spacing`, `spacing_pair_form`, `acos_units`, and `shortest_text` (the shortest digits of `json::format_number` rewritten in the `std::to_chars` form, fixed or scientific, whichever is shorter, ties to fixed; the engine library avoids floating-point `to_chars`, design log 2026-11-04 (ff)). Binary64 basic operations, `std::sqrt`, and `core::cycle_cosine` only, in the spec's order. `validate::Component::mirrored` set by `build_components` (`center - half < 0`). `plan::compile` runs the rule right after the table and before `final.required`; `plan::Plan::spacing` holds the margins.
+- **Error and C API:** `recipe::Error::detail`; `arc_error::detail[ARC_ERROR_DETAIL_BYTES]` (512) after `limit`, written by every call through the same truncation rule (`write_field` is now a template on the field size); `arc_spacing` and `arc_plan_spacing` as contracted (bad ear: parameter `ear`, rule `argument.enum`, limit `0 (left) 1 (right)`).
+- **CLI and tap dump:** `cli::SpacingEar`, `cli::SpacingReport`, `cli::spacing_report(plan)`, `Report::spacing` written after `loop`; the rejected line gains ` detail=<detail>` only when the detail is not empty. `arcani-tapdump --spacing [--mute left|right]` writes `spacing.tsv`; its rejected line gains the same suffix.
+- **Reference:** `reference/spacing.py` from the spec only (NumPy `sin`, `cos`, `arctan2`, `arccos`, `sqrt`; the start phase cosine and sine exact at the quarter points; mirrored rows found from the unmirrored center less the row's own half width).
+- **Records:** rows `spacing-rule` and `spacing-time-error` lose `pending`; `deferred-work.md` closes the margins, where-and-sweep-together, carrier rule wording, and Sleep 155 Hz rows; `starter-recipes.md` gives the 155 Hz bound and settles the Focus risk at 118 Hz; design log (ww) gains the implementation and results; sprint status `review`; guidebook.
+- **Tests that fail for reasons in the tests (no expectation edited):**
+  1. `tests/cpp/test_report.cpp:868` (`report_json writes the spacing block ...`, both ears): the expected text ends the right ear's object with `},` before `  },`, a trailing comma that makes the report invalid JSON. Spacing, Report and the one-ear case of the same test (`"right": null` with no comma) both put no comma after the last ear. The implementation writes `}` there.
+  2. `tests/cpp/test_spacing.cpp:1161` (`the error and margin comparisons catch doctored texts and values`): the doctor `binaural (0, 0, 1) -> theta_reference (0, 0, 1)` reaches the harness's `carrier_field()`, whose `REQUIRE(layer == "binaural")` throws instead of adding a problem, so the must-fail check aborts. Engine-independent: the test builds the texts itself.
+  3. `tests/python/test_spacing_engine.py::test_engine_spacing_mode_honors_the_muted_ear_and_refuses_bad_arguments`: it expects the right ear's `component_1` and `component_2` with the left ear muted to equal those without a muted ear. Muting the left ear removes the left binaural row, so every right-ear table index drops by one (4, 7 becomes 3, 6); the distances agree. Indices are positions in the whole table (Spacing, Table index), and the reference gives the same 3, 6.
+- **Verification (dev PC):** see the report of this engagement for counts.
 
 ## Spec Change Log
 
