@@ -1,5 +1,6 @@
 # arcani_cli_core: 24-bit rounding, the WAV header, and the JSON report
-# (wav.cpp, report.cpp), shared by arcani-render and the C++ tests. The CLI
+# (wav.cpp, report.cpp), and the listening preview (preview.cpp, Story 3.3),
+# shared by arcani-render and the C++ tests. The CLI
 # reaches the engine only through its public header target, and reads the
 # threshold tables through the assertion library (tests/assertions, AD-17).
 #
@@ -10,7 +11,7 @@
 # case can be exercised. Never set it in presets or CI.
 set(ARCANI_CLI_TEST_EXTRA_SOURCE "" CACHE FILEPATH
   "Test only: one extra source compiled into arcani_cli_core. Never set in presets or CI.")
-set(_arcani_cli_core_sources wav.cpp report.cpp)
+set(_arcani_cli_core_sources wav.cpp report.cpp preview.cpp)
 if(ARCANI_CLI_TEST_EXTRA_SOURCE)
   list(APPEND _arcani_cli_core_sources "${ARCANI_CLI_TEST_EXTRA_SOURCE}")
 endif()

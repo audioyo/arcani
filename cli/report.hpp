@@ -62,6 +62,16 @@ struct SpacingReport {
   std::optional<SpacingEar> right;
 };
 
+// The preview member of a preview render (docs/signal-spec.md, Preview,
+// Report; Story 3.3). "signed" is always written false: no preview is ever
+// signed off.
+struct PreviewReport {
+  double peak_dbfs = 0.0;           // P, row preview-peak-level
+  std::uint32_t layers_per_ear = 0; // n_max
+  double gain = 0.0;                // g
+  double seconds = 0.0;             // F / fs
+};
+
 struct Report {
   std::string engine_version;
   std::uint64_t seed = 0;
@@ -70,6 +80,7 @@ struct Report {
   std::uint64_t frames = 0;
   std::optional<LoopReport> loop;  // written only when present
   std::optional<SpacingReport> spacing;  // Story 3.2; written only when present
+  std::optional<PreviewReport> preview;  // Story 3.3; written only when present
   DeterminismKey determinism_key;
   std::vector<Assertion> assertions;
 };
@@ -91,9 +102,9 @@ std::optional<LoopReport> loop_report(const arc_loop_frames& frames);
 // loudly instead of reporting no pair.
 bool spacing_report(const arc_plan* plan, std::optional<SpacingReport>& out, std::string& rule);
 
-// The report as one UTF-8 JSON object, members in struct order. The loop and
-// spacing members are left out when absent, so a report without them is
-// unchanged.
+// The report as one UTF-8 JSON object, members in struct order. The loop,
+// spacing, and preview members are left out when absent, so a report without
+// them is unchanged.
 std::string report_json(const Report& report);
 
 // True only when the value of ARCANI_REFERENCE_MACHINE (nullptr when unset)
