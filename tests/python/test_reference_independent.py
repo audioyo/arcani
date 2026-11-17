@@ -37,6 +37,11 @@ fixtures, never part of reference/):
    file lies under the repo's engine/, cli/, or build/ folder or under an
    extra forbidden root the test names.
 
+Story 3.3: the scan covers reference/preview.py with every other module,
+and a second isolated run imports `reference.preview` and computes the
+preview report member and frame count of the Focus starter fixture at both
+rates, judged by the same rules (must-fail: the module missing).
+
 Must-fail cases: a module that imports ctypes fails the scan (the acceptance
 criterion); others import subprocess (scan and isolated run), call
 os.add_dll_directory, name a build path, use importlib, use
@@ -269,4 +274,58 @@ def test_isolated_run_fails_on_a_module_loaded_from_a_forbidden_root():
 
 def test_isolated_run_fails_when_the_module_is_missing(tmp_path):
     problems = run_problems(isolated_run(tmp_path))
+    assert any("import or render failed" in p for p in problems), problems
+
+
+# ------------------------------------------------------------ Story 3.3: reference/preview.py
+
+PREVIEW_CHILD = r'''
+import json
+import sys
+
+root, fixture = sys.argv[1], sys.argv[2]
+import numpy  # the same baseline as the stub chain run
+baseline = set(sys.modules)
+sys.path.insert(0, root)
+error = None
+try:
+    import reference.preview as pv
+    with open(fixture, encoding="utf-8") as f:
+        recipe = json.load(f)
+    for fs in (44100, 48000):
+        member = pv.report_member(recipe, fs)
+        if not isinstance(member, dict) or member.get("signed") is not False:
+            error = "report_member returned no unsigned member"
+        if not isinstance(pv.preview_frames(recipe, fs), int):
+            error = "preview_frames returned no integer"
+except BaseException as e:
+    error = repr(e)
+new = sorted(set(sys.modules) - baseline)
+files = {}
+for name, module in list(sys.modules.items()):
+    f = getattr(module, "__file__", None)
+    if isinstance(f, str):
+        files[name] = f
+print(json.dumps({"error": error, "new": new, "files": files, "flags_isolated": sys.flags.isolated}))
+'''
+
+
+def preview_isolated_run(root, fixture):
+    result = subprocess.run([sys.executable, "-I", "-c", PREVIEW_CHILD, str(root), str(fixture)],
+                            capture_output=True, text=True, timeout=300, cwd=str(Path(root)))
+    assert result.returncode == 0, result.stdout + result.stderr
+    return json.loads(result.stdout.strip().splitlines()[-1])
+
+
+def test_isolated_run_of_reference_preview_loads_nothing_forbidden():
+    assert (REFERENCE / "preview.py").is_file(), "missing reference/preview.py (Story 3.3)"
+    assert not scan_problems(REFERENCE)
+    report = preview_isolated_run(REPO_ROOT, FIXTURES_VALID / "starter-focus-layers.json")
+    problems = run_problems(report)
+    assert not problems, "\n".join(problems)
+    assert "reference.preview" in report["new"], report["new"]
+
+
+def test_preview_isolated_run_fails_when_the_module_is_missing(tmp_path):
+    problems = run_problems(preview_isolated_run(tmp_path, FIXTURES_VALID / "starter-focus-layers.json"))
     assert any("import or render failed" in p for p in problems), problems
