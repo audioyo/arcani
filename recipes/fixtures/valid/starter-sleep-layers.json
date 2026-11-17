@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-16",
+  "rationale": "Starter layer configuration (Story 3.2): Sleep, from starter-recipes.md and design log 2026-10-27 (m), (n). Theta reference: a 450 Hz carrier amplitude-modulated by the sine envelope at a steady 2 Hz, 75 percent AM depth. Binaural layer: a 100 Hz pure sine in the left ear and a pure sine in the right ear whose binaural beat rate cycles sinusoidally over 0 to 3 Hz every 60 s, starting at 0 Hz and rising. No gamma PAC layer. 45 min, no loop. No fade (Epic 4). Not the Epic 6 starter recipe.",
+  "length_s": 2700,
+  "loudness_target_lufs": -36,
+  "theta_reference": {
+    "carrier_hz": 450,
+    "rate_hz": 2,
+    "am_depth_percent": 75,
+    "shape": "sine"
+  },
+  "binaural": {
+    "carrier_left_hz": 100,
+    "beat_rate_hz": 1.5,
+    "beat_rate_cycle": {
+      "swing_hz": 1.5,
+      "period_s": 60,
+      "start_phase_deg": 270
+    }
+  }
+}

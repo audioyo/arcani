@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-16",
+  "rationale": "Starter layer configuration (Story 3.2): Focus, from starter-recipes.md and design log 2026-10-27 (m). Theta reference: a 450 Hz carrier amplitude-modulated by the sine envelope at 6 Hz, 75 percent AM depth. Gamma PAC layer: a 250 Hz sine carrier amplitude-modulated at 40 Hz, its AM depth opening to 100 percent for 50 ms bursts centered on the 0 degree coupling phase. No binaural layer. Loops at the 45 min cap, opening 60 s, body 120 s. No ramps or fades (Epic 4). Not the Epic 6 starter recipe.",
+  "length_s": 2700,
+  "loudness_target_lufs": -36,
+  "theta_reference": {
+    "carrier_hz": 450,
+    "rate_hz": 6,
+    "am_depth_percent": 75,
+    "shape": "sine"
+  },
+  "gamma_pac": {
+    "carrier_hz": 250,
+    "rate_hz": 40,
+    "am_depth_percent": 100,
+    "carrier_wave": "sine",
+    "coupling": "bursts",
+    "coupling_phase_deg": 0
+  },
+  "loop": {
+    "mode": "focus",
+    "opening_s": 60,
+    "body_s": 120,
+    "max_run_time_min": 45
+  }
+}
