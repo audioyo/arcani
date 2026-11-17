@@ -42,7 +42,7 @@ Decisions (2026-11-16, build agent; Audio delegated every decision and approval 
 
 | Scenario | Input / State | Expected Output / Behavior | Error Handling |
 |----------|--------------|---------------------------|----------------|
-| Must-fail | `spacing-binaural-250-256-gamma-260.json` | rejected | `spacing_rule`, right ear, 4 Hz, gamma (1, 0) 260 Hz vs binaural 256 Hz, `whole session` |
+| Must-fail | `spacing-binaural-250-256-gamma-260.json` | rejected | `spacing_rule`, right ear, 4 Hz, gamma (-1, 0) 260 Hz vs binaural 256 Hz (multiplier corrected 2026-11-16: 300 - 40 Hz is gamma_mult -1), `whole session` |
 | Exactly 50 Hz | theta 450 Hz unmodulated, binaural left 400 Hz | compiles, margin 0 | N/A |
 | 49.99 Hz | binaural left 400.01 Hz | rejected | min distance 49.99 |
 | Rate cycle collision | a sweep that reaches within 50 Hz only at a turning point | rejected | detail gives the first time and the rates there |
