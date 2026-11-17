@@ -274,7 +274,7 @@
    Update after every completed section plus commit and/or push.
    ===================================================================== */
 
-var LAST_UPDATED = "2026-11-16";
+var LAST_UPDATED = "2026-11-17";
 var CURRENT = "3.2";   // story id being worked on
 var NEXT    = "3.3";   // story id that comes next
 
@@ -570,14 +570,14 @@ var EPICS = [
   { id:"3.2", title:"Spacing rule per ear, whole session", status:"review",
     plain:"Reject any recipe whose layers come within 50 Hz of each other in either ear, anywhere in the session.",
     spec:["spec-3-2-spacing-rule-per-ear-whole-session.md"],
-    steps:[true,true,false,false,false,false,false],
-    stepNotes:["b14e223: spec 2026-11-16 (Audio delegated the decisions for Stories 3.1 to 3.3); 4f6bdc4: signal spec Spacing section with 3 new vector tables (47 in all); a9388a9: four starter layer fixtures and the must-fail fixture; 82eb179: row spacing-time-error and design log (ww) with the margins per starter (Focus 118 Hz is the tightest); a3849d8: contracts for the tests; not pushed","5e2d793: fresh-context QA agent's failing tests; colliding harness recipes moved to spacing-clean values; 9af5491: must-fail row multiplier corrected to (-1, 0, 0)","Engine spacing rule, error detail, arc_plan_spacing, report block, tap dump spacing mode, reference; three tests fail for reasons in the tests (spec Implementation Notes), so this step stays open","","","",""],
+    steps:[true,true,true,true,false,false,false],
+    stepNotes:["b14e223: spec 2026-11-16 (Audio delegated the decisions for Stories 3.1 to 3.3); 4f6bdc4: signal spec Spacing section with 3 new vector tables (47 in all); a9388a9: four starter layer fixtures and the must-fail fixture; 82eb179: row spacing-time-error and design log (ww) with the margins per starter (Focus 118 Hz is the tightest); a3849d8: contracts for the tests; not pushed","5e2d793: fresh-context QA agent's failing tests; colliding harness recipes moved to spacing-clean values; 9af5491: must-fail row multiplier corrected to (-1, 0, 0)","Engine spacing rule, error detail, arc_plan_spacing, report block, tap dump spacing mode, reference; three tests fail for reasons in the tests (spec Implementation Notes), fixed in QA tests-only commit 4c5c25b; e9db2e5, cf395e2","Review pass 1: three fresh-context reviewers, 18 findings: 10 patched (4c5c25b tests, 0fe945b code and docs), 2 deferred, 6 rejected; full verification green: ctest 4 of 4, pytest 3,558 passed","","",""],
     acs:[
-      [" ","At least 50 Hz between components of different layers, per ear; own components and the binaural pair exempt; exactly 50 Hz passes"],
-      [" ","Closed-form worst case over rate curves, no sampling"],
-      [" ","Failure names parameter, value, rule, limit, both components, layers, ear, and where"],
-      [" ","250/256 Hz binaural beside a 260 Hz gamma side line is rejected (right ear)"],
-      [" ","All four starter configurations and the coupled-gamma-plus-binaural fixture pass"]
+      ["x","At least 50 Hz between components of different layers, per ear; own components and the binaural pair exempt; exactly 50 Hz passes"],
+      ["x","Closed-form worst case over rate curves, no sampling"],
+      ["x","Failure names parameter, value, rule, limit, both components, layers, ear, and where"],
+      ["x","250/256 Hz binaural beside a 260 Hz gamma side line is rejected (right ear)"],
+      ["x","All four starter configurations and the coupled-gamma-plus-binaural fixture pass"]
     ] },
   { id:"3.3", title:"Early listening preview", status:"backlog",
     plain:"Hear short renders of the four starter configurations early, so a harsh carrier or rough pulse is caught long before sign-off.",
@@ -736,6 +736,7 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-17","0fe945b","3.2","Test findings fixed (QA 4c5c25b, tests only) and review pass 1 patched (0fe945b): 10 patched, 2 deferred, 6 rejected; full verification green on the dev PC (ctest 4 of 4, pytest 3,558 passed, 2 skipped; every check tool exits 0); all five acceptance criteria met; spec done; next push and PR"],
   ["2026-11-17","cf395e2","3.2","Implementation (e9db2e5) and records committed: spacing rule, error detail, arc_plan_spacing, report block, tap dump spacing mode, reference; arcani_tests 432 of 434 pass, full pytest 3,547 pass and 11 fail, all for reasons in the tests (3 wrong expectations, 2 Python harness recipes that now collide); sprint-status.yaml set to review; not pushed"],
   ["2026-11-16","a3849d8","3.2","Spec (b14e223), signal spec Spacing section with vectors (74 cases; 4f6bdc4), starter layer and must-fail fixtures (a9388a9), row spacing-time-error and design log (ww) (82eb179), and the test contracts committed; every starter passes, Focus tightest at 118 Hz; failing tests come next; sprint-status.yaml in-progress; not pushed"],
   ["2026-11-16","eb65125","3.1","PR #19 merged into main after fast 44000101535 and full 44000108471 were green on 12e3ad2; components hash equal on all four platforms; full windows-x64 41.2 of 45 min, fast windows-x64 33.6 of 45; sprint-status.yaml set to done"],

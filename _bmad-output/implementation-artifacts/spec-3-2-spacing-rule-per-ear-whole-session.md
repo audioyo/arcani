@@ -3,7 +3,7 @@ title: 'Story 3.2: Spacing rule per ear, whole session'
 type: 'feature'
 created: '2026-11-16'
 baseline_commit: '12e3ad2aa60ff159e40025f305aaba3482b9c793'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 context:
@@ -226,9 +226,34 @@ def pair_form(c_hz, di, dj, db, gamma=(0.0, 0.0), theta=(0.0, 0.0), beat=(0.0, 0
   Both need their recipes moved to spacing-clean values by the QA agent, as finding 3 did for the C++ files.
 - **Verification (dev PC):** `cmake --build --preset windows-clang-cl` clean (warnings as errors); `ctest --preset windows-clang-cl` 3 of 4 entries pass, `arcani_tests` 434 test cases, 432 pass, 2 fail (items 1 and 2), 4,661,829 of 4,661,832 assertions. Story Python files `test_spacing_reference.py` and `test_spacing_engine.py`: 272 passed, 1 failed (item 3); `test_reference_independent.py` passes with `reference/spacing.py`. Full `uv run pytest`: 3,547 passed, 2 skipped, 11 failed (37 min): item 3, and items 4 and 5 (10 cases). `check_engine_source.py`, `check_fp_pragmas.py`, `check_wording.py`, `check_table_log.py --base main`, `check_row_coverage.py`, and `signal_spec_vectors.py --check` exit 0.
 
+- **Final verification (2026-11-17, dev PC, at 0fe945b):** `cmake --workflow --preset windows-clang-cl` exit 0, ctest 4 of 4 entries; full `uv run --locked pytest` 3,558 passed, 2 skipped (the pinned NDK cases), 0 failed (36 min); `check_engine_source`, `check_fp_pragmas`, `check_wording`, `check_row_coverage`, `check_table_log --base main`, and `signal_spec_vectors --check` exit 0.
+
 ## Spec Change Log
 
 ## Review Triage Log
+
+Pass 1 (2026-11-17): blind hunter (BH), edge case hunter (EC), and verification gap (VG), each in a fresh context, on diff 12e3ad2..98faa46. The generated `signal_spec_vectors.json` and the guidebook were left out.
+
+| # | Finding | Verdict | Evidence | Route |
+|---|---------|---------|----------|-------|
+| 1 | BH: implementation committed with 13 known failing tests; burst timing recipes untouched | medium | true at 98faa46; all five causes were in the tests | patch (done, QA tests-only commit 4c5c25b) |
+| 2 | VG: the must-fail check of the error comparison aborts at its third doctored text, so the later doctors never run | medium | `carrier_field()` REQUIRE threw | patch (done, 4c5c25b: records a problem; every doctor runs) |
+| 3 | VG: the muted-ear tap dump test fails before its usage-error and no-detail checks | medium | indices shift when a binaural row is muted | patch (done, 4c5c25b: indices compared to the muted reference table) |
+| 4 | VG: the smoothed on-off burst timing renders at 100 percent are rejected at compile, so their timing and reference match never run | medium | theta line 360 Hz vs burst line 326 Hz | patch (done, 4c5c25b: timing theta carrier 500 Hz, closest now 84 Hz) |
+| 5 | VG: report both-ears expectation has a trailing comma | low | invalid JSON in the test text | patch (done, 4c5c25b) |
+| 6 | VG: the gamma reference test with a binaural layer is rejected at compile | medium | 450 Hz theta vs 406 Hz binaural, 38 Hz | patch (done, 4c5c25b: binaural 100/106 Hz, closest now 104 Hz) |
+| 7 | BH, EC, VG: `cli::spacing_report` skips an ear on an API failure, so the report reads as "no pair" | low | true at `cli/report.cpp:136-148`; not reachable for a compiled plan and a valid ear, but it would hide an engine bug silently | patch (done, 0fe945b) |
+| 8 | BH: design log (ww) says three tests failed and leaves out the two Python harness recipes | low | true; five findings, 13 cases | patch (done, 0fe945b) |
+| 9 | BH: `arc_plan_spacing` header does not say indices are whole-table positions that shift with the muted ear | low | true; QA finding 3 tripped on exactly this | patch (done, 0fe945b) |
+| 10 | BH: the ` detail=` stderr suffix is unquoted, so the line has no end marker for it | low | true; `detail=` is always last and runs to the end of the line, which is not written down | patch (done, 0fe945b: signal spec, Spacing, Error) |
+| 11 | BH: no engine version or ABI change for the larger `arc_error` and the new rejections | false | accepted recipes render the same bytes (the rule reads the plan only); a rejected recipe has no output; no caller is built against the header before v0.1, and Story 3.1 grew the C API the same way | reject |
+| 12 | BH: sessions shorter than one 60 s cycle are judged on the whole cycle; the first time can lie past `length_s` | medium | true by the frozen whole-cycle decision; no starter or fixture is that short | defer (Story 4.4 session lengths) |
+| 13 | BH: the closed form assumes one cycle period without an assertion | false | row `rate-cycle-period` is locked at exactly 60 s and the parser rejects any other period; design log (ww) states the dependency | reject |
+| 14 | BH: only the worst failing pair is reported | low | frozen decision; the fix edits the spec | reject |
+| 15 | BH: the error parameter is the later layer's carrier, not every field that set the pair | low | frozen decision; the detail names both rows and their multipliers | reject |
+| 16 | BH: the location of the minimum is given only in a rejection detail, not for a passing plan's worst pair | low | true; the closed deferred row asked only for the rejection report, which is done | defer (designer GUI) |
+| 17 | BH: the pair text is built in the CLI, the engine, and the reference separately | false | the report block and the detail are both compared to the same vectors in `test_report.cpp`, `test_spacing.cpp`, and `test_spacing_engine.py`, so drift fails a test | reject |
+| 18 | BH: 512-byte detail truncation never driven | low | the longest vector detail is far below 512 bytes; the template shares the truncation rule the 256-byte fields test | reject |
 
 ## Design Notes
 
