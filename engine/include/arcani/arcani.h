@@ -183,7 +183,10 @@ arc_status arc_plan_component(const arc_plan* plan, size_t index, arc_component*
    Per ear, the pair of component rows of different layers with the
    smallest minimum distance over the whole session (ties to the smaller
    index of row 1, then of row 2). The result is the same at every sample
-   rate and honors mute_binaural_ear. */
+   rate and honors mute_binaural_ear. component_1 and component_2 are
+   positions in the whole table (arc_plan_component), so they shift when
+   mute_binaural_ear removes a binaural row: a muted left ear moves every
+   right-ear index down by one. */
 typedef struct arc_spacing {
   int32_t has_pair;       /* 0: fewer than two layers in this ear; every other field 0 */
   double min_distance_hz; /* the smallest minimum distance of any pair in this ear */

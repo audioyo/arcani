@@ -85,9 +85,11 @@ std::string json_number(double x);
 // opening_end_frame + k * body_frames. Empty when looping is 0.
 std::optional<LoopReport> loop_report(const arc_loop_frames& frames);
 
-// The spacing block from arc_plan_spacing and arc_plan_component; empty
-// when neither ear has a pair (or a call fails).
-std::optional<SpacingReport> spacing_report(const arc_plan* plan);
+// The spacing block from arc_plan_spacing and arc_plan_component into
+// `out`: empty when neither ear has a pair. Returns false, with `rule` set
+// to the failing call's rule, when an engine call fails, so the caller fails
+// loudly instead of reporting no pair.
+bool spacing_report(const arc_plan* plan, std::optional<SpacingReport>& out, std::string& rule);
 
 // The report as one UTF-8 JSON object, members in struct order. The loop and
 // spacing members are left out when absent, so a report without them is

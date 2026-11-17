@@ -99,14 +99,17 @@ namespace {
 
 const char* const kLayerNames[] = {"theta_reference", "gamma_pac", "binaural"};
 
-bool row_name(const arc_plan* plan, std::size_t index, std::string& out) {
+bool row_name(const arc_plan* plan, std::size_t index, std::string& out, std::string& rule) {
   arc_component c;
   arc_error e;
+  std::memset(&e, 0, sizeof e);
   if (arc_plan_component(plan, index, &c, &e) != ARC_OK) {
+    rule = e.rule;
     return false;
   }
   const int layer = static_cast<int>(c.layer);
   if (layer < 0 || layer > 2) {
+    rule = "component layer out of range";
     return false;
   }
   out = std::string(kLayerNames[layer]) + " (" + std::to_string(c.gamma_mult) + ", " +
@@ -126,15 +129,21 @@ std::string spacing_ear_json(const std::optional<SpacingEar>& e) {
 
 }  // namespace
 
-std::optional<SpacingReport> spacing_report(const arc_plan* plan) {
+bool spacing_report(const arc_plan* plan, std::optional<SpacingReport>& out_report, std::string& rule) {
+  out_report.reset();
   SpacingReport report;
   bool any = false;
   for (const arc_ear ear : {ARC_EAR_LEFT, ARC_EAR_RIGHT}) {
     arc_spacing s;
     arc_error e;
     std::memset(&s, 0, sizeof s);
-    if (arc_plan_spacing(plan, ear, &s, &e) != ARC_OK || s.has_pair == 0) {
-      continue;
+    std::memset(&e, 0, sizeof e);
+    if (arc_plan_spacing(plan, ear, &s, &e) != ARC_OK) {
+      rule = e.rule;
+      return false;
+    }
+    if (s.has_pair == 0) {
+      continue;  // no pair in this ear: the normal path
     }
     SpacingEar out;
     out.min_distance_hz = s.min_distance_hz;
@@ -143,17 +152,17 @@ std::optional<SpacingReport> spacing_report(const arc_plan* plan) {
     out.component_2 = s.component_2;
     std::string a;
     std::string b;
-    if (!row_name(plan, s.component_1, a) || !row_name(plan, s.component_2, b)) {
-      continue;
+    if (!row_name(plan, s.component_1, a, rule) || !row_name(plan, s.component_2, b, rule)) {
+      return false;
     }
     out.pair = a + " and " + b;
     (ear == ARC_EAR_LEFT ? report.left : report.right) = out;
     any = true;
   }
-  if (!any) {
-    return std::nullopt;
+  if (any) {
+    out_report = report;
   }
-  return report;
+  return true;
 }
 
 std::string report_json(const Report& report) {

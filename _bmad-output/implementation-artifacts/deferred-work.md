@@ -115,3 +115,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-3-1-spectral-component-table-per-shape.md`
   summary: `docs/project-plan.md` still names a 300 Hz starter gamma carrier (lines 96, 103, 149, 318) and a 240/360 Hz example (108); the starters use 250 Hz (design log 2026-10-27 (m)).
   evidence: Found by the carrier rule review and the Story 3.1 blind hunter; pre-existing, not caused by Story 3.1.
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-2-spacing-rule-per-ear-whole-session.md`
+  summary: A session shorter than one 60 s rate cycle is judged on the whole cycle, so a collision that never plays can reject the recipe, and the detail's first time can lie past `length_s`. Settle with the Story 4.4 session lengths.
+  evidence: Story 3.2 review; docs/signal-spec.md, Spacing, Where the minimum occurs ("a session shorter than P may end before it"). No starter is shorter than 20 min.
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-2-spacing-rule-per-ear-whole-session.md`
+  summary: The location of the minimum (first time and rates) is given only in a rejection detail; a passing plan's worst pair has no time or rates in `arc_spacing`, the report `spacing` block, or `spacing.tsv`. Add it for the designer GUI.
+  evidence: Story 3.2 review; the contract kept the margins to distance, margin, and the two row indices.
