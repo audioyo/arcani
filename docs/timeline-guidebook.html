@@ -275,8 +275,8 @@
    ===================================================================== */
 
 var LAST_UPDATED = "2026-11-16";
-var CURRENT = "3.1";   // story id being worked on
-var NEXT    = "3.2";   // story id that comes next
+var CURRENT = "3.2";   // story id being worked on
+var NEXT    = "3.3";   // story id that comes next
 
 // Workflow step names, used by every story unless it lists its own "stepNames".
 var STEP_NAMES = [
@@ -567,9 +567,12 @@ var EPICS = [
       ["x","Compiler lists per ear and per layer every component frequency (or interval) and level; unmodeled shape rejected"],
       ["x","Measured reference spectra match the analytic table; a dropped side frequency must-fail is caught"]
     ] },
-  { id:"3.2", title:"Spacing rule per ear, whole session", status:"backlog",
+  { id:"3.2", title:"Spacing rule per ear, whole session", status:"in-progress",
     plain:"Reject any recipe whose layers come within 50 Hz of each other in either ear, anywhere in the session.",
-    steps:S7(), acs:[
+    spec:["spec-3-2-spacing-rule-per-ear-whole-session.md"],
+    steps:[true,false,false,false,false,false,false],
+    stepNotes:["b14e223: spec 2026-11-16 (Audio delegated the decisions for Stories 3.1 to 3.3); 4f6bdc4: signal spec Spacing section with 3 new vector tables (47 in all); a9388a9: four starter layer fixtures and the must-fail fixture; 82eb179: row spacing-time-error and design log (ww) with the margins per starter (Focus 118 Hz is the tightest); a3849d8: contracts for the tests; not pushed","","","","","",""],
+    acs:[
       [" ","At least 50 Hz between components of different layers, per ear; own components and the binaural pair exempt; exactly 50 Hz passes"],
       [" ","Closed-form worst case over rate curves, no sampling"],
       [" ","Failure names parameter, value, rule, limit, both components, layers, ear, and where"],
@@ -733,6 +736,7 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-16","a3849d8","3.2","Spec (b14e223), signal spec Spacing section with vectors (74 cases; 4f6bdc4), starter layer and must-fail fixtures (a9388a9), row spacing-time-error and design log (ww) (82eb179), and the test contracts committed; every starter passes, Focus tightest at 118 Hz; failing tests come next; sprint-status.yaml in-progress; not pushed"],
   ["2026-11-16","91243a9","3.1","Failing tests (9396e92) and implementation (b6951f4) committed; 4/4 ctest entries, 3,178 pytest pass, 4 hash-entry tests wait for the four-platform full run; sprint-status.yaml set to review; not pushed"],
   ["2026-11-16","5e94841","3.1","Spec, carrier rule review, signal spec Components section with vectors (46 cases, 877 table rows), threshold rows component-level-error and component-frequency-error, and design log (vv) committed; 4/4 ctest entries and the full pytest suite pass; failing tests come next; not pushed"],
   ["2026-11-15","8e1198c","2.7","PR #18 merged into main after fast and full checks on 0e571ed were green, every job within budget; loop hashes equal on all four platforms; sprint-status.yaml set to done; Epic 2 stories complete"],
