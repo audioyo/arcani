@@ -581,8 +581,11 @@ var EPICS = [
     ] },
   { id:"3.3", title:"Early listening preview", status:"in-progress",
     plain:"Hear short renders of the four starter configurations early, so a harsh carrier or rough pulse is caught long before sign-off.",
+    spec:["spec-3-3-early-listening-preview.md", "listening-3-3-preview.md"],
     stepNames:["Preview plan written","Preview level default logged in design log (-30 dBFS peak)","Previews rendered (about 3 min, 48 kHz, marked unsigned)","Listening on earbuds and headphones","Observations recorded in plain words","Proposed changes routed to owning stories","sprint-status.yaml and guidebook updated"],
-    steps:S7(), acs:[
+    steps:[true,true,false,false,false,false,false],
+    stepNotes:["2e78cfd: spec 2026-11-17 (decisions approved by the orchestrator under Audio's delegation); be1511e: signal spec Preview section with 3 new vector tables (50 in all); c116c1d: two 250 Hz carrier with gamma AM at 60 Hz checklist fixtures (both pass: spacing 128 and 92 Hz, carrier rule 10 Hz margin) and the listening checklist (19 min of audio per pass, two passes); contracts for the tests; not pushed","b14d070: rows preview-length (180 s), preview-seam-tail (30 s), and preview-peak-level (-30 dBFS), pending on 3.3, and design log (xx); g = 1 / (10 * sqrt(10)) / n_max, every preview has two layers per ear","","","","",""],
+    acs:[
       [" ","About 3 minute previews at 48 kHz, with loop seams for Focus and Learn; marked preview and unsigned; never stored as golden"],
       [" ","Preview level: analytic sample peak of summed layers at -30 dBFS (logged)"],
       [" ","Every observation recorded; proposed default or range changes logged and routed before Epic 4"]
@@ -736,6 +739,7 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-17","c116c1d","3.3","Spec (2e78cfd), signal spec Preview section with vectors (be1511e), preview rows and design log (xx) (b14d070), and the two checklist fixtures and listening checklist (c116c1d) committed; preview frames 210 s (Focus, Learn) and 180 s (the rest), g = 0x1.030dc4ea03a72p-6 for all six; failing tests come next; sprint-status.yaml in-progress; not pushed"],
   ["2026-11-17","9952924","3.2","PR #20 merged after CI green on both tiers (all four platforms and the hash compare); Story 3.2 done; Story 3.3 in progress"],
   ["2026-11-17","0fe945b","3.2","Test findings fixed (QA 4c5c25b, tests only) and review pass 1 patched (0fe945b): 10 patched, 2 deferred, 6 rejected; full verification green on the dev PC (ctest 4 of 4, pytest 3,558 passed, 2 skipped; every check tool exits 0); all five acceptance criteria met; spec done; next push and PR"],
   ["2026-11-17","cf395e2","3.2","Implementation (e9db2e5) and records committed: spacing rule, error detail, arc_plan_spacing, report block, tap dump spacing mode, reference; arcani_tests 432 of 434 pass, full pytest 3,547 pass and 11 fail, all for reasons in the tests (3 wrong expectations, 2 Python harness recipes that now collide); sprint-status.yaml set to review; not pushed"],
