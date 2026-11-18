@@ -252,9 +252,34 @@ uv run --locked python tools/render_previews.py [--out-dir DIR] [--rate 44100|48
 - **Previews rendered** (dev PC, 48 kHz, `uv run --locked python tools/render_previews.py`, into `build/previews/`, not committed): six WAVs and six reports, 1,140 s in all, every report `"signed": false`, g `0.015811388300841896`. Measured sample peaks (left, right): Focus -30.08, -30.08 dBFS; Learn -30.01, -30.01; Relax -30.08, -30.08; Sleep -30.06, -30.00 (265,252 of the 265,271 steps the bound allows); the 60 Hz swell -30.43, -30.43; the 60 Hz bursts -30.43, -30.43.
 - **Verification (dev PC):** `cmake --workflow --preset windows-clang-cl` exit 0, ctest 4 of 4 entries (`arcani_tests` 452 test cases, all pass); `[preview]` 18 cases and `[cli]` 46 cases pass. Python: `test_preview_engine.py` and `test_render_previews.py` 29 passed in 16 s (the story's CI cost); `test_preview_reference.py`, `test_reference_independent.py`, `test_listening_checklist.py`, and `test_signal_spec_core.py` 209 passed. `check_engine_source`, `check_fp_pragmas`, `check_wording`, `check_table_log --base main`, and `signal_spec_vectors --check` exit 0. The full pytest run and `check_row_coverage` (which needs that run's usage file) are left to the orchestrator.
 
+- **Final verification (2026-11-17, dev PC, at 93abaec):** `cmake --workflow --preset windows-clang-cl` exit 0, ctest 4 of 4 entries; full `uv run --locked pytest` 3,658 passed, 2 skipped (the pinned NDK cases), 0 failed; the story's Python files take about 17 s; `check_engine_source`, `check_fp_pragmas`, `check_wording`, `check_row_coverage`, `check_table_log --base main`, and `signal_spec_vectors --check` exit 0. Only the listening task (Audio's two passes) remains; the code merges first so the previews come from main.
+
 ## Spec Change Log
 
 ## Review Triage Log
+
+Pass 1 (2026-11-17): blind hunter (BH), edge case hunter (EC), and verification gap (VG), each in a fresh context, on diff 6760a4b..043c898. The generated `signal_spec_vectors.json` and the guidebook were left out.
+
+| # | Finding | Verdict | Evidence | Route |
+|---|---------|---------|----------|-------|
+| 1 | BH: the checklist says to raise playback by about 30 dB but gives no warning to turn it back down before any normal render (peaks near full scale) | medium | true; a normal render at that playback setting would be very loud | patch (done, 3d69bd2) |
+| 2 | BH: the Result section cannot tie a result to the bytes heard (no commit, engine version, sample rate, playback gain) | low | true; direct doc addition | patch (done, 3d69bd2) |
+| 3 | BH: the checklist names only the end edge as expected; the start is also abrupt | low | true; no ramps until Epic 4 | patch (done, 3d69bd2) |
+| 4 | EC: `reference/preview.py` `seams_heard` docstring says both seams are inside the preview, false when O + B is at or past F | low | true at `reference/preview.py:102-108`; the starters are not affected | patch (done, 3d69bd2) |
+| 5 | BH: `preview_layers` bounds the layer and ear values by literals | low | true at `cli/preview.cpp:121`; it fails loudly, but a `static_assert` on the enum values is a direct correction | patch (done, 3d69bd2) |
+| 6 | VG: the one documented command (default renderer and default output dir) is never run by a test | medium | true; every render test passes `--renderer` and `--out-dir` | patch (done, QA 93abaec) |
+| 7 | BH: the never-golden guard only scans text; a committed `*.preview.*` file would not fail | low | true; a `git ls-files` must-be-empty check is one assertion | patch (done, QA 93abaec) |
+| 8 | VG: the render speed assertion on a preview is never checked against F | low | true; wall-time dependent, a one-token regression | defer (deferred-work row, 3d69bd2) |
+| 9 | BH, EC: `preview-length` and `preview-seam-tail` rows are not range checked | low | true, but the rows are repository data under the design log and `check_table_log`; a bad value needs a reviewed table edit; the fix adds guards | reject |
+| 10 | EC: `O + B + T` can wrap past 2^64 | false | T is a 30 s row and O, B are bounded by the locked loop ranges; no reachable input wraps | reject |
+| 11 | BH: a looping preview is not capped by `preview-length` | low | frozen decision 2; the two looping starters are 210 s | reject |
+| 12 | BH: preview and full render share one determinism key | low | the report's `preview` member marks a preview, and nothing caches by key; previews are never stored | reject |
+| 13 | BH: `layers_per_ear` holds the larger ear count | low | frozen field name (decision 4); the fix edits the spec | reject |
+| 14 | BH, EC: `render_previews.py` can end in a traceback (OSError, missing report, unwritable dir) instead of a documented code | low | true, but it fails loudly with a nonzero exit; the fix adds guards | reject |
+| 15 | BH, EC: two `--fixture` paths with one stem overwrite each other | low | needs two hand-given fixtures with one name; the default set has unique stems; the fix adds a guard | reject |
+| 16 | BH: `seconds_to_samples` has a CLI copy of the engine rule | low | both are tested against the signal spec's seconds-to-samples vectors, so a drift fails a test | reject |
+| 17 | BH: `preview_problems` in the test helper does not cross-check gain against peak and layer count | false | the gain bits are compared exactly to the Preview vectors in `test_preview.cpp` and `test_preview_engine.py` | reject |
+| 18 | BH: one test reads the whole Focus preview into memory | low | about 200 MB on runners with 7 GB or more; the test takes about 3 s | reject |
 
 ## Design Notes
 
