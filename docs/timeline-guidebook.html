@@ -739,6 +739,7 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-18","90f003d","3.3","PR #21 merged after CI green on both tiers (all four platforms and the hash compare; full windows-x64 took 44.6 of 45 min, so CI sharding is now urgent); previews rendered from this code; waiting on Audio's two listening passes"],
   ["2026-11-17","93abaec","3.3","Review pass 1: three fresh-context reviewers, 18 findings: 7 patched (3d69bd2 checklist safety note, result fields, edges, static_assert, docstring; QA 93abaec default command and no committed preview files), 1 deferred, 10 rejected; full verification green (ctest 4 of 4, pytest 3,658 passed); next push and PR, then Audio listens"],
   ["2026-11-17","051d1b7","3.3","Failing tests (af68cc9, QA) then the implementation (3a9e763, bf77646) and records (051d1b7): arcani-render --preview, reference preview, preview render tool; six previews rendered at 48 kHz into build/previews/, peaks -30.00 to -30.43 dBFS, not committed; ctest 4 of 4, story Python files pass; spec in-review; next Audio listens on earbuds and headphones; sprint-status.yaml in-progress; not pushed"],
   ["2026-11-17","c116c1d","3.3","Spec (2e78cfd), signal spec Preview section with vectors (be1511e), preview rows and design log (xx) (b14d070), and the two checklist fixtures and listening checklist (c116c1d) committed; preview frames 210 s (Focus, Learn) and 180 s (the rest), g = 0x1.030dc4ea03a72p-6 for all six; failing tests come next; sprint-status.yaml in-progress; not pushed"],
