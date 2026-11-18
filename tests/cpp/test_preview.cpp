@@ -185,6 +185,7 @@ TEST_CASE("report check: a preview report passes, doctored preview members fail"
 #include "spec_tables.hpp"
 #include "tables.hpp"
 
+#include <cerrno>
 #include <charconv>
 #include <cmath>
 #include <concepts>
@@ -234,11 +235,17 @@ double peak_dbfs() { return peak_row().value(); }
 
 std::uint64_t bits_of(double x) { return api::bits(x); }
 
+// std::strtod, as spacing_helpers.hpp parses numbers: the pinned macOS libc++
+// has no floating-point std::from_chars. The whole text must be consumed and
+// the value in range.
 double parse_double(std::string_view text) {
-  double v = 0.0;
-  const auto r = std::from_chars(text.data(), text.data() + text.size(), v);
-  REQUIRE(r.ec == std::errc());
-  REQUIRE(r.ptr == text.data() + text.size());
+  const std::string s(text);
+  REQUIRE(!s.empty());
+  char* end = nullptr;
+  errno = 0;
+  const double v = std::strtod(s.c_str(), &end);
+  REQUIRE(errno == 0);
+  REQUIRE(end == s.c_str() + s.size());
   return v;
 }
 
