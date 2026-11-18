@@ -103,6 +103,11 @@ PreviewRows preview_rows(const arcani::test::tables::Row& length, const arcani::
 
 std::uint32_t PreviewLayers::max() const noexcept { return left > right ? left : right; }
 
+// The bounds below and the seen[ear][layer] indices are the arcani.h enum values.
+static_assert(ARC_EAR_LEFT == 0 && ARC_EAR_RIGHT == 1, "arc_ear values changed");
+static_assert(ARC_COMPONENT_THETA_REFERENCE == 0 && ARC_COMPONENT_GAMMA_PAC == 1 && ARC_COMPONENT_BINAURAL == 2,
+              "arc_component_layer values changed");
+
 bool preview_layers(const arc_plan* plan, PreviewLayers& out, std::string& rule) {
   out = PreviewLayers{};
   bool seen[2][3] = {{false, false, false}, {false, false, false}};

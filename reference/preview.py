@@ -102,7 +102,10 @@ def preview_frames(recipe, fs, length_s=PREVIEW_LENGTH_S, seam_tail_s=PREVIEW_SE
 
 
 def seams_heard(recipe, fs):
-    """(O, O + B): the opening end and the first body seam, both inside the preview."""
+    """(O, O + B): the opening end and the first body seam of a looping recipe.
+
+    Both lie inside the preview only when O + B < F; a session capped at or
+    before the first body seam has O + B at or past F."""
     loop = _loop_frames(recipe, fs)
     if loop is None:
         return None

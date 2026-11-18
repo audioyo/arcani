@@ -18,7 +18,9 @@ It writes six WAVs at 48 kHz into `build/previews/`, each with its report: `star
 
 The previews are quiet on purpose: the summed layers peak at -30 dBFS at most (row `preview-peak-level`). Start with the playback level low in Reaper and raise it to a comfortable level, then leave it there for the whole pass. Keep it the same for every render in a pass so they can be compared.
 
-Each preview starts and stops with no fade. A click at the very end is expected and is not a finding.
+Protect your hearing: the previews peak at -30 dBFS, so the playback level you set for them is far above normal. Turn the playback level back down after each pass, and never play a normal (non-preview) render at the raised setting: normal renders peak near full scale.
+
+Both edges of every preview are abrupt, as expected: there are no level ramps or fades until Epic 4. The sound starts at full level at 0 s and stops at the end of each file. Ignore a click at either edge, and note any click anywhere else.
 
 ## Budget
 
@@ -121,6 +123,10 @@ Write one of these, with the date, after both passes:
 | --- | --- |
 | Date | |
 | Listener | |
+| Commit the previews were rendered from (`git rev-parse --short HEAD`) | |
+| Engine version (`engine_version` in each report) | |
+| Sample rate | 48 kHz |
+| Playback gain in Reaper (dB) | |
 | Earbuds (model) | |
 | Headphones (model) | |
 | Result | |

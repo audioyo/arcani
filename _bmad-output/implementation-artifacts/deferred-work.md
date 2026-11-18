@@ -121,3 +121,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-3-2-spacing-rule-per-ear-whole-session.md`
   summary: The location of the minimum (first time and rates) is given only in a rejection detail; a passing plan's worst pair has no time or rates in `arc_spacing`, the report `spacing` block, or `spacing.tsv`. Add it for the designer GUI.
   evidence: Story 3.2 review; the contract kept the margins to distance, margin, and the two row indices.
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-3-early-listening-preview.md`
+  summary: The render speed assertion of a preview counts the F preview frames, but no test renders a preview with `ARCANI_REFERENCE_MACHINE=1`, so a preview speed pass or fail is never driven. Add one when the reference-machine speed tests (`tests/cpp/test_cli.cpp`, render speed cases) are next touched.
+  evidence: Story 3.3 review; `cli/main.cpp` passes `out_frames` to `cli::render_speed`, and the `--preview` CLI tests run with the variable unset.
