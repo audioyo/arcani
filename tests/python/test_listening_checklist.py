@@ -24,11 +24,12 @@ must hold:
   "Nothing needs changing" as a valid result.
 
 And nothing in `ci/`, `tools/hash_*.py`, or `tests/hashprobe/` names the
-previews, and git ignores `build/previews/`.
+previews, git ignores `build/previews/`, and `git ls-files` lists no
+committed preview file (`*.preview.wav` or `*.preview.report.json`).
 
 Must-fails, doctored here: a checklist text with a wrong seam time, with a
-missing Headphones column, and a `ci/` text naming `build/previews`, each
-caught.
+missing Headphones column, a `ci/` text naming `build/previews`, and a
+file listing holding a preview WAV or report, each caught.
 """
 
 import re
@@ -256,3 +257,34 @@ def test_git_ignores_the_previews_directory():
     r = subprocess.run(["git", "check-ignore", "-q", f"docs/x{common.constants()['wav_suffix']}"],
                        cwd=common.REPO_ROOT, capture_output=True, text=True)
     assert r.returncode == 1
+
+
+def committed_previews(paths):
+    """The paths of a file listing that are preview files (`<stem>.preview.wav`, `<stem>.preview.report.json`)."""
+    suffixes = (common.constants()["wav_suffix"], common.constants()["report_suffix"])
+    return [p for p in paths if p.replace("\\", "/").rsplit("/", 1)[-1].endswith(suffixes)]
+
+
+def git_files():
+    r = subprocess.run(["git", "ls-files", "-z"], cwd=common.REPO_ROOT, capture_output=True)
+    if r.returncode == 128:
+        pytest.skip(f"git ls-files failed: {r.stderr!r}")
+    assert r.returncode == 0
+    files = [f for f in r.stdout.decode("utf-8").split("\0") if f]
+    assert files
+    return files
+
+
+def test_no_preview_file_is_committed():
+    found = committed_previews(git_files())
+    assert not found, found
+
+
+def test_must_fail_a_listing_with_a_preview_file_is_caught():
+    files = git_files()
+    assert committed_previews(files + [f"golden/x{common.constants()['wav_suffix']}"])
+    assert committed_previews(files + [f"build/previews/x{common.constants()['report_suffix']}"])
+    assert committed_previews(["recipes\\fixtures\\x" + common.constants()["wav_suffix"]])
+    # Names that only look alike are not preview files.
+    assert not committed_previews(["recipes/fixtures/valid/preview-gamma-250-am-60-swell.json",
+                                   "docs/x.preview.md", "x.wav"])

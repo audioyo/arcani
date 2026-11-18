@@ -194,6 +194,39 @@ def test_usage_errors_exit_2(args, tmp_path):
     assert r.returncode == 2, r.stdout + r.stderr
 
 
+
+def test_the_documented_command_uses_the_default_renderer_and_build_previews(render):
+    """The one command of the checklist, with no --renderer and no --out-dir:
+    the preset build of arcani-render and <repo>/build/previews. Only the
+    1 s fixture is rendered; its two files are removed afterwards and any
+    preview already in that directory is left as it was."""
+    out_dir = common.REPO_ROOT / common.constants()["out_dir"]
+    stem = Path(ONE_SECOND).stem
+    made = [out_dir / f"{stem}{common.constants()[k]}" for k in ("wav_suffix", "report_suffix")]
+    saved = {f: f.read_bytes() for f in made if f.is_file()}
+    others_before = sorted(p.name for p in out_dir.iterdir() if p not in made) if out_dir.is_dir() else []
+    try:
+        for f in made:
+            f.unlink(missing_ok=True)
+        r = tool(["--fixture", common.FIXTURES_VALID / ONE_SECOND])
+        assert r.returncode == 0, r.stdout + r.stderr
+        for f in made:
+            assert f.is_file(), f
+        report = json.loads(made[1].read_text(encoding="utf-8"))
+        assert report["preview"]["signed"] is False
+        assert report["sample_rate"] == common.constants()["listening_rate"]
+        lines = [line for line in r.stdout.splitlines() if line.strip()]
+        m = re.fullmatch(r"render_previews: 1 previews, (\S+) s of audio in (.+)", lines[-1])
+        assert m, lines[-1]
+        assert Path(m.group(2)).resolve() == out_dir.resolve()
+        assert sorted(p.name for p in out_dir.iterdir() if p not in made) == others_before
+    finally:
+        for f in made:
+            f.unlink(missing_ok=True)
+        for f, data in saved.items():
+            f.write_bytes(data)
+
+
 # ------------------------------------------------------------ must-fail: a doctored repository root
 
 
