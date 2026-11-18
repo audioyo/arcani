@@ -45,13 +45,16 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <charconv>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #ifndef ARCANI_RENDER_PATH
@@ -1021,3 +1024,229 @@ TEST_CASE("arcani-render reports spacing (Story 3.2)", "[cli][spacing]") {
 }
 
 #endif
+
+// ------------------------------------------------------------------ preview
+
+// Story 3.3 (docs/signal-spec.md, Preview; spec Implementation Notes, Command
+// line). `--preview` takes no value, may appear once anywhere after RECIPE,
+// and is a usage error (exit 2, nothing written) twice or with --mode final
+// in either order; the usage text names it. A preview render keeps frames
+// [0, F) of the recipe's own render, each sample times g before 24-bit
+// rounding, g = 10^(P/20) / max(n_max, 1) with P row preview-peak-level; the
+// report has frames F and a preview member before determinism_key, whose
+// key is the recipe's own. g here is the gain vector for P and the layer
+// count read from the recipe text, never computed by cli/. Short renders
+// only (1 s fixtures).
+
+namespace {
+
+// Layers present in each ear of a recipe text, no ear muted (Preview, Layers).
+std::uint32_t recipe_layers_per_ear(const std::string& text) {
+  const json::Value v = parse_ok(text);
+  std::uint32_t n = 0;
+  for (const char* layer : {"theta_reference", "gamma_pac", "binaural"}) {
+    n += v.find(layer) != nullptr ? 1u : 0u;
+  }
+  return n;
+}
+
+const arcani::test::spec::PreviewGainVector& preview_gain_vector(std::uint32_t layers) {
+  const double p = tables::row("preview-peak-level").value();
+  const std::uint32_t counted = layers == 0 ? 1u : layers;
+  for (const auto& v : arcani::test::spec::kPreviewGains) {
+    if (v.peak_dbfs == p && v.layers_max == counted) {
+      return v;
+    }
+  }
+  FAIL("no preview gain vector for P " << p << " and " << counted << " layers");
+  return arcani::test::spec::kPreviewGains[0];
+}
+
+std::string shortest_text(double x) {
+  char buf[64];
+  const auto r = std::to_chars(buf, buf + sizeof buf, x);
+  REQUIRE(r.ec == std::errc());
+  return std::string(buf, r.ptr);
+}
+
+double gain_of(const arcani::test::spec::PreviewGainVector& v) {
+  double g = 0.0;
+  std::memcpy(&g, &v.gain_bits, sizeof g);
+  return g;
+}
+
+// The engine output of `text` at `rate`, frames [0, frames), times g, by the
+// spec 24-bit rounding rule; and the largest |quantized sample| before and
+// after the gain.
+struct PreviewExpected {
+  Expected wav;
+  std::int32_t peak_plain = 0;
+  std::int32_t peak_preview = 0;
+};
+
+PreviewExpected preview_render(const std::string& text, std::uint32_t rate, std::uint64_t frames, double g) {
+  namespace api = arcani::test::api;
+  api::PlanPtr plan = api::compile_ok(text, api::options(ARC_MODE_MEASURE, rate));
+  PreviewExpected e;
+  e.wav.frames = frames;
+  if (frames == 0) {
+    return e;
+  }
+  api::RendererPtr r = api::renderer(plan.get());
+  std::vector<double> out = api::render(r.get(), static_cast<std::size_t>(frames));
+  for (double& s : out) {
+    const std::int32_t q = h::spec_quantize_24(s);
+    e.peak_plain = std::max(e.peak_plain, q < 0 ? -q : q);
+    s = s * g;
+    const std::int32_t w = h::spec_quantize_24(s);
+    e.peak_preview = std::max(e.peak_preview, w < 0 ? -w : w);
+  }
+  e.wav.data = h::spec_data_bytes(out);
+  return e;
+}
+
+std::string want_preview_block(double peak, std::uint32_t layers, double gain, double seconds) {
+  return "  \"preview\": {\n    \"signed\": false,\n    \"peak_dbfs\": " + shortest_text(peak) +
+         ",\n    \"layers_per_ear\": " + std::to_string(layers) + ",\n    \"gain\": " + shortest_text(gain) +
+         ",\n    \"seconds\": " + shortest_text(seconds) + "\n  },\n";
+}
+
+}  // namespace
+
+TEST_CASE("--preview usage errors exit 2 and write nothing; the usage text names --preview", "[cli][preview]") {
+  const fs::path dir = case_dir("preview-usage");
+  const std::string recipe = fixture_path(arcani::test::api::kBeat6);
+  const std::string wav = (dir / "x.wav").string();
+  const std::vector<std::vector<std::string>> shapes = {
+      {recipe, "--out", wav, "--preview", "--mode", "final"},
+      {recipe, "--out", wav, "--mode", "final", "--preview"},
+      {recipe, "--preview", "--mode", "final", "--out", wav},
+      {recipe, "--out", wav, "--preview", "--preview"},
+      {recipe, "--preview", "--out", wav, "--preview"},
+      {recipe, "--out", wav, "--preview", "stray"},
+      {recipe, "--out", wav, "--preview", "--rate"},
+      {"--preview", recipe, "--out", wav},
+  };
+  for (const auto& args : shapes) {
+    require_usage_exit_2(args, dir);
+  }
+  const RunResult r = run_cli({});
+  CHECK(r.exit_code == 2);
+  CHECK((r.out + r.err).find("[--preview]") != std::string::npos);
+}
+
+TEST_CASE("--preview of a 1 s recipe: every sample is the 24-bit rounding of the engine output times g",
+          "[cli][preview]") {
+  namespace api = arcani::test::api;
+  namespace spec = arcani::test::spec;
+  ScopedEnv env(kEnv, nullptr);
+  const tables::Row& length = tables::row("preview-length");
+  const std::string fixture = api::kBeat6;
+  const std::string text = api::valid(fixture);
+  const std::uint32_t layers = recipe_layers_per_ear(text);
+  REQUIRE(layers == 2);  // the fixture holds a theta reference and a binaural pair
+  const spec::PreviewGainVector& gv = preview_gain_vector(layers);
+  const double g = gain_of(gv);
+  // The analytic peak bound: at most 10^(P/20) of full scale, within the
+  // 24-bit rounding step (half a step).
+  const double bound = gv.amplitude * 0x1p23 + 0.5;
+  for (std::uint32_t rate : table_rates()) {
+    INFO("rate " << rate);
+    const fs::path dir = case_dir("preview-beat6-" + std::to_string(rate));
+    const fs::path wav = dir / "x.wav";
+    // --preview first, between the options, and last: the same bytes.
+    const std::vector<std::vector<std::string>> orders = {
+        {fixture_path(fixture), "--preview", "--out", wav.string(), "--rate", std::to_string(rate)},
+        {fixture_path(fixture), "--out", wav.string(), "--preview", "--rate", std::to_string(rate)},
+        {fixture_path(fixture), "--out", wav.string(), "--rate", std::to_string(rate), "--preview"},
+    };
+    std::vector<std::uint8_t> first;
+    for (const auto& args : orders) {
+      const RunResult r = run_cli(args);
+      INFO("stdout: " << r.out << "\nstderr: " << r.err);
+      REQUIRE(r.exit_code == 0);
+      CHECK(r.err.empty());
+      const auto bytes = h::read_bytes(wav.string());
+      REQUIRE(bytes.has_value());
+      if (first.empty()) {
+        first = *bytes;
+      } else {
+        CHECK(*bytes == first);
+      }
+    }
+    // The session (1 s) is shorter than the preview: F = N.
+    api::PlanPtr plan = api::compile_ok(text, api::options(ARC_MODE_MEASURE, rate));
+    const std::uint64_t n = arc_plan_frame_count(plan.get());
+    REQUIRE(static_cast<double>(n) < length.value() * rate);
+    const PreviewExpected want = preview_render(text, rate, n, g);
+    require_wav(wav, want.wav, rate);
+    // Real waveforms: the plain render peaks above the preview bound; the
+    // preview stays under the analytic bound and is not silent.
+    INFO("plain peak " << want.peak_plain << ", preview peak " << want.peak_preview << ", bound " << bound);
+    CHECK(static_cast<double>(want.peak_plain) > bound);
+    CHECK(want.peak_preview > 0);
+    CHECK(static_cast<double>(want.peak_preview) <= bound);
+    // Must-fail: the plain render's bytes, and g times 1.001, are not the preview WAV.
+    const Expected plain = engine_render(text, ARC_MODE_MEASURE, rate);
+    CHECK(plain.data != want.wav.data);
+    const PreviewExpected off = preview_render(text, rate, n, g * 1.001);
+    CHECK(off.wav.data != want.wav.data);
+
+    // Report: frames F, the preview member, the recipe's own key.
+    const fs::path report_path = dir / "x.report.json";
+    const json::Value report = require_report(report_path);
+    check_report_members(report, fixture, text, rate, "measure", n);
+    const json::Value* preview = report.find("preview");
+    REQUIRE(preview != nullptr);
+    CHECK(preview->find("signed")->kind() == json::Kind::Bool);
+    CHECK_FALSE(preview->find("signed")->boolean());
+    CHECK(preview->find("peak_dbfs")->number() == tables::row("preview-peak-level").value());
+    CHECK(preview->find("layers_per_ear")->number() == static_cast<double>(layers));
+    CHECK(api::bits(preview->find("gain")->number()) == gv.gain_bits);
+    CHECK(preview->find("seconds")->number() == static_cast<double>(n) / static_cast<double>(rate));
+    const std::string report_text = read_text_file(report_path);
+    const std::string block = want_preview_block(tables::row("preview-peak-level").value(), layers, g,
+                                                 static_cast<double>(n) / static_cast<double>(rate));
+    INFO(report_text << "\nwant block:\n" << block);
+    const auto at = report_text.find(block);
+    REQUIRE(at != std::string::npos);
+    CHECK(report_text.compare(at + block.size(), 22, "  \"determinism_key\": {") == 0);
+
+    // The same render without --preview: no preview member, the recipe's key,
+    // and the plain bytes.
+    const fs::path plain_dir = case_dir("preview-beat6-plain-" + std::to_string(rate));
+    const RunResult p = run_cli({fixture_path(fixture), "--out", (plain_dir / "x.wav").string(), "--rate",
+                                 std::to_string(rate)});
+    REQUIRE(p.exit_code == 0);
+    require_wav(plain_dir / "x.wav", plain, rate);
+    const json::Value plain_report = require_report(plain_dir / "x.report.json");
+    CHECK(plain_report.find("preview") == nullptr);
+    CHECK(read_text_file(plain_dir / "x.report.json").find("\"preview\"") == std::string::npos);
+    CHECK(key_text(plain_report) == key_text(report));
+  }
+}
+
+TEST_CASE("--preview of a recipe with no layer: n_max 0 counts as 1 and the WAV is silent", "[cli][preview]") {
+  namespace api = arcani::test::api;
+  ScopedEnv env(kEnv, nullptr);
+  const std::string fixture = api::kNoLayers;
+  const std::string text = api::valid(fixture);
+  REQUIRE(recipe_layers_per_ear(text) == 0);
+  const arcani::test::spec::PreviewGainVector& gv = preview_gain_vector(0);
+  const std::uint32_t rate = 48000;
+  const fs::path dir = case_dir("preview-no-layers");
+  const fs::path wav = dir / "x.wav";
+  const RunResult r = run_cli({fixture_path(fixture), "--out", wav.string(), "--preview"});
+  INFO("stdout: " << r.out << "\nstderr: " << r.err);
+  REQUIRE(r.exit_code == 0);
+  api::PlanPtr plan = api::compile_ok(text, api::options(ARC_MODE_MEASURE, rate));
+  const std::uint64_t n = arc_plan_frame_count(plan.get());
+  const PreviewExpected want = preview_render(text, rate, n, gain_of(gv));
+  CHECK(want.peak_preview == 0);
+  require_wav(wav, want.wav, rate);
+  const json::Value report = require_report(dir / "x.report.json");
+  const json::Value* preview = report.find("preview");
+  REQUIRE(preview != nullptr);
+  CHECK(preview->find("layers_per_ear")->number() == 0.0);
+  CHECK(api::bits(preview->find("gain")->number()) == gv.gain_bits);
+}

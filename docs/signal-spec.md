@@ -2,7 +2,7 @@
 
 This file is the only source of signal formulas (AD-19). The engine (`engine/`) and the Python reference (`reference/`) each implement it on their own; neither defines a formula of its own, and neither is ported from the other. A shape or stage not in this file does not exist.
 
-Story 0.2 writes the core and sine sections. Story 1.2 writes the internal block size and the stub chain. Story 1.4 writes 24-bit rounding. Story 1.5 adds the theta reference oscillator to the stub chain. Story 2.1 writes the theta reference (envelope shapes, depth law). Story 2.2 writes the gamma PAC layer, uncoupled (AM law, constant depth). Story 2.3 writes coupling (coupling phase, smooth swell). Story 2.5 writes the binaural layer and the rate curve (beat rate cycle, closed-form phase integral). Story 2.4 writes bursts (burst gate, burst constants). Story 2.6 applies the rate curve to the theta and gamma rates. Story 2.7 writes the loop (opening, body, seams, and the end at the max run time). Story 3.1 writes the components (the spectral line model of every shape and the component table). Story 3.2 writes the spacing rule (the closed-form minimum distance per ear and pair, the error detail, and the margins). Later stories add ramps, the limiter, the resampler, and the loudness window.
+Story 0.2 writes the core and sine sections. Story 1.2 writes the internal block size and the stub chain. Story 1.4 writes 24-bit rounding. Story 1.5 adds the theta reference oscillator to the stub chain. Story 2.1 writes the theta reference (envelope shapes, depth law). Story 2.2 writes the gamma PAC layer, uncoupled (AM law, constant depth). Story 2.3 writes coupling (coupling phase, smooth swell). Story 2.5 writes the binaural layer and the rate curve (beat rate cycle, closed-form phase integral). Story 2.4 writes bursts (burst gate, burst constants). Story 2.6 applies the rate curve to the theta and gamma rates. Story 2.7 writes the loop (opening, body, seams, and the end at the max run time). Story 3.1 writes the components (the spectral line model of every shape and the component table). Story 3.2 writes the spacing rule (the closed-form minimum distance per ear and pair, the error detail, and the margins). Story 3.3 writes the preview (the preview frames, the layer count per ear, and the preview gain; a step of the command-line renderer, not an engine stage). Later stories add ramps, the limiter, the resampler, and the loudness window.
 
 **Conventions:**
 
@@ -4423,6 +4423,127 @@ The closed form on its own, for a direct test of an engine helper and of the ref
 | three cycles | `0x1.a400000000000p+5` | 1 | -2 | 1 | `0x1.e000000000000p+3` | `0x1.6800000000000p+6` | `0x1.0000000000000p+1` | `0x0.0p+0` | `0x1.8000000000000p+0` | `0x1.0e00000000000p+8` | -4 | 13.5 | 14.08012784032872337897366 | 38.41987215967127662102634 | 0.4541545517173471692216805 |
 | three cycles, crossing | `0x1.d000000000000p+2` | 1 | -3 | -1 | `0x1.e000000000000p+3` | `0x1.6800000000000p+5` | `0x1.4000000000000p+1` | `0x1.2c00000000000p+8` | `0x1.8000000000000p+0` | `0x1.4000000000000p+3` | 5.379390088279899264147597 | 16.84131997968110633580789 | 17.67958982499000292692198 | 0 | 0.366455609512654160403007 |
 | multiplier on a rate without a cycle | `0x1.b800000000000p+5` | 1 | 0 | 0 | `0x0.0p+0` | `0x0.0p+0` | `0x1.0000000000000p+1` | `0x0.0p+0` | `0x0.0p+0` | `0x0.0p+0` | 0 | 0 | 0 | 55 | none |
+
+## Preview
+
+Story 3.3 writes the listening preview: a short, quiet render of a recipe that the command-line renderer makes with `--preview`, so a harsh carrier or a rough gamma pulse can be heard long before golden sign-off. It is not an engine stage. The engine compiles and renders the recipe exactly as it does without `--preview`: the plan, the recipe hash, the component table, the spacing margins, the loop frames, and every tap are the recipe's own. The renderer keeps the first `F` frames of that render and scales each output sample by one gain `g` before 24-bit rounding. Nothing here changes a sample, a vector, a fixture byte, a recipe hash, a pinned hash, or any render or report made without `--preview`. A preview is never a golden and is never signed; no hash probe component and nothing in `ci/` reads one.
+
+**Rows.** Three threshold rows, engineering defaults for previews only (design log 2026-11-17 (xx)): `preview-length` (180 s, the "about 3 minutes" of the story), `preview-seam-tail` (30 s heard past the first body seam of a looping recipe), and `preview-peak-level` (`P`, -30 dBFS, the analytic peak of the summed layers). No study sets them.
+
+**Mode and rate.** A preview is made in measure mode only: `--preview` with `--mode final` is a usage error (exit 2) and writes nothing. Any sample rate the engine accepts may be used; the listening previews are made at 48 kHz.
+
+**Frames.** Once per render, with the seconds-to-samples rule (Core) and exact integer arithmetic:
+
+```
+N = seconds_to_samples(length_s, fs)              the session end (Stub chain; Loop, Frames)
+L = seconds_to_samples(preview_length_s, fs)      row preview-length
+T = seconds_to_samples(preview_seam_tail_s, fs)   row preview-seam-tail
+no loop:   F = min(L, N)
+loop:      F = min(O + B + T, N)                  O and B as in Loop, Frames
+```
+
+So a recipe without a loop previews its first `min(180 s, length_s)`, and a looping recipe previews its opening, the join at `O` (the seam from the opening into the first body pass), one whole body, the first body seam at `O + B`, and `T` frames past it: for Focus and Learn, 60 + 120 + 30 = 210 s. When a looping session holds only one body pass (`O + B = N`, no seam), `F = N`. The preview is frames `[0, F)` of the full render, sample for sample: no seek, no reset, and no frame past `F` is rendered.
+
+**Layers.** Every layer runs at unit amplitude (the Level paragraphs of Stub chain, Gamma PAC layer, Coupling, Bursts, and Binaural layer): the theta reference tap, the gamma PAC tap, and each binaural sine are each at most 1 in magnitude, and the per-channel gain is 1.0 and the limiter stub the identity (Stub chain). So in one ear the output is at most `n`, the number of layers present in that ear: 1 for `theta_reference`, 1 for `gamma_pac` (both are the same in both ears), and 1 for `binaural` in each ear that is not muted. `n` is the analytic peak; the samples stay at or below it, and below it wherever the layers' peaks never meet. `n_max` is the larger of the two ears' counts. A layer present in an ear has its carrier row in that ear's component table (Components, Table), and a muted ear has no binaural row, so counting the layers of each ear's rows (`arc_plan_component`) gives the same `n`. The command-line renderer never mutes an ear; the count still honors a plan's muted ear.
+
+**Gain.** `g = 10^(P / 20) / n_max`, with `P` the value of row `preview-peak-level`, and an `n_max` of 0 (no layer: a silent render) counted as 1. So the summed layers of the louder ear peak at `P` dBFS at most, and an ear with fewer layers lower. To give `g` the same bits on every platform with no transcendental call, `P` must be a whole multiple of 10 dB from -440 to 0 dB: then `10^(P / 20)` is a power of ten, or a power of ten times `sqrt(10)`, and 10^22 is the largest power of ten binary64 holds exactly. Any other value of the row (for example -25, -30.5, -0.5, 10, or -450) is a table error, found when the row is read and before any output is opened: the renderer exits 3 and writes nothing. In binary64, each step one correctly rounded operation in this order:
+
+```
+valid when -440.0 <= P <= 0.0, m = P / 10.0 is an integer (the Whole-sample rule's integer test, Loop), and m * 10.0 == P
+k = -m, as an integer (0 to 44)
+x = 1.0
+repeat k div 2 times:  x = x * 10.0             exact: 10^j for j <= 22
+if k is odd:           x = x * sqrt(10.0)       one correctly rounded square root, 0x1.94c583ada5b53p+1, then one rounding
+a = 1.0 / x                                     one rounding: 10^(P / 20)
+g = a / double(max(n_max, 1))                   one rounding
+```
+
+For -30 dB, `k = 3`: `x = 10.0 * sqrt(10.0)`, `a = 1 / (10 * sqrt(10))`, and with two layers `g = a / 2.0` (an exact halving), `0x1.030dc4ea03a72p-6`, about 0.0158114. The steps use only multiplication, division, comparison, and square root (AD-9), so `g` has the same bits on every platform; `g` is within 2 units in the last place of the exact value.
+
+**Per sample.** For `0 <= n < F` and each channel `c`, with `out[c][n]` the render output (Stub chain, Output and taps):
+
+```
+w[c][n] = out[c][n] * g      binary64, one rounding
+```
+
+and `w` is written by the 24-bit rounding rule (24-bit rounding) in place of `out`. A NaN stays NaN and is written as 0, as without a preview. The WAV is the same layout as every render (2 channels, 24 bits, the RIFF or RF64 header) for `F` frames.
+
+**Report.** A preview report has `frames` equal to `F`. The `loop` and `spacing` members are the plan's own, unchanged: `seam_frames` lists every seam of the recipe up to `N`, including the seams past `F`. A member `preview` follows `spacing` (or `loop` without a spacing block, or `frames` without either) and comes before `determinism_key`:
+
+```
+  "preview": {
+    "signed": false,
+    "peak_dbfs": -30,
+    "layers_per_ear": 2,
+    "gain": 0.015811388300841896,
+    "seconds": 210
+  },
+```
+
+`signed` is always `false`: no preview is signed off (golden sign-off is Epic 6). `peak_dbfs` is `P`, `layers_per_ear` is `n_max` (an integer), `gain` is `g`, and `seconds` is `F / fs` (binary64, one division); every number is written as the shortest round-trip text of its binary64, as in every report. The `determinism_key` is the recipe's own (recipe hash, engine version, sample rate): it names the recipe, not the preview bytes, which the `preview` member marks. The render speed assertion counts the `F` frames rendered. A report made without `--preview` has no `preview` member and is unchanged byte for byte. The exit codes and stderr lines are unchanged apart from the usage error above.
+
+**Preview set.** `tools/render_previews.py` renders the four starter layer fixtures (Spacing, Fixtures) and the two checklist fixtures below at 48 kHz into `build/previews/` (ignored by git), as `<fixture>.preview.wav` and `<fixture>.preview.report.json`. It refuses any output directory inside the repository that is not under `build/`. At -30 dB every one of the six has two layers in each ear, so each has `g = 0x1.030dc4ea03a72p-6`.
+
+**Fixtures.** `preview-gamma-250-am-60-swell.json` is a 450 Hz carrier amplitude-modulated by the sine envelope at 6 Hz, 75 percent depth, and a 250 Hz sine carrier amplitude-modulated at 60 Hz with a smooth swell peaking at the 0 degree coupling phase, 100 percent depth, 180 s, no binaural layer and no loop. `preview-gamma-250-am-60-bursts.json` is the same with 50 ms bursts at 0 degrees. They put the 250 Hz carrier with coupled gamma AM at 60 Hz on the listening checklist (the carrier rule review of 2026-11-16, condition 2). Both pass the carrier rule (250 Hz is at least 4 times 60 Hz, 240 Hz) and the spacing rule over the whole session, worst pair the same in both ears: the swell, 128 Hz (margin 78 Hz) between the theta reference line `(0, -1, 0)` at 444 Hz and the gamma PAC line `(1, 1, 0)` at 316 Hz; the bursts, 92 Hz (margin 42 Hz) between that theta line and the gamma PAC burst line `(0, 17, 0)` at 352 Hz.
+
+**Reference.** The Python reference (`reference/preview.py`, implemented from this section) computes `F`, the layer count per ear, and `g` by the steps above in binary64 (its square root is correctly rounded), so its `g` has the vector bits.
+
+**Vectors.** The gain vectors give `10^(P / 20)` and `g` as bits with the exact `g` at 25 digits, for -30 dB with one, two, and three layers and for each branch of the steps (0, -10, -20, -40, -50, -430, and -440 dB). The layer vectors give the count per ear for the preview set, the Sleep layers with each ear muted, and one-layer, binaural-only, and no-layer fixtures. The frame vectors give `N`, `O`, `O + B`, `L`, `T`, `F`, and `F / fs` for the preview set at both rates.
+
+### Vectors: preview gain
+
+`P` and `n_max`, `10^(P / 20)` and `g` by the binary64 steps (hex and bits), and the exact `10^(P / 20) / max(n_max, 1)` at 25 digits.
+
+| P (dB) | n_max | 10^(P/20) (hex) | Gain g (hex) | g bits | Ideal g |
+| --- | --- | --- | --- | --- | --- |
+| -30.0 | 1 | `0x1.030dc4ea03a72p-5` | `0x1.030dc4ea03a72p-5` | `0x3fa030dc4ea03a72` | 0.03162277660168379331998894 |
+| -30.0 | 2 | `0x1.030dc4ea03a72p-5` | `0x1.030dc4ea03a72p-6` | `0x3f9030dc4ea03a72` | 0.01581138830084189665999447 |
+| -30.0 | 3 | `0x1.030dc4ea03a72p-5` | `0x1.5967b13804dedp-7` | `0x3f85967b13804ded` | 0.01054092553389459777332965 |
+| 0.0 | 1 | `0x1.0000000000000p+0` | `0x1.0000000000000p+0` | `0x3ff0000000000000` | 1 |
+| -10.0 | 1 | `0x1.43d136248490fp-2` | `0x1.43d136248490fp-2` | `0x3fd43d136248490f` | 0.3162277660168379331998894 |
+| -20.0 | 1 | `0x1.999999999999ap-4` | `0x1.999999999999ap-4` | `0x3fb999999999999a` | 0.1 |
+| -40.0 | 1 | `0x1.47ae147ae147bp-7` | `0x1.47ae147ae147bp-7` | `0x3f847ae147ae147b` | 0.01 |
+| -50.0 | 2 | `0x1.9e7c6e43390b6p-9` | `0x1.9e7c6e43390b6p-10` | `0x3f59e7c6e43390b6` | 0.001581138830084189665999447 |
+| -430.0 | 1 | `0x1.7e4bc0d666b6dp-72` | `0x1.7e4bc0d666b6dp-72` | `0x3b77e4bc0d666b6d` | 3.162277660168379331998894e-22 |
+| -440.0 | 1 | `0x1.e392010175ee6p-74` | `0x1.e392010175ee6p-74` | `0x3b5e392010175ee6` | 1e-22 |
+
+### Vectors: preview layers
+
+Per layer case: the fixture and muted ear, the layers present in each ear (Preview, Layers), `n_max`, and `g` at row `preview-peak-level` (-30 dB).
+
+| Layer case | Fixture | Muted ear | Left | Right | n_max | Gain g at -30 dB (hex) | g bits |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| starter-focus-layers | starter-focus-layers.json | none | 2 | 2 | 2 | `0x1.030dc4ea03a72p-6` | `0x3f9030dc4ea03a72` |
+| starter-learn-layers | starter-learn-layers.json | none | 2 | 2 | 2 | `0x1.030dc4ea03a72p-6` | `0x3f9030dc4ea03a72` |
+| starter-relax-layers | starter-relax-layers.json | none | 2 | 2 | 2 | `0x1.030dc4ea03a72p-6` | `0x3f9030dc4ea03a72` |
+| starter-sleep-layers | starter-sleep-layers.json | none | 2 | 2 | 2 | `0x1.030dc4ea03a72p-6` | `0x3f9030dc4ea03a72` |
+| preview-gamma-250-am-60-swell | preview-gamma-250-am-60-swell.json | none | 2 | 2 | 2 | `0x1.030dc4ea03a72p-6` | `0x3f9030dc4ea03a72` |
+| preview-gamma-250-am-60-bursts | preview-gamma-250-am-60-bursts.json | none | 2 | 2 | 2 | `0x1.030dc4ea03a72p-6` | `0x3f9030dc4ea03a72` |
+| starter-sleep-layers-mute-left | starter-sleep-layers.json | left | 1 | 2 | 2 | `0x1.030dc4ea03a72p-6` | `0x3f9030dc4ea03a72` |
+| starter-sleep-layers-mute-right | starter-sleep-layers.json | right | 2 | 1 | 2 | `0x1.030dc4ea03a72p-6` | `0x3f9030dc4ea03a72` |
+| theta-reference-only | theta-reference-only.json | none | 1 | 1 | 1 | `0x1.030dc4ea03a72p-5` | `0x3fa030dc4ea03a72` |
+| binaural-only | binaural-only.json | none | 1 | 1 | 1 | `0x1.030dc4ea03a72p-5` | `0x3fa030dc4ea03a72` |
+| binaural-only-mute-left | binaural-only.json | left | 0 | 1 | 1 | `0x1.030dc4ea03a72p-5` | `0x3fa030dc4ea03a72` |
+| minimal-no-layers | minimal-no-layers.json | none | 0 | 0 | 0 | `0x1.030dc4ea03a72p-5` | `0x3fa030dc4ea03a72` |
+
+### Vectors: preview frames
+
+Per preview fixture and sample rate: the session end `N`, the opening end `O` and the first body seam `O + B` in frames and seconds (`none` without a loop), `L` and `T` (Preview, Frames), the preview frame count `F`, the `seconds` of the report (`F / fs`), `n_max`, and `g` at -30 dB.
+
+| Fixture | fs | Looping | length_s | End N | Opening end O | First body seam O + B | Opening end (s) | First body seam (s) | L | T | Preview frames F | Seconds F / fs | n_max | Gain g (hex) | g bits |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| starter-focus-layers.json | 44100 | yes | 2700.0 | 119070000 | 2646000 | 7938000 | 60.0 | 180.0 | 7938000 | 1323000 | 9261000 | 210.0 | 2 | `0x1.030dc4ea03a72p-6` | `0x3f9030dc4ea03a72` |
+| starter-learn-layers.json | 44100 | yes | 1200.0 | 52920000 | 2646000 | 7938000 | 60.0 | 180.0 | 7938000 | 1323000 | 9261000 | 210.0 | 2 | `0x1.030dc4ea03a72p-6` | `0x3f9030dc4ea03a72` |
+| starter-relax-layers.json | 44100 | no | 1800.0 | 79380000 | none | none | none | none | 7938000 | 1323000 | 7938000 | 180.0 | 2 | `0x1.030dc4ea03a72p-6` | `0x3f9030dc4ea03a72` |
+| starter-sleep-layers.json | 44100 | no | 2700.0 | 119070000 | none | none | none | none | 7938000 | 1323000 | 7938000 | 180.0 | 2 | `0x1.030dc4ea03a72p-6` | `0x3f9030dc4ea03a72` |
+| preview-gamma-250-am-60-swell.json | 44100 | no | 180.0 | 7938000 | none | none | none | none | 7938000 | 1323000 | 7938000 | 180.0 | 2 | `0x1.030dc4ea03a72p-6` | `0x3f9030dc4ea03a72` |
+| preview-gamma-250-am-60-bursts.json | 44100 | no | 180.0 | 7938000 | none | none | none | none | 7938000 | 1323000 | 7938000 | 180.0 | 2 | `0x1.030dc4ea03a72p-6` | `0x3f9030dc4ea03a72` |
+| starter-focus-layers.json | 48000 | yes | 2700.0 | 129600000 | 2880000 | 8640000 | 60.0 | 180.0 | 8640000 | 1440000 | 10080000 | 210.0 | 2 | `0x1.030dc4ea03a72p-6` | `0x3f9030dc4ea03a72` |
+| starter-learn-layers.json | 48000 | yes | 1200.0 | 57600000 | 2880000 | 8640000 | 60.0 | 180.0 | 8640000 | 1440000 | 10080000 | 210.0 | 2 | `0x1.030dc4ea03a72p-6` | `0x3f9030dc4ea03a72` |
+| starter-relax-layers.json | 48000 | no | 1800.0 | 86400000 | none | none | none | none | 8640000 | 1440000 | 8640000 | 180.0 | 2 | `0x1.030dc4ea03a72p-6` | `0x3f9030dc4ea03a72` |
+| starter-sleep-layers.json | 48000 | no | 2700.0 | 129600000 | none | none | none | none | 8640000 | 1440000 | 8640000 | 180.0 | 2 | `0x1.030dc4ea03a72p-6` | `0x3f9030dc4ea03a72` |
+| preview-gamma-250-am-60-swell.json | 48000 | no | 180.0 | 8640000 | none | none | none | none | 8640000 | 1440000 | 8640000 | 180.0 | 2 | `0x1.030dc4ea03a72p-6` | `0x3f9030dc4ea03a72` |
+| preview-gamma-250-am-60-bursts.json | 48000 | no | 180.0 | 8640000 | none | none | none | none | 8640000 | 1440000 | 8640000 | 180.0 | 2 | `0x1.030dc4ea03a72p-6` | `0x3f9030dc4ea03a72` |
 
 ## 24-bit rounding
 

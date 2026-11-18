@@ -3,7 +3,12 @@
 // JSON report (Story 1.4).
 //
 //   arcani-render --version
-//   arcani-render RECIPE --out WAV [--report JSON] [--rate N] [--mode measure|final]
+//   arcani-render RECIPE --out WAV [--report JSON] [--rate N] [--mode measure|final] [--preview]
+//
+// --preview (Story 3.3; docs/signal-spec.md, Preview) keeps the first F
+// frames of the recipe's own render, each sample times the preview gain g
+// before 24-bit rounding, and adds the report member "preview". Measure mode
+// only: with --mode final it is a usage error.
 //
 // Exit codes: 0 rendered, every assertion pass or not applicable; 1 the
 // engine rejected the recipe or an option; 2 usage; 3 file or internal
@@ -11,6 +16,7 @@
 
 #include <arcani/arcani.h>
 
+#include "preview.hpp"
 #include "report.hpp"
 #include "tables.hpp"
 #include "wav.hpp"
@@ -46,7 +52,7 @@ constexpr std::size_t kBlockFrames = 4096;
 
 const char* const kUsage =
     "usage: arcani-render RECIPE --out WAV [--report JSON] [--rate 44100|48000]"
-    " [--mode measure|final]\n"
+    " [--mode measure|final] [--preview]\n"
     "       arcani-render --version\n";
 
 int usage() {
@@ -65,6 +71,7 @@ struct Args {
   std::optional<std::string> report;
   std::uint32_t rate = 48000;
   arc_mode mode = ARC_MODE_MEASURE;
+  bool preview = false;
 };
 
 // ASCII digits only, and the value fits in 32 bits.
@@ -85,7 +92,9 @@ std::optional<std::uint32_t> parse_rate(const std::string& text) {
   return v;
 }
 
-// RECIPE first, then each option at most once, in any order.
+// RECIPE first, then each option at most once, in any order. --preview is
+// the only option without a value; every other option's value is the next
+// argument, whatever it is.
 std::optional<Args> parse_args(int argc, char** argv) {
   if (argc < 2) {
     return std::nullopt;
@@ -100,6 +109,14 @@ std::optional<Args> parse_args(int argc, char** argv) {
   bool have_mode = false;
   for (int i = 2; i < argc; i += 2) {
     const std::string flag = argv[i];
+    if (flag == "--preview") {
+      if (a.preview) {
+        return std::nullopt;
+      }
+      a.preview = true;
+      --i;  // no value: the loop step moves to the next argument
+      continue;
+    }
     if (i + 1 >= argc) {
       return std::nullopt;
     }
@@ -134,6 +151,9 @@ std::optional<Args> parse_args(int argc, char** argv) {
   }
   if (!have_out || a.out.empty()) {
     return std::nullopt;
+  }
+  if (a.preview && a.mode == ARC_MODE_FINAL) {
+    return std::nullopt;  // a preview is made in measure mode only
   }
   return a;
 }
@@ -243,6 +263,14 @@ int run(const Args& args) {
   const std::string report_path = args.report ? *args.report : default_report_path(args.out);
   // Read before any output is opened, so a missing table writes nothing.
   const arcani::test::tables::Row& speed_row = arcani::test::tables::row("render-speed");
+  // Story 3.3: the preview rows, read and checked before anything is opened,
+  // so a table error (a TableError, exit 3 through main) writes nothing.
+  std::optional<cli::PreviewRows> preview_rows;
+  if (args.preview) {
+    namespace tables = arcani::test::tables;
+    preview_rows = cli::preview_rows(tables::row("preview-length"), tables::row("preview-seam-tail"),
+                                     tables::row("preview-peak-level"));
+  }
 
   const std::optional<std::string> text = read_file(args.recipe);
   if (!text) {
@@ -291,8 +319,28 @@ int run(const Args& args) {
   if (arc_plan_loop(plan.plan, &loop, &error) != ARC_OK) {
     return file_error(std::string("loop frames failed: rule=") + error.rule);
   }
+  // Story 3.3: a preview renders frames [0, F) and scales them by g.
+  std::uint64_t out_frames = frames;
+  std::optional<cli::PreviewReport> preview;
+  double gain = 1.0;
+  if (preview_rows) {
+    cli::PreviewLayers layers;
+    std::string layers_rule;
+    if (!cli::preview_layers(plan.plan, layers, layers_rule)) {
+      return file_error("preview layers failed: rule=" + layers_rule);
+    }
+    out_frames = cli::preview_frames(loop, frames, cli::seconds_to_samples(preview_rows->length_s, args.rate),
+                                     cli::seconds_to_samples(preview_rows->seam_tail_s, args.rate));
+    gain = cli::preview_gain(preview_rows->peak_dbfs, layers.max());
+    cli::PreviewReport p;
+    p.peak_dbfs = preview_rows->peak_dbfs;
+    p.layers_per_ear = layers.max();
+    p.gain = gain;
+    p.seconds = static_cast<double>(out_frames) / static_cast<double>(args.rate);
+    preview = p;
+  }
   RendererHandle renderer;
-  if (frames > 0 && arc_renderer_create(plan.plan, &renderer.renderer, &error) != ARC_OK) {
+  if (out_frames > 0 && arc_renderer_create(plan.plan, &renderer.renderer, &error) != ARC_OK) {
     return file_error(std::string("renderer creation failed: rule=") + error.rule);
   }
 
@@ -302,21 +350,24 @@ int run(const Args& args) {
     return file_error("cannot write " + partial);
   }
 
-  if (!write_all(wav.file, cli::wav_header(frames, args.rate))) {
+  if (!write_all(wav.file, cli::wav_header(out_frames, args.rate))) {
     return file_error("cannot write " + partial);
   }
   std::vector<double> samples(kBlockFrames * 2);
   std::vector<std::uint8_t> bytes;
   bytes.reserve(samples.size() * 3);
   std::chrono::steady_clock::duration render_time{0};
-  for (std::uint64_t done = 0; done < frames;) {
-    const std::uint64_t left = frames - done;
+  for (std::uint64_t done = 0; done < out_frames;) {
+    const std::uint64_t left = out_frames - done;
     const std::size_t n = left < kBlockFrames ? static_cast<std::size_t>(left) : kBlockFrames;
     const auto start = std::chrono::steady_clock::now();
     const arc_status s = arc_render(renderer.renderer, samples.data(), n, nullptr, &error);
     render_time += std::chrono::steady_clock::now() - start;
     if (s != ARC_OK) {
       return file_error(std::string("render failed: rule=") + error.rule);
+    }
+    if (preview) {
+      cli::apply_gain(std::span<double>(samples.data(), n * 2), gain);
     }
     bytes.clear();
     cli::append_samples(bytes, std::span<const double>(samples.data(), n * 2));
@@ -334,14 +385,15 @@ int run(const Args& args) {
   report.seed = arc_plan_seed(plan.plan);
   report.sample_rate = args.rate;
   report.mode = args.mode == ARC_MODE_FINAL ? "final" : "measure";
-  report.frames = frames;
+  report.frames = out_frames;
   report.loop = cli::loop_report(loop);
   report.spacing = spacing;
+  report.preview = preview;
   report.determinism_key.recipe_hash = arc_plan_recipe_hash(plan.plan);
   report.determinism_key.engine_version = report.engine_version;
   report.determinism_key.sample_rate = args.rate;
   report.assertions.push_back(cli::render_speed(
-      speed_row, frames, args.rate, cli::elapsed_seconds(render_time),
+      speed_row, out_frames, args.rate, cli::elapsed_seconds(render_time),
       cli::is_reference_machine(std::getenv("ARCANI_REFERENCE_MACHINE"))));
 
   if (!write_text_file(report_path, cli::report_json(report))) {

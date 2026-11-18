@@ -389,29 +389,77 @@ inline void spacing_problems(const json::Value& spacing, std::vector<std::string
   }
 }
 
+inline bool members_are(const json::Value& v, const std::vector<std::string>& names) {
+  if (v.kind() != json::Kind::Object || v.object().size() != names.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < names.size(); ++i) {
+    if (v.object()[i].first != names[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Story 3.3: a preview report has the member preview after spacing (or loop,
+// or frames) and before determinism_key, with exactly signed, peak_dbfs,
+// layers_per_ear, gain, seconds (in that order): signed the JSON literal
+// false, peak_dbfs a number at most 0, layers_per_ear a non-negative
+// integer, gain a number above 0, and seconds exactly frames / sample_rate
+// (one binary64 division). Its loop block, when present, is the plan's own,
+// so end_frame is at least frames instead of equal to it.
+inline void preview_problems(const json::Value& r, std::vector<std::string>& p) {
+  const json::Value& preview = *r.find("preview");
+  if (!members_are(preview, {"signed", "peak_dbfs", "layers_per_ear", "gain", "seconds"})) {
+    p.push_back("preview members are not exactly signed, peak_dbfs, layers_per_ear, gain, seconds (in that order)");
+    return;
+  }
+  const json::Value* signed_ = preview.find("signed");
+  if (signed_->kind() != json::Kind::Bool || signed_->boolean()) {
+    p.push_back("preview signed is not false");
+  }
+  const json::Value* peak = preview.find("peak_dbfs");
+  if (peak->kind() != json::Kind::Number || !(peak->number() <= 0.0)) {
+    p.push_back("preview peak_dbfs is not a number at most 0");
+  }
+  if (!is_count(preview.find("layers_per_ear"))) {
+    p.push_back("preview layers_per_ear is not a non-negative integer");
+  }
+  const json::Value* gain = preview.find("gain");
+  if (gain->kind() != json::Kind::Number || !(gain->number() > 0.0)) {
+    p.push_back("preview gain is not a number above 0");
+  }
+  const json::Value* seconds = preview.find("seconds");
+  const json::Value* frames = r.find("frames");
+  const json::Value* rate = r.find("sample_rate");
+  if (seconds->kind() != json::Kind::Number) {
+    p.push_back("preview seconds is not a number");
+  } else if (is_count(frames) && is_count(rate) && rate->number() > 0.0 &&
+             seconds->number() != frames->number() / rate->number()) {
+    p.push_back("preview seconds is not frames / sample_rate");
+  }
+}
+
 inline std::vector<std::string> report_problems(const json::Value& r) {
   std::vector<std::string> p;
   const bool has_loop = r.kind() == json::Kind::Object && r.find("loop") != nullptr;
   const bool has_spacing = r.kind() == json::Kind::Object && r.find("spacing") != nullptr;
+  const bool has_preview = r.kind() == json::Kind::Object && r.find("preview") != nullptr;
   const bool looping = has_loop;
-  bool shape = false;
-  if (has_loop && has_spacing) {
-    shape = members_are(r, {"engine_version", "seed", "sample_rate", "mode", "frames", "loop", "spacing",
-                            "determinism_key", "assertions"});
-  } else if (has_loop) {
-    shape = members_are(r, {"engine_version", "seed", "sample_rate", "mode", "frames", "loop",
-                            "determinism_key", "assertions"});
-  } else if (has_spacing) {
-    shape = members_are(r, {"engine_version", "seed", "sample_rate", "mode", "frames", "spacing",
-                            "determinism_key", "assertions"});
-  } else {
-    shape = members_are(r, {"engine_version", "seed", "sample_rate", "mode", "frames",
-                            "determinism_key", "assertions"});
-  }
+  std::vector<std::string> names = {"engine_version", "seed", "sample_rate", "mode", "frames"};
+  if (has_loop) names.push_back("loop");
+  if (has_spacing) names.push_back("spacing");
+  if (has_preview) names.push_back("preview");
+  names.push_back("determinism_key");
+  names.push_back("assertions");
+  const bool shape = members_are(r, names);
   if (!shape) {
     p.push_back("top-level members are not exactly engine_version, seed, sample_rate, mode, "
-                "frames, [loop,] [spacing,] determinism_key, assertions (in that order)");
+                "frames, [loop,] [spacing,] [preview,] determinism_key, assertions (in that order)");
     return p;
+  }
+  if (has_preview) {
+    preview_problems(r, p);
   }
   if (has_spacing) {
     spacing_problems(*r.find("spacing"), p);
@@ -426,8 +474,12 @@ inline std::vector<std::string> report_problems(const json::Value& r) {
       const json::Value* seams = loop.find("seam_frames");
       if (!is_count(opening)) p.push_back("loop opening_end_frame is not a non-negative integer");
       if (!is_count(end)) p.push_back("loop end_frame is not a non-negative integer");
-      if (is_count(end) && is_count(r.find("frames")) && end->number() != r.find("frames")->number()) {
+      if (is_count(end) && is_count(r.find("frames")) && !has_preview &&
+          end->number() != r.find("frames")->number()) {
         p.push_back("loop end_frame differs from frames");
+      }
+      if (is_count(end) && is_count(r.find("frames")) && has_preview && end->number() < r.find("frames")->number()) {
+        p.push_back("loop end_frame of a preview is below frames");
       }
       if (is_count(opening) && is_count(end) && !(opening->number() < end->number())) {
         p.push_back("loop opening_end_frame is not below end_frame");

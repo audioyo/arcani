@@ -191,6 +191,16 @@ std::string report_json(const Report& report) {
     out += "    \"right\": " + spacing_ear_json(report.spacing->right) + "\n";
     out += "  },\n";
   }
+  if (report.preview) {
+    const PreviewReport& p = *report.preview;
+    out += "  \"preview\": {\n";
+    out += "    \"signed\": false,\n";
+    out += "    \"peak_dbfs\": " + json_number(p.peak_dbfs) + ",\n";
+    out += "    \"layers_per_ear\": " + integer(p.layers_per_ear) + ",\n";
+    out += "    \"gain\": " + json_number(p.gain) + ",\n";
+    out += "    \"seconds\": " + json_number(p.seconds) + "\n";
+    out += "  },\n";
+  }
   out += "  \"determinism_key\": {\n";
   out += "    \"recipe_hash\": " + json_string(key.recipe_hash) + ",\n";
   out += "    \"asset_hashes\": [";

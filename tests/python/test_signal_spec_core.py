@@ -295,8 +295,9 @@ def test_spec_tables_equal_json(vectors):
     # curve samples), loop (3: whole samples, loop compile cases, loop
     # frames), components (3: component coefficients, component cases,
     # components), spacing (3: spacing cases, spacing margins, spacing
-    # pairs), 24-bit rounding (1).
-    assert len(generated) == 47, generated
+    # pairs), preview (3: preview gain, preview layers, preview frames),
+    # 24-bit rounding (1).
+    assert len(generated) == 50, generated
     assert len(in_doc) == len(generated), [b[0] for b in in_doc]
     assert not problems, "\n".join(problems)
 
