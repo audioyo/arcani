@@ -440,26 +440,101 @@ inline void preview_problems(const json::Value& r, std::vector<std::string>& p) 
   }
 }
 
+// Story 4.1: a report made with --loudness has the member loudness after
+// preview (or spacing, or loop, or frames) and before determinism_key, with
+// exactly window_start_frame, window_body_frames, window_repeats,
+// window_frames, window_lufs_i, whole_lufs_i (in that order): the four frame
+// numbers non-negative integers, body and repeats at least 1, window_frames
+// equal to repeats times body; each reading a number or null (-inf). Without
+// a loop block the window is the whole render: start 0, repeats 1, body equal
+// to frames, and whole_lufs_i equal to window_lufs_i. With one, the window
+// starts at the opening end and its body fits in the session. arcani-render
+// never writes loudness and preview together (a usage error), so a report
+// with both is a problem.
+inline bool is_reading(const json::Value* v) {
+  return v != nullptr && (v->kind() == json::Kind::Null || v->kind() == json::Kind::Number);
+}
+
+inline void loudness_problems(const json::Value& r, std::vector<std::string>& p) {
+  const json::Value& l = *r.find("loudness");
+  if (!members_are(l, {"window_start_frame", "window_body_frames", "window_repeats", "window_frames",
+                       "window_lufs_i", "whole_lufs_i"})) {
+    p.push_back("loudness members are not exactly window_start_frame, window_body_frames, window_repeats, "
+                "window_frames, window_lufs_i, whole_lufs_i (in that order)");
+    return;
+  }
+  if (r.find("preview") != nullptr) {
+    p.push_back("loudness is written with a preview member");
+  }
+  const json::Value* start = l.find("window_start_frame");
+  const json::Value* body = l.find("window_body_frames");
+  const json::Value* repeats = l.find("window_repeats");
+  const json::Value* window = l.find("window_frames");
+  const json::Value* wl = l.find("window_lufs_i");
+  const json::Value* whole = l.find("whole_lufs_i");
+  const bool counts = is_count(start) && is_count(body) && is_count(repeats) && is_count(window);
+  if (!counts) {
+    p.push_back("loudness window frame numbers are not non-negative integers");
+  }
+  if (!is_reading(wl)) p.push_back("loudness window_lufs_i is neither a number nor null");
+  if (!is_reading(whole)) p.push_back("loudness whole_lufs_i is neither a number nor null");
+  if (!counts) {
+    return;
+  }
+  if (body->number() < 1.0) p.push_back("loudness window_body_frames is below 1");
+  if (repeats->number() < 1.0) p.push_back("loudness window_repeats is below 1");
+  if (window->number() != repeats->number() * body->number()) {
+    p.push_back("loudness window_frames is not window_repeats times window_body_frames");
+  }
+  const json::Value* frames = r.find("frames");
+  const json::Value* loop = r.find("loop");
+  if (loop == nullptr) {
+    if (start->number() != 0.0) p.push_back("loudness window_start_frame is not 0 without a loop");
+    if (repeats->number() != 1.0) p.push_back("loudness window_repeats is not 1 without a loop");
+    if (is_count(frames) && body->number() != frames->number()) {
+      p.push_back("loudness window_body_frames is not frames without a loop");
+    }
+    if (is_reading(wl) && is_reading(whole) &&
+        (wl->kind() != whole->kind() || (wl->kind() == json::Kind::Number && wl->number() != whole->number()))) {
+      p.push_back("loudness whole_lufs_i differs from window_lufs_i without a loop");
+    }
+  } else {
+    const json::Value* opening = loop->find("opening_end_frame");
+    const json::Value* end = loop->find("end_frame");
+    if (is_count(opening) && start->number() != opening->number()) {
+      p.push_back("loudness window_start_frame is not the loop opening_end_frame");
+    }
+    if (is_count(end) && start->number() + body->number() > end->number()) {
+      p.push_back("loudness window body ends past the loop end_frame");
+    }
+  }
+}
+
 inline std::vector<std::string> report_problems(const json::Value& r) {
   std::vector<std::string> p;
   const bool has_loop = r.kind() == json::Kind::Object && r.find("loop") != nullptr;
   const bool has_spacing = r.kind() == json::Kind::Object && r.find("spacing") != nullptr;
   const bool has_preview = r.kind() == json::Kind::Object && r.find("preview") != nullptr;
+  const bool has_loudness = r.kind() == json::Kind::Object && r.find("loudness") != nullptr;
   const bool looping = has_loop;
   std::vector<std::string> names = {"engine_version", "seed", "sample_rate", "mode", "frames"};
   if (has_loop) names.push_back("loop");
   if (has_spacing) names.push_back("spacing");
   if (has_preview) names.push_back("preview");
+  if (has_loudness) names.push_back("loudness");
   names.push_back("determinism_key");
   names.push_back("assertions");
   const bool shape = members_are(r, names);
   if (!shape) {
     p.push_back("top-level members are not exactly engine_version, seed, sample_rate, mode, "
-                "frames, [loop,] [spacing,] [preview,] determinism_key, assertions (in that order)");
+                "frames, [loop,] [spacing,] [preview,] [loudness,] determinism_key, assertions (in that order)");
     return p;
   }
   if (has_preview) {
     preview_problems(r, p);
+  }
+  if (has_loudness) {
+    loudness_problems(r, p);
   }
   if (has_spacing) {
     spacing_problems(*r.find("spacing"), p);

@@ -1250,3 +1250,150 @@ TEST_CASE("--preview of a recipe with no layer: n_max 0 counts as 1 and the WAV 
   CHECK(preview->find("layers_per_ear")->number() == 0.0);
   CHECK(api::bits(preview->find("gain")->number()) == gv.gain_bits);
 }
+
+// ---------------------------------------------------------------- loudness
+//
+// Story 4.1 (docs/signal-spec.md, Loudness, Window and Report): --loudness
+// (no value) may be given once; twice, or with --preview, is a usage error.
+// A non-looping recipe shorter than row loudness-window-min is refused after
+// compile with one stderr line "rejected: parameter=/length_s value=<N / fs>
+// rule=loudness_window_rule limit=>= 60 s (row loudness-window-min)", exit 1,
+// nothing written. Without --loudness the same recipe renders as before.
+
+namespace {
+
+const arcani::test::spec::LoudnessWindowVector& loudness_window_vector(const std::string& fixture,
+                                                                       std::uint32_t rate) {
+  for (const auto& v : arcani::test::spec::kLoudnessWindows) {
+    if (fixture == v.fixture && v.fs == rate) {
+      return v;
+    }
+  }
+  FAIL("no loudness window vector for " << fixture << " at " << rate);
+  return arcani::test::spec::kLoudnessWindows[0];
+}
+
+const arcani::test::spec::LoudnessWindowCaseVector& loudness_window_case(const std::string& name,
+                                                                         std::uint32_t rate) {
+  for (const auto& v : arcani::test::spec::kLoudnessWindowCases) {
+    if (name == v.name && v.fs == rate) {
+      return v;
+    }
+  }
+  FAIL("no loudness window case " << name << " at " << rate);
+  return arcani::test::spec::kLoudnessWindowCases[0];
+}
+
+std::string loudness_rejected_line(const char* parameter, const char* value, const char* rule, const char* limit) {
+  return std::string("rejected: parameter=") + parameter + " value=" + value + " rule=" + rule + " limit=" + limit;
+}
+
+}  // namespace
+
+TEST_CASE("--loudness usage errors exit 2 and write nothing", "[cli][loudness]") {
+  const fs::path dir = case_dir("loudness-usage");
+  const std::string recipe = fixture_path(arcani::test::api::kBeat6);
+  const std::string wav = (dir / "x.wav").string();
+  const std::vector<std::vector<std::string>> shapes = {
+      {recipe, "--out", wav, "--loudness", "--loudness"},
+      {recipe, "--loudness", "--out", wav, "--loudness"},
+      {recipe, "--out", wav, "--loudness", "--preview"},
+      {recipe, "--preview", "--out", wav, "--loudness"},
+      {recipe, "--loudness", "--preview", "--out", wav},
+      {recipe, "--out", wav, "--loudness", "stray"},
+      {"--loudness", recipe, "--out", wav},
+      {"--version", "--loudness"},
+  };
+  for (const auto& args : shapes) {
+    require_usage_exit_2(args, dir);
+  }
+}
+
+TEST_CASE("--loudness refuses a 10 s fixture with the window rule and writes nothing; without it, it renders",
+          "[cli][loudness]") {
+  namespace spec = arcani::test::spec;
+  ScopedEnv env(kEnv, nullptr);
+  const std::string fixture = "theta-sine-6hz.json";
+  const tables::Row& min_row = tables::row("loudness-window-min");
+  REQUIRE(min_row.unit == "s");
+  for (std::uint32_t rate : table_rates()) {
+    INFO("rate " << rate);
+    const spec::LoudnessWindowVector& v = loudness_window_vector(fixture, rate);
+    REQUIRE_FALSE(v.accepted);
+    CHECK(std::string(v.limit) == ">= " + min_row.value_text + " s (row " + min_row.id + ")");
+    CHECK(std::string(v.rule) == spec::kLoudness_window_rule);
+    CHECK(std::string(v.parameter) == spec::kLoudness_window_parameter);
+    const fs::path dir = case_dir("loudness-short-" + std::to_string(rate));
+    const fs::path wav = dir / "x.wav";
+    for (const auto& args : std::vector<std::vector<std::string>>{
+             {fixture_path(fixture), "--out", wav.string(), "--rate", std::to_string(rate), "--loudness"},
+             {fixture_path(fixture), "--loudness", "--out", wav.string(), "--rate", std::to_string(rate)}}) {
+      const RunResult r = run_cli(args);
+      INFO("stdout: " << r.out << "\nstderr: " << r.err);
+      CHECK(r.exit_code == 1);
+      CHECK(r.err == loudness_rejected_line(v.parameter, v.value, v.rule, v.limit) + "\n");
+      CHECK(listing(dir).empty());
+    }
+    // The same fixture without --loudness renders as before.
+    const std::string text = arcani::test::api::valid(fixture);
+    const RunResult r = run_cli({fixture_path(fixture), "--out", wav.string(), "--rate", std::to_string(rate)});
+    INFO("stdout: " << r.out << "\nstderr: " << r.err);
+    REQUIRE(r.exit_code == 0);
+    const Expected want = engine_render(text, ARC_MODE_MEASURE, rate);
+    CHECK(want.frames == v.end_frame);
+    require_wav(wav, want, rate);
+    const json::Value report = require_report(dir / "x.report.json");
+    CHECK(report.find("loudness") == nullptr);
+    CHECK(read_text_file(dir / "x.report.json").find("\"loudness\"") == std::string::npos);
+  }
+}
+
+TEST_CASE("--loudness at the window minimum: 60 s accepted, 59.75 s refused, the WAV unchanged",
+          "[cli][loudness]") {
+  ScopedEnv env(kEnv, nullptr);
+  for (std::uint32_t rate : table_rates()) {
+    INFO("rate " << rate);
+    {
+      const arcani::test::spec::LoudnessWindowCaseVector& c = loudness_window_case("no loop, 59.75 s", rate);
+      REQUIRE_FALSE(c.accepted);
+      const fs::path dir = case_dir("loudness-5975-" + std::to_string(rate));
+      const fs::path recipe = dir / "beat6-59.75.json";
+      write_text(recipe, beat6_with_length("59.75"));
+      const RunResult r =
+          run_cli({recipe.string(), "--out", (dir / "x.wav").string(), "--rate", std::to_string(rate), "--loudness"});
+      INFO("stdout: " << r.out << "\nstderr: " << r.err);
+      CHECK(r.exit_code == 1);
+      CHECK(r.err == loudness_rejected_line(c.parameter, c.value, c.rule, c.limit) + "\n");
+      CHECK(listing(dir) == std::vector<std::string>{"beat6-59.75.json"});
+    }
+    {
+      const arcani::test::spec::LoudnessWindowCaseVector& c = loudness_window_case("no loop, 60 s", rate);
+      REQUIRE(c.accepted);
+      const fs::path dir = case_dir("loudness-60-" + std::to_string(rate));
+      const fs::path recipe = dir / "beat6-60.json";
+      const std::string text = beat6_with_length("60");
+      write_text(recipe, text);
+      const RunResult r =
+          run_cli({recipe.string(), "--out", (dir / "x.wav").string(), "--rate", std::to_string(rate), "--loudness"});
+      INFO("stdout: " << r.out << "\nstderr: " << r.err);
+      REQUIRE(r.exit_code == 0);
+      const Expected want = engine_render(text, ARC_MODE_MEASURE, rate);
+      REQUIRE(want.frames == c.end_frame);
+      require_wav(dir / "x.wav", want, rate);
+      const json::Value report = require_report(dir / "x.report.json");
+      check_report_members(report, "", text, rate, "measure", want.frames);
+      const json::Value* l = report.find("loudness");
+      REQUIRE(l != nullptr);
+      CHECK(l->find("window_start_frame")->number() == static_cast<double>(c.start_frame));
+      CHECK(l->find("window_body_frames")->number() == static_cast<double>(c.body_frames));
+      CHECK(l->find("window_repeats")->number() == static_cast<double>(c.repeats));
+      CHECK(l->find("window_frames")->number() == static_cast<double>(c.window_frames));
+      REQUIRE(l->find("window_lufs_i")->kind() == json::Kind::Number);
+      REQUIRE(l->find("whole_lufs_i")->kind() == json::Kind::Number);
+      CHECK(arcani::test::api::bits(l->find("window_lufs_i")->number()) ==
+            arcani::test::api::bits(l->find("whole_lufs_i")->number()));
+      // Unit gain: far above the -70 LUFS absolute gate.
+      CHECK(l->find("window_lufs_i")->number() > arcani::test::spec::kLoudness_absolute_gate_lufs);
+    }
+  }
+}
