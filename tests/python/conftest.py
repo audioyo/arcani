@@ -8,12 +8,20 @@ $ARCANI_PYTEST_ROW_USAGE, or build/row-usage/pytest.txt when that is unset.
 With pytest-xdist workers (`-n`), each worker hands its ids to the controller
 through `workeroutput` and only the controller writes the file, the union of
 every worker's ids, so it is the same file a serial run writes
-(spec-ci-parallel-pytest.md).
+(spec-ci-parallel-pytest.md). Each worker also runs numpy's BLAS with one
+thread.
 """
 
 import os
 import sys
 from pathlib import Path
+
+# An xdist worker gets one BLAS and OpenMP thread, set before numpy loads, so
+# N workers on N cores do not oversubscribe (design log (yy)). xdist sets
+# PYTEST_XDIST_WORKER in the worker's environment before conftest loads.
+if os.environ.get("PYTEST_XDIST_WORKER"):
+    for _var in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
+        os.environ[_var] = "1"
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _TESTS = str(REPO_ROOT / "tests")
