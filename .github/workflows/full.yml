@@ -173,7 +173,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Python tests
-        run: uv run --locked pytest
+        run: uv run --locked pytest -n auto --dist worksteal
 
       - name: Hash probe
         run: |
@@ -289,7 +289,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Python tests
-        run: uv run --locked pytest
+        run: uv run --locked pytest -n auto --dist worksteal
 
       - name: Hash probe
         run: |
@@ -396,7 +396,7 @@ jobs:
           uv run --no-project python tools/check_engine_symbols.py build/macos-appleclang
 
       - name: Python tests
-        run: uv run --locked pytest
+        run: uv run --locked pytest -n auto --dist worksteal
 
       - name: Hash probe
         run: |
