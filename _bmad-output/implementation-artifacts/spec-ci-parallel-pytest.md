@@ -2,7 +2,7 @@
 title: 'CI headroom: run the Python tests in parallel'
 type: 'chore'
 created: '2026-11-19'
-status: 'in-review'
+status: 'done'
 baseline_commit: 'a69727e'
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/deferred-work.md'

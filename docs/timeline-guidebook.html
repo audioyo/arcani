@@ -274,7 +274,7 @@
    Update after every completed section plus commit and/or push.
    ===================================================================== */
 
-var LAST_UPDATED = "2026-11-19";
+var LAST_UPDATED = "2026-11-20";
 var CURRENT = "4.1";   // story id being worked on
 var NEXT    = "4.2";   // story id that comes next
 
@@ -739,6 +739,7 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-20","e404ed8","CI","PR #22 merged: Python tests on every runner core, one BLAS thread per worker (design log (yy)); CI green on both tiers; full windows-x64 44.6 to 19.0 min, full windows-arm64 36.5 to 17.2, fast linux-x64 23.4 to 17.3; budgets unchanged; next: Story 4.1"],
   ["2026-11-19","8e37bdb","CI","Python tests run on every runner core with pytest-xdist (design log (yy)): failing tests ff41bce, then the change; row usage merged across workers; dev PC 9.6 min with all cores against 50 min serial, 3,667 passed; budgets unchanged; PR next"],
   ["2026-11-19","a6b1a85","3.3","Fix: a69727e had filled the checklist template, failing test_listening_checklist; the template is restored and the result lives in listening-3-3-result-2026-11-19.md"],
   ["2026-11-19","014f538","3.3","Audio listened to all six previews (one spot check pass on headphones, no earbuds pass): nothing needs changing, seams clean; checklist result, design log (xx), and deferred rows recorded; Story 3.3 done; next: shard CI, then Story 4.1"],
