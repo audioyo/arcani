@@ -103,7 +103,8 @@ def test_workers_run_blas_single_threaded(tmp_path):
     probe.write_text(PROBE, encoding="utf-8")
     seen = {}
     try:
-        env = {k: v for k, v in os.environ.items() if k not in THREAD_VARS}
+        # Run the probes as a fresh pytest, also when this test is itself in an xdist worker.
+        env = {k: v for k, v in os.environ.items() if k not in THREAD_VARS and not k.startswith("PYTEST_XDIST")}
         env["ARCANI_PYTEST_ROW_USAGE"] = str(tmp_path / "usage.txt")
         base = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", str(probe)]
         for label, extra in (("parallel", ["-n", "1"]), ("serial", ["-p", "no:xdist"])):
