@@ -739,6 +739,8 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-19","8e37bdb","CI","Python tests run on every runner core with pytest-xdist (design log (yy)): failing tests ff41bce, then the change; row usage merged across workers; dev PC 9.6 min with all cores against 50 min serial, 3,667 passed; budgets unchanged; PR next"],
+  ["2026-11-19","a6b1a85","3.3","Fix: a69727e had filled the checklist template, failing test_listening_checklist; the template is restored and the result lives in listening-3-3-result-2026-11-19.md"],
   ["2026-11-19","014f538","3.3","Audio listened to all six previews (one spot check pass on headphones, no earbuds pass): nothing needs changing, seams clean; checklist result, design log (xx), and deferred rows recorded; Story 3.3 done; next: shard CI, then Story 4.1"],
   ["2026-11-18","90f003d","3.3","PR #21 merged after CI green on both tiers (all four platforms and the hash compare; full windows-x64 took 44.6 of 45 min, so CI sharding is now urgent); previews rendered from this code; waiting on Audio's two listening passes"],
   ["2026-11-17","93abaec","3.3","Review pass 1: three fresh-context reviewers, 18 findings: 7 patched (3d69bd2 checklist safety note, result fields, edges, static_assert, docstring; QA 93abaec default command and no committed preview files), 1 deferred, 10 rejected; full verification green (ctest 4 of 4, pytest 3,658 passed); next push and PR, then Audio listens"],

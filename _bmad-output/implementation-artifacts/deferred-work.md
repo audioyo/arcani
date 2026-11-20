@@ -98,7 +98,7 @@
   summary: In Story 4.4, add an end fade at the max run time cap for Focus and Learn looping sessions (and the ramp-in inside the opening), so a looping session no longer stops hard at the cap; the click tool then judges the end too, not only its last-50 ms exclusion.
   evidence: Decided 2026-11-14 (Audio, option A): in Story 2.7 the output ends at the cap with no fade, because gain ramps are Story 4.4 (docs/signal-spec.md, Loop, End at the cap; design log 2026-11-14 (uu)).
 - source_spec: none
-  summary: Before Story 5.1, shard the full CI tier and run the whole-session 8 hour renders on nightly and manual runs only, so the fast tier stays under its 45 min job limit. The drift threshold does not change.
+  summary: (progress 2026-11-19, design log (yy): the Python tests now run on every runner core in the same jobs; the 8 hour renders part stays open for Story 5.1) Before Story 5.1, shard the full CI tier and run the whole-session 8 hour renders on nightly and manual runs only, so the fast tier stays under its 45 min job limit. The drift threshold does not change.
   evidence: Progress review 2026-11-16: fast windows-x64 at 37.4 of 45 min and full windows-x64 at 36.5 of 45 after Story 2.7 (design log (oo)), before any 8 hour render exists. The repo is public, so hosted runners are free; the limit is job wall time, not cost.
 - source_spec: none
   summary: (closed by Story 3.2: design log 2026-11-16 (ww) lists the margin per starter and per ear; the CLI report and `arc_plan_spacing` give it for any recipe) In Story 3.2, report the worst-case spacing margin per starter and per ear (distance to the 50 Hz placeholder), so when a critical-band source replaces the placeholder it is clear at once which starters still pass.

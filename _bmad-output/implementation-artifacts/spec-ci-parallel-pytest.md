@@ -2,7 +2,7 @@
 title: 'CI headroom: run the Python tests in parallel'
 type: 'chore'
 created: '2026-11-19'
-status: 'in-progress'
+status: 'in-review'
 baseline_commit: 'a69727e'
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/deferred-work.md'
@@ -27,11 +27,11 @@ This takes the headroom work forward from the deferred row "Before Story 5.1, sh
 
 ## Tasks & Acceptance
 
-- [ ] tests (tests-only commit first): `tests/python/test_parallel_pytest.py`.
-- [ ] `pyproject.toml`, `uv.lock`: pinned pytest-xdist.
-- [ ] `tests/python/conftest.py`: workers pass their row ids to the controller; the controller writes the union.
-- [ ] `.github/workflows/fast.yml`, `full.yml`: every step named "Python tests" runs `uv run --locked pytest -n auto --dist worksteal`.
-- [ ] Records: design log entry, deferred-work row note, guidebook UPDATE_LOG.
+- [x] tests (tests-only commit first): `tests/python/test_parallel_pytest.py`.
+- [x] `pyproject.toml`, `uv.lock`: pinned pytest-xdist.
+- [x] `tests/python/conftest.py`: workers pass their row ids to the controller; the controller writes the union.
+- [x] `.github/workflows/fast.yml`, `full.yml`: every step named "Python tests" runs `uv run --locked pytest -n auto --dist worksteal`.
+- [x] Records: design log entry, deferred-work row note, guidebook UPDATE_LOG.
 
 **Acceptance Criteria:**
 - Given the fast and full workflows, then every job step named "Python tests" runs exactly `uv run --locked pytest -n auto --dist worksteal`.

@@ -83,6 +83,17 @@ Sources point to `docs/research-library.md`, a research run under `_bmad-output/
 
 ## Entries
 
+### 2026-11-19 (yy): Python tests run on every runner core (CI headroom before Epic 4)
+
+- **Cause:** full run 44240503822 (PR #21): full windows-x64 took 44.6 of its 45 min budget, fast windows-x64 26.8 of 45, almost all in the Python suite (3,658 tests), which ran on one core. Story 4.1 adds tests, so the next PR would go over budget.
+- **Change:** every step named "Python tests" in `fast.yml` and `full.yml` runs `uv run --locked pytest -n auto --dist worksteal` (pytest-xdist, one worker per core, idle workers take queued tests). pytest-xdist 3.8.0 (and execnet 2.1.2) pinned in the dev group and locked with hashes. The jobs, tests, thresholds, and budgets are unchanged. The row usage file (Story 0.3) is the union of every worker's ids, passed to the controller through `workeroutput`, so it is the same file a serial run writes (`tests/python/test_parallel_pytest.py`).
+- **Measured on the dev PC:** serial 50 min (3,658 passed, 2 skipped); 4 workers 20 min; `-n auto` (16 cores) 9.6 min, 3,667 passed (the 9 new tests included), 2 skipped, and `tools/check_row_coverage.py` exits 0 on the merged usage file. Hosted runners have 3 or 4 cores, so expect about the 4 worker figure there.
+- **Cost:** 0 billed minutes (public repo, GitHub-hosted runners free, entry (aa)). Fewer runner minutes than before, since the same work finishes sooner on the same runners.
+- **Not done here:** the Story 5.1 part of the sharding row (whole-session 8 hour renders on nightly and manual runs only); budgets are lowered only after measured runs.
+- **Source:** full run 44240503822; spec `spec-ci-parallel-pytest.md`.
+- **Decided by:** the orchestrator under Audio's go-ahead of 2026-11-19 ("You can start now").
+- **Status:** engineering default.
+
 ### 2026-11-17 (xx): Listening preview length, seam tail, and peak level, and the two checklist fixtures (S3.3)
 
 - **What a preview is:** `docs/signal-spec.md`, Preview. `arcani-render RECIPE --out OUT.wav --preview` keeps the first `F` frames of the recipe's own render and multiplies every output sample by one gain `g` before 24-bit rounding. The engine, the plan, the recipe hash, and every render or report made without `--preview` are unchanged. Measure mode only (`--preview` with `--mode final` is a usage error). The report marks it with a `preview` member (`"signed": false`). A preview is never a golden and nothing in `ci/` or the hash probe reads one. Previews for listening are made at 48 kHz by `tools/render_previews.py` into `build/previews/`, which git ignores.
