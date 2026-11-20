@@ -599,11 +599,14 @@ var EPICS = [
   note: "Order is fixed: meter first, ramps before the limiter.",
   retro: "optional",
   stories: [
-  { id:"4.1", title:"Loudness meter", status:"backlog",
-    plain:"A loudness meter proven against the EBU compliance signals before it judges any render.",
-    steps:S7(), acs:[
-      [" ","signal-spec loudness section: BS.1770 gating and the steady-part measurement window; too-short steady part rejected"],
-      [" ","Python and CLI meters each pass EBU Tech 3341 signals (fetched at a pinned address, SHA-256 checked); gating-off must-fail fails"],
+  { id:"4.1", title:"Loudness meter", status:"in-progress",
+    plain:"A loudness meter proven against the Tech 3341 test cases before it judges any render.",
+    spec:["spec-4-1-loudness-meter.md"],
+    steps:[true,false,false,false,false,false,false],
+    stepNotes:["e30cdfb: spec approved 2026-11-20 by Audio; EBU terms forbid for-profit use of its test files, so Tech 3341 cases 1 to 5 are synthesized from the published document; window minimum 60 s, checked only when loudness is measured"],
+    acs:[
+      [" ","signal-spec loudness section: BS.1770 gating and the steady-part measurement window; steady part under 60 s rejected when loudness is measured"],
+      [" ","Python and CLI meters each read Tech 3341 cases 1 to 5 (synthesized from the published document) within 0.1 LU; gating-off must-fail fails"],
       [" ","Both meters agree on any render within the Tech 3341 tolerance"],
       [" ","Within 1 LU of target passes; 1.5 LU over fails"]
     ] },
@@ -739,6 +742,7 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-20","e30cdfb","4.1","Spec approved by Audio: two loudness meters (Python and CLI) calibrated on Tech 3341 cases 1 to 5 synthesized from the published document, since the EBU terms forbid for-profit use of its files; 60 s window minimum; sprint-status.yaml in-progress; not pushed"],
   ["2026-11-20","e404ed8","CI","PR #22 merged: Python tests on every runner core, one BLAS thread per worker (design log (yy)); CI green on both tiers; full windows-x64 44.6 to 19.0 min, full windows-arm64 36.5 to 17.2, fast linux-x64 23.4 to 17.3; budgets unchanged; next: Story 4.1"],
   ["2026-11-19","8e37bdb","CI","Python tests run on every runner core with pytest-xdist (design log (yy)): failing tests ff41bce, then the change; row usage merged across workers; dev PC 9.6 min with all cores against 50 min serial, 3,667 passed; budgets unchanged; PR next"],
   ["2026-11-19","a6b1a85","3.3","Fix: a69727e had filled the checklist template, failing test_listening_checklist; the template is restored and the result lives in listening-3-3-result-2026-11-19.md"],
