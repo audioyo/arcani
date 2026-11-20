@@ -113,13 +113,7 @@ jobs:
         run: cmake --workflow --preset linux-clang
 
       - name: Python tests
-        env:
-          PYTEST_ADDOPTS: "--durations=60 --durations-min=15"
         run: uv run --locked pytest -n auto --dist worksteal
-
-      - name: Memory probe (temporary)
-        if: always()
-        run: free -m; nproc; cat /proc/pressure/memory /proc/pressure/cpu || true
 
       - name: Row coverage check
         run: uv run --locked python tools/check_row_coverage.py
