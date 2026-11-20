@@ -11,8 +11,15 @@ Contract:
   whether pytest runs with two workers or with none: the workers hand their
   row ids to the controller, which writes the union. Without that, the
   controller, which runs no test, writes an empty file.
+- Each xdist worker runs numpy's BLAS and OpenMP with one thread
+  (OPENBLAS_NUM_THREADS, OMP_NUM_THREADS, MKL_NUM_THREADS = 1, set by the
+  conftest before numpy loads), so N workers on N cores do not oversubscribe:
+  on fast linux-x64 with 4 workers the rate-curve timing tests took up to
+  24 min each with threaded BLAS (design log (yy)). A serial run keeps the
+  environment as it is.
 """
 
+import json
 import os
 import subprocess
 import sys
@@ -80,3 +87,31 @@ def test_row_usage_same_with_workers(tmp_path):
     assert serial, "the serial run read no rows"
     assert {"frequency-accuracy", "sine-error", "click-highpass", "click-level"} <= set(serial), serial
     assert parallel == serial, (parallel, serial)
+
+
+THREAD_VARS = ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS")
+PROBE = (
+    "import json, os, numpy\n"
+    "def test_probe():\n"
+    "    with open(os.environ['ARCANI_THREAD_PROBE_OUT'], 'w', encoding='utf-8') as f:\n"
+    "        json.dump([os.environ.get(v) for v in %r], f)\n" % (THREAD_VARS,)
+)
+
+
+def test_workers_run_blas_single_threaded(tmp_path):
+    probe = REPO_ROOT / "tests" / "python" / f"test_zz_thread_probe_{os.getpid()}.py"
+    probe.write_text(PROBE, encoding="utf-8")
+    seen = {}
+    try:
+        env = {k: v for k, v in os.environ.items() if k not in THREAD_VARS}
+        env["ARCANI_PYTEST_ROW_USAGE"] = str(tmp_path / "usage.txt")
+        base = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", str(probe)]
+        for label, extra in (("parallel", ["-n", "1"]), ("serial", ["-p", "no:xdist"])):
+            env["ARCANI_THREAD_PROBE_OUT"] = str(tmp_path / f"{label}.json")
+            done = subprocess.run(base + extra, cwd=REPO_ROOT, env=env, capture_output=True, text=True, timeout=300)
+            assert done.returncode == 0, (label, done.stdout[-1500:], done.stderr[-1500:])
+            seen[label] = json.loads((tmp_path / f"{label}.json").read_text(encoding="utf-8"))
+    finally:
+        probe.unlink()
+    assert seen["parallel"] == ["1", "1", "1"], seen
+    assert seen["serial"] == [None, None, None], seen
