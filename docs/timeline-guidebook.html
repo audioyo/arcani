@@ -274,9 +274,9 @@
    Update after every completed section plus commit and/or push.
    ===================================================================== */
 
-var LAST_UPDATED = "2026-11-17";
-var CURRENT = "3.3";   // story id being worked on
-var NEXT    = "4.1";   // story id that comes next
+var LAST_UPDATED = "2026-11-19";
+var CURRENT = "4.1";   // story id being worked on
+var NEXT    = "4.2";   // story id that comes next
 
 // Workflow step names, used by every story unless it lists its own "stepNames".
 var STEP_NAMES = [
@@ -579,16 +579,16 @@ var EPICS = [
       ["x","250/256 Hz binaural beside a 260 Hz gamma side line is rejected (right ear)"],
       ["x","All four starter configurations and the coupled-gamma-plus-binaural fixture pass"]
     ] },
-  { id:"3.3", title:"Early listening preview", status:"in-progress",
+  { id:"3.3", title:"Early listening preview", status:"done",
     plain:"Hear short renders of the four starter configurations early, so a harsh carrier or rough pulse is caught long before sign-off.",
     spec:["spec-3-3-early-listening-preview.md", "listening-3-3-preview.md"],
     stepNames:["Preview plan written","Preview level default logged in design log (-30 dBFS peak)","Previews rendered (about 3 min, 48 kHz, marked unsigned)","Listening on earbuds and headphones","Observations recorded in plain words","Proposed changes routed to owning stories","sprint-status.yaml and guidebook updated"],
-    steps:[true,true,true,false,false,false,false],
-    stepNotes:["2e78cfd: spec 2026-11-17 (decisions approved by the orchestrator under Audio's delegation); be1511e: signal spec Preview section with 3 new vector tables (50 in all); c116c1d: two 250 Hz carrier with gamma AM at 60 Hz checklist fixtures (both pass: spacing 128 and 92 Hz, carrier rule 10 Hz margin) and the listening checklist (19 min of audio per pass, two passes); contracts for the tests; not pushed","b14d070: rows preview-length (180 s), preview-seam-tail (30 s), and preview-peak-level (-30 dBFS), pending on 3.3, and design log (xx); g = 1 / (10 * sqrt(10)) / n_max, every preview has two layers per ear","af68cc9: fresh-context QA agent's failing tests; 3a9e763, bf77646: --preview, preview helpers, report member, reference/preview.py, tools/render_previews.py; 051d1b7: rows lose pending, design log (xx) results; six previews rendered at 48 kHz into build/previews/ (not committed): Focus and Learn 210 s, the rest 180 s, 1,140 s in all, every report unsigned; measured sample peaks -30.00 to -30.43 dBFS (bound -30 dBFS); ctest 4 of 4 (452 cases)","","","",""],
+    steps:[true,true,true,true,true,true,true],
+    stepNotes:["2e78cfd: spec 2026-11-17 (decisions approved by the orchestrator under Audio's delegation); be1511e: signal spec Preview section with 3 new vector tables (50 in all); c116c1d: two 250 Hz carrier with gamma AM at 60 Hz checklist fixtures (both pass: spacing 128 and 92 Hz, carrier rule 10 Hz margin) and the listening checklist (19 min of audio per pass, two passes); contracts for the tests; not pushed","b14d070: rows preview-length (180 s), preview-seam-tail (30 s), and preview-peak-level (-30 dBFS), pending on 3.3, and design log (xx); g = 1 / (10 * sqrt(10)) / n_max, every preview has two layers per ear","af68cc9: fresh-context QA agent's failing tests; 3a9e763, bf77646: --preview, preview helpers, report member, reference/preview.py, tools/render_previews.py; 051d1b7: rows lose pending, design log (xx) results; six previews rendered at 48 kHz into build/previews/ (not committed): Focus and Learn 210 s, the rest 180 s, 1,140 s in all, every report unsigned; measured sample peaks -30.00 to -30.43 dBFS (bound -30 dBFS); ctest 4 of 4 (452 cases)","2026-11-19: one spot check pass on headphones through all six previews (no earbuds pass); seams at 60 s and 180 s clean","Checklist Result: Nothing needs changing; coverage and notes recorded in listening-3-3-preview.md and design log (xx)","No proposed changes; deferred rows for the 60 Hz line closed and the burst-phase listening part closed (its independent review stays open)","sprint-status.yaml 3-3 done"],
     acs:[
-      [" ","About 3 minute previews at 48 kHz, with loop seams for Focus and Learn; marked preview and unsigned; never stored as golden"],
-      [" ","Preview level: analytic sample peak of summed layers at -30 dBFS (logged)"],
-      [" ","Every observation recorded; proposed default or range changes logged and routed before Epic 4"]
+      ["x","About 3 minute previews at 48 kHz, with loop seams for Focus and Learn; marked preview and unsigned; never stored as golden"],
+      ["x","Preview level: analytic sample peak of summed layers at -30 dBFS (logged)"],
+      ["x","Every observation recorded; proposed default or range changes logged and routed before Epic 4"]
     ] }
   ]
 },
@@ -739,6 +739,7 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-19","014f538","3.3","Audio listened to all six previews (one spot check pass on headphones, no earbuds pass): nothing needs changing, seams clean; checklist result, design log (xx), and deferred rows recorded; Story 3.3 done; next: shard CI, then Story 4.1"],
   ["2026-11-18","90f003d","3.3","PR #21 merged after CI green on both tiers (all four platforms and the hash compare; full windows-x64 took 44.6 of 45 min, so CI sharding is now urgent); previews rendered from this code; waiting on Audio's two listening passes"],
   ["2026-11-17","93abaec","3.3","Review pass 1: three fresh-context reviewers, 18 findings: 7 patched (3d69bd2 checklist safety note, result fields, edges, static_assert, docstring; QA 93abaec default command and no committed preview files), 1 deferred, 10 rejected; full verification green (ctest 4 of 4, pytest 3,658 passed); next push and PR, then Audio listens"],
   ["2026-11-17","051d1b7","3.3","Failing tests (af68cc9, QA) then the implementation (3a9e763, bf77646) and records (051d1b7): arcani-render --preview, reference preview, preview render tool; six previews rendered at 48 kHz into build/previews/, peaks -30.00 to -30.43 dBFS, not committed; ctest 4 of 4, story Python files pass; spec in-review; next Audio listens on earbuds and headphones; sprint-status.yaml in-progress; not pushed"],

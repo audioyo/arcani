@@ -3,7 +3,7 @@ title: 'Story 3.3: Early listening preview'
 type: 'feature'
 created: '2026-11-17'
 baseline_commit: '6760a4b8da36daf741d97da0dc2764ba480d5658'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 context:
