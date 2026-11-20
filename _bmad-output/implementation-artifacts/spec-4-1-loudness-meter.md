@@ -72,7 +72,55 @@ Decisions (Audio, 2026-11-20):
 - Given the full suite, when it runs on the dev PC and in CI, then everything passes and `tools/check_row_coverage.py` sees every new row in use.
 - Given an existing CLI render without `--loudness`, when it runs, then its WAV and report bytes do not change.
 
+## Implementation Notes
+
+Everything below follows `docs/signal-spec.md`, Loudness, and its vectors (`tests/data/signal_spec_vectors.json`, keys `loudness_constants`, `loudness_prototype`, `loudness_coefficients`, `loudness_blocks`, `loudness_tech3341`, `loudness_window_cases`, `loudness_windows`; C++ `kLoudness_*`, `kLoudnessPrototype`, `kLoudnessCoefficients`, `kLoudnessBlocks`, `kTech3341`, `kLoudnessWindowCases`, `kLoudnessWindows` in the generated `spec_tables.hpp`). Vector constants are cross-checked against the rows, never used in their place.
+
+**Python meter, `tests/assertions/loudness.py`** (NumPy and the standard library only):
+
+- `PROTOTYPE`: `{"shelf": {"f0", "Q", "Vh", "Vb"}, "highpass": {"f0", "Q", "G"}}`, binary64, equal to the hex column of Vectors: K-weighting prototype.
+- `kweighting(fs) -> (shelf, highpass)`: each a tuple `(b0, b1, b2, a1, a2)` of floats by the spec's binary64 formulas. ValueError unless `fs` is a positive multiple of 10.
+- `block_energies(x, fs) -> np.ndarray`: `z[j]` for every block (Integrated loudness), from zero filter state. `x` is a float64 array-like of shape `(frames, 2)` (an `np.memmap` works and is read in chunks, so a 45 min render at 48 kHz never sits in memory twice) or `(frames,)` for one channel. ValueError on any other shape, on a non-finite sample, or on a bad `fs`.
+- `integrated_lufs(x, fs, gating=True) -> float`: L in LUFS-I, `-inf` when no block passes (or no block exists); `gating=False` is the must-fail meter (every block).
+- `check_loudness(x, fs, target) -> dict`: name `loudness`, row `loudness-tolerance` (read through `row`), threshold, unit, measured `L - target` (LU), result `pass` when `abs(measured) <= threshold`, note `""`; not finite: measured None, note `not finite`, fail; `-inf`: measured None, note `silent`, fail.
+- The filter may be run as a convolution with the cascade's impulse response (spec, Filter); the C++ meter runs the difference equation. They are written apart, from the spec, never one from the other.
+
+**C++ meter, `cli/loudness.{hpp,cpp}`** in `arcani_cli_core`, namespace `arcani::cli`:
+
+```
+struct Biquad { double b0, b1, b2, a1, a2; };
+struct KWeighting { Biquad shelf; Biquad highpass; };
+KWeighting k_weighting(std::uint32_t fs);                 // throws std::invalid_argument unless fs is a positive multiple of 10
+class LoudnessMeter {
+ public:
+  explicit LoudnessMeter(std::uint32_t fs);               // throws as k_weighting
+  void add(std::span<const double> interleaved_stereo);   // any number of frames per call; odd size throws std::invalid_argument
+  std::uint64_t frames() const noexcept;
+  std::uint64_t block_count() const noexcept;             // J
+  double integrated(bool gating = true) const;            // LUFS-I, -inf when no block passes
+};
+struct LoudnessWindow { bool accepted; std::uint64_t start_frame, body_frames, repeats, window_frames; };
+LoudnessWindow loudness_window(const arc_loop_frames& loop, std::uint64_t end_frame, std::uint64_t min_frames) noexcept;
+std::uint64_t loudness_window_min_frames(const arcani::test::tables::Row& row, std::uint32_t fs);  // throws TableError unless unit "s", finite, > 0
+std::string loudness_window_limit(const arcani::test::tables::Row& row);  // ">= 60 s (row loudness-window-min)", from the row's value text
+```
+
+Splitting the same samples into different `add` calls gives the same `integrated` bits. `loudness_window` without a loop: accepted when `end_frame >= min_frames`, start 0, body `end_frame`, repeats 1; with a loop: always accepted, start `O`, body `B`, repeats `max(1, ceil(min_frames / B))`; a rejected window has every number 0.
+
+**Report and CLI.** `cli/report.hpp` gains `struct LoudnessReport { std::uint64_t window_start_frame, window_body_frames, window_repeats, window_frames; double window_lufs_i, whole_lufs_i; };` and `std::optional<LoudnessReport> loudness` after `preview` in `Report`; `report_json` writes it after `preview` (or `spacing`, `loop`, `frames`) and before `determinism_key`, member order as in the spec, `-inf` as `null`. `arcani-render --loudness`: reads row `loudness-window-min` before any output is opened (a table error exits 3 and writes nothing); after compile, a rejected window prints `rejected: parameter=/length_s value=<N / fs> rule=loudness_window_rule limit=>= 60 s (row loudness-window-min)` and exits 1 with nothing written; otherwise renders as before, feeding the whole-render meter every frame and the window meter frames `[O, O + B)`, then renders the remaining `k - 1` passes with a second renderer (`arc_seek` to `O`, `B` frames, repeated), feeding the same window meter. A non-looping window meter is the whole-render meter. `--loudness` twice or with `--preview` is a usage error. Exit codes otherwise unchanged (no loudness assertion in the report).
+
+**Test contracts (the QA agent may split differently; keep the added CI time to about 3 minutes of CPU per platform, and delete each large file as soon as it is read):**
+
+- `tests/cpp/test_loudness.cpp` (guarded by `__has_include("loudness.hpp")` as Stories 3.2 and 3.3 did): every coefficient within `5e-15` of `kLoudnessCoefficients` at both rates and of the printed value at 48 kHz; block and step frames from `kLoudnessBlocks`; Tech 3341 cases 1 to 5 synthesized by the spec's rule at both rates within row `loudness-meter-calibration` (also feed one case in odd chunk sizes and check the same bits); gating off fails cases 3 and 4 and reads case 5 within the row; silence and a signal shorter than one block give `-inf`; `loudness_window` against every `kLoudnessWindowCases` row; `loudness_window_min_frames` and `loudness_window_limit` against the row and doctored Rows; `report_json` with the loudness member (finite and `null`) in its placements, and unchanged without it. Must-fails doctored here: a coefficient off by `1e-13`, a case read 0.2 LU off, a window off by one frame.
+- `tests/cpp/test_cli.cpp` additions: `--loudness` twice, and with `--preview`, exit 2 and write nothing; a 10 s fixture with `--loudness` exits 1 with the exact rejected line and writes nothing; the same fixture without `--loudness` renders as before.
+- `tests/python/test_loudness_tool.py`: `PROTOTYPE` against the prototype vectors (bits), `kweighting` within `5e-15` of the coefficient vectors; Tech 3341 cases at both rates within the calibration row, gating off fails cases 3 and 4, case 5 the same; the ideal columns hold within the calibration row too; silent and short give `-inf`; `block_energies` count `floor(T / S) - 3`; memmap input equals array input; `check_loudness` on a render of `loudness_constants.assertion_fixture` (its window, float output) scaled in the harness to read exactly the target passes, scaled to `must_fail_lu` above fails, a NaN fails `not finite`, silence fails `silent`; the rows `loudness-window-min` and `rate-cycle-period` hold the same value.
+- `tests/python/test_loudness_cli.py`: for every agreement fixture and rate, `arcani-render --loudness` report member equals the window vectors (start, body, repeats, frames) and its `window_lufs_i` agrees with the Python meter on the tap dump output (`--output-only` without a loop; `--window O B`, repeated `k` times, with one) within row `loudness-meter-agreement`, `null` with `-inf`; `whole_lufs_i` for every non-looping fixture equals `window_lufs_i` and for `loudness_constants.whole_fixtures` agrees with the Python meter on the whole render; a harness-made looping recipe with body 25 s (window case `loop, body 25 s`, `k = 3`) agrees at both rates; a harness agreement must-fail (the C++ reading moved by 0.2 LU fails); both rejected fixtures are refused with the vector's parameter, value, rule, and limit and leave no file; the WAV with `--loudness` equals the WAV without, and the report without `--loudness` has no `loudness` member and the same members and bytes as before.
+
+## Spec Change Log
+
 ## Design Notes
+
+**Phased handoff.** As in Stories 3.1 to 3.3, on branch `story/4-1-loudness-meter`: (1) the implementation agent writes the signal spec section and vectors, the rows and design log (zz), the research library rows, the `epics.md` amendment, and these notes, and commits; (2) a fresh-context QA agent commits the failing tests; (3) the implementation agent implements, never editing a test expectation to make a test pass. Commits end with the session attribution lines. No push.
 
 The Tech 3341 tolerance for every integrated case is plus or minus 0.1 LU, which gives the calibration and agreement rows. The gating must-fail works because case 3 without gating reads about -24.2 LUFS.
 

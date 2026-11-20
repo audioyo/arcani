@@ -1,4 +1,4 @@
-"""Writes the worked test vectors of docs/signal-spec.md: core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer and rate curve, loop, components, spacing, preview, 24-bit rounding.
+"""Writes the worked test vectors of docs/signal-spec.md: core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer and rate curve, loop, components, spacing, preview, loudness, 24-bit rounding.
 
 Usage:
   python tools/signal_spec_vectors.py            write tests/data/signal_spec_vectors.json
@@ -99,6 +99,14 @@ engine or from binary64 library calls:
   divisions), written as bits, with the exact value at 25 digits; the layer
   count per ear from the recipe fields; the preview frame count by the
   seconds-to-samples rule and exact integer sums.
+- Loudness (Story 4.1): the analog prototype of each K-weighting stage
+  from the BS.1770 48 kHz coefficients by inverting the prewarped bilinear
+  transform in decimal arithmetic (decimal square root, arctangent, and pi),
+  then each rate's coefficients from it (decimal tangent), written with 25
+  significant digits; the 1 kHz gain from the complex response (decimal
+  cosine); the Tech 3341 readings in steady state, 100 ms at a time, with the
+  gates as written (decimal log10); the window frames by the
+  seconds-to-samples rule and exact integer arithmetic.
 - 24-bit rounding (Story 1.4): x = s * 2^23 in exact Fraction arithmetic,
   clamped to [-8388608, 8388607], else rounded to the nearest integer, ties
   to even; NaN gives 0. Written as 3 bytes, little-endian two's complement.
@@ -3795,6 +3803,450 @@ def preview_constants():
     }
 
 
+# --------------------------------------------------------------- loudness
+
+# Story 4.1 (signal spec, Loudness): ITU-R BS.1770-5 integrated loudness and
+# the measurement window. The K-weighting coefficients BS.1770 prints for
+# 48 kHz (its Tables 1 and 2) are the only filter input: the analog
+# prototype of each stage is found from them in decimal arithmetic by
+# inverting the bilinear transform prewarped at the stage's own frequency,
+# and every sample rate's coefficients come from that prototype.
+LOUDNESS_PUBLISHED_FS = 48000
+LOUDNESS_PUBLISHED = (
+    ("shelf", (("b0", "1.53512485958697"), ("b1", "-2.69169618940638"), ("b2", "1.19839281085285"),
+               ("a1", "-1.69065929318241"), ("a2", "0.73248077421585"))),
+    ("highpass", (("b0", "1.0"), ("b1", "-2.0"), ("b2", "1.0"),
+                  ("a1", "-1.99004745483398"), ("a2", "0.99007225036621"))),
+)
+LOUDNESS_PUBLISHED_DECIMALS = 14     # BS.1770 prints the coefficients to 14 decimal places
+LOUDNESS_OFFSET_DB = "-0.691"        # BS.1770: L = -0.691 + 10 log10(sum G_i z_i)
+LOUDNESS_CHANNEL_WEIGHTS = ("1.0", "1.0")   # G_L, G_R
+LOUDNESS_BLOCK_S = "0.4"             # gating block T_g, 400 ms
+LOUDNESS_OVERLAP_PERCENT = 75        # so a new block starts every 100 ms
+LOUDNESS_ABSOLUTE_GATE_LUFS = "-70"  # Gamma_a
+LOUDNESS_RELATIVE_GATE_LU = "-10"    # Gamma_r = (gated loudness) - 10 LU
+LOUDNESS_TEST_HZ = 1000              # the Tech 3341 test tone
+LOUDNESS_WINDOW_MIN_S = 60.0         # row loudness-window-min
+LOUDNESS_WINDOW_MIN_ROW = "loudness-window-min"
+LOUDNESS_WINDOW_RULE = "loudness_window_rule"
+LOUDNESS_WINDOW_PARAMETER = "/length_s"
+LOUDNESS_TOLERANCE_LU = 1.0          # row loudness-tolerance
+LOUDNESS_MUST_FAIL_LU = 1.5          # the doctored render above target
+
+# EBU Tech 3341 v4.0 (November 2023), Table 1, cases 1 to 5: (case, what it
+# tests, ((level dBFS, duration s), ...), expected LUFS). Every case is a
+# stereo 1 kHz sine, the level the per-channel peak, applied in phase to both
+# channels; the tolerance is +-0.1 LU (row loudness-meter-calibration).
+TECH3341_CASES = (
+    (1, "level", (("-23.0", "20"),), "-23.0"),
+    (2, "level", (("-33.0", "20"),), "-33.0"),
+    (3, "relative gate", (("-36.0", "10"), ("-23.0", "60"), ("-36.0", "10")), "-23.0"),
+    (4, "absolute gate", (("-72.0", "10"), ("-36.0", "10"), ("-23.0", "60"), ("-36.0", "10"),
+                          ("-72.0", "10")), "-23.0"),
+    (5, "level steps", (("-26.0", "20"), ("-20.0", "20.1"), ("-26.0", "20")), "-23.0"),
+)
+# The cases each gate decides: with gating off, these must fail; case 5 reads
+# the same either way.
+TECH3341_GATING_CASES = (3, 4)
+
+# Fixtures of Vectors: loudness windows: every recipes/fixtures/valid/ fixture
+# that compiles in measure mode at both rates and whose window is accepted
+# (the agreement set), then two short fixtures the window rule rejects.
+LOUDNESS_AGREEMENT_FIXTURES = (
+    "binaural-cycle-sleep.json", "binaural-only.json", "both-layers-beat-rate-changed.json",
+    "both-layers-binaural-carrier-left-changed.json", "both-layers-engine-version-changed.json",
+    "both-layers-length-changed.json", "both-layers-metadata-edited.json", "both-layers-reformatted.json",
+    "both-layers-schema-minor-changed.json", "both-layers-seed-changed.json",
+    "both-layers-theta-carrier-changed.json", "both-layers-without-loudness-fields.json", "both-layers.json",
+    "bursts-theta-cycle.json", "gamma-cycle-swell-theta-cycle.json", "gamma-cycle-uncoupled.json",
+    "loop-bursts-theta-cycle.json", "loop-focus-no-cycle.json", "loop-swell-theta-cycle.json",
+    "minimal-no-layers.json", "minimal-seed-7-0.json", "minimal-seed-7.json", "minimal-seed-max.json",
+    "minimal-seed-zero.json", "preview-gamma-250-am-60-bursts.json", "preview-gamma-250-am-60-swell.json",
+    "starter-focus-layers.json", "starter-learn-layers.json", "starter-relax-layers.json",
+    "starter-sleep-layers.json", "swell-theta-cycle.json", "theta-cycle-sine.json",
+    "theta-cycle-smoothed-on-off.json", "theta-reference-only.json",
+)
+LOUDNESS_REJECTED_FIXTURES = ("theta-sine-6hz.json", "stub-chain-1s-beat-0.json")
+# The fixtures whose whole render both meters also measure (whole_lufs_i), at both rates.
+LOUDNESS_WHOLE_FIXTURES = ("loop-swell-theta-cycle.json", "starter-learn-layers.json")
+# A fixture for the assertion pass and must-fail renders (scaled in the harness).
+LOUDNESS_ASSERTION_FIXTURE = "starter-focus-layers.json"
+
+# (case, length_s, loop (opening_s, body_s) or None): the window rule on its
+# own, frames only (Loudness, Window). The session lengths of the looping
+# cases are any length the loop rules accept.
+LOUDNESS_WINDOW_CASES = (
+    ("no loop, 60 s", 60.0, None),
+    ("no loop, 59.75 s", 59.75, None),
+    ("no loop, 10 s", 10.0, None),
+    ("no loop, 0.25 s", 0.25, None),
+    ("no loop, 600 s", 600.0, None),
+    ("loop, body 120 s", 1200.0, (60.0, 120.0)),
+    ("loop, body 60 s", 1200.0, (0.0, 60.0)),
+    ("loop, body 59.75 s", 1200.0, (10.0, 59.75)),
+    ("loop, body 25 s", 1200.0, (10.0, 25.0)),
+    ("loop, body 0.25 s", 1200.0, (0.0, 0.25)),
+    ("loop, body 90.25 s", 2700.0, (0.0, 90.25)),
+)
+
+
+def _dec(text):
+    return Decimal(text)
+
+
+def _decimal_atan(x):
+    """atan(x) for a Decimal 0 <= x < 1, at the current precision (halving, then the series)."""
+    halvings = 0
+    while x > Decimal("0.1"):
+        x = x / (1 + (1 + x * x).sqrt())     # atan(x) = 2 atan(x / (1 + sqrt(1 + x^2)))
+        halvings += 1
+    total, term, k = Decimal(0), x, 0
+    x2 = x * x
+    while term != 0:
+        delta = term / (2 * k + 1)
+        if abs(delta) < Decimal(10) ** -(PREC + 8):
+            break
+        total += -delta if k % 2 else delta
+        term *= x2
+        k += 1
+    return total * (2 ** halvings)
+
+
+def _decimal_tan(x):
+    """tan(x) for a Decimal 0 <= x < pi/2, from the sine and cosine series."""
+    s, c = Decimal(0), Decimal(0)
+    term, k = x, 1
+    while abs(term) > Decimal(10) ** -(PREC + 8):
+        s += term
+        term = -term * x * x / ((k + 1) * (k + 2))
+        k += 2
+    term, k = Decimal(1), 0
+    while abs(term) > Decimal(10) ** -(PREC + 8):
+        c += term
+        term = -term * x * x / ((k + 1) * (k + 2))
+        k += 2
+    return s / c
+
+
+@functools.lru_cache(maxsize=None)
+def loudness_prototype():
+    """The analog prototype of each K-weighting stage from the published 48 kHz coefficients, in decimal.
+
+    Per stage: K = tan(pi f0 / 48000), Q, f0, and the numerator terms (shelf:
+    Vh, Vb; high-pass: G), from a1, a2 (K, Q) and b0, b1, b2, exactly as the
+    prewarped bilinear transform writes them (Loudness, K-weighting)."""
+    out = {}
+    with localcontext() as ctx:
+        ctx.prec = PREC + 10
+        pi = decimal_pi()
+        for stage, coeffs in LOUDNESS_PUBLISHED:
+            c = {k: _dec(v) for k, v in coeffs}
+            k2 = (1 + c["a1"] + c["a2"]) / (1 - c["a1"] + c["a2"])
+            d = 4 / (1 - c["a1"] + c["a2"])
+            k = k2.sqrt()
+            k_over_q = (1 - c["a2"]) * d / 2
+            q = k / k_over_q
+            f0 = LOUDNESS_PUBLISHED_FS * _decimal_atan(k) / pi
+            entry = {"K": k, "Q": q, "f0": f0, "D": d}
+            if stage == "shelf":
+                vh = k2 - c["b1"] * d / 2
+                vb = (c["b0"] - c["b2"]) * d / (2 * k_over_q)
+                # The fifth coefficient is redundant: b0 + b2 = 2 (Vh + K^2) / D.
+                assert abs(c["b0"] + c["b2"] - 2 * (vh + k2) / d) < Decimal(10) ** -(PREC - 5)
+                entry.update({"Vh": vh, "Vb": vb})
+            else:
+                assert c["b1"] == -2 * c["b0"] and c["b2"] == c["b0"]
+                entry["G"] = c["b0"] * d
+            out[stage] = entry
+    return out
+
+
+def loudness_prototype_binary64():
+    """The binary64 constants the meters hold: per stage f0, Q, and Vh, Vb or G."""
+    p = loudness_prototype()
+    shelf, hp = p["shelf"], p["highpass"]
+    return {
+        "shelf": {"f0": binary64(Fraction(shelf["f0"])), "Q": binary64(Fraction(shelf["Q"])),
+                  "Vh": binary64(Fraction(shelf["Vh"])), "Vb": binary64(Fraction(shelf["Vb"]))},
+        "highpass": {"f0": binary64(Fraction(hp["f0"])), "Q": binary64(Fraction(hp["Q"])),
+                     "G": binary64(Fraction(hp["G"]))},
+    }
+
+
+LOUDNESS_PROTOTYPE_ORDER = (("shelf", ("f0", "Q", "Vh", "Vb")), ("highpass", ("f0", "Q", "G")))
+
+
+def loudness_coefficients_decimal(fs):
+    """Per stage (b0, b1, b2, a1, a2) at fs from the decimal prototype (Loudness, K-weighting)."""
+    p = loudness_prototype()
+    out = {}
+    with localcontext() as ctx:
+        ctx.prec = PREC + 10
+        pi = decimal_pi()
+        for stage, _ in LOUDNESS_PUBLISHED:
+            e = p[stage]
+            k = _decimal_tan(pi * e["f0"] / fs)
+            kq = k / e["Q"]
+            d = 1 + kq + k * k
+            a1 = 2 * (k * k - 1) / d
+            a2 = (1 - kq + k * k) / d
+            if stage == "shelf":
+                b0 = (e["Vh"] + e["Vb"] * kq + k * k) / d
+                b1 = 2 * (k * k - e["Vh"]) / d
+                b2 = (e["Vh"] - e["Vb"] * kq + k * k) / d
+            else:
+                b0 = e["G"] / d
+                b1 = -2 * e["G"] / d
+                b2 = e["G"] / d
+            out[stage] = {"b0": b0, "b1": b1, "b2": b2, "a1": a1, "a2": a2}
+    return out
+
+
+def loudness_coefficients_binary64(fs):
+    """Per stage (b0, b1, b2, a1, a2) by the spec's binary64 formulas (math.tan), as the meters form them."""
+    p = loudness_prototype_binary64()
+    out = {}
+    for stage, _ in LOUDNESS_PUBLISHED:
+        e = p[stage]
+        k = math.tan(math.pi * e["f0"] / fs)
+        kq = k / e["Q"]
+        d = 1.0 + kq + k * k
+        a1 = 2.0 * (k * k - 1.0) / d
+        a2 = (1.0 - kq + k * k) / d
+        if stage == "shelf":
+            b0 = (e["Vh"] + e["Vb"] * kq + k * k) / d
+            b1 = 2.0 * (k * k - e["Vh"]) / d
+            b2 = (e["Vh"] - e["Vb"] * kq + k * k) / d
+        else:
+            b0 = e["G"] / d
+            b1 = -2.0 * e["G"] / d
+            b2 = e["G"] / d
+        out[stage] = {"b0": b0, "b1": b1, "b2": b2, "a1": a1, "a2": a2}
+    return out
+
+
+def _decimal_sin_cos_pi(t):
+    """(sin(pi t), cos(pi t)) as Decimals for a Fraction 0 <= t <= 1/2."""
+    u = Fraction(1, 2) - t
+    return decimal_cos_pi(u.numerator, u.denominator), decimal_cos_pi(t.numerator, t.denominator)
+
+
+def loudness_gain_db(fs, hz=LOUDNESS_TEST_HZ):
+    """20 log10 |H(e^{j w})| of the K-weighting cascade at hz, in decimal, w = 2 pi hz / fs."""
+    coeffs = loudness_coefficients_decimal(fs)
+    with localcontext() as ctx:
+        ctx.prec = PREC + 10
+        t1 = Fraction(2 * hz, fs)        # w / pi
+        t2 = Fraction(4 * hz, fs)        # 2 w / pi
+        assert t2 <= Fraction(1, 2)
+        s1, c1 = _decimal_sin_cos_pi(t1)
+        s2, c2 = _decimal_sin_cos_pi(t2)
+        power = Decimal(1)
+        for stage, _ in LOUDNESS_PUBLISHED:
+            c = coeffs[stage]
+            # z^-1 = cos w - j sin w, z^-2 = cos 2w - j sin 2w
+            nr = c["b0"] + c["b1"] * c1 + c["b2"] * c2
+            ni = -(c["b1"] * s1 + c["b2"] * s2)
+            dr = 1 + c["a1"] * c1 + c["a2"] * c2
+            di = -(c["a1"] * s1 + c["a2"] * s2)
+            power *= (nr * nr + ni * ni) / (dr * dr + di * di)
+        return 10 * power.log10()
+
+
+def loudness_block_frames(fs):
+    """(block frames T_g * fs, step frames), both exact integers at 44.1 and 48 kHz."""
+    block = Fraction(LOUDNESS_BLOCK_S) * fs
+    step = block * Fraction(100 - LOUDNESS_OVERLAP_PERCENT, 100)
+    assert block.denominator == 1 and step.denominator == 1
+    return int(block), int(step)
+
+
+def tech3341_segments(case, fs):
+    """[(amplitude Decimal, frames)] per segment of a Tech 3341 case: frames by the seconds-to-samples rule."""
+    for number, _, segments, _ in TECH3341_CASES:
+        if number == case:
+            out = []
+            for level, duration in segments:
+                frames, _ = samples(float(duration), fs)
+                out.append((level, frames))
+            return out
+    raise KeyError(case)
+
+
+def tech3341_ideal(case, fs, gating=True):
+    """The steady-state reading of a Tech 3341 case: every 100 ms step at its level's
+    K-weighted power, filter transients left out, the gates as written (decimal)."""
+    _, step = loudness_block_frames(fs)
+    with localcontext() as ctx:
+        ctx.prec = PREC + 10
+        gain = Decimal(10) ** (loudness_gain_db(fs) / 10)     # |H|^2
+        steps = []
+        for level, frames in tech3341_segments(case, fs):
+            assert frames % step == 0
+            amp2 = Decimal(10) ** (Decimal(level) / 10)       # A^2
+            # Two channels, each A^2 / 2 |H|^2 over whole cycles of the 1 kHz tone.
+            steps.extend([amp2 * gain] * (frames // step))
+        blocks = [sum(steps[j:j + 4]) / 4 for j in range(len(steps) - 3)]
+        offset = Decimal(LOUDNESS_OFFSET_DB)
+
+        def lufs(z):
+            return offset + 10 * z.log10()
+
+        if not gating:
+            return lufs(sum(blocks) / len(blocks))
+        gate_a = Decimal(LOUDNESS_ABSOLUTE_GATE_LUFS)
+        kept = [z for z in blocks if lufs(z) > gate_a]
+        gate_r = lufs(sum(kept) / len(kept)) + Decimal(LOUDNESS_RELATIVE_GATE_LU)
+        kept = [z for z in kept if lufs(z) > gate_r]
+        return lufs(sum(kept) / len(kept))
+
+
+def loudness_window(length_s, loop, fs):
+    """Loudness, Window: (start, body, repeats, window frames, end N) or the rejection (None, ..., N)."""
+    n, _ = samples(float(length_s), fs)
+    w_min, _ = samples(LOUDNESS_WINDOW_MIN_S, fs)
+    if loop is None:
+        if n < w_min:
+            return None, None, None, None, n, w_min
+        return 0, n, 1, n, n, w_min
+    o, _ = samples(float(loop[0]), fs)
+    b, _ = samples(float(loop[1]), fs)
+    k = max(1, -(-w_min // b))      # the smallest k >= 1 with k * B >= W_min
+    return o, b, k, k * b, n, w_min
+
+
+def _shortest(x):
+    """The shortest round-trip text of a binary64, an integral value without a fraction (as std::to_chars)."""
+    if x == int(x) and abs(x) < 2.0**53:
+        return str(int(x))
+    return repr(x)
+
+
+def _window_limit():
+    return f">= {_shortest(LOUDNESS_WINDOW_MIN_S)} s (row {LOUDNESS_WINDOW_MIN_ROW})"
+
+
+def _window_row(length_s, loop, fs):
+    start, body, k, frames, n, w_min = loudness_window(length_s, loop, fs)
+    row = {"fs": fs, "looping": "yes" if loop is not None else "no", "length_s": dec(float(length_s)),
+           "end_frame": str(n), "min_frames": str(w_min)}
+    if start is None:
+        value = n / fs     # binary64, one division: the session length as rendered
+        row.update({"result": "rejected", "start_frame": "none", "body_frames": "none", "repeats": "none",
+                    "window_frames": "none", "window_s": "none", "parameter": LOUDNESS_WINDOW_PARAMETER,
+                    "value": _shortest(value),
+                    "rule": LOUDNESS_WINDOW_RULE, "limit": _window_limit()})
+    else:
+        row.update({"result": "accepted", "start_frame": str(start), "body_frames": str(body), "repeats": str(k),
+                    "window_frames": str(frames), "window_s": dec(frames / fs), "parameter": "none",
+                    "value": "none", "rule": "none", "limit": "none"})
+    return row
+
+
+def _loudness_fixture(fixture):
+    text = (REPO_ROOT / "recipes" / "fixtures" / "valid" / fixture).read_text(encoding="utf-8")
+    recipe = json.loads(text)
+    loop = recipe.get("loop")
+    return recipe["length_s"], (None if loop is None else (loop["opening_s"], loop["body_s"]))
+
+
+def loudness_window_case_rows():
+    rows = []
+    for fs in RATES:
+        for case, length_s, loop in LOUDNESS_WINDOW_CASES:
+            r = _window_row(length_s, loop, fs)
+            rows.append({"case": case, "opening_s": dec(loop[0]) if loop else "none",
+                         "body_s": dec(loop[1]) if loop else "none", **r})
+    return rows
+
+
+def loudness_window_rows():
+    rows = []
+    for fs in RATES:
+        for fixture in LOUDNESS_AGREEMENT_FIXTURES + LOUDNESS_REJECTED_FIXTURES:
+            length_s, loop = _loudness_fixture(fixture)
+            rows.append({"fixture": fixture, **_window_row(length_s, loop, fs)})
+    return rows
+
+
+def loudness_prototype_rows():
+    p = loudness_prototype()
+    b = loudness_prototype_binary64()
+    rows = []
+    for stage, names in LOUDNESS_PROTOTYPE_ORDER:
+        for name in names:
+            rows.append({"stage": stage, "parameter": name, "ideal": format_ideal(p[stage][name]),
+                         "hex": hexf(b[stage][name])})
+    return rows
+
+
+def loudness_coefficient_rows():
+    published = {stage: dict(c) for stage, c in LOUDNESS_PUBLISHED}
+    rows = []
+    for fs in RATES:
+        ideal = loudness_coefficients_decimal(fs)
+        for stage, coeffs in LOUDNESS_PUBLISHED:
+            for name, _ in coeffs:
+                rows.append({"fs": fs, "stage": stage, "coefficient": name,
+                             "ideal": format_ideal(ideal[stage][name]),
+                             "published": published[stage][name] if fs == LOUDNESS_PUBLISHED_FS else "none"})
+    return rows
+
+
+def loudness_block_rows():
+    rows = []
+    for fs in RATES:
+        block, step = loudness_block_frames(fs)
+        rows.append({"fs": fs, "block_frames": block, "step_frames": step,
+                     "gain_1khz_db": format_ideal(loudness_gain_db(fs))})
+    return rows
+
+
+def tech3341_rows():
+    rows = []
+    for fs in RATES:
+        for number, what, segments, expected in TECH3341_CASES:
+            seg = tech3341_segments(number, fs)
+            rows.append({
+                "case": number, "fs": fs, "tests": what,
+                "levels_dbfs": [level for level, _ in segments],
+                "durations_s": [duration for _, duration in segments],
+                "frames": [str(f) for _, f in seg],
+                "total_frames": str(sum(f for _, f in seg)),
+                "expected_lufs": expected,
+                "ideal_gated": format_ideal(tech3341_ideal(number, fs, True)),
+                "ideal_ungated": format_ideal(tech3341_ideal(number, fs, False)),
+                "gating_case": "yes" if number in TECH3341_GATING_CASES else "no",
+            })
+    return rows
+
+
+def loudness_constants():
+    return {
+        "offset_db": LOUDNESS_OFFSET_DB,
+        "channel_weights": list(LOUDNESS_CHANNEL_WEIGHTS),
+        "block_s": LOUDNESS_BLOCK_S,
+        "overlap_percent": LOUDNESS_OVERLAP_PERCENT,
+        "absolute_gate_lufs": LOUDNESS_ABSOLUTE_GATE_LUFS,
+        "relative_gate_lu": LOUDNESS_RELATIVE_GATE_LU,
+        "published_fs": LOUDNESS_PUBLISHED_FS,
+        "published_decimals": LOUDNESS_PUBLISHED_DECIMALS,
+        "test_hz": LOUDNESS_TEST_HZ,
+        "window_min_s": dec(LOUDNESS_WINDOW_MIN_S),
+        "window_min_row": LOUDNESS_WINDOW_MIN_ROW,
+        "window_rule": LOUDNESS_WINDOW_RULE,
+        "window_parameter": LOUDNESS_WINDOW_PARAMETER,
+        "window_limit": _window_limit(),
+        "tolerance_lu": dec(LOUDNESS_TOLERANCE_LU),
+        "must_fail_lu": dec(LOUDNESS_MUST_FAIL_LU),
+        "gating_cases": list(TECH3341_GATING_CASES),
+        "agreement_fixtures": list(LOUDNESS_AGREEMENT_FIXTURES),
+        "rejected_fixtures": list(LOUDNESS_REJECTED_FIXTURES),
+        "whole_fixtures": list(LOUDNESS_WHOLE_FIXTURES),
+        "assertion_fixture": LOUDNESS_ASSERTION_FIXTURE,
+    }
+
+
 # ------------------------------------------------------- 24-bit rounding
 
 Q24_MAX = 8388607   # 2^23 - 1
@@ -3876,7 +4328,7 @@ def quantize_rows():
 
 def build():
     return {
-        "spec": "docs/signal-spec.md (sections core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer, rate curve (the beat rate, Story 2.5; the theta and gamma rates, Story 2.6), loop (Story 2.7), components (Story 3.1), spacing (Story 3.2), preview (Story 3.3), and 24-bit rounding)",
+        "spec": "docs/signal-spec.md (sections core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer, rate curve (the beat rate, Story 2.5; the theta and gamma rates, Story 2.6), loop (Story 2.7), components (Story 3.1), spacing (Story 3.2), preview (Story 3.3), loudness (Story 4.1), and 24-bit rounding)",
         "generator": "tools/signal_spec_vectors.py",
         "cycle": str(CYCLE),
         "sine_coefficients": sine_coefficients(),
@@ -3979,6 +4431,13 @@ def build():
         "preview_gains": preview_gain_rows(),
         "preview_layers": preview_layer_rows(),
         "preview_frames": preview_frame_rows(),
+        "loudness_constants": loudness_constants(),
+        "loudness_prototype": loudness_prototype_rows(),
+        "loudness_coefficients": loudness_coefficient_rows(),
+        "loudness_blocks": loudness_block_rows(),
+        "loudness_tech3341": tech3341_rows(),
+        "loudness_window_cases": loudness_window_case_rows(),
+        "loudness_windows": loudness_window_rows(),
         "quantize_24": quantize_rows(),
     }
 
@@ -4400,6 +4859,48 @@ def tables(data):
                    f"| {r['opening_end_frame']} | {r['first_seam_frame']} | {r['opening_end_s']} "
                    f"| {r['first_seam_s']} | {r['length_frames']} | {r['tail_frames']} | {r['preview_frames']} "
                    f"| {r['seconds']} | {r['layers_max']} | `{r['gain_hex']}` | `{r['gain_bits']}` |")
+    out.append("")
+    out.append("| Stage | Parameter | Ideal | Binary64 (hex) |")
+    out.append("| --- | --- | --- | --- |")
+    for r in data["loudness_prototype"]:
+        out.append(f"| {r['stage']} | {r['parameter']} | {r['ideal']} | `{r['hex']}` |")
+    out.append("")
+    out.append("| fs | Stage | Coefficient | Ideal | Published (BS.1770) |")
+    out.append("| --- | --- | --- | --- | --- |")
+    for r in data["loudness_coefficients"]:
+        out.append(f"| {r['fs']} | {r['stage']} | {r['coefficient']} | {r['ideal']} | {r['published']} |")
+    out.append("")
+    out.append("| fs | Block frames | Step frames | K-weighting gain at 1 kHz (dB) |")
+    out.append("| --- | --- | --- | --- |")
+    for r in data["loudness_blocks"]:
+        out.append(f"| {r['fs']} | {r['block_frames']} | {r['step_frames']} | {r['gain_1khz_db']} |")
+    out.append("")
+    out.append("| Case | fs | Tests | Levels (dBFS) | Durations (s) | Frames | Total frames | Expected (LUFS) "
+               "| Ideal, gated | Ideal, gating off | Gating case |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["loudness_tech3341"]:
+        out.append(f"| {r['case']} | {r['fs']} | {r['tests']} | {', '.join(r['levels_dbfs'])} "
+                   f"| {', '.join(r['durations_s'])} | {', '.join(r['frames'])} | {r['total_frames']} "
+                   f"| {r['expected_lufs']} | {r['ideal_gated']} | {r['ideal_ungated']} | {r['gating_case']} |")
+    out.append("")
+    out.append("| Case | fs | Looping | length_s | opening_s | body_s | End N | W_min | Result | Start | Body B "
+               "| Repeats k | Window frames | Window (s) | Parameter | Value | Rule | Limit |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- "
+               "| --- | --- |")
+    for r in data["loudness_window_cases"]:
+        out.append(f"| {r['case']} | {r['fs']} | {r['looping']} | {r['length_s']} | {r['opening_s']} | {r['body_s']} "
+                   f"| {r['end_frame']} | {r['min_frames']} | {r['result']} | {r['start_frame']} "
+                   f"| {r['body_frames']} | {r['repeats']} | {r['window_frames']} | {r['window_s']} "
+                   f"| {r['parameter']} | {r['value']} | {r['rule']} | {r['limit']} |")
+    out.append("")
+    out.append("| Fixture | fs | Looping | length_s | End N | Result | Start | Body B | Repeats k | Window frames "
+               "| Window (s) | Parameter | Value | Rule | Limit |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["loudness_windows"]:
+        out.append(f"| {r['fixture']} | {r['fs']} | {r['looping']} | {r['length_s']} | {r['end_frame']} "
+                   f"| {r['result']} | {r['start_frame']} | {r['body_frames']} | {r['repeats']} "
+                   f"| {r['window_frames']} | {r['window_s']} | {r['parameter']} | {r['value']} | {r['rule']} "
+                   f"| {r['limit']} |")
     out.append("")
     out.append("| Rule | Case | s (hex) | x = s * 2^23 (hex) | Value | Bytes (little-endian) |")
     out.append("| --- | --- | --- | --- | --- | --- |")
