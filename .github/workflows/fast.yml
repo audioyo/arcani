@@ -113,7 +113,7 @@ jobs:
         run: cmake --workflow --preset linux-clang
 
       - name: Python tests
-        run: uv run --locked pytest
+        run: uv run --locked pytest -n auto --dist worksteal
 
       - name: Row coverage check
         run: uv run --locked python tools/check_row_coverage.py
@@ -215,7 +215,7 @@ jobs:
         run: powershell -NoProfile -File tools/dev.ps1 cmake --workflow --preset windows-clang-cl
 
       - name: Python tests
-        run: uv run --locked pytest
+        run: uv run --locked pytest -n auto --dist worksteal
 
       - name: Row coverage check
         run: uv run --locked python tools/check_row_coverage.py

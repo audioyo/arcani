@@ -4,7 +4,7 @@
 (tools/check_row_coverage.py) can prove every row is asserted and every
 assertion has a row. An empty or unknown id raises UnknownRowError, which
 fails the calling test. tests/python/conftest.py writes the recorded ids at
-the end of the pytest session.
+the end of the pytest session, merging the ids of any pytest-xdist workers.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from pathlib import Path
 
 from .tables import TABLES_DIR, Row, TableError, UnknownRowError, load_tables
 
-__all__ = ["Row", "TableError", "UnknownRowError", "row", "used_ids", "write_usage"]
+__all__ = ["Row", "TableError", "UnknownRowError", "mark_used", "row", "used_ids", "write_usage"]
 
 _rows: dict[str, Row] | None = None
 _used: set[str] = set()
@@ -38,6 +38,11 @@ def row(row_id: str) -> Row:
 
 def used_ids() -> set[str]:
     return set(_used)
+
+
+def mark_used(row_id: str) -> None:
+    """Records an id another pytest process read (an xdist worker's, merged by conftest)."""
+    _used.add(row_id)
 
 
 def write_usage(path) -> None:
