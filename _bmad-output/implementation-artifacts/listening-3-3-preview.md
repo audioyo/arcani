@@ -46,12 +46,12 @@ A 450 Hz carrier amplitude-modulated by the sine envelope at 6 Hz, 75 percent de
 
 | # | Listen for | Time | Earbuds | Headphones |
 | --- | --- | --- | --- | --- |
-| F1 | The 450 Hz tone and its slow 6 Hz pulse: harsh or not? | whole render | not done | sounded good |
-| F2 | The 250 Hz tone: harsh or not? | whole render | not done | sounded good |
-| F3 | The 40 Hz flutter in the bursts: rough or not? | whole render | not done | sounded good |
-| F4 | Inside each 50 ms burst the 40 Hz flutter runs on its own, so each burst opens at a different point of it. Do the bursts sound even, or does one burst differ from the next? (design log (qq)) | whole render | not done | sounded good |
-| F5 | The seam at the opening end: any click, jump, or change in the sound? | 60 s | not done | clean, no click or jump |
-| F6 | The first body seam: any click, jump, or change in the sound? | 180 s | not done | clean, no click or jump |
+| F1 | The 450 Hz tone and its slow 6 Hz pulse: harsh or not? | whole render | | |
+| F2 | The 250 Hz tone: harsh or not? | whole render | | |
+| F3 | The 40 Hz flutter in the bursts: rough or not? | whole render | | |
+| F4 | Inside each 50 ms burst the 40 Hz flutter runs on its own, so each burst opens at a different point of it. Do the bursts sound even, or does one burst differ from the next? (design log (qq)) | whole render | | |
+| F5 | The seam at the opening end: any click, jump, or change in the sound? | 60 s | | |
+| F6 | The first body seam: any click, jump, or change in the sound? | 180 s | | |
 
 ### Learn: `starter-learn-layers.preview.wav` (210 s)
 
@@ -59,11 +59,11 @@ A 450 Hz carrier amplitude-modulated by the sine envelope at 5.5 Hz, 75 percent 
 
 | # | Listen for | Time | Earbuds | Headphones |
 | --- | --- | --- | --- | --- |
-| L1 | The 450 Hz tone and its slow 5.5 Hz pulse: harsh or not? | whole render | not done | sounded good |
-| L2 | The 250 Hz tone: harsh or not? | whole render | not done | sounded good |
-| L3 | The 40 Hz flutter as it swells in and out: rough or not? | whole render | not done | sounded good |
-| L4 | The seam at the opening end: any click, jump, or change in the sound? | 60 s | not done | clean, no click or jump |
-| L5 | The first body seam: any click, jump, or change in the sound? | 180 s | not done | clean, no click or jump |
+| L1 | The 450 Hz tone and its slow 5.5 Hz pulse: harsh or not? | whole render | | |
+| L2 | The 250 Hz tone: harsh or not? | whole render | | |
+| L3 | The 40 Hz flutter as it swells in and out: rough or not? | whole render | | |
+| L4 | The seam at the opening end: any click, jump, or change in the sound? | 60 s | | |
+| L5 | The first body seam: any click, jump, or change in the sound? | 180 s | | |
 
 ### Relax: `starter-relax-layers.preview.wav` (180 s)
 
@@ -71,9 +71,9 @@ A 450 Hz carrier amplitude-modulated by the sine envelope at 6 Hz, 75 percent de
 
 | # | Listen for | Time | Earbuds | Headphones |
 | --- | --- | --- | --- | --- |
-| R1 | The 450 Hz tone and its slow 6 Hz pulse: harsh or not? | whole render | not done | sounded good |
-| R2 | The 250 Hz tone: harsh or not? | whole render | not done | sounded good |
-| R3 | The light 40 Hz flutter as it swells in and out: rough or not, and can you hear it at all? | whole render | not done | sounded good |
+| R1 | The 450 Hz tone and its slow 6 Hz pulse: harsh or not? | whole render | | |
+| R2 | The 250 Hz tone: harsh or not? | whole render | | |
+| R3 | The light 40 Hz flutter as it swells in and out: rough or not, and can you hear it at all? | whole render | | |
 
 ### Sleep: `starter-sleep-layers.preview.wav` (180 s)
 
@@ -81,9 +81,9 @@ A 450 Hz carrier amplitude-modulated by the sine envelope at 2 Hz, 75 percent de
 
 | # | Listen for | Time | Earbuds | Headphones |
 | --- | --- | --- | --- | --- |
-| S1 | The 450 Hz tone and its slow 2 Hz pulse: harsh or not? | whole render | not done | sounded good |
-| S2 | The low 100 Hz tones: harsh, boomy, or clean? | whole render | not done | sounded good |
-| S3 | The binaural beat: does it slowly speed up and slow down once a minute, smoothly, with no jump? | 0 to 180 s, fastest at 30, 90, 150 s | not done | sounded good |
+| S1 | The 450 Hz tone and its slow 2 Hz pulse: harsh or not? | whole render | | |
+| S2 | The low 100 Hz tones: harsh, boomy, or clean? | whole render | | |
+| S3 | The binaural beat: does it slowly speed up and slow down once a minute, smoothly, with no jump? | 0 to 180 s, fastest at 30, 90, 150 s | | |
 
 ### 250 Hz carrier with gamma AM at 60 Hz, smooth swell: `preview-gamma-250-am-60-swell.preview.wav` (180 s)
 
@@ -91,8 +91,8 @@ A 450 Hz carrier amplitude-modulated by the sine envelope at 6 Hz, 75 percent de
 
 | # | Listen for | Time | Earbuds | Headphones |
 | --- | --- | --- | --- | --- |
-| W1 | The 250 Hz tone with the 60 Hz flutter swelling in and out: harsh or not? | whole render | not done | sounded good |
-| W2 | The 60 Hz flutter: rough or not? Does it sound like a separate low hum? | whole render | not done | sounded good |
+| W1 | The 250 Hz tone with the 60 Hz flutter swelling in and out: harsh or not? | whole render | | |
+| W2 | The 60 Hz flutter: rough or not? Does it sound like a separate low hum? | whole render | | |
 
 ### 250 Hz carrier with gamma AM at 60 Hz, 50 ms bursts: `preview-gamma-250-am-60-bursts.preview.wav` (180 s)
 
@@ -100,9 +100,9 @@ The same 450 Hz theta reference, and a 250 Hz sine carrier amplitude-modulated a
 
 | # | Listen for | Time | Earbuds | Headphones |
 | --- | --- | --- | --- | --- |
-| B1 | The 250 Hz tone with the 60 Hz flutter in short bursts: harsh or not? | whole render | not done | sounded good |
-| B2 | The 60 Hz flutter in the bursts: rough or not? Does it sound like a separate low hum? | whole render | not done | sounded good |
-| B3 | The bursts: even, or does one burst differ from the next? | whole render | not done | sounded good |
+| B1 | The 250 Hz tone with the 60 Hz flutter in short bursts: harsh or not? | whole render | | |
+| B2 | The 60 Hz flutter in the bursts: rough or not? Does it sound like a separate low hum? | whole render | | |
+| B3 | The bursts: even, or does one burst differ from the next? | whole render | | |
 
 ## Proposed changes
 
@@ -121,13 +121,13 @@ Write one of these, with the date, after both passes:
 
 | Field | Entry |
 | --- | --- |
-| Date | 2026-11-19 |
-| Listener | Audio |
-| Commit the previews were rendered from (`git rev-parse --short HEAD`) | 014f538 |
-| Engine version (`engine_version` in each report) | 0.0.1 |
+| Date | |
+| Listener | |
+| Commit the previews were rendered from (`git rev-parse --short HEAD`) | |
+| Engine version (`engine_version` in each report) | |
 | Sample rate | 48 kHz |
-| Playback gain in Reaper (dB) | not recorded |
-| Earbuds (model) | not used |
-| Headphones (model) | headphones (model not recorded) |
-| Result | Nothing needs changing. |
-| Notes | Coverage: one spot check pass on headphones through all six previews; no earbuds pass. Everything sounded good, and the seams at 60 s and 180 s in Focus and Learn were clean, with no hiccups. Focus, Learn, and Relax sound alike, which is by design: they share the 450 Hz theta reference carrier and the 250 Hz gamma PAC carrier amplitude-modulated at 40 Hz and differ only in theta rate, coupling shape, and AM depth, which the measurements check, not the ear. The tones are meant to sit low under the rest of the mix. Sleep differs (theta rate 2 Hz, 100 Hz binaural pair, no gamma PAC layer). Accepted by Audio as the Story 3.3 result. |
+| Playback gain in Reaper (dB) | |
+| Earbuds (model) | |
+| Headphones (model) | |
+| Result | |
+| Notes | |
