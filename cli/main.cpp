@@ -3,12 +3,18 @@
 // JSON report (Story 1.4).
 //
 //   arcani-render --version
-//   arcani-render RECIPE --out WAV [--report JSON] [--rate N] [--mode measure|final] [--preview]
+//   arcani-render RECIPE --out WAV [--report JSON] [--rate N] [--mode measure|final] [--preview] [--loudness]
 //
 // --preview (Story 3.3; docs/signal-spec.md, Preview) keeps the first F
 // frames of the recipe's own render, each sample times the preview gain g
 // before 24-bit rounding, and adds the report member "preview". Measure mode
 // only: with --mode final it is a usage error.
+//
+// --loudness (Story 4.1; docs/signal-spec.md, Loudness) measures the BS.1770
+// integrated loudness of the binary64 output over the window and over the
+// whole render, and adds the report member "loudness". The WAV is unchanged.
+// A non-looping recipe shorter than row loudness-window-min is rejected
+// (exit 1, nothing written). Not with --preview.
 //
 // Exit codes: 0 rendered, every assertion pass or not applicable; 1 the
 // engine rejected the recipe or an option; 2 usage; 3 file or internal
@@ -16,6 +22,7 @@
 
 #include <arcani/arcani.h>
 
+#include "loudness.hpp"
 #include "preview.hpp"
 #include "report.hpp"
 #include "tables.hpp"
@@ -52,7 +59,7 @@ constexpr std::size_t kBlockFrames = 4096;
 
 const char* const kUsage =
     "usage: arcani-render RECIPE --out WAV [--report JSON] [--rate 44100|48000]"
-    " [--mode measure|final] [--preview]\n"
+    " [--mode measure|final] [--preview] [--loudness]\n"
     "       arcani-render --version\n";
 
 int usage() {
@@ -72,6 +79,7 @@ struct Args {
   std::uint32_t rate = 48000;
   arc_mode mode = ARC_MODE_MEASURE;
   bool preview = false;
+  bool loudness = false;
 };
 
 // ASCII digits only, and the value fits in 32 bits.
@@ -92,9 +100,9 @@ std::optional<std::uint32_t> parse_rate(const std::string& text) {
   return v;
 }
 
-// RECIPE first, then each option at most once, in any order. --preview is
-// the only option without a value; every other option's value is the next
-// argument, whatever it is.
+// RECIPE first, then each option at most once, in any order. --preview and
+// --loudness are the options without a value; every other option's value is
+// the next argument, whatever it is.
 std::optional<Args> parse_args(int argc, char** argv) {
   if (argc < 2) {
     return std::nullopt;
@@ -115,6 +123,14 @@ std::optional<Args> parse_args(int argc, char** argv) {
       }
       a.preview = true;
       --i;  // no value: the loop step moves to the next argument
+      continue;
+    }
+    if (flag == "--loudness") {
+      if (a.loudness) {
+        return std::nullopt;
+      }
+      a.loudness = true;
+      --i;
       continue;
     }
     if (i + 1 >= argc) {
@@ -154,6 +170,9 @@ std::optional<Args> parse_args(int argc, char** argv) {
   }
   if (a.preview && a.mode == ARC_MODE_FINAL) {
     return std::nullopt;  // a preview is made in measure mode only
+  }
+  if (a.preview && a.loudness) {
+    return std::nullopt;  // a preview is scaled and cut; it is never measured
   }
   return a;
 }
@@ -272,6 +291,15 @@ int run(const Args& args) {
                                      tables::row("preview-peak-level"));
   }
 
+  // Story 4.1: the window minimum, read before anything is opened.
+  std::uint64_t window_min_frames = 0;
+  std::string window_limit;
+  if (args.loudness) {
+    const arcani::test::tables::Row& window_row = arcani::test::tables::row("loudness-window-min");
+    window_min_frames = cli::loudness_window_min_frames(window_row, args.rate);
+    window_limit = cli::loudness_window_limit(window_row);
+  }
+
   const std::optional<std::string> text = read_file(args.recipe);
   if (!text) {
     return file_error("cannot read recipe " + args.recipe);
@@ -318,6 +346,24 @@ int run(const Args& args) {
   std::memset(&loop, 0, sizeof loop);
   if (arc_plan_loop(plan.plan, &loop, &error) != ARC_OK) {
     return file_error(std::string("loop frames failed: rule=") + error.rule);
+  }
+  // Story 4.1: the loudness window, or the window rule's rejection, before
+  // any output file is opened.
+  cli::LoudnessWindow window;
+  std::optional<cli::LoudnessMeter> whole_meter;
+  std::optional<cli::LoudnessMeter> window_meter;
+  if (args.loudness) {
+    window = cli::loudness_window(loop, frames, window_min_frames);
+    if (!window.accepted) {
+      const double length_s = static_cast<double>(frames) / static_cast<double>(args.rate);
+      std::fprintf(stderr, "rejected: parameter=/length_s value=%s rule=loudness_window_rule limit=%s\n",
+                   cli::json_number(length_s).c_str(), window_limit.c_str());
+      return kExitRejected;
+    }
+    whole_meter.emplace(args.rate);
+    if (loop.looping != 0) {
+      window_meter.emplace(args.rate);
+    }
   }
   // Story 3.3: a preview renders frames [0, F) and scales them by g.
   std::uint64_t out_frames = frames;
@@ -366,6 +412,18 @@ int run(const Args& args) {
     if (s != ARC_OK) {
       return file_error(std::string("render failed: rule=") + error.rule);
     }
+    if (whole_meter) {
+      whole_meter->add(std::span<const double>(samples.data(), n * 2));
+    }
+    if (window_meter) {
+      // The first window pass is frames [O, O + B) of this render.
+      const std::uint64_t lo = window.start_frame > done ? window.start_frame : done;
+      const std::uint64_t end = window.start_frame + window.body_frames;
+      const std::uint64_t hi = end < done + n ? end : done + n;
+      if (lo < hi) {
+        window_meter->add(std::span<const double>(samples.data() + 2 * (lo - done), 2 * (hi - lo)));
+      }
+    }
     if (preview) {
       cli::apply_gain(std::span<double>(samples.data(), n * 2), gain);
     }
@@ -380,6 +438,40 @@ int run(const Args& args) {
     return file_error("cannot write " + partial);
   }
 
+  // Story 4.1: the window's other k - 1 passes, frames [O, O + B) rendered
+  // again by a second renderer, into the same window meter.
+  std::optional<cli::LoudnessReport> loudness;
+  if (whole_meter) {
+    if (window_meter && window.repeats > 1) {
+      RendererHandle again;
+      if (arc_renderer_create(plan.plan, &again.renderer, &error) != ARC_OK) {
+        return file_error(std::string("renderer creation failed: rule=") + error.rule);
+      }
+      for (std::uint64_t pass = 1; pass < window.repeats; ++pass) {
+        if (arc_seek(again.renderer, window.start_frame, &error) != ARC_OK) {
+          return file_error(std::string("seek failed: rule=") + error.rule);
+        }
+        for (std::uint64_t done = 0; done < window.body_frames;) {
+          const std::uint64_t left = window.body_frames - done;
+          const std::size_t n = left < kBlockFrames ? static_cast<std::size_t>(left) : kBlockFrames;
+          if (arc_render(again.renderer, samples.data(), n, nullptr, &error) != ARC_OK) {
+            return file_error(std::string("render failed: rule=") + error.rule);
+          }
+          window_meter->add(std::span<const double>(samples.data(), n * 2));
+          done += n;
+        }
+      }
+    }
+    cli::LoudnessReport l;
+    l.window_start_frame = window.start_frame;
+    l.window_body_frames = window.body_frames;
+    l.window_repeats = window.repeats;
+    l.window_frames = window.window_frames;
+    l.whole_lufs_i = whole_meter->integrated();
+    l.window_lufs_i = window_meter ? window_meter->integrated() : l.whole_lufs_i;
+    loudness = l;
+  }
+
   cli::Report report;
   report.engine_version = arc_engine_version();
   report.seed = arc_plan_seed(plan.plan);
@@ -389,6 +481,7 @@ int run(const Args& args) {
   report.loop = cli::loop_report(loop);
   report.spacing = spacing;
   report.preview = preview;
+  report.loudness = loudness;
   report.determinism_key.recipe_hash = arc_plan_recipe_hash(plan.plan);
   report.determinism_key.engine_version = report.engine_version;
   report.determinism_key.sample_rate = args.rate;
