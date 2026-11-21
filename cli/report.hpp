@@ -72,6 +72,19 @@ struct PreviewReport {
   double seconds = 0.0;             // F / fs
 };
 
+// The loudness member of a render made with --loudness (docs/signal-spec.md,
+// Loudness, Report; Story 4.1): the window (start O, body B, repeats k, and
+// k * B frames measured) and the two readings in LUFS-I, -infinity written as
+// null.
+struct LoudnessReport {
+  std::uint64_t window_start_frame = 0;
+  std::uint64_t window_body_frames = 0;
+  std::uint64_t window_repeats = 0;
+  std::uint64_t window_frames = 0;
+  double window_lufs_i = 0.0;
+  double whole_lufs_i = 0.0;
+};
+
 struct Report {
   std::string engine_version;
   std::uint64_t seed = 0;
@@ -81,6 +94,7 @@ struct Report {
   std::optional<LoopReport> loop;  // written only when present
   std::optional<SpacingReport> spacing;  // Story 3.2; written only when present
   std::optional<PreviewReport> preview;  // Story 3.3; written only when present
+  std::optional<LoudnessReport> loudness;  // Story 4.1; written only when present
   DeterminismKey determinism_key;
   std::vector<Assertion> assertions;
 };
@@ -103,8 +117,8 @@ std::optional<LoopReport> loop_report(const arc_loop_frames& frames);
 bool spacing_report(const arc_plan* plan, std::optional<SpacingReport>& out, std::string& rule);
 
 // The report as one UTF-8 JSON object, members in struct order. The loop,
-// spacing, and preview members are left out when absent, so a report without
-// them is unchanged.
+// spacing, preview, and loudness members are left out when absent, so a
+// report without them is unchanged.
 std::string report_json(const Report& report);
 
 // True only when the value of ARCANI_REFERENCE_MACHINE (nullptr when unset)

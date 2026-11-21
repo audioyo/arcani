@@ -839,9 +839,9 @@ So that every loudness number in a report can be trusted.
 **And** until gain ramps exist (S4.4), the steady part of every recipe is its whole session or its body; S4.4 proves the ramp exclusion
 
 **Given** a meter in the Python assertion library and a meter in the CLI tooling (outside `engine/`)
-**When** each measures the EBU Tech 3341 compliance signals
-**Then** each reads every signal within the tolerance Tech 3341 states for it
-**And** the signals are fetched from the EBU at a pinned address and checked against a pinned SHA-256 before use; they are committed to the repo only if the EBU licence allows redistribution, and a hash mismatch fails the run
+**When** each measures the EBU Tech 3341 v4.0 (November 2023) integrated loudness compliance signals, Table 1 cases 1 to 5
+**Then** each reads every case within the tolerance Tech 3341 states for it
+**And** the cases are synthesized in the test harness from the levels and durations printed in the public Tech 3341 document (a stereo 1 kHz sine, in phase in both channels); the EBU test files are never downloaded or committed, because the EBU terms of use (July 2019) forbid for-profit use and redistribution of its test sequences (amended 2026-11-20, Audio, Story 4.1 decision 1); case 6 (5.1) and cases 7 and 8 (programme recordings) are out of scope
 **And** a must-fail meter with gating turned off in the harness fails the gating cases
 
 **Given** any render

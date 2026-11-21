@@ -4,6 +4,7 @@
 #include "report.hpp"
 
 #include <charconv>
+#include <cmath>
 #include <cstring>
 #include <system_error>
 
@@ -28,6 +29,10 @@ std::string integer(std::uint64_t v) {
   const auto r = std::to_chars(buf, buf + sizeof buf, v);
   return std::string(buf, r.ptr);
 }
+
+// A loudness reading: null when it is not finite (-infinity: no block passed
+// the gates).
+std::string reading(double lufs) { return std::isfinite(lufs) ? json_number(lufs) : std::string("null"); }
 
 }  // namespace
 
@@ -199,6 +204,17 @@ std::string report_json(const Report& report) {
     out += "    \"layers_per_ear\": " + integer(p.layers_per_ear) + ",\n";
     out += "    \"gain\": " + json_number(p.gain) + ",\n";
     out += "    \"seconds\": " + json_number(p.seconds) + "\n";
+    out += "  },\n";
+  }
+  if (report.loudness) {
+    const LoudnessReport& l = *report.loudness;
+    out += "  \"loudness\": {\n";
+    out += "    \"window_start_frame\": " + integer(l.window_start_frame) + ",\n";
+    out += "    \"window_body_frames\": " + integer(l.window_body_frames) + ",\n";
+    out += "    \"window_repeats\": " + integer(l.window_repeats) + ",\n";
+    out += "    \"window_frames\": " + integer(l.window_frames) + ",\n";
+    out += "    \"window_lufs_i\": " + reading(l.window_lufs_i) + ",\n";
+    out += "    \"whole_lufs_i\": " + reading(l.whole_lufs_i) + "\n";
     out += "  },\n";
   }
   out += "  \"determinism_key\": {\n";

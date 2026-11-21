@@ -599,11 +599,17 @@ var EPICS = [
   note: "Order is fixed: meter first, ramps before the limiter.",
   retro: "optional",
   stories: [
-  { id:"4.1", title:"Loudness meter", status:"backlog",
-    plain:"A loudness meter proven against the EBU compliance signals before it judges any render.",
-    steps:S7(), acs:[
-      [" ","signal-spec loudness section: BS.1770 gating and the steady-part measurement window; too-short steady part rejected"],
-      [" ","Python and CLI meters each pass EBU Tech 3341 signals (fetched at a pinned address, SHA-256 checked); gating-off must-fail fails"],
+  { id:"4.1", title:"Loudness meter", status:"review",
+    plain:"A loudness meter proven against the Tech 3341 test cases before it judges any render.",
+    spec:["spec-4-1-loudness-meter.md"],
+    steps:[true,true,true,true,false,false,false],
+    stepNotes:["e30cdfb: spec approved 2026-11-20 by Audio; EBU terms forbid for-profit use of its test files, so Tech 3341 cases 1 to 5 are synthesized from the published document; window minimum 60 s, checked only when loudness is measured. 8734ffa: signal spec Loudness section, six vector tables, rows loudness-meter-calibration, loudness-meter-agreement, loudness-window-min, design log (zz), epics.md amended",
+      "6d276ee: fresh-context QA agent; 3 of 457 C++ cases and 101 pytest cases fail until the meters land",
+      "6d504eb: Python and CLI meters, --loudness report member, window rule; ctest 457 of 457, pytest 3,773 passed, 2 skipped; row coverage, table log, wording, and vector checks pass; the loudness tests add about 11 min of worker CPU",
+      "22553d6, 3759007: review pass 1 by three fresh-context reviewers: 9 patched (agreement renders one fixture per recipe hash, a different-channel calibration case with must-fail, meter frame-count checks, doc and log fixes), 2 deferred (cross-platform gain bytes to 4.2, window start proof to 4.4), the rest rejected with reasons; ctest 4 of 4, pytest 3,775 passed, 2 skipped"],
+    acs:[
+      [" ","signal-spec loudness section: BS.1770 gating and the steady-part measurement window; steady part under 60 s rejected when loudness is measured"],
+      [" ","Python and CLI meters each read Tech 3341 cases 1 to 5 (synthesized from the published document) within 0.1 LU; gating-off must-fail fails"],
       [" ","Both meters agree on any render within the Tech 3341 tolerance"],
       [" ","Within 1 LU of target passes; 1.5 LU over fails"]
     ] },
@@ -739,6 +745,11 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-20","3759007","4.1","Code review done: 9 findings patched, 2 deferred (4.2, 4.4), rest rejected with reasons; ctest 4 of 4 and pytest 3,775 passed on the dev PC; sprint-status.yaml review; not pushed; next: push and open the PR for CI"],
+  ["2026-11-20","6d504eb","4.1","Implementation: Python and CLI loudness meters, arcani-render --loudness, window rule; every test passes locally (ctest 457 of 457, pytest 3,773); three loudness rows added and pending cleared on loudness-tolerance; acceptance criteria stay open until review and CI; not pushed; next: code review"],
+  ["2026-11-20","6d276ee","4.1","Failing tests committed by a fresh-context QA agent (tests only); 3 C++ cases and 101 pytest cases red"],
+  ["2026-11-20","8734ffa","4.1","Signal spec Loudness section and vectors, three new rows, design log (zz), research library rows, epics.md criterion amended"],
+  ["2026-11-20","e30cdfb","4.1","Spec approved by Audio: two loudness meters (Python and CLI) calibrated on Tech 3341 cases 1 to 5 synthesized from the published document, since the EBU terms forbid for-profit use of its files; 60 s window minimum; sprint-status.yaml in-progress; not pushed"],
   ["2026-11-20","e404ed8","CI","PR #22 merged: Python tests on every runner core, one BLAS thread per worker (design log (yy)); CI green on both tiers; full windows-x64 44.6 to 19.0 min, full windows-arm64 36.5 to 17.2, fast linux-x64 23.4 to 17.3; budgets unchanged; next: Story 4.1"],
   ["2026-11-19","8e37bdb","CI","Python tests run on every runner core with pytest-xdist (design log (yy)): failing tests ff41bce, then the change; row usage merged across workers; dev PC 9.6 min with all cores against 50 min serial, 3,667 passed; budgets unchanged; PR next"],
   ["2026-11-19","a6b1a85","3.3","Fix: a69727e had filled the checklist template, failing test_listening_checklist; the template is restored and the result lives in listening-3-3-result-2026-11-19.md"],

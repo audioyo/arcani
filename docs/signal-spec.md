@@ -2,7 +2,7 @@
 
 This file is the only source of signal formulas (AD-19). The engine (`engine/`) and the Python reference (`reference/`) each implement it on their own; neither defines a formula of its own, and neither is ported from the other. A shape or stage not in this file does not exist.
 
-Story 0.2 writes the core and sine sections. Story 1.2 writes the internal block size and the stub chain. Story 1.4 writes 24-bit rounding. Story 1.5 adds the theta reference oscillator to the stub chain. Story 2.1 writes the theta reference (envelope shapes, depth law). Story 2.2 writes the gamma PAC layer, uncoupled (AM law, constant depth). Story 2.3 writes coupling (coupling phase, smooth swell). Story 2.5 writes the binaural layer and the rate curve (beat rate cycle, closed-form phase integral). Story 2.4 writes bursts (burst gate, burst constants). Story 2.6 applies the rate curve to the theta and gamma rates. Story 2.7 writes the loop (opening, body, seams, and the end at the max run time). Story 3.1 writes the components (the spectral line model of every shape and the component table). Story 3.2 writes the spacing rule (the closed-form minimum distance per ear and pair, the error detail, and the margins). Story 3.3 writes the preview (the preview frames, the layer count per ear, and the preview gain; a step of the command-line renderer, not an engine stage). Later stories add ramps, the limiter, the resampler, and the loudness window.
+Story 0.2 writes the core and sine sections. Story 1.2 writes the internal block size and the stub chain. Story 1.4 writes 24-bit rounding. Story 1.5 adds the theta reference oscillator to the stub chain. Story 2.1 writes the theta reference (envelope shapes, depth law). Story 2.2 writes the gamma PAC layer, uncoupled (AM law, constant depth). Story 2.3 writes coupling (coupling phase, smooth swell). Story 2.5 writes the binaural layer and the rate curve (beat rate cycle, closed-form phase integral). Story 2.4 writes bursts (burst gate, burst constants). Story 2.6 applies the rate curve to the theta and gamma rates. Story 2.7 writes the loop (opening, body, seams, and the end at the max run time). Story 3.1 writes the components (the spectral line model of every shape and the component table). Story 3.2 writes the spacing rule (the closed-form minimum distance per ear and pair, the error detail, and the margins). Story 3.3 writes the preview (the preview frames, the layer count per ear, and the preview gain; a step of the command-line renderer, not an engine stage). Story 4.1 writes loudness (K-weighting, integrated loudness with its gates, the calibration signals, the measurement window and its rule, and the report member; a measurement in the tooling, not an engine stage). Later stories add ramps, the limiter, and the resampler.
 
 **Conventions:**
 
@@ -4544,6 +4544,335 @@ Per preview fixture and sample rate: the session end `N`, the opening end `O` an
 | starter-sleep-layers.json | 48000 | no | 2700.0 | 129600000 | none | none | none | none | 8640000 | 1440000 | 8640000 | 180.0 | 2 | `0x1.030dc4ea03a72p-6` | `0x3f9030dc4ea03a72` |
 | preview-gamma-250-am-60-swell.json | 48000 | no | 180.0 | 8640000 | none | none | none | none | 8640000 | 1440000 | 8640000 | 180.0 | 2 | `0x1.030dc4ea03a72p-6` | `0x3f9030dc4ea03a72` |
 | preview-gamma-250-am-60-bursts.json | 48000 | no | 180.0 | 8640000 | none | none | none | none | 8640000 | 1440000 | 8640000 | 180.0 | 2 | `0x1.030dc4ea03a72p-6` | `0x3f9030dc4ea03a72` |
+
+## Loudness
+
+Story 4.1 writes integrated loudness and its measurement window. Loudness is a measurement, not an engine stage: two meters implement this section on their own, one in the Python assertion library (`tests/assertions/loudness.py`) and one in the command-line tooling (`cli/loudness.{hpp,cpp}`, in `arcani_cli_core`), and neither lives in `engine/`. Neither meter changes a sample, a vector, a fixture byte, a recipe hash, a pinned hash, or any render or report made without `--loudness`. Story 4.2 stores a loudness gain measured by this section; Story 4.3 adds true peak; Story 4.4 adds the ramps the window leaves out.
+
+**Input.** A meter reads the binary64 render output (Stub chain, Output and taps), both channels, before 24-bit rounding: until Story 4.2 every layer runs at unit amplitude, so a 24-bit WAV of a render with two layers clips and is not a measurement of the output. Channel 0 is left, channel 1 is right, and each has the BS.1770 channel weight `G = 1.0`. A meter is defined for any sample rate `fs` that is a positive multiple of 10 (so a block and a step are whole frames); the engine renders at 44.1 and 48 kHz (row `sample-rates`). These meters are not bit exact across platforms: the filter design calls `tan`, and the sums run in each meter's own order. That is why two meters exist and why they agree within row `loudness-meter-agreement`, not bit for bit.
+
+**Rows.** `loudness-meter-calibration` (0.1 LU): each meter reads every synthesized Tech 3341 case within it. `loudness-meter-agreement` (0.1 LU): the two meters agree within it on every render of the agreement set. Both are the plus or minus 0.1 LU that EBU Tech 3341 v4.0 (November 2023), Table 1, states for every integrated loudness case. `loudness-window-min` (60 s): the shortest window, one period of range row `rate-cycle-period` (Audio, 2026-11-20). `loudness-tolerance` (1 LU): the loudness assertion. Design log 2026-11-20 (zz).
+
+### K-weighting
+
+ITU-R BS.1770-5 weights each channel by two second-order filters in series: a high shelf (stage 1, the acoustic effect of the head) and a high-pass (stage 2, the RLB curve). It prints their coefficients for 48 kHz only, to 14 decimal places, and requires the same response at any other rate. This section derives every rate's coefficients from one analog prototype per stage, found from the printed coefficients alone, so at 48 kHz the derivation gives the printed coefficients back.
+
+**The printed coefficients** (BS.1770-5, Tables 1 and 2), with `a0 = 1`:
+
+```
+stage 1, shelf:      b0 =  1.53512485958697   b1 = -2.69169618940638   b2 = 1.19839281085285
+                     a1 = -1.69065929318241   a2 =  0.73248077421585
+stage 2, high-pass:  b0 =  1.0                b1 = -2.0                b2 = 1.0
+                     a1 = -1.99004745483398   a2 =  0.99007225036621
+```
+
+**Prototype.** Each stage is the bilinear transform of a second-order analog section, prewarped at the stage's own frequency `f0`: with `K = tan(pi * f0 / fs)` and `D = 1 + K / Q + K^2`, the denominator is
+
+```
+a1 = 2 * (K^2 - 1) / D        a2 = (1 - K / Q + K^2) / D
+```
+
+and the numerator is, for the shelf, with `Vh` its high-frequency gain and `Vb` its band gain,
+
+```
+b0 = (Vh + Vb * K / Q + K^2) / D    b1 = 2 * (K^2 - Vh) / D    b2 = (Vh - Vb * K / Q + K^2) / D
+```
+
+and for the high-pass, with `G` its high-frequency gain,
+
+```
+b0 = G / D    b1 = -2 * G / D    b2 = G / D
+```
+
+Inverted at `fs = 48000` from the printed coefficients, in exact arithmetic (the generator uses 70-digit decimals):
+
+```
+K^2   = (1 + a1 + a2) / (1 - a1 + a2)        D = 4 / (1 - a1 + a2)
+K / Q = (1 - a2) * D / 2                     f0 = 48000 * atan(K) / pi
+shelf:      Vh = K^2 - b1 * D / 2            Vb = (b0 - b2) * D / (2 * K / Q)
+high-pass:  G = b0 * D
+```
+
+The shelf's five printed coefficients have one more equation than unknowns, `b0 + b2 = 2 * (Vh + K^2) / D`, and it holds to the generator's precision; the printed high-pass numerator is exactly `G / D` times `(1, -2, 1)` with `G / D = 1`. So the prototype fits the printed filter exactly: shelf `f0` about 1681.974 Hz, `Q` about 0.70718, `Vh` about 1.58486 (+4.0 dB), `Vb` about 1.25872; high-pass `f0` about 38.135 Hz, `Q` about 0.50033, `G` about 1.00499 (Vectors: K-weighting prototype). The meters hold these seven values as the binary64 constants of that table.
+
+**Coefficients at any rate.** In binary64, with the constants above and the C library `tan` (correctly rounded or not):
+
+```
+k  = tan(pi * f0 / fs)        pi the binary64 nearest pi; (pi * f0) / fs
+kq = k / Q
+d  = 1.0 + kq + k * k
+a1 = 2.0 * (k * k - 1.0) / d
+a2 = (1.0 - kq + k * k) / d
+shelf:      b0 = (Vh + Vb * kq + k * k) / d    b1 = 2.0 * (k * k - Vh) / d    b2 = (Vh - Vb * kq + k * k) / d
+high-pass:  b0 = G / d    b1 = -2.0 * G / d    b2 = G / d
+```
+
+Each binary64 coefficient is within `5e-15` of the ideal coefficient of Vectors: K-weighting coefficients (half a unit in the 14th decimal place, the precision BS.1770 prints), at both rates; at 48 kHz the ideal is the printed coefficient. This bound is the printed precision of the standard, not a tuned tolerance: a meter that misses it has the wrong filter.
+
+**Filter.** Each channel runs stage 1, then stage 2, as the difference equation
+
+```
+y[n] = b0 * x[n] + b1 * x[n-1] + b2 * x[n-2] - a1 * y[n-1] - a2 * y[n-2]
+```
+
+from zero state (`x` and `y` before the first sample are 0) at the first sample of the measured signal. A meter may compute the same output another way (the Python meter convolves with the cascade's impulse response, truncated where its tail is below `1e-30` of its peak); the result is the same filter.
+
+### Integrated loudness
+
+ITU-R BS.1770-5, Annex 1, for a stereo signal of `T` frames:
+
+```
+B = 0.4 * fs                 block frames: a 400 ms gating block (17640 at 44.1 kHz, 19200 at 48 kHz)
+S = B / 4                    step frames: blocks overlap by 75 percent, so one starts every 100 ms
+J = floor(T / S) - 3         the block count: block j covers frames [j * S, j * S + B), j = 0 to J - 1
+                             (no block when T < B)
+z[j]  = (sum over both channels c of sum over block j of y_c[n]^2) / B
+l[j]  = -0.691 + 10 * log10(z[j])                 block loudness, LUFS (-inf when z[j] = 0)
+```
+
+Since the weights are 1.0, `z[j]` is the sum of the two channels' mean squares. Gating, in this order:
+
+```
+absolute:  A = { j : l[j] > -70 }                                    Gamma_a = -70 LUFS
+relative:  Gamma_r = -0.691 + 10 * log10(mean of z[j] over A) - 10   (-10 LU)
+           R = { j in A : l[j] > Gamma_r }
+integrated loudness  L = -0.691 + 10 * log10(mean of z[j] over R)    LUFS-I
+```
+
+Both comparisons are strict. When `A` or `R` is empty (no block, an all-silent signal, or every block below -70 LUFS), `L` is `-inf`: no exception and no NaN. A meter reports `L` as a binary64; `-inf` is written as JSON `null` in a report.
+
+**Gating off.** For the must-fail meter only, `gating = false` takes `R` as every block: `L = -0.691 + 10 * log10(mean of z[j] over all J blocks)`, `-inf` when `J = 0` or that mean is 0. It must fail Tech 3341 cases 3 and 4 and read case 5 the same as with gating (Calibration).
+
+**Steps in frames.** Because `S` divides `B`, a meter may sum `y^2` per step of `S` frames and form each block from four consecutive steps; frames past the last whole step belong to no block. The gating thresholds come from the block loudness `l[j]` exactly as written above.
+
+### Calibration
+
+Both meters are calibrated on EBU Tech 3341 v4.0 (November 2023), Table 1, cases 1 to 5, synthesized in the test harness from the levels and durations printed in that public document. The EBU's own test files are never downloaded or committed: the EBU terms of use (July 2019) forbid for-profit use and redistribution of its test sequences (Audio, 2026-11-20). Case 6 (5.1) and cases 7 and 8 (programme recordings) are out of scope.
+
+**Signal.** Every case is a stereo 1 kHz sine, unmodulated, the level the per-channel peak, applied in phase to both channels. Segments play one after another with no gap; segment `s` at level `P_s` dBFS lasts `seconds_to_samples(duration_s, fs)` frames (Core), and for frame `n` of the whole signal (counted from 0 across all segments, so the phase runs on through every level change):
+
+```
+A_s  = 10^(P_s / 20)
+x[n] = A_s * sin(2 * pi * ((1000 * n) mod fs) / fs)     the integer remainder is exact; both channels the same
+```
+
+**Pass.** Each meter reads each case at both rates within row `loudness-meter-calibration` of the Tech 3341 expected value (Vectors: Tech 3341 cases). The ideal columns of that table are the steady-state readings: every 100 ms step of a segment at its level's K-weighted power `A_s^2 * |H(1 kHz)|^2` (both channels), the gates as written, filter transients left out. Every segment boundary falls on a step boundary, and a step holds 100 whole cycles of the 1 kHz tone, so a meter's reading differs from the ideal only by the filter's response to each level change, far inside 0.1 LU. With gating off the ideal is case 3 about -24.16 LUFS and case 4 about -25.13 LUFS, both outside 0.1 LU of -23.0, and case 5 the same as gated.
+
+### Window
+
+The measurement window is the steady part of the session, every ramp and fade left out (AD-13; design log 2026-11-01 (w), (x)). Until Story 4.4 adds gain ramps, the steady part is the whole session or the body. With `N` the session end (Stub chain), `O` and `B` the opening end and the body (Loop, Frames), and `W_min = seconds_to_samples(loudness_window_min_s, fs)` (row `loudness-window-min`), every value an exact integer:
+
+```
+no loop:  window = frames [0, N), measured once                       accepted when N >= W_min
+loop:     k = the smallest integer k >= 1 with k * B >= W_min         k = max(1, ceil(W_min / B))
+          window = frames [O, O + B) of the render, measured k times in a row as one signal
+```
+
+So a non-looping recipe is measured over its whole session; Story 4.4 will narrow it to the longest stretch with no layer or master gain ramp active. A looping recipe is measured over its body only: one body pass, the body repeated a whole number of times to at least `W_min` frames when one pass is shorter (body 25 s: `k = 3`, 75 s). The repeated passes are the same samples, played again: frame `O + B - 1` of pass `i` is followed by frame `O` of pass `i + 1`, and the K-weighting filter state runs on across each repeat. Only the first window frame starts from zero filter state. Every looping body passes the window: the loop rules (Loop, Compile order) keep `B >= 1`.
+
+**Window rule.** A non-looping recipe with `N < W_min` (a session shorter than 60 s) is rejected when loudness is measured: parameter `/length_s`, value `N / fs` (binary64, one division: the session length as rendered, written as the shortest round-trip text), rule `loudness_window_rule`, limit `>= 60 s (row loudness-window-min)`. It runs after compile and before any output is opened, so nothing is written. It runs only when loudness is measured: `arcani-render --loudness` now, Story 4.2's measure command later. A plain render, in either mode, of a recipe shorter than 60 s is unchanged.
+
+**Whole render.** Every `--loudness` report also gives the integrated loudness of the whole render, frames `[0, N)` from zero filter state: the reading the Epic 4 whole-render ceiling (never more than 1 LU above target) will judge. For a non-looping recipe it is the window reading.
+
+### Assertion
+
+`check_loudness(x, fs, target)` (Python) is the loudness assertion against row `loudness-tolerance`: `measured = L - target` in LU, pass when `|measured| <= 1` LU (inclusive). A signal with any NaN or infinite sample fails with note `not finite` and `measured` null; a signal whose `L` is `-inf` fails with note `silent` and `measured` null. A render scaled in the harness to read the target passes; the same render scaled to read 1.5 LU above the target fails. It has the report shape of every assertion (Story 1.4): name `loudness`, row, threshold, unit, measured, result, note.
+
+**No report assertion yet.** Until Story 4.2 stores a gain, every render runs at unit amplitude and reads far above -36 LUFS-I, so the command-line report carries the readings, never a pass or fail for loudness.
+
+### Report
+
+`arcani-render RECIPE --out WAV --loudness` (no value) adds a member `loudness` after `preview` (or `spacing`, `loop`, `frames`, whichever comes last) and before `determinism_key`; for example (the readings here are only an illustration):
+
+```
+  "loudness": {
+    "window_start_frame": 2880000,
+    "window_body_frames": 5760000,
+    "window_repeats": 1,
+    "window_frames": 5760000,
+    "window_lufs_i": -3.5,
+    "whole_lufs_i": -3.5
+  },
+```
+
+`window_start_frame` is `O` (0 without a loop), `window_body_frames` is `B` (`N` without a loop), `window_repeats` is `k` (1 without a loop), `window_frames` is `k * B` (the frames measured), `window_lufs_i` and `whole_lufs_i` are the two readings as the shortest round-trip text of their binary64, `null` for `-inf`. The WAV is the render as without `--loudness`, byte for byte, and so is every other report member. `--loudness` may be given once; twice, or with `--preview`, is a usage error (exit 2, nothing written). It works in both compile modes. A report made without `--loudness` has no `loudness` member and is unchanged byte for byte. The render speed assertion counts only the main render, not the repeated window passes.
+
+**Agreement set.** Every fixture in `recipes/fixtures/valid/` that compiles in measure mode at both rates and whose window is accepted (Vectors: loudness windows, result `accepted`): both meters measure its window at both rates, the Python meter on the tap dump output (`arcani-tapdump`, the same engine output), the command-line meter in the report, and they agree within row `loudness-meter-agreement`. For the whole-render fixtures of `loudness_constants.whole_fixtures` the whole render is compared too. An all-silent window reads `-inf` (`null`) in both.
+
+### Vectors: K-weighting prototype
+
+The analog prototype of each stage from the printed 48 kHz coefficients (K-weighting, Prototype), at 25 significant digits, and the binary64 nearest each, the constant both meters hold.
+
+| Stage | Parameter | Ideal | Binary64 (hex) |
+| --- | --- | --- | --- |
+| shelf | f0 | 1681.974450955532895850266 | `0x1.a47e5d678a647p+10` |
+| shelf | Q | 0.7071752369554196310743463 | `0x1.6a12df668776cp-1` |
+| shelf | Vh | 1.584864701130855532744879 | `0x1.95b9b16bf11c5p+0` |
+| shelf | Vb | 1.258720930232561725454074 | `0x1.423b88ee23b99p+0` |
+| highpass | f0 | 38.13547087602444261747109 | `0x1.311571c130af0p+5` |
+| highpass | Q | 0.5003270373238772814843749 | `0x1.002add8d38a3cp-1` |
+| highpass | G | 1.004994898714688298860174 | `0x1.0147587ea05d0p+0` |
+
+### Vectors: K-weighting coefficients
+
+Per sample rate and stage, the ideal coefficients from the decimal prototype at 25 significant digits, and at 48 kHz the coefficient BS.1770 prints. Each meter's binary64 coefficient is within `5e-15` of the ideal.
+
+| fs | Stage | Coefficient | Ideal | Published (BS.1770) |
+| --- | --- | --- | --- | --- |
+| 44100 | shelf | b0 | 1.530841230050347791425738 | none |
+| 44100 | shelf | b1 | -2.650979995154729627513426 | none |
+| 44100 | shelf | b2 | 1.169079079921586918943805 | none |
+| 44100 | shelf | a1 | -1.663655113256020354547824 | none |
+| 44100 | shelf | a2 | 0.7125954280732254374039425 | none |
+| 44100 | highpass | b0 | 0.9995600645425142716585824 | none |
+| 44100 | highpass | b1 | -1.999120129085028543317165 | none |
+| 44100 | highpass | b2 | 0.9995600645425142716585824 | none |
+| 44100 | highpass | a1 | -1.989169673629795632620037 | none |
+| 44100 | highpass | a2 | 0.9891990357870391595727760 | none |
+| 48000 | shelf | b0 | 1.535124859586970000000000 | 1.53512485958697 |
+| 48000 | shelf | b1 | -2.691696189406380000000000 | -2.69169618940638 |
+| 48000 | shelf | b2 | 1.198392810852850000000000 | 1.19839281085285 |
+| 48000 | shelf | a1 | -1.690659293182410000000000 | -1.69065929318241 |
+| 48000 | shelf | a2 | 0.7324807742158500000000000 | 0.73248077421585 |
+| 48000 | highpass | b0 | 1 | 1.0 |
+| 48000 | highpass | b1 | -2 | -2.0 |
+| 48000 | highpass | b2 | 1 | 1.0 |
+| 48000 | highpass | a1 | -1.990047454833980000000000 | -1.99004745483398 |
+| 48000 | highpass | a2 | 0.9900722503662100000000000 | 0.99007225036621 |
+
+### Vectors: gating blocks
+
+Per sample rate: the block `B` and the step `S` in frames, and the K-weighting gain at 1 kHz, `20 * log10 |H(e^(j * 2 * pi * 1000 / fs))|` of both stages in series, in decimal.
+
+| fs | Block frames | Step frames | K-weighting gain at 1 kHz (dB) |
+| --- | --- | --- | --- |
+| 44100 | 17640 | 4410 | 0.6966396811646630348943933 |
+| 48000 | 19200 | 4800 | 0.6977043960893929618077826 |
+
+### Vectors: Tech 3341 cases
+
+Per case and sample rate: what it tests, the levels and durations (Tech 3341 v4.0, Table 1), each segment's frames by the seconds-to-samples rule, the total, the expected integrated loudness (the tolerance is row `loudness-meter-calibration`), the steady-state ideal readings with gating and with gating off (Calibration, Pass), and whether the case is one the must-fail meter must fail.
+
+| Case | fs | Tests | Levels (dBFS) | Durations (s) | Frames | Total frames | Expected (LUFS) | Ideal, gated | Ideal, gating off | Gating case |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 44100 | level | -23.0 | 20 | 882000 | 882000 | -23.0 | -22.99436031883533696510561 | -22.99436031883533696510561 | no |
+| 2 | 44100 | level | -33.0 | 20 | 882000 | 882000 | -33.0 | -32.99436031883533696510561 | -32.99436031883533696510561 | no |
+| 3 | 44100 | relative gate | -36.0, -23.0, -36.0 | 10, 60, 10 | 441000, 2646000, 441000 | 3528000 | -23.0 | -23.01493275849011563844293 | -24.15654669714830738207214 | yes |
+| 4 | 44100 | absolute gate | -72.0, -36.0, -23.0, -36.0, -72.0 | 10, 10, 60, 10, 10 | 441000, 441000, 2646000, 441000, 441000 | 4410000 | -23.0 | -23.01493275849011563844293 | -25.12782684656822407062515 | yes |
+| 5 | 44100 | level steps | -26.0, -20.0, -26.0 | 20, 20.1, 20 | 882000, 886410, 882000 | 2650410 | -23.0 | -22.97972171748246608726293 | -22.97972171748246608726293 | no |
+| 1 | 48000 | level | -23.0 | 20 | 960000 | 960000 | -23.0 | -22.99329560391060703819222 | -22.99329560391060703819222 | no |
+| 2 | 48000 | level | -33.0 | 20 | 960000 | 960000 | -33.0 | -32.99329560391060703819222 | -32.99329560391060703819222 | no |
+| 3 | 48000 | relative gate | -36.0, -23.0, -36.0 | 10, 60, 10 | 480000, 2880000, 480000 | 3840000 | -23.0 | -23.01386804356538571152954 | -24.15548198222357745515875 | yes |
+| 4 | 48000 | absolute gate | -72.0, -36.0, -23.0, -36.0, -72.0 | 10, 10, 60, 10, 10 | 480000, 480000, 2880000, 480000, 480000 | 4800000 | -23.0 | -23.01386804356538571152954 | -25.12676213164349414371176 | yes |
+| 5 | 48000 | level steps | -26.0, -20.0, -26.0 | 20, 20.1, 20 | 960000, 964800, 960000 | 2884800 | -23.0 | -22.97865700255773616034954 | -22.97865700255773616034954 | no |
+
+### Vectors: loudness window rule
+
+The window rule on its own, frames only (Window): per case and sample rate, the session end `N`, `W_min`, and either the window (start, `B`, `k`, `k * B` frames and seconds) or the rejection. Looping cases have `B` of the case and any session the loop rules accept.
+
+| Case | fs | Looping | length_s | opening_s | body_s | End N | W_min | Result | Start | Body B | Repeats k | Window frames | Window (s) | Parameter | Value | Rule | Limit |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| no loop, 60 s | 44100 | no | 60.0 | none | none | 2646000 | 2646000 | accepted | 0 | 2646000 | 1 | 2646000 | 60.0 | none | none | none | none |
+| no loop, 59.75 s | 44100 | no | 59.75 | none | none | 2634975 | 2646000 | rejected | none | none | none | none | none | /length_s | 59.75 | loudness_window_rule | >= 60 s (row loudness-window-min) |
+| no loop, 10 s | 44100 | no | 10.0 | none | none | 441000 | 2646000 | rejected | none | none | none | none | none | /length_s | 10 | loudness_window_rule | >= 60 s (row loudness-window-min) |
+| no loop, 0.25 s | 44100 | no | 0.25 | none | none | 11025 | 2646000 | rejected | none | none | none | none | none | /length_s | 0.25 | loudness_window_rule | >= 60 s (row loudness-window-min) |
+| no loop, 600 s | 44100 | no | 600.0 | none | none | 26460000 | 2646000 | accepted | 0 | 26460000 | 1 | 26460000 | 600.0 | none | none | none | none |
+| loop, body 120 s | 44100 | yes | 1200.0 | 60.0 | 120.0 | 52920000 | 2646000 | accepted | 2646000 | 5292000 | 1 | 5292000 | 120.0 | none | none | none | none |
+| loop, body 60 s | 44100 | yes | 1200.0 | 0.0 | 60.0 | 52920000 | 2646000 | accepted | 0 | 2646000 | 1 | 2646000 | 60.0 | none | none | none | none |
+| loop, body 59.75 s | 44100 | yes | 1200.0 | 10.0 | 59.75 | 52920000 | 2646000 | accepted | 441000 | 2634975 | 2 | 5269950 | 119.5 | none | none | none | none |
+| loop, body 25 s | 44100 | yes | 1200.0 | 10.0 | 25.0 | 52920000 | 2646000 | accepted | 441000 | 1102500 | 3 | 3307500 | 75.0 | none | none | none | none |
+| loop, body 0.25 s | 44100 | yes | 1200.0 | 0.0 | 0.25 | 52920000 | 2646000 | accepted | 0 | 11025 | 240 | 2646000 | 60.0 | none | none | none | none |
+| loop, body 90.25 s | 44100 | yes | 2700.0 | 0.0 | 90.25 | 119070000 | 2646000 | accepted | 0 | 3980025 | 1 | 3980025 | 90.25 | none | none | none | none |
+| no loop, 60 s | 48000 | no | 60.0 | none | none | 2880000 | 2880000 | accepted | 0 | 2880000 | 1 | 2880000 | 60.0 | none | none | none | none |
+| no loop, 59.75 s | 48000 | no | 59.75 | none | none | 2868000 | 2880000 | rejected | none | none | none | none | none | /length_s | 59.75 | loudness_window_rule | >= 60 s (row loudness-window-min) |
+| no loop, 10 s | 48000 | no | 10.0 | none | none | 480000 | 2880000 | rejected | none | none | none | none | none | /length_s | 10 | loudness_window_rule | >= 60 s (row loudness-window-min) |
+| no loop, 0.25 s | 48000 | no | 0.25 | none | none | 12000 | 2880000 | rejected | none | none | none | none | none | /length_s | 0.25 | loudness_window_rule | >= 60 s (row loudness-window-min) |
+| no loop, 600 s | 48000 | no | 600.0 | none | none | 28800000 | 2880000 | accepted | 0 | 28800000 | 1 | 28800000 | 600.0 | none | none | none | none |
+| loop, body 120 s | 48000 | yes | 1200.0 | 60.0 | 120.0 | 57600000 | 2880000 | accepted | 2880000 | 5760000 | 1 | 5760000 | 120.0 | none | none | none | none |
+| loop, body 60 s | 48000 | yes | 1200.0 | 0.0 | 60.0 | 57600000 | 2880000 | accepted | 0 | 2880000 | 1 | 2880000 | 60.0 | none | none | none | none |
+| loop, body 59.75 s | 48000 | yes | 1200.0 | 10.0 | 59.75 | 57600000 | 2880000 | accepted | 480000 | 2868000 | 2 | 5736000 | 119.5 | none | none | none | none |
+| loop, body 25 s | 48000 | yes | 1200.0 | 10.0 | 25.0 | 57600000 | 2880000 | accepted | 480000 | 1200000 | 3 | 3600000 | 75.0 | none | none | none | none |
+| loop, body 0.25 s | 48000 | yes | 1200.0 | 0.0 | 0.25 | 57600000 | 2880000 | accepted | 0 | 12000 | 240 | 2880000 | 60.0 | none | none | none | none |
+| loop, body 90.25 s | 48000 | yes | 2700.0 | 0.0 | 90.25 | 129600000 | 2880000 | accepted | 0 | 4332000 | 1 | 4332000 | 90.25 | none | none | none | none |
+
+### Vectors: loudness windows
+
+Per fixture and sample rate: the agreement set (every compile-accepted valid fixture whose window is accepted) and two short fixtures the window rule rejects.
+
+| Fixture | fs | Looping | length_s | End N | Result | Start | Body B | Repeats k | Window frames | Window (s) | Parameter | Value | Rule | Limit |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| binaural-cycle-sleep.json | 44100 | no | 120.0 | 5292000 | accepted | 0 | 5292000 | 1 | 5292000 | 120.0 | none | none | none | none |
+| binaural-only.json | 44100 | no | 600.0 | 26460000 | accepted | 0 | 26460000 | 1 | 26460000 | 600.0 | none | none | none | none |
+| both-layers-beat-rate-changed.json | 44100 | no | 600.0 | 26460000 | accepted | 0 | 26460000 | 1 | 26460000 | 600.0 | none | none | none | none |
+| both-layers-binaural-carrier-left-changed.json | 44100 | no | 600.0 | 26460000 | accepted | 0 | 26460000 | 1 | 26460000 | 600.0 | none | none | none | none |
+| both-layers-engine-version-changed.json | 44100 | no | 600.0 | 26460000 | accepted | 0 | 26460000 | 1 | 26460000 | 600.0 | none | none | none | none |
+| both-layers-length-changed.json | 44100 | no | 601.0 | 26504100 | accepted | 0 | 26504100 | 1 | 26504100 | 601.0 | none | none | none | none |
+| both-layers-metadata-edited.json | 44100 | no | 600.0 | 26460000 | accepted | 0 | 26460000 | 1 | 26460000 | 600.0 | none | none | none | none |
+| both-layers-reformatted.json | 44100 | no | 600.0 | 26460000 | accepted | 0 | 26460000 | 1 | 26460000 | 600.0 | none | none | none | none |
+| both-layers-schema-minor-changed.json | 44100 | no | 600.0 | 26460000 | accepted | 0 | 26460000 | 1 | 26460000 | 600.0 | none | none | none | none |
+| both-layers-seed-changed.json | 44100 | no | 600.0 | 26460000 | accepted | 0 | 26460000 | 1 | 26460000 | 600.0 | none | none | none | none |
+| both-layers-theta-carrier-changed.json | 44100 | no | 600.0 | 26460000 | accepted | 0 | 26460000 | 1 | 26460000 | 600.0 | none | none | none | none |
+| both-layers-without-loudness-fields.json | 44100 | no | 600.0 | 26460000 | accepted | 0 | 26460000 | 1 | 26460000 | 600.0 | none | none | none | none |
+| both-layers.json | 44100 | no | 600.0 | 26460000 | accepted | 0 | 26460000 | 1 | 26460000 | 600.0 | none | none | none | none |
+| bursts-theta-cycle.json | 44100 | no | 120.0 | 5292000 | accepted | 0 | 5292000 | 1 | 5292000 | 120.0 | none | none | none | none |
+| gamma-cycle-swell-theta-cycle.json | 44100 | no | 120.0 | 5292000 | accepted | 0 | 5292000 | 1 | 5292000 | 120.0 | none | none | none | none |
+| gamma-cycle-uncoupled.json | 44100 | no | 120.0 | 5292000 | accepted | 0 | 5292000 | 1 | 5292000 | 120.0 | none | none | none | none |
+| loop-bursts-theta-cycle.json | 44100 | yes | 1200.0 | 52920000 | accepted | 2646000 | 5292000 | 1 | 5292000 | 120.0 | none | none | none | none |
+| loop-focus-no-cycle.json | 44100 | yes | 2700.0 | 119070000 | accepted | 0 | 3980025 | 1 | 3980025 | 90.25 | none | none | none | none |
+| loop-swell-theta-cycle.json | 44100 | yes | 1200.0 | 52920000 | accepted | 2646000 | 5292000 | 1 | 5292000 | 120.0 | none | none | none | none |
+| minimal-no-layers.json | 44100 | no | 600.0 | 26460000 | accepted | 0 | 26460000 | 1 | 26460000 | 600.0 | none | none | none | none |
+| minimal-seed-7-0.json | 44100 | no | 600.0 | 26460000 | accepted | 0 | 26460000 | 1 | 26460000 | 600.0 | none | none | none | none |
+| minimal-seed-7.json | 44100 | no | 600.0 | 26460000 | accepted | 0 | 26460000 | 1 | 26460000 | 600.0 | none | none | none | none |
+| minimal-seed-max.json | 44100 | no | 600.0 | 26460000 | accepted | 0 | 26460000 | 1 | 26460000 | 600.0 | none | none | none | none |
+| minimal-seed-zero.json | 44100 | no | 600.0 | 26460000 | accepted | 0 | 26460000 | 1 | 26460000 | 600.0 | none | none | none | none |
+| preview-gamma-250-am-60-bursts.json | 44100 | no | 180.0 | 7938000 | accepted | 0 | 7938000 | 1 | 7938000 | 180.0 | none | none | none | none |
+| preview-gamma-250-am-60-swell.json | 44100 | no | 180.0 | 7938000 | accepted | 0 | 7938000 | 1 | 7938000 | 180.0 | none | none | none | none |
+| starter-focus-layers.json | 44100 | yes | 2700.0 | 119070000 | accepted | 2646000 | 5292000 | 1 | 5292000 | 120.0 | none | none | none | none |
+| starter-learn-layers.json | 44100 | yes | 1200.0 | 52920000 | accepted | 2646000 | 5292000 | 1 | 5292000 | 120.0 | none | none | none | none |
+| starter-relax-layers.json | 44100 | no | 1800.0 | 79380000 | accepted | 0 | 79380000 | 1 | 79380000 | 1800.0 | none | none | none | none |
+| starter-sleep-layers.json | 44100 | no | 2700.0 | 119070000 | accepted | 0 | 119070000 | 1 | 119070000 | 2700.0 | none | none | none | none |
+| swell-theta-cycle.json | 44100 | no | 120.0 | 5292000 | accepted | 0 | 5292000 | 1 | 5292000 | 120.0 | none | none | none | none |
+| theta-cycle-sine.json | 44100 | no | 120.0 | 5292000 | accepted | 0 | 5292000 | 1 | 5292000 | 120.0 | none | none | none | none |
+| theta-cycle-smoothed-on-off.json | 44100 | no | 120.0 | 5292000 | accepted | 0 | 5292000 | 1 | 5292000 | 120.0 | none | none | none | none |
+| theta-reference-only.json | 44100 | no | 600.0 | 26460000 | accepted | 0 | 26460000 | 1 | 26460000 | 600.0 | none | none | none | none |
+| theta-sine-6hz.json | 44100 | no | 10.0 | 441000 | rejected | none | none | none | none | none | /length_s | 10 | loudness_window_rule | >= 60 s (row loudness-window-min) |
+| stub-chain-1s-beat-0.json | 44100 | no | 1.0 | 44100 | rejected | none | none | none | none | none | /length_s | 1 | loudness_window_rule | >= 60 s (row loudness-window-min) |
+| binaural-cycle-sleep.json | 48000 | no | 120.0 | 5760000 | accepted | 0 | 5760000 | 1 | 5760000 | 120.0 | none | none | none | none |
+| binaural-only.json | 48000 | no | 600.0 | 28800000 | accepted | 0 | 28800000 | 1 | 28800000 | 600.0 | none | none | none | none |
+| both-layers-beat-rate-changed.json | 48000 | no | 600.0 | 28800000 | accepted | 0 | 28800000 | 1 | 28800000 | 600.0 | none | none | none | none |
+| both-layers-binaural-carrier-left-changed.json | 48000 | no | 600.0 | 28800000 | accepted | 0 | 28800000 | 1 | 28800000 | 600.0 | none | none | none | none |
+| both-layers-engine-version-changed.json | 48000 | no | 600.0 | 28800000 | accepted | 0 | 28800000 | 1 | 28800000 | 600.0 | none | none | none | none |
+| both-layers-length-changed.json | 48000 | no | 601.0 | 28848000 | accepted | 0 | 28848000 | 1 | 28848000 | 601.0 | none | none | none | none |
+| both-layers-metadata-edited.json | 48000 | no | 600.0 | 28800000 | accepted | 0 | 28800000 | 1 | 28800000 | 600.0 | none | none | none | none |
+| both-layers-reformatted.json | 48000 | no | 600.0 | 28800000 | accepted | 0 | 28800000 | 1 | 28800000 | 600.0 | none | none | none | none |
+| both-layers-schema-minor-changed.json | 48000 | no | 600.0 | 28800000 | accepted | 0 | 28800000 | 1 | 28800000 | 600.0 | none | none | none | none |
+| both-layers-seed-changed.json | 48000 | no | 600.0 | 28800000 | accepted | 0 | 28800000 | 1 | 28800000 | 600.0 | none | none | none | none |
+| both-layers-theta-carrier-changed.json | 48000 | no | 600.0 | 28800000 | accepted | 0 | 28800000 | 1 | 28800000 | 600.0 | none | none | none | none |
+| both-layers-without-loudness-fields.json | 48000 | no | 600.0 | 28800000 | accepted | 0 | 28800000 | 1 | 28800000 | 600.0 | none | none | none | none |
+| both-layers.json | 48000 | no | 600.0 | 28800000 | accepted | 0 | 28800000 | 1 | 28800000 | 600.0 | none | none | none | none |
+| bursts-theta-cycle.json | 48000 | no | 120.0 | 5760000 | accepted | 0 | 5760000 | 1 | 5760000 | 120.0 | none | none | none | none |
+| gamma-cycle-swell-theta-cycle.json | 48000 | no | 120.0 | 5760000 | accepted | 0 | 5760000 | 1 | 5760000 | 120.0 | none | none | none | none |
+| gamma-cycle-uncoupled.json | 48000 | no | 120.0 | 5760000 | accepted | 0 | 5760000 | 1 | 5760000 | 120.0 | none | none | none | none |
+| loop-bursts-theta-cycle.json | 48000 | yes | 1200.0 | 57600000 | accepted | 2880000 | 5760000 | 1 | 5760000 | 120.0 | none | none | none | none |
+| loop-focus-no-cycle.json | 48000 | yes | 2700.0 | 129600000 | accepted | 0 | 4332000 | 1 | 4332000 | 90.25 | none | none | none | none |
+| loop-swell-theta-cycle.json | 48000 | yes | 1200.0 | 57600000 | accepted | 2880000 | 5760000 | 1 | 5760000 | 120.0 | none | none | none | none |
+| minimal-no-layers.json | 48000 | no | 600.0 | 28800000 | accepted | 0 | 28800000 | 1 | 28800000 | 600.0 | none | none | none | none |
+| minimal-seed-7-0.json | 48000 | no | 600.0 | 28800000 | accepted | 0 | 28800000 | 1 | 28800000 | 600.0 | none | none | none | none |
+| minimal-seed-7.json | 48000 | no | 600.0 | 28800000 | accepted | 0 | 28800000 | 1 | 28800000 | 600.0 | none | none | none | none |
+| minimal-seed-max.json | 48000 | no | 600.0 | 28800000 | accepted | 0 | 28800000 | 1 | 28800000 | 600.0 | none | none | none | none |
+| minimal-seed-zero.json | 48000 | no | 600.0 | 28800000 | accepted | 0 | 28800000 | 1 | 28800000 | 600.0 | none | none | none | none |
+| preview-gamma-250-am-60-bursts.json | 48000 | no | 180.0 | 8640000 | accepted | 0 | 8640000 | 1 | 8640000 | 180.0 | none | none | none | none |
+| preview-gamma-250-am-60-swell.json | 48000 | no | 180.0 | 8640000 | accepted | 0 | 8640000 | 1 | 8640000 | 180.0 | none | none | none | none |
+| starter-focus-layers.json | 48000 | yes | 2700.0 | 129600000 | accepted | 2880000 | 5760000 | 1 | 5760000 | 120.0 | none | none | none | none |
+| starter-learn-layers.json | 48000 | yes | 1200.0 | 57600000 | accepted | 2880000 | 5760000 | 1 | 5760000 | 120.0 | none | none | none | none |
+| starter-relax-layers.json | 48000 | no | 1800.0 | 86400000 | accepted | 0 | 86400000 | 1 | 86400000 | 1800.0 | none | none | none | none |
+| starter-sleep-layers.json | 48000 | no | 2700.0 | 129600000 | accepted | 0 | 129600000 | 1 | 129600000 | 2700.0 | none | none | none | none |
+| swell-theta-cycle.json | 48000 | no | 120.0 | 5760000 | accepted | 0 | 5760000 | 1 | 5760000 | 120.0 | none | none | none | none |
+| theta-cycle-sine.json | 48000 | no | 120.0 | 5760000 | accepted | 0 | 5760000 | 1 | 5760000 | 120.0 | none | none | none | none |
+| theta-cycle-smoothed-on-off.json | 48000 | no | 120.0 | 5760000 | accepted | 0 | 5760000 | 1 | 5760000 | 120.0 | none | none | none | none |
+| theta-reference-only.json | 48000 | no | 600.0 | 28800000 | accepted | 0 | 28800000 | 1 | 28800000 | 600.0 | none | none | none | none |
+| theta-sine-6hz.json | 48000 | no | 10.0 | 480000 | rejected | none | none | none | none | none | /length_s | 10 | loudness_window_rule | >= 60 s (row loudness-window-min) |
+| stub-chain-1s-beat-0.json | 48000 | no | 1.0 | 48000 | rejected | none | none | none | none | none | /length_s | 1 | loudness_window_rule | >= 60 s (row loudness-window-min) |
 
 ## 24-bit rounding
 
