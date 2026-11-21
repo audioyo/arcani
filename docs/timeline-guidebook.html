@@ -275,8 +275,8 @@
    ===================================================================== */
 
 var LAST_UPDATED = "2026-11-20";
-var CURRENT = "4.1";   // story id being worked on
-var NEXT    = "4.2";   // story id that comes next
+var CURRENT = "4.2";   // story id being worked on
+var NEXT    = "4.3";   // story id that comes next
 
 // Workflow step names, used by every story unless it lists its own "stepNames".
 var STEP_NAMES = [
@@ -599,19 +599,22 @@ var EPICS = [
   note: "Order is fixed: meter first, ramps before the limiter.",
   retro: "optional",
   stories: [
-  { id:"4.1", title:"Loudness meter", status:"review",
+  { id:"4.1", title:"Loudness meter", status:"done",
     plain:"A loudness meter proven against the Tech 3341 test cases before it judges any render.",
     spec:["spec-4-1-loudness-meter.md"],
-    steps:[true,true,true,true,false,false,false],
+    steps:[true,true,true,true,true,true,true],
     stepNotes:["e30cdfb: spec approved 2026-11-20 by Audio; EBU terms forbid for-profit use of its test files, so Tech 3341 cases 1 to 5 are synthesized from the published document; window minimum 60 s, checked only when loudness is measured. 8734ffa: signal spec Loudness section, six vector tables, rows loudness-meter-calibration, loudness-meter-agreement, loudness-window-min, design log (zz), epics.md amended",
       "6d276ee: fresh-context QA agent; 3 of 457 C++ cases and 101 pytest cases fail until the meters land",
       "6d504eb: Python and CLI meters, --loudness report member, window rule; ctest 457 of 457, pytest 3,773 passed, 2 skipped; row coverage, table log, wording, and vector checks pass; the loudness tests add about 11 min of worker CPU",
-      "22553d6, 3759007: review pass 1 by three fresh-context reviewers: 9 patched (agreement renders one fixture per recipe hash, a different-channel calibration case with must-fail, meter frame-count checks, doc and log fixes), 2 deferred (cross-platform gain bytes to 4.2, window start proof to 4.4), the rest rejected with reasons; ctest 4 of 4, pytest 3,775 passed, 2 skipped"],
+      "22553d6, 3759007: review pass 1 by three fresh-context reviewers: 9 patched (agreement renders one fixture per recipe hash, a different-channel calibration case with must-fail, meter frame-count checks, doc and log fixes), 2 deferred (cross-platform gain bytes to 4.2, window start proof to 4.4), the rest rejected with reasons; ctest 4 of 4, pytest 3,775 passed, 2 skipped",
+      "PR #23: 11 checks green on fast and full tier, all four platforms; full windows-x64 26.6 min, the longest job, within its 45 min budget",
+      "a904bda: PR #23 merged into main, 2026-11-20",
+      "sprint-status.yaml set to done; CI timings in design log (zz)"],
     acs:[
-      [" ","signal-spec loudness section: BS.1770 gating and the steady-part measurement window; steady part under 60 s rejected when loudness is measured"],
-      [" ","Python and CLI meters each read Tech 3341 cases 1 to 5 (synthesized from the published document) within 0.1 LU; gating-off must-fail fails"],
-      [" ","Both meters agree on any render within the Tech 3341 tolerance"],
-      [" ","Within 1 LU of target passes; 1.5 LU over fails"]
+      ["x","signal-spec loudness section: BS.1770 gating and the steady-part measurement window; steady part under 60 s rejected when loudness is measured"],
+      ["x","Python and CLI meters each read Tech 3341 cases 1 to 5 (synthesized from the published document) within 0.1 LU; gating-off must-fail fails"],
+      ["x","Both meters agree on any render within the Tech 3341 tolerance"],
+      ["x","Within 1 LU of target passes; 1.5 LU over fails"]
     ] },
   { id:"4.2", title:"Stored loudness gain", status:"backlog",
     plain:"The CLI measures each recipe's loudness once and stores the gain in the recipe.",
@@ -745,6 +748,7 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-20","a904bda","4.1","PR #23 merged: CI green on both tiers (full windows-x64 26.6 min, windows-arm64 20.5, macos-arm64 18.7, fast linux-x64 16.0, fast windows-x64 16.7); Story 4.1 done; next: Story 4.2"],
   ["2026-11-20","3759007","4.1","Code review done: 9 findings patched, 2 deferred (4.2, 4.4), rest rejected with reasons; ctest 4 of 4 and pytest 3,775 passed on the dev PC; sprint-status.yaml review; not pushed; next: push and open the PR for CI"],
   ["2026-11-20","6d504eb","4.1","Implementation: Python and CLI loudness meters, arcani-render --loudness, window rule; every test passes locally (ctest 457 of 457, pytest 3,773); three loudness rows added and pending cleared on loudness-tolerance; acceptance criteria stay open until review and CI; not pushed; next: code review"],
   ["2026-11-20","6d276ee","4.1","Failing tests committed by a fresh-context QA agent (tests only); 3 C++ cases and 101 pytest cases red"],
