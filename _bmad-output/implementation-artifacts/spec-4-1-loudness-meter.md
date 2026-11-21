@@ -3,7 +3,7 @@ title: 'Story 4.1: Loudness meter'
 type: 'feature'
 created: '2026-11-20'
 baseline_commit: 'f0451355fdacf70ef2e2d41a991700ec95da6c34'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 context:
