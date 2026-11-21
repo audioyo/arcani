@@ -3,7 +3,7 @@ title: 'Story 4.1: Loudness meter'
 type: 'feature'
 created: '2026-11-20'
 baseline_commit: 'f0451355fdacf70ef2e2d41a991700ec95da6c34'
-status: 'in-progress'
+status: 'in-review'
 route: 'dispatch'
 review_loop_iteration: 0
 context:
@@ -61,12 +61,12 @@ Decisions (Audio, 2026-11-20):
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `_bmad-output/planning-artifacts/epics.md` -- amend the Story 4.1 compliance-signal criterion per decision 1 -- licence
-- [ ] `docs/signal-spec.md` -- add §Loudness: the filter derivation, gating, the window (looping: the body repeated a whole number of times to at least the minimum; non-looping: the whole session until Story 4.4), the rule and its error, and vectors from `tools/signal_spec_vectors.py` -- the single source of every formula
-- [ ] `tests/tables/thresholds.tsv`, `docs/design-log.md`, `docs/research-library.md` -- add `loudness-meter-calibration`, `loudness-meter-agreement` and `loudness-window-min`, and clear pending on `loudness-tolerance` -- rule 3 traceability
-- [ ] `tests/python/test_loudness_tool.py`, `tests/python/test_loudness_cli.py`, `tests/cpp/test_loudness.cpp` -- the failing tests from the matrix, as a tests-only commit -- rule 6
-- [ ] `tests/assertions/loudness.py` -- `integrated_lufs(x, fs, gating=True)` and `check_loudness(x, fs, target)` -- Python meter and assertion
-- [ ] `cli/loudness.{hpp,cpp}`, `cli/main.cpp`, `cli/report.cpp` -- C++ meter; `--loudness` adds a `loudness` report member (window frames, window LUFS-I, whole-render LUFS-I), or rejects with `loudness_window_rule` -- the second, independent meter
+- [x] `_bmad-output/planning-artifacts/epics.md` -- amend the Story 4.1 compliance-signal criterion per decision 1 -- licence
+- [x] `docs/signal-spec.md` -- add §Loudness: the filter derivation, gating, the window (looping: the body repeated a whole number of times to at least the minimum; non-looping: the whole session until Story 4.4), the rule and its error, and vectors from `tools/signal_spec_vectors.py` -- the single source of every formula
+- [x] `tests/tables/thresholds.tsv`, `docs/design-log.md`, `docs/research-library.md` -- add `loudness-meter-calibration`, `loudness-meter-agreement` and `loudness-window-min`, and clear pending on `loudness-tolerance` -- rule 3 traceability
+- [x] `tests/python/test_loudness_tool.py`, `tests/python/test_loudness_cli.py`, `tests/cpp/test_loudness.cpp` -- the failing tests from the matrix, as a tests-only commit -- rule 6
+- [x] `tests/assertions/loudness.py` -- `integrated_lufs(x, fs, gating=True)` and `check_loudness(x, fs, target)` -- Python meter and assertion
+- [x] `cli/loudness.{hpp,cpp}`, `cli/main.cpp`, `cli/report.cpp` -- C++ meter; `--loudness` adds a `loudness` report member (window frames, window LUFS-I, whole-render LUFS-I), or rejects with `loudness_window_rule` -- the second, independent meter
 
 **Acceptance Criteria:**
 - Given the full suite, when it runs on the dev PC and in CI, then everything passes and `tools/check_row_coverage.py` sees every new row in use.
@@ -118,6 +118,32 @@ Splitting the same samples into different `add` calls gives the same `integrated
 
 ## Spec Change Log
 
+## Review Triage Log
+
+Pass 1 (2026-11-20): blind hunter (B), edge case hunter (E), verification gap (V).
+
+| # | Finding | Verdict | Evidence | Route |
+|---|---------|---------|----------|-------|
+| B1 | Stray markup lines at the end of this spec | low | Present; left by the orchestrator's spec write | rejected (fix edits the spec); removed as cleanup |
+| B2 | Spec status in-review disagrees with sprint-status | false | in-review is the workflow state during review; sprint-status moves at step 5 | rejected |
+| B3 | Agreement test renders every fixture of a hash group; CI time well over the 3 min target | medium | test_cli_and_python_meters_agree renders each fixture in the group but compares only group[0] | patch |
+| B4 | Guidebook ticks ACs before review and CI; "four loudness rows cleared" is wrong | low | Records text; the orchestrator owns the guidebook | patch (orchestrator) |
+| B5 | Calibration uses identical channels only, so channel bugs pass | medium | Every Tech 3341 case is in phase in both channels | patch |
+| B6, E4, E5, E6 | Meters accept fs where K-weighting is meaningless (10, 3000) or fail at 192 kHz | low | Real, but every caller passes a row sample-rates value (44100, 48000); the fix adds guards | rejected |
+| B7 | check_loudness matches error text | low | Real but unlikely to bite; the fix adds an exception type | rejected |
+| B8 | Looping path never checked for an unchanged WAV and report | false | test_body_25_s_is_measured_three_times_and_agrees checks looping WAV and report bytes | rejected |
+| B9 | Readings not bit-exact across platforms; Story 4.2 writes the gain from them | medium | Implementation Notes say tan and log10 differ in the last bits; identical bytes on re-measure is a 4.2 criterion | defer to 4.2 |
+| B10 | Signal spec puts the loudness member after spacing, the code after preview | low | Direct one-line doc correction | patch |
+| B11 | main.cpp exit-code comment omits the CLI window rule | low | Direct comment correction | patch |
+| B12 | Design log (zz) lacks C++ readings, the agreement margin, and the sleep unit | low | Evidence for two new rows is missing | patch |
+| B13 | Looping window never checks O + B <= N | false | The engine rejects that recipe (validate.cpp, kLoopExceedsRule) | rejected |
+| B14 | report.cpp opens a second anonymous namespace | low | Direct merge | patch |
+| E1, E2, E3, E9 | NaN or overflowing samples read as silent (null) | low | Inputs are engine output; NaN and inf checks are Story 5.2; the fix adds guards | rejected |
+| E7 | NaN target gives a NaN measured value | low | Target comes from a range-checked recipe field; the fix adds a guard | rejected |
+| E8 | A row value giving 0 minimum frames | low | Row is 60 s; a doctored-row must-fail exists | rejected |
+| V1 | The k - 1 extra window passes are not observed by any test | medium | Pre-verified: removing the loop moves the reading 0.001 LU | patch (frame-count check) |
+| V2 | Which frames the first pass takes is not observed | medium | Pre-verified: opening and body read the same today | patch (frame-count check); start-frame proof deferred to 4.4 |
+
 ## Design Notes
 
 **Phased handoff.** As in Stories 3.1 to 3.3, on branch `story/4-1-loudness-meter`: (1) the implementation agent writes the signal spec section and vectors, the rows and design log (zz), the research library rows, the `epics.md` amendment, and these notes, and commits; (2) a fresh-context QA agent commits the failing tests; (3) the implementation agent implements, never editing a test expectation to make a test pass. Commits end with the session attribution lines. No push.
@@ -129,5 +155,3 @@ The Tech 3341 tolerance for every integrated case is plus or minus 0.1 LU, which
 **Commands:**
 - `powershell -File tools/dev.ps1 cmake --workflow --preset windows-clang-cl` -- expected: build passes and ctest is green
 - `uv run --locked pytest -n auto` -- expected: all pass
-</content>
-</invoke>

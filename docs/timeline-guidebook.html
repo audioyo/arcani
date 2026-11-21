@@ -607,10 +607,10 @@ var EPICS = [
       "6d276ee: fresh-context QA agent; 3 of 457 C++ cases and 101 pytest cases fail until the meters land",
       "6d504eb: Python and CLI meters, --loudness report member, window rule; ctest 457 of 457, pytest 3,773 passed, 2 skipped; row coverage, table log, wording, and vector checks pass; the loudness tests add about 11 min of worker CPU"],
     acs:[
-      ["x","signal-spec loudness section: BS.1770 gating and the steady-part measurement window; steady part under 60 s rejected when loudness is measured"],
-      ["x","Python and CLI meters each read Tech 3341 cases 1 to 5 (synthesized from the published document) within 0.1 LU; gating-off must-fail fails"],
-      ["x","Both meters agree on any render within the Tech 3341 tolerance"],
-      ["x","Within 1 LU of target passes; 1.5 LU over fails"]
+      [" ","signal-spec loudness section: BS.1770 gating and the steady-part measurement window; steady part under 60 s rejected when loudness is measured"],
+      [" ","Python and CLI meters each read Tech 3341 cases 1 to 5 (synthesized from the published document) within 0.1 LU; gating-off must-fail fails"],
+      [" ","Both meters agree on any render within the Tech 3341 tolerance"],
+      [" ","Within 1 LU of target passes; 1.5 LU over fails"]
     ] },
   { id:"4.2", title:"Stored loudness gain", status:"backlog",
     plain:"The CLI measures each recipe's loudness once and stores the gain in the recipe.",
@@ -744,7 +744,7 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
-  ["2026-11-20","6d504eb","4.1","Implementation: Python and CLI loudness meters, arcani-render --loudness, window rule; every test passes locally (ctest 457 of 457, pytest 3,773); four loudness rows cleared; not pushed; next: code review"],
+  ["2026-11-20","6d504eb","4.1","Implementation: Python and CLI loudness meters, arcani-render --loudness, window rule; every test passes locally (ctest 457 of 457, pytest 3,773); three loudness rows added and pending cleared on loudness-tolerance; acceptance criteria stay open until review and CI; not pushed; next: code review"],
   ["2026-11-20","6d276ee","4.1","Failing tests committed by a fresh-context QA agent (tests only); 3 C++ cases and 101 pytest cases red"],
   ["2026-11-20","8734ffa","4.1","Signal spec Loudness section and vectors, three new rows, design log (zz), research library rows, epics.md criterion amended"],
   ["2026-11-20","e30cdfb","4.1","Spec approved by Audio: two loudness meters (Python and CLI) calibrated on Tech 3341 cases 1 to 5 synthesized from the published document, since the EBU terms forbid for-profit use of its files; 60 s window minimum; sprint-status.yaml in-progress; not pushed"],

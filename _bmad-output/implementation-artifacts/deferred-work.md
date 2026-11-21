@@ -124,3 +124,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-3-3-early-listening-preview.md`
   summary: The render speed assertion of a preview counts the F preview frames, but no test renders a preview with `ARCANI_REFERENCE_MACHINE=1`, so a preview speed pass or fail is never driven. Add one when the reference-machine speed tests (`tests/cpp/test_cli.cpp`, render speed cases) are next touched.
   evidence: Story 3.3 review; `cli/main.cpp` passes `out_frames` to `cli::render_speed`, and the `--preview` CLI tests run with the variable unset.
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-1-loudness-meter.md`
+  summary: Story 4.2 must decide how a stored loudness_gain_db stays byte-identical across platforms (round the gain before storing, or pin the measuring platform), since the 4.1 meters call tan and log10 and are not bit-exact across platforms.
+  evidence: Review pass 1 finding B9; the 4.1 Implementation Notes say the readings may differ in the last bits; 4.2 requires measuring twice to write identical bytes.
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-1-loudness-meter.md`
+  summary: Story 4.4 must prove the looping loudness window starts at the opening end frame O, with a fixture whose ramp-in makes the opening differ from the body, since no 4.1 fixture can tell [O, O + B) from [0, B).
+  evidence: Review pass 1 finding V2; the verification reviewer measured the same reading for the true window, [0, B), and block-shifted windows on every looping fixture.
