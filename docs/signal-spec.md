@@ -4682,7 +4682,7 @@ So a non-looping recipe is measured over its whole session; Story 4.4 will narro
 
 ### Report
 
-`arcani-render RECIPE --out WAV --loudness` (no value) adds a member `loudness`, for example (the readings here are only an illustration) after `spacing` (or `loop` without a spacing block, or `frames` without either) and before `determinism_key`:
+`arcani-render RECIPE --out WAV --loudness` (no value) adds a member `loudness` after `preview` (or `spacing`, `loop`, `frames`, whichever comes last) and before `determinism_key`; for example (the readings here are only an illustration):
 
 ```
   "loudness": {

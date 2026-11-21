@@ -17,8 +17,9 @@
 // (exit 1, nothing written). Not with --preview.
 //
 // Exit codes: 0 rendered, every assertion pass or not applicable; 1 the
-// engine rejected the recipe or an option; 2 usage; 3 file or internal
-// error; 4 rendered but an assertion failed (WAV and report written).
+// engine rejected the recipe or an option, or (with --loudness) the window
+// rule loudness_window_rule rejected it; 2 usage; 3 file or internal error;
+// 4 rendered but an assertion failed (WAV and report written).
 
 #include <arcani/arcani.h>
 
@@ -461,6 +462,16 @@ int run(const Args& args) {
           done += n;
         }
       }
+    }
+    // Every frame was metered: the whole render once, the window k * B times.
+    if (whole_meter->frames() != frames) {
+      return file_error("loudness: the whole-render meter read " + std::to_string(whole_meter->frames()) +
+                        " frames, not " + std::to_string(frames));
+    }
+    const std::uint64_t window_read = window_meter ? window_meter->frames() : whole_meter->frames();
+    if (window_read != window.window_frames) {
+      return file_error("loudness: the window meter read " + std::to_string(window_read) + " frames, not " +
+                        std::to_string(window.window_frames));
     }
     cli::LoudnessReport l;
     l.window_start_frame = window.start_frame;

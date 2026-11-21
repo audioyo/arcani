@@ -270,6 +270,23 @@ def test_tech3341_case_within_the_calibration_row(case, fs):
     assert lc.calibration_problems(gated - 0.2, expected, tol)
 
 
+@pytest.mark.parametrize("fs", sorted({fs for _, fs in CASES}))
+def test_tech3341_case_1_with_the_right_channel_silent(fs):
+    # Different channels: a meter that reads one channel twice or drops one
+    # fails here, where the in-phase cases cannot tell.
+    v = lc.tech3341_case(1, fs)
+    x = lc.tech3341_signal(v).copy()
+    x[:, 1] = 0.0
+    tol = lc.calibration_lu()
+    want = float(v["expected_lufs"]) - 10.0 * math.log10(2.0)
+    reading = loud().integrated_lufs(x, fs)
+    assert lc.calibration_problems(reading, want, tol) == []
+    assert lc.calibration_problems(reading, lc.ideal(v["ideal_gated"]) - 10.0 * math.log10(2.0), tol) == []
+    # Must-fail, doctored in the harness: the left channel read twice.
+    doubled = np.column_stack((x[:, 0], x[:, 0]))
+    assert lc.calibration_problems(loud().integrated_lufs(doubled, fs), want, tol)
+
+
 def test_tech3341_vectors_ideal_columns():
     """The ideal readings of the gating cases are outside the row with gating
     off and inside it with gating on (the must-fail is decided by the case,

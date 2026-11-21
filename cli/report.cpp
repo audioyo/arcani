@@ -30,10 +30,6 @@ std::string integer(std::uint64_t v) {
   return std::string(buf, r.ptr);
 }
 
-}  // namespace
-
-namespace {
-
 // A loudness reading: null when it is not finite (-infinity: no block passed
 // the gates).
 std::string reading(double lufs) { return std::isfinite(lufs) ? json_number(lufs) : std::string("null"); }

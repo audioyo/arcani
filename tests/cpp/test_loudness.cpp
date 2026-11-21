@@ -572,6 +572,36 @@ TEST_CASE("LoudnessMeter: Tech 3341 cases 1 to 5 at both rates within row loudne
   CHECK(cases == 10);
 }
 
+TEST_CASE("LoudnessMeter: Tech 3341 case 1 with the right channel silent reads 10 log10(2) LU lower",
+          "[loudness][mustfail]") {
+  // Different channels: a meter that reads one channel twice or drops one
+  // fails here, where the in-phase cases cannot tell.
+  const double tol = calibration_row().value();
+  for (std::uint32_t fs : table_rates()) {
+    INFO("case 1, right channel silent, at " << fs);
+    const spec::Tech3341Vector& v = tech_case(1, fs);
+    std::vector<double> x = tech_signal(v);
+    for (std::size_t i = 1; i < x.size(); i += 2) {
+      x[i] = 0.0;
+    }
+    const double want = v.expected_lufs - 10.0 * std::log10(2.0);
+    cli::LoudnessMeter m(fs);
+    m.add(std::span<const double>(x));
+    const double reading = m.integrated();
+    INFO("reading " << shortest(reading));
+    CHECK(calibration_problems(reading, want, tol).empty());
+    CHECK(calibration_problems(reading, v.ideal_gated - 10.0 * std::log10(2.0), tol).empty());
+    // Must-fail, doctored in the harness: the left channel read twice.
+    std::vector<double> doubled = x;
+    for (std::size_t i = 1; i < doubled.size(); i += 2) {
+      doubled[i] = doubled[i - 1];
+    }
+    cli::LoudnessMeter d(fs);
+    d.add(std::span<const double>(doubled));
+    CHECK_FALSE(calibration_problems(d.integrated(), want, tol).empty());
+  }
+}
+
 TEST_CASE("LoudnessMeter: the same samples in any chunk sizes give the same bits", "[loudness]") {
   for (std::uint32_t fs : table_rates()) {
     INFO("fs " << fs);
