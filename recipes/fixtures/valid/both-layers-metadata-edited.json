@@ -7,8 +7,8 @@
   "rationale": "Edited rationale: only hash-excluded fields differ from both-layers.",
   "length_s": 600,
   "loudness_target_lufs": -36,
-  "loudness_gain_db": 2.25,
-  "loudness_hash": "1fb9f4097256db2d7b1e13aff79cee44339891a31c556b9cf6093885773b3618",
+  "loudness_gain_db": -2.25,
+  "loudness_hash": "7ed496cfbe096a20479c0a02b7a5b562d729f08f0c01c67b5a5678763e9c8a8b",
   "theta_reference": {
     "carrier_hz": 200,
     "rate_hz": 6,

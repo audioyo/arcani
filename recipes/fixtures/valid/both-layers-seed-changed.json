@@ -8,7 +8,7 @@
   "length_s": 600,
   "loudness_target_lufs": -36,
   "loudness_gain_db": -1.5,
-  "loudness_hash": "6a29ccd608e4c1945bfff95af078a97daea48eca54a38e065ae33dfa9c2d83a6",
+  "loudness_hash": "7ed496cfbe096a20479c0a02b7a5b562d729f08f0c01c67b5a5678763e9c8a8b",
   "theta_reference": {
     "carrier_hz": 200,
     "rate_hz": 6,
