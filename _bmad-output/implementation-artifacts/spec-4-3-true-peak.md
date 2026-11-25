@@ -2,7 +2,8 @@
 title: 'Story 4.3: True peak'
 type: 'feature'
 created: '2026-11-25'
-status: 'ready-for-dev'
+status: 'in-progress'
+baseline_commit: '390dc6152f2db747cddb8fc172ac3d4ec214b89c'
 route: 'dispatch'
 review_loop_iteration: 0
 context:
@@ -24,6 +25,7 @@ Decisions (planning, 2026-11-25; Audio can overrule any of them at approval):
 2. **Input.** The meter reads the 24-bit integers as written (`quantize_24`), each divided by 2^23. The Annex 2 coefficients are multiples of 2^-13, so every product and sum is exact in binary64: both meters give the same linear true peak bit for bit, and they are compared that way. Only the dB conversion calls `log10`.
 3. **The 1 s final fixture.** `stub-chain-1s-beat-6.json` peaks near 2.0, so its placeholder gain -1.5 dB would fail the new check. It changes to `-10.00` (peak about 0.63, -4 dBTP; a stored gain vectors row already exists). Its `stub-chain-final-*` pins are re-measured and confirmed on all four platforms, as in 4.2.
 4. **Store refusal.** After the final compile (Store, step 7), the store renders frames `[0, N)` in final mode, rounds them to 24 bits, and measures true peak. Above the ceiling, it writes nothing, prints `rejected: parameter=/loudness_gain_db value=<gain text> rule=true_peak limit=<= -1 dBTP (row true-peak) target_lufs=<T> true_peak_dbtp=<tp>`, and exits 1. The `stored:` line is unchanged.
+5. **Tech 3341 cases in scope** (Audio, 2026-11-25). Table 1 true-peak cases 15 to 19 only, every one with the printed tolerance +0.2/-0.4 dB. Cases 20 to 23 are out of scope: their printed description names no anti-aliasing filter and no fade, and the filter sets the peak being measured (as 4.1 left out cases 6 to 8). Cases 16 to 19 are steady tones. Case 15 gets the printed 10 ms fade-in and fade-out as a raised-cosine ramp, written in the spec; the ramp cannot change its peak reading. The `epics.md` criterion and the research library entry record the narrowed case list.
 
 ## Boundaries & Constraints
 
@@ -69,6 +71,55 @@ Decisions (planning, 2026-11-25; Audio can overrule any of them at approval):
 **Acceptance Criteria:**
 - Given any final render in the suite at 44.1 and 48 kHz, when both meters read it, then their linear true peaks are equal bit for bit and the Python assertion agrees with the report.
 - Given the full suite on the dev PC and in CI, when it runs, then everything passes, `tools/check_row_coverage.py` sees `true-peak` in use, and added CI time stays near 3 minutes of CPU per platform.
+
+## Implementation Notes
+
+Everything below follows `docs/signal-spec.md`, True peak (and the Loudness gain, Store step 8 it adds), and its vectors (`tests/data/signal_spec_vectors.json`, keys `true_peak_constants`, `true_peak_filter`, `true_peak_signals`, `true_peak_steps`; C++ `kTruePeak_*`, `kTruePeakFilter`, `kTruePeakSignals`, `kTruePeakSteps` in the generated `spec_tables.hpp`). Vector constants are cross-checked against the rows, never used in their place. Rows `true-peak` (-1 dBTP), `true-peak-meter-over` (0.2 dB), and `true-peak-meter-under` (0.4 dB) are in `tests/tables/thresholds.tsv`, pending on this story; clear `pending` once a test reads each through `row()`.
+
+**Fade on cases 16 to 19 (phase 1 finding, needs Audio's confirmation).** Decision 5 calls cases 16 to 19 steady tones. Read from zero filter state with an abrupt start, case 18 reads about -5.32 dBTP, 0.68 dB above -6.0 and outside +0.2 dB, while its steady part reads -6.03. So the spec section applies case 15's printed 10 ms raised-cosine fade to every calibration signal (cases 15 to 19 and the closed-form sines); with it every case reads its steady part within 1e-4 dB and passes. The signals' steady parts are the steady tones of decision 5.
+
+**Python, `tests/assertions/true_peak.py`** (numpy, no engine import): `true_peak(x24, fs)` takes integer samples of shape (frames, 2) (or (frames,)), returns `TP` as a float: per channel `np.convolve` of the int64 samples with each phase's int64 integers `n_p` (full mode, so the 11 trailing outputs are included), `max |.|` over phases and channels, then one division by 2^36. `check_true_peak(x24, fs)` returns the assertion dict (name `true_peak`, row, threshold, unit, measured, result, note) with the row read through `assertions.row("true-peak")`. Integers outside [-2^23, 2^23 - 1] or a non-integer dtype raise `ValueError`.
+
+**Command-line tooling, `cli/true_peak.{hpp,cpp}`** in `arcani_cli_core`, namespace `arcani::cli` (no `engine/src` include):
+
+```
+class TruePeakMeter {                       // streaming, both channels, zero state
+ public:
+  void add(std::int32_t left, std::int32_t right);   // one frame of 24-bit integers
+  double linear() const;                    // TP after the 11 trailing zeros (calls finish once internally or idempotently)
+};
+double true_peak_dbtp(double linear);       // 20 * log10(linear); -inf at 0
+```
+
+Each channel keeps its last 12 inputs; each `add` computes the 4 phase outputs for that frame; `linear()` also feeds 11 zero frames (without changing the stored state, or once) so the result does not depend on when it is called. Sums in `std::int64_t` then one division by 2^36, or in `double` (exact either way, Meter, Exact).
+
+**Report, `cli/report.{hpp,cpp}`:** `struct TruePeakReport { double linear; double dbtp; };`, `std::optional<TruePeakReport> true_peak` in `Report`, written after `loudness` and before `determinism_key` (`dbtp` null when not finite); `Assertion true_peak_assertion(const arcani::test::tables::Row& row, double linear)`: measured `dbtp`, pass when `dbtp <= row.value()`, silent: measured null, pass, note `silent`.
+
+**`cli/main.cpp`:** in the render loop, where each sample is quantized (`quantize_24`), feed the meter in final mode only; after render speed and the loudness assertions, append `true_peak` in final mode only. `run_store`: read row `true-peak` in step 1; after step 7, render `[0, N)` of the final plan in one pass, quantize, meter, and call `true_peak_step`; on rejection print its line and exit 1 before step 9. Update the header comment (steps 1 to 10), the usage text if needed, and `CLAUDE.md` only if a command changes (it does not).
+
+**`cli/recipe_write.{hpp,cpp}`:**
+
+```
+struct TruePeakStep { bool stored; double dbtp; std::string line; };   // line empty when stored
+TruePeakStep true_peak_step(const arcani::test::tables::Row& row, double tp_linear, double target_lufs,
+                            std::string_view gain_text);
+                            // throws TableError unless a thresholds row in dBTP with a finite value
+```
+
+The line is exactly `rejected: parameter=/loudness_gain_db value=<gain_text> rule=true_peak limit=<= <row value text> dBTP (row <row id>) target_lufs=<T> true_peak_dbtp=<dbtp>`, with `<T>` and `<dbtp>` as shortest round-trip texts (`std::to_chars`).
+
+**Fixture and pins.** `recipes/fixtures/valid/stub-chain-1s-beat-6.json`: `loudness_gain_db` `-10.00` (hash-excluded; recipe hash and loudness hash unchanged). `ci/hash_expected.json` `stub-chain-final-44100` and `stub-chain-final-48000`: re-pinned from the dev PC probe, confirmed on all four platforms by the next full run, as in 4.2. Tests that name `-1.5` for this fixture (`tests/cpp/test_api.cpp`, `tests/cpp/test_cli.cpp`, `tests/python/test_store_gain.py`) use `kTruePeak_final_fixture_gain` / `true_peak_constants.final_fixture_gain` (the `-10.00` row of the stored gain vectors gives `g`).
+
+**Test contracts (the QA agent may split differently; keep the added CI time to about 3 minutes of CPU per platform; every store works on a temp copy; delete each large file as soon as it is read):**
+
+- `tests/python/test_true_peak_tool.py`: the filter vectors equal the printed coefficients and `n_p * 2^-13`, phase 2 and 3 are the reversals, the phase sums match; every `true_peak_signals` row at both rates: the harness synthesizes the signal (True peak, Calibration, Signal) in binary64, its 24-bit stereo bytes hash to `samples_sha256`, `true_peak` equals `true_peak_hex` bit for bit, the reading is within rows `true-peak-meter-over` and `true-peak-meter-under` of the expected value (Tech 3341 cases 15 to 19 and the closed-form sines), and `check_true_peak` gives the row's assertion result; the hidden overshoot fails `check_true_peak` while the harness sample-peak check passes; the silent signal gives measured null, pass, note `silent`; must-fails doctored in the harness: a meter without oversampling (phase 0 only, or the sample peak) reads the hidden overshoot below the ceiling, a meter that drops the 11 trailing outputs or the first 11 differs from the vector on a signal cut short (no fade-out); a non-integer or out-of-range input raises. The vector constants agree with the three rows.
+- `tests/cpp/test_true_peak.cpp` (guarded by `__has_include("true_peak.hpp")`): `TruePeakMeter` on every `kTruePeakSignals` row synthesized in C++ (hash the bytes with the engine-independent SHA-256 the tests already use, or compare integers with the Python harness through a vector), `linear()` equal to `true_peak` bit for bit; frame-by-frame and all-at-once feeding give the same bits; `true_peak_dbtp(0)` is `-inf`; `true_peak_step` against every `kTruePeakSteps` row (stored or not; the line equal except the `true_peak_dbtp=` text, compared after `strtod` within 1e-12 dB, exactly for full scale), with the real `true-peak` row; with a doctored row at -7 dBTP the half-scale case (-6.02 dBTP) is rejected, and a row with unit `dB` throws.
+- `tests/cpp/test_cli.cpp`: every final render gains the `true_peak` member and the last assertion `true_peak` (`final_loudness_render` and the store tests' final renders): pass, measured equal to `dbtp`; a measure-mode render's report and WAV bytes are unchanged and have no `true_peak` (compare with a pre-4.3 expectation: no member, no assertion); the 1 s final fixture at both rates passes `true_peak` at about -4 dBTP; the store over the ceiling: since the tables are compiled in, the over-ceiling path is covered by `true_peak_step`; the CLI store tests check that both 4.2 store fixtures still store (exit 0, the same `stored:` line); a silent final render (a no-layer final recipe, made in the harness from `stub-chain-1s-no-layers.json` with its gain stored) gives `linear` 0, `dbtp` null, `true_peak` pass with note `silent`.
+- `tests/python/test_true_peak_cli.py`: for every final render in the suite at 44.1 and 48 kHz (the 1 s final fixture, `theta-cycle-sine-stored.json`, and the stored temp copies), the Python meter on the WAV's 24-bit samples equals the report's `true_peak.linear` bit for bit (parse the JSON number with `float`, the shortest round-trip text), and `check_true_peak` agrees with the report's `true_peak` assertion; a WAV doctored in the harness (a stored temp copy whose gain is raised until the true peak is above -1 dBTP, or the samples scaled in the harness) fails `check_true_peak`.
+- `tests/python/test_store_gain.py`, `tests/cpp/test_api.cpp`: the 1 s final fixture's gain is `-10.00`, its applied gain is the `-10.00` row's `g`; the reference match in final mode still passes.
+- `tools/check_row_coverage.py` sees `true-peak`, `true-peak-meter-over`, and `true-peak-meter-under` in use.
+
+## Spec Change Log
 
 ## Design Notes
 

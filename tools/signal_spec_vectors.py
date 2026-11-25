@@ -1,4 +1,4 @@
-"""Writes the worked test vectors of docs/signal-spec.md: core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer and rate curve, loop, components, spacing, preview, loudness, loudness gain, 24-bit rounding.
+"""Writes the worked test vectors of docs/signal-spec.md: core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer and rate curve, loop, components, spacing, preview, loudness, loudness gain, true peak, 24-bit rounding.
 
 Usage:
   python tools/signal_spec_vectors.py            write tests/data/signal_spec_vectors.json
@@ -117,6 +117,15 @@ engine or from binary64 library calls:
   the largest relative error over every k from 0 to -6000; the file rewrite
   by an independent byte scanner and splice, each output checked to keep
   the loudness hash and the recipe hash and to be its own rewrite.
+- True peak (Story 4.3): the BS.1770-5 Annex 2 filter as printed, each
+  coefficient checked to be an integer times 2^-13; every calibration signal
+  as 24-bit integers, each the nearest integer (ties to even, clamped) to
+  its exact value in decimal arithmetic (decimal sine and the raised-cosine
+  fade by decimal cosine, amplitudes 10^(L/20) by decimal power); the meter
+  in exact integer arithmetic (the largest |sum h_p[k] v[m - k]|, times
+  2^-36, exact in binary64); dBTP and dBFS by decimal log10; the SHA-256 of
+  the 24-bit little-endian interleaved samples; the store step with
+  20 log10 in binary64 (math.log10) for the line text.
 - 24-bit rounding (Story 1.4): x = s * 2^23 in exact Fraction arithmetic,
   clamped to [-8388608, 8388607], else rounded to the nearest integer, ties
   to even; NaN gives 0. Written as 3 bytes, little-endian two's complement.
@@ -4748,9 +4757,283 @@ def quantize_rows():
     return rows
 
 
+# ------------------------------------------------------------ true peak (Story 4.3)
+
+# ITU-R BS.1770-5, Annex 2, section 3: "One set of filter coefficients (for
+# the order 48, 4-phase, FIR interpolating) that would satisfy the
+# requirements", as printed, phase 0 to phase 3, taps in printed order.
+TRUE_PEAK_PHASES = (
+    ("0.0017089843750", "0.0109863281250", "-0.0196533203125", "0.0332031250000", "-0.0594482421875",
+     "0.1373291015625", "0.9721679687500", "-0.1022949218750", "0.0476074218750", "-0.0266113281250",
+     "0.0148925781250", "-0.0083007812500"),
+    ("-0.0291748046875", "0.0292968750000", "-0.0517578125000", "0.0891113281250", "-0.1665039062500",
+     "0.4650878906250", "0.7797851562500", "-0.2003173828125", "0.1015625000000", "-0.0582275390625",
+     "0.0330810546875", "-0.0189208984375"),
+    ("-0.0189208984375", "0.0330810546875", "-0.0582275390625", "0.1015625000000", "-0.2003173828125",
+     "0.7797851562500", "0.4650878906250", "-0.1665039062500", "0.0891113281250", "-0.0517578125000",
+     "0.0292968750000", "-0.0291748046875"),
+    ("-0.0083007812500", "0.0148925781250", "-0.0266113281250", "0.0476074218750", "-0.1022949218750",
+     "0.9721679687500", "0.1373291015625", "-0.0594482421875", "0.0332031250000", "-0.0196533203125",
+     "0.0109863281250", "0.0017089843750"),
+)
+TRUE_PEAK_OVERSAMPLING = 4
+TRUE_PEAK_TAPS = 12
+TRUE_PEAK_COEFFICIENT_BITS = 13     # every printed coefficient is an integer times 2^-13
+TRUE_PEAK_SAMPLE_BITS = 23          # a 24-bit sample v is read as v / 2^23
+TRUE_PEAK_ROW = "true-peak"
+TRUE_PEAK_CEILING_DBTP = -1.0       # row true-peak
+TRUE_PEAK_OVER_ROW = "true-peak-meter-over"
+TRUE_PEAK_UNDER_ROW = "true-peak-meter-under"
+TRUE_PEAK_OVER_DB = "0.2"           # EBU Tech 3341 v4.0, Table 1, cases 15 to 23: +0.2 dB
+TRUE_PEAK_UNDER_DB = "0.4"          # and -0.4 dB
+TRUE_PEAK_RULE = "true_peak"
+TRUE_PEAK_PARAMETER = "/loudness_gain_db"
+TRUE_PEAK_SIGNAL_S = 0.1            # every calibration signal lasts 0.1 s (Tech 3341: the duration does not matter)
+TRUE_PEAK_FADE_S = 0.01             # the 10 ms raised-cosine fade-in and fade-out
+TRUE_PEAK_TECH3341_CASES = (15, 16, 17, 18, 19)
+TRUE_PEAK_OUT_OF_SCOPE = (20, 21, 22, 23)
+TRUE_PEAK_FINAL_FIXTURE_GAIN = "-10.00"   # Story 4.3 decision 3: stub-chain-1s-beat-6.json
+TRUE_PEAK_STEP_TARGET = LOUDNESS_TARGET_LUFS
+TRUE_PEAK_STEP_GAIN_TEXT = "-35.27"
+
+# (name, source, divisor D (tone at fs / D), amplitude: ("FFS", text) or
+# ("dB", level text), phase in degrees, expected dBTP or None, role). Tech
+# 3341 v4.0, Table 1, cases 15 to 19 as printed, then closed-form signals:
+# a sine at fs/4 starting at 45 degrees has its crests on the 4x grid, so its
+# true peak is its amplitude while its sample peak is 3.01 dB lower.
+TRUE_PEAK_SIGNALS = (
+    ("case 15", "Tech 3341 case 15", 4, ("FFS", "0.50"), "0.0", "-6.0", "calibration"),
+    ("case 16", "Tech 3341 case 16", 4, ("FFS", "0.50"), "45.0", "-6.0", "calibration"),
+    ("case 17", "Tech 3341 case 17", 6, ("FFS", "0.50"), "60.0", "-6.0", "calibration"),
+    ("case 18", "Tech 3341 case 18", 8, ("FFS", "0.50"), "67.5", "-6.0", "calibration"),
+    ("case 19", "Tech 3341 case 19", 4, ("FFS", "1.41"), "45.0", "3.0", "calibration"),
+    ("hidden overshoot", "closed form", 4, ("dB", "-0.5"), "45.0", "-0.5", "must-fail"),
+    ("under the ceiling", "closed form", 4, ("dB", "-1.5"), "45.0", "-1.5", "pass"),
+    ("low level", "closed form", 4, ("dB", "-20"), "45.0", "-20", "calibration"),
+    ("silent", "closed form", 4, ("FFS", "0"), "0.0", None, "silent"),
+)
+
+
+def true_peak_coefficients():
+    """[[integer h_p[k] = printed * 2^13 for k in 0..11] for p in 0..3], checked exact."""
+    out = []
+    for phase in TRUE_PEAK_PHASES:
+        assert len(phase) == TRUE_PEAK_TAPS
+        row = []
+        for text in phase:
+            n = Fraction(Decimal(text)) * 2**TRUE_PEAK_COEFFICIENT_BITS
+            assert n.denominator == 1, text
+            row.append(int(n))
+        out.append(row)
+    assert len(out) == TRUE_PEAK_OVERSAMPLING
+    return out
+
+
+def true_peak_filter_rows():
+    rows = []
+    for p, (phase, ints) in enumerate(zip(TRUE_PEAK_PHASES, true_peak_coefficients())):
+        for k, (text, n) in enumerate(zip(phase, ints)):
+            rows.append({"phase": p, "tap": k, "printed": text, "integer": n,
+                         "hex": hexf(n / 2.0**TRUE_PEAK_COEFFICIENT_BITS)})
+    return rows
+
+
+def _sin_pi(t):
+    """sin(pi t) as a Decimal for any Fraction t (exact reduction)."""
+    u = (Fraction(t) - Fraction(1, 2)) % 2          # sin(pi t) = cos(pi (t - 1/2))
+    if u > 1:
+        u = 2 - u
+    return decimal_cos_pi(u.numerator, u.denominator)
+
+
+@functools.lru_cache(maxsize=None)
+def _fade(n, f):
+    """The raised-cosine fade weight (1 - cos(pi n / f)) / 2 as a Decimal, 0 <= n < f."""
+    with localcontext() as ctx:
+        ctx.prec = PREC + 10
+        return (1 - decimal_cos_pi(n, f)) / 2
+
+
+def _amplitude(amp):
+    kind, text = amp
+    with localcontext() as ctx:
+        ctx.prec = PREC + 10
+        if kind == "FFS":
+            return Decimal(text)
+        return Decimal(10) ** (Decimal(text) / 20)
+
+
+def _nearest_24(x):
+    """The 24-bit integer for the exact Decimal sample value x: x * 2^23 rounded
+    to the nearest integer, ties to even, clamped as 24-bit rounding does."""
+    y = Fraction(x) * 2**TRUE_PEAK_SAMPLE_BITS
+    if y >= Q24_MAX:
+        return Q24_MAX
+    if y <= Q24_MIN:
+        return Q24_MIN
+    return round_half_even(y)
+
+
+def true_peak_signal(divisor, amp, phase_deg, fs):
+    """True peak, Calibration, Signal: the 24-bit integers of one channel."""
+    n_frames, _ = samples(TRUE_PEAK_SIGNAL_S, fs)
+    f_frames, _ = samples(TRUE_PEAK_FADE_S, fs)
+    a = _amplitude(amp)
+    phi = Fraction(Decimal(phase_deg)) / 180
+    tone = [_sin_pi(Fraction(2 * j, divisor) + phi) for j in range(divisor)]
+    out = []
+    with localcontext() as ctx:
+        ctx.prec = PREC + 10
+        for n in range(n_frames):
+            x = a * tone[n % divisor]
+            if n < f_frames:
+                x *= _fade(n, f_frames)
+            elif n >= n_frames - f_frames:
+                x *= _fade(n_frames - 1 - n, f_frames)
+            out.append(_nearest_24(x))
+    return out, n_frames, f_frames
+
+
+def true_peak_meter(v):
+    """True peak, Meter, in exact integers: (max |sum_k h_p[k] v[m - k]|, its index 4 m + p, first).
+    The linear true peak is that integer times 2^-36."""
+    h = true_peak_coefficients()
+    best, where = 0, 0
+    length = len(v)
+    padded = [0] * (TRUE_PEAK_TAPS - 1) + list(v) + [0] * (TRUE_PEAK_TAPS - 1)
+    for m in range(length + TRUE_PEAK_TAPS - 1):
+        window = padded[m:m + TRUE_PEAK_TAPS][::-1]     # window[k] = v[m - k]
+        for p in range(TRUE_PEAK_OVERSAMPLING):
+            s = abs(sum(c * x for c, x in zip(h[p], window)))
+            if s > best:
+                best, where = s, TRUE_PEAK_OVERSAMPLING * m + p
+    return best, where
+
+
+def _db(ratio):
+    """20 log10 of a positive Fraction or Decimal, as a Decimal."""
+    with localcontext() as ctx:
+        ctx.prec = PREC + 10
+        r = Decimal(ratio.numerator) / Decimal(ratio.denominator) if isinstance(ratio, Fraction) else ratio
+        return 20 * r.log10()
+
+
+def true_peak_limit():
+    return f"<= {_shortest(TRUE_PEAK_CEILING_DBTP)} dBTP (row {TRUE_PEAK_ROW})"
+
+
+def true_peak_signal_rows():
+    rows = []
+    over, under = Decimal(TRUE_PEAK_OVER_DB), Decimal(TRUE_PEAK_UNDER_DB)
+    ceiling = Decimal(_shortest(TRUE_PEAK_CEILING_DBTP))
+    for fs in RATES:
+        for name, source, divisor, amp, phase_deg, expected, role in TRUE_PEAK_SIGNALS:
+            v, n_frames, f_frames = true_peak_signal(divisor, amp, phase_deg, fs)
+            peak, where = true_peak_meter(v)
+            sample_peak = max(abs(x) for x in v)
+            data = b"".join((x % 2**24).to_bytes(3, "little") * 2 for x in v)   # left, right per frame
+            tp = Fraction(peak, 2**(TRUE_PEAK_COEFFICIENT_BITS + TRUE_PEAK_SAMPLE_BITS))
+            assert Fraction(float(tp)) == tp, name
+            if peak:
+                tp_db = _db(tp)
+                sp_db = _db(Fraction(sample_peak, 2**TRUE_PEAK_SAMPLE_BITS))
+                assertion = "pass" if tp_db <= ceiling else "fail"
+                sample_check = "pass" if sp_db <= ceiling else "fail"
+            else:
+                tp_db = sp_db = None
+                assertion, sample_check = "pass", "pass"
+            if expected is not None:
+                delta = tp_db - Decimal(expected)
+                calibration = "pass" if -under <= delta <= over else "fail"
+            else:
+                delta, calibration = None, "none"
+            assert calibration != "fail", (name, fs, delta)
+            assert role != "must-fail" or (assertion == "fail" and sample_check == "pass"), (name, fs)
+            assert role not in ("pass", "silent") or assertion == "pass", (name, fs)
+            rows.append({
+                "signal": name, "source": source, "role": role, "fs": fs, "divisor": divisor,
+                "amplitude": format_ideal(_amplitude(amp)), "phase_deg": phase_deg,
+                "frames": n_frames, "fade_frames": f_frames,
+                "sample_peak": sample_peak,
+                "sample_peak_dbfs": format_ideal(sp_db) if sp_db is not None else "-inf",
+                "peak_integer": str(peak), "peak_index": where,
+                "true_peak_hex": hexf(float(tp)),
+                "true_peak_dbtp": format_ideal(tp_db) if tp_db is not None else "-inf",
+                "expected_dbtp": expected if expected is not None else "none",
+                "reading_minus_expected_db": format_ideal(delta) if delta is not None else "none",
+                "calibration": calibration, "assertion": assertion, "sample_peak_check": sample_check,
+                "samples_sha256": hashlib.sha256(data).hexdigest(),
+            })
+    return rows
+
+
+# (case, linear true peak): the store step (True peak, Store step) with
+# T = -36 and the gain text -35.27.
+TRUE_PEAK_STEP_CASES = (
+    ("silent", 0.0),
+    ("half scale", 0.5),
+    ("just under the ceiling", binary64(Fraction(Decimal(10) ** (Decimal("-1.001") / 20)))),
+    ("just over the ceiling", binary64(Fraction(Decimal(10) ** (Decimal("-0.999") / 20)))),
+    ("full scale", 1.0),
+    ("over full scale", 1.25),
+)
+
+
+def true_peak_step_rows():
+    rows = []
+    ceiling = Decimal(_shortest(TRUE_PEAK_CEILING_DBTP))
+    for case, tp in TRUE_PEAK_STEP_CASES:
+        if tp > 0.0:
+            ideal_db = _db(Fraction(tp))
+            db = 20.0 * math.log10(tp)
+            stored = ideal_db <= ceiling
+            assert abs(ideal_db - ceiling) > Decimal("1e-6"), case
+        else:
+            ideal_db, db, stored = None, -math.inf, True
+        line = "none"
+        if not stored:
+            line = (f"rejected: parameter={TRUE_PEAK_PARAMETER} value={TRUE_PEAK_STEP_GAIN_TEXT} "
+                    f"rule={TRUE_PEAK_RULE} limit={true_peak_limit()} "
+                    f"target_lufs={_shortest(TRUE_PEAK_STEP_TARGET)} true_peak_dbtp={_shortest(db)}")
+        rows.append({
+            "case": case, "true_peak_hex": hexf(tp),
+            "true_peak_dbtp": format_ideal(ideal_db) if ideal_db is not None else "-inf",
+            "dbtp_text": _shortest(db) if math.isfinite(db) else "-inf",
+            "target_lufs": _shortest(TRUE_PEAK_STEP_TARGET), "gain_text": TRUE_PEAK_STEP_GAIN_TEXT,
+            "result": "stored" if stored else "rejected", "line": line,
+        })
+    return rows
+
+
+def true_peak_constants():
+    return {
+        "oversampling": TRUE_PEAK_OVERSAMPLING,
+        "taps": TRUE_PEAK_TAPS,
+        "coefficient_bits": TRUE_PEAK_COEFFICIENT_BITS,
+        "sample_bits": TRUE_PEAK_SAMPLE_BITS,
+        "trailing_zeros": TRUE_PEAK_TAPS - 1,
+        "row": TRUE_PEAK_ROW,
+        "ceiling_dbtp": dec(TRUE_PEAK_CEILING_DBTP),
+        "limit": true_peak_limit(),
+        "over_row": TRUE_PEAK_OVER_ROW,
+        "under_row": TRUE_PEAK_UNDER_ROW,
+        "over_db": TRUE_PEAK_OVER_DB,
+        "under_db": TRUE_PEAK_UNDER_DB,
+        "rule": TRUE_PEAK_RULE,
+        "parameter": TRUE_PEAK_PARAMETER,
+        "signal_s": dec(TRUE_PEAK_SIGNAL_S),
+        "fade_s": dec(TRUE_PEAK_FADE_S),
+        "tech3341_cases": list(TRUE_PEAK_TECH3341_CASES),
+        "out_of_scope_cases": list(TRUE_PEAK_OUT_OF_SCOPE),
+        "final_fixture": LOUDNESS_FINAL_FIXTURE,
+        "final_fixture_gain": TRUE_PEAK_FINAL_FIXTURE_GAIN,
+        "phase_sums": [sum(p) for p in true_peak_coefficients()],
+    }
+
+
 def build():
     return {
-        "spec": "docs/signal-spec.md (sections core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer, rate curve (the beat rate, Story 2.5; the theta and gamma rates, Story 2.6), loop (Story 2.7), components (Story 3.1), spacing (Story 3.2), preview (Story 3.3), loudness (Story 4.1), loudness gain (Story 4.2), and 24-bit rounding)",
+        "spec": "docs/signal-spec.md (sections core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer, rate curve (the beat rate, Story 2.5; the theta and gamma rates, Story 2.6), loop (Story 2.7), components (Story 3.1), spacing (Story 3.2), preview (Story 3.3), loudness (Story 4.1), loudness gain (Story 4.2), true peak (Story 4.3), and 24-bit rounding)",
         "generator": "tools/signal_spec_vectors.py",
         "cycle": str(CYCLE),
         "sine_coefficients": sine_coefficients(),
@@ -4865,6 +5148,10 @@ def build():
         "loudness_gain_steps": loudness_gain_step_rows(),
         "loudness_gain_values": loudness_gain_value_rows(),
         "loudness_rewrites": loudness_rewrite_rows(),
+        "true_peak_constants": true_peak_constants(),
+        "true_peak_filter": true_peak_filter_rows(),
+        "true_peak_signals": true_peak_signal_rows(),
+        "true_peak_steps": true_peak_step_rows(),
         "quantize_24": quantize_rows(),
     }
 
@@ -5355,6 +5642,31 @@ def tables(data):
     for r in data["loudness_rewrites"]:
         out.append(f"| {r['case']} | {r['gain_text']} | `{r['loudness_hash']}` | `{json.dumps(r['input'])}` "
                    f"| `{json.dumps(r['output'])}` |")
+    out.append("")
+    out.append("| Phase | Tap | Printed (BS.1770) | Integer (times 2^-13) | Binary64 (hex) |")
+    out.append("| --- | --- | --- | --- | --- |")
+    for r in data["true_peak_filter"]:
+        out.append(f"| {r['phase']} | {r['tap']} | {r['printed']} | {r['integer']} | `{r['hex']}` |")
+    out.append("")
+    out.append("| Signal | Source | fs | Tone | Amplitude (FFS) | Phase (deg) | Frames | Fade frames "
+               "| Sample peak (integer) | Sample peak (dBFS) | Peak output (times 2^-36) | Peak index (4m + p) "
+               "| True peak (hex) | True peak (dBTP) | Expected (dBTP) | Reading - expected (dB) | Calibration "
+               "| Assertion | Sample-peak check | Samples SHA-256 |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- "
+               "| --- | --- | --- | --- |")
+    for r in data["true_peak_signals"]:
+        out.append(f"| {r['signal']} | {r['source']} | {r['fs']} | fs/{r['divisor']} | {r['amplitude']} "
+                   f"| {r['phase_deg']} | {r['frames']} | {r['fade_frames']} | {r['sample_peak']} "
+                   f"| {r['sample_peak_dbfs']} | {r['peak_integer']} | {r['peak_index']} | `{r['true_peak_hex']}` "
+                   f"| {r['true_peak_dbtp']} | {r['expected_dbtp']} | {r['reading_minus_expected_db']} "
+                   f"| {r['calibration']} | {r['assertion']} | {r['sample_peak_check']} | `{r['samples_sha256']}` |")
+    out.append("")
+    out.append("| Case | True peak (hex) | True peak (dBTP) | dBTP text | Target | Gain text | Result | Line |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["true_peak_steps"]:
+        line = f"`{r['line']}`" if r["line"] != "none" else "none"
+        out.append(f"| {r['case']} | `{r['true_peak_hex']}` | {r['true_peak_dbtp']} | {r['dbtp_text']} "
+                   f"| {r['target_lufs']} | {r['gain_text']} | {r['result']} | {line} |")
     out.append("")
     out.append("| Rule | Case | s (hex) | x = s * 2^23 (hex) | Value | Bytes (little-endian) |")
     out.append("| --- | --- | --- | --- | --- | --- |")

@@ -893,8 +893,9 @@ So that no render clips between samples on any playback device.
 **Acceptance Criteria:**
 
 **Given** the true-peak tool in the assertion library, per ITU-R BS.1770 Annex 2 oversampling
-**When** it measures the EBU Tech 3341 true-peak signals and Python-synthesized signals with known inter-sample peaks
+**When** it measures the EBU Tech 3341 v4.0 (November 2023) true-peak signals, Table 1 cases 15 to 19, and Python-synthesized signals with known inter-sample peaks
 **Then** it reads each within its stated tolerance
+**And** the cases are synthesized in the test harness from the frequencies, amplitudes, and phases printed in the public Tech 3341 document, each with a 10 ms fade-in and fade-out; the EBU test files are never downloaded or committed; cases 20 to 23 are out of scope, because their printed description names no anti-aliasing filter and no fade (amended 2026-11-25, Audio, Story 4.3 decision 5)
 
 **Given** a must-fail signal whose sample peak is below -1 dBFS but whose inter-sample peak is above -1 dBTP
 **When** it is checked
