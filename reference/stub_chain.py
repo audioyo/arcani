@@ -5,7 +5,7 @@ binaries, or engine output (AD-16, AD-19). Every value is binary64 and every
 oscillator uses the ideal sine of reference/ideal.py, never the engine's
 approximation.
 
-render(recipe_path, fs, frames=None, start=0) reads the recipe JSON with the
+render(recipe_path, fs, frames=None, start=0, mode="measure") reads the recipe JSON with the
 standard library and returns a dict with the keys "output", "theta",
 "gamma", "bus", "join", and "master". Each value is a 1-D C-contiguous
 float64 array of 2 * T samples, interleaved stereo (left, right per frame),
@@ -29,8 +29,14 @@ For 0 <= n < N and each channel c, in the spec's order:
     bus[c][n]    = theta[c][n] + gamma[c][n]
     bin[c][n]    = binaural.render(...)[c][n]   ear c (left, right)
     join[c][n]   = bus[c][n] + bin[c][n]
-    master[c][n] = join[c][n] * 1.0
+    master[c][n] = join[c][n] * g
     out[c][n]    = master[c][n]
+
+with g = 1.0 in mode "measure" (the default) and, in mode "final" (Story
+4.2; docs/signal-spec.md, Loudness gain, Linear gain), the linear gain of the
+recipe's loudness_gain_db: k = round(100.0 * v), a tie away from zero, then
+c^|k| by binary exponentiation with c = 0x1.004b7e9b5ce5dp+0, and 1 / p
+for k < 0, every step one binary64 operation in the spec's order.
 
 with the theta tap from reference/theta.py (docs/signal-spec.md, Theta
 reference: the carrier amplitude-modulated at the theta rate by the recipe's
@@ -50,12 +56,37 @@ NumPy, the standard library, and reference/ only.
 """
 
 import json
+import math
+from fractions import Fraction
 
 import numpy as np
 
 from . import binaural as binaural_layer, gamma as gamma_layer, ideal, theta as theta_layer
 
 KEYS = ("output", "theta", "gamma", "bus", "join", "master")
+MODES = ("measure", "final")
+GAIN_STEP = float.fromhex("0x1.004b7e9b5ce5dp+0")  # the binary64 nearest 10^(1/2000)
+
+
+def gain_steps(gain_db):
+    """Loudness gain, Linear gain: k, the integer nearest 100.0 * v (a tie away from zero)."""
+    x = 100.0 * float(gain_db)                 # one binary64 rounding
+    a = abs(Fraction(x))
+    n = math.floor(a + Fraction(1, 2))         # exact
+    return -n if x < 0 else n
+
+
+def linear_gain(gain_db):
+    """Loudness gain, Linear gain: g = c^|k| by binary exponentiation in binary64, 1 / p for k < 0."""
+    k = gain_steps(gain_db)
+    m, p, b = abs(k), 1.0, GAIN_STEP
+    while m > 0:
+        if m % 2 == 1:
+            p = p * b
+        m //= 2
+        if m > 0:
+            b = b * b
+    return 1.0 / p if k < 0 else p
 
 
 def _interleave(left, right, total):
@@ -80,10 +111,18 @@ def loop_frames(recipe, fs):
     return {"opening_end_frame": o, "body_frames": b, "seam_frames": seams, "end_frame": end}
 
 
-def render(recipe_path, fs, frames=None, start=0):
+def render(recipe_path, fs, frames=None, start=0, mode="measure"):
     """Taps and output of the stub chain for one recipe at sample rate fs, frames [start, start + T)."""
+    if mode not in MODES:
+        raise ValueError(f"mode must be one of {MODES}, got {mode!r}")
     with open(recipe_path, "r", encoding="utf-8") as f:
         recipe = json.load(f)
+    if mode == "final":
+        if "loudness_gain_db" not in recipe:
+            raise ValueError("final mode needs loudness_gain_db")
+        g = linear_gain(recipe["loudness_gain_db"])
+    else:
+        g = 1.0
     start = int(start)
     if start < 0:
         raise ValueError(f"start must be >= 0, got {start}")
@@ -117,7 +156,7 @@ def render(recipe_path, fs, frames=None, start=0):
     for c in (0, 1):
         join_c = bus + ears[c]
         joins.append(join_c)
-        masters.append(join_c * 1.0)
+        masters.append(join_c * g)
 
     out = {
         "theta": _interleave(theta, theta, total),

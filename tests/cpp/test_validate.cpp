@@ -169,6 +169,7 @@
 #if __has_include("validate/validate.hpp") && defined(ARC_ERROR_FIELD_BYTES)
 
 #include "api_helpers.hpp"
+#include "loudness_gain_helpers.hpp"
 #include "spec_helpers.hpp"
 #include "recipe/field_table.hpp"
 #include "tables.hpp"
@@ -355,6 +356,8 @@ struct Values {
   bool gamma = false;
   bool binaural = true;
   bool gain = true;  // loudness_gain_db and loudness_hash
+  // Story 4.2: the stored gain's value text (row loudness-gain), with gain.
+  std::string loudness_gain_db = "-1.5";
 };
 
 std::string make_recipe(const Values& v) {
@@ -369,7 +372,7 @@ std::string make_recipe(const Values& v) {
       "  \"length_s\": " + v.length_s + ",\n"
       "  \"loudness_target_lufs\": " + v.loudness_target_lufs;
   if (v.gain) {
-    s += ",\n  \"loudness_gain_db\": -1.5,\n"
+    s += ",\n  \"loudness_gain_db\": " + v.loudness_gain_db + ",\n"
          "  \"loudness_hash\": \"6a29ccd608e4c1945bfff95af078a97daea48eca54a38e065ae33dfa9c2d83a6\"";
   }
   if (v.theta) {
@@ -418,7 +421,9 @@ std::string make_recipe(const Values& v) {
     s += "\n  }";
   }
   s += "\n}\n";
-  return s;
+  // Story 4.2: the engine's loudness hash in place of the placeholder, so
+  // final mode compiles the recipe (loudness_gain_helpers.hpp).
+  return v.gain ? arcani::test::loudness::stored_hash_text(s) : s;
 }
 
 constexpr arc_mode kModes[] = {ARC_MODE_MEASURE, ARC_MODE_FINAL};
@@ -473,8 +478,9 @@ TEST_CASE("engine range table equals ranges.tsv row for row", "[validate][ranges
   // Story 2.1 adds theta-rate and theta-depth; Story 2.2 adds gamma-carrier,
   // gamma-rate, and coupling-depth; Story 2.3 adds coupling-phase; Story 2.5
   // adds rate-cycle-period and rate-cycle-start-phase; Story 2.7 adds
-  // max-run-time-focus and max-run-time-learn.
-  REQUIRE(expected_ids.size() == 16);
+  // max-run-time-focus and max-run-time-learn; Story 4.2 adds loudness-gain.
+  REQUIRE(expected_ids.size() == 17);
+  CHECK(expected_ids.count("loudness-gain") == 1);
   CHECK(expected_ids.count("max-run-time-focus") == 1);
   CHECK(expected_ids.count("max-run-time-learn") == 1);
   CHECK(expected_ids.count("rate-cycle-period") == 1);
@@ -2853,6 +2859,19 @@ TEST_CASE("check order: ranges in field table order, first failure wins", "[vali
     v.loudness_target_lufs = "-16";
     v.theta_carrier_hz = "50";
     v.carrier_left_hz = "1000";
+    expect_rejected(v, {"/loudness_target_lufs", "-16", "range.max",
+                        "<= -36 LUFS-I (row loudness-tones)"});
+  }
+  {
+    Values v;  // Story 4.2: the stored gain right after the target, before theta
+    v.loudness_gain_db = "0.5";
+    v.theta_carrier_hz = "50";
+    expect_rejected(v, {"/loudness_gain_db", "0.5", "range.max", "<= 0 dB (row loudness-gain)"});
+  }
+  {
+    Values v;  // Story 4.2: the target before the stored gain
+    v.loudness_target_lufs = "-16";
+    v.loudness_gain_db = "-61";
     expect_rejected(v, {"/loudness_target_lufs", "-16", "range.max",
                         "<= -36 LUFS-I (row loudness-tones)"});
   }

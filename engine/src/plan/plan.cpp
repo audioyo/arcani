@@ -29,6 +29,36 @@ CompileResult fail(std::string parameter, std::string value, std::string rule, s
   return r;
 }
 
+// Loudness gain, Linear gain: the step count k of a stored gain v (range
+// checked to -60 to 0 dB), then g = c^|k| by binary exponentiation, 1 / p
+// for k < 0. Only multiplication, division, and exact integer steps (AD-9).
+constexpr double kGainStep = 0x1.004b7e9b5ce5dp+0;  // the binary64 nearest 10^(1/2000)
+
+double linear_gain(double gain_db) {
+  const double x = 100.0 * gain_db;  // one rounding; |x| <= 6000 after the range check
+  // k = round(x), a tie away from zero, in exact steps: |x| = n + f with n
+  // its truncation (exact) and f the exact remainder.
+  const bool negative = x < 0.0;
+  const double a = negative ? -x : x;
+  auto n = static_cast<std::uint64_t>(a);
+  if (a - static_cast<double>(n) >= 0.5) {
+    ++n;
+  }
+  std::uint64_t m = n;  // |k|
+  double p = 1.0;
+  double b = kGainStep;
+  while (m > 0) {
+    if (m % 2u == 1u) {
+      p = p * b;
+    }
+    m = m / 2u;
+    if (m > 0) {
+      b = b * b;
+    }
+  }
+  return negative && n > 0 ? 1.0 / p : p;
+}
+
 // The once-per-plan constants of a rate cycle (docs/signal-spec.md, Rate
 // curve, Engine), written to the layer's cycle fields.
 template <typename Layer>
@@ -119,12 +149,18 @@ CompileResult compile(std::string_view utf8, Mode mode, std::uint32_t sample_rat
     if (!rec.loudness_hash) {
       return fail("/loudness_hash", "absent", "final.required", "present in final mode");
     }
+    // Story 4.2: the stored hash must be this recipe's loudness hash.
+    if (*rec.loudness_hash != rec.loudness_hash_computed) {
+      return fail("/loudness_hash", *rec.loudness_hash, "final.loudness_hash", "= " + rec.loudness_hash_computed);
+    }
   }
 
   Plan p;
   p.sample_rate = sample_rate;
   p.frame_count = core::seconds_to_samples(rec.length_s, sample_rate);
   p.recipe_hash = rec.hash;
+  p.loudness_hash = rec.loudness_hash_computed;
+  p.master_gain = mode == Mode::Final ? linear_gain(*rec.loudness_gain_db) : 1.0;
   p.components = std::move(components.components);
   p.spacing = spacing.ears;
   p.seed = rec.seed;

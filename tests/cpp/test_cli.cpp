@@ -46,6 +46,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -79,6 +80,7 @@
 #include "api_helpers.hpp"
 #include "cli_helpers.hpp"
 #include "determinism_helpers.hpp"
+#include "loudness_gain_helpers.hpp"
 #include "spec_tables.hpp"
 #include "json/value.hpp"
 #include "tables.hpp"
@@ -1396,4 +1398,439 @@ TEST_CASE("--loudness at the window minimum: 60 s accepted, 59.75 s refused, the
       CHECK(l->find("window_lufs_i")->number() > arcani::test::spec::kLoudness_absolute_gate_lufs);
     }
   }
+}
+
+// ------------------------------------------------ --store-gain (Story 4.2)
+//
+// docs/signal-spec.md, Loudness gain, Store and Final-mode checks:
+//   arcani-render RECIPE --store-gain [--rate 44100|48000]
+//     with --out, --report, --preview, --mode, or --loudness, or given twice:
+//     usage error, exit 2, nothing read or written. Otherwise it measures the
+//     window in measure mode, rounds the gain, rewrites only the two loudness
+//     members of RECIPE (through RECIPE.partial and a rename), prints one
+//     stdout line
+//       "stored: loudness_gain_db=<gain text> loudness_hash=<H> window_lufs_i=<L>"
+//     and exits 0. A window or range rejection prints the rejected line and
+//     exits 1 with RECIPE unchanged.
+//   arcani-render RECIPE --out WAV --mode final --loudness appends the
+//   assertions loudness (|window - T| <= 1 LU) and loudness_whole (whole - T
+//   <= 1 LU), row loudness-tolerance, after render speed; a failure exits 4.
+//   A measure-mode --loudness report has neither.
+// Every store works on a temp copy in the build tree, never on the
+// checkout, and each WAV is deleted as soon as its report is read.
+
+namespace {
+
+namespace lg = arcani::test::loudness;
+
+std::string file_bytes(const fs::path& p) {
+  const auto b = h::read_bytes(p.string());
+  INFO("file " << p.string());
+  REQUIRE(b.has_value());
+  return h::as_text(*b);
+}
+
+// A byte-exact copy of a valid fixture in dir.
+fs::path temp_copy(const fs::path& dir, const std::string& fixture) {
+  const fs::path to = dir / fixture;
+  write_text(to, file_bytes(fixture_path(fixture)));
+  return to;
+}
+
+struct StoreLine {
+  std::string gain_text;
+  std::string hash;
+  std::string window_text;
+  double window_lufs = 0.0;
+};
+
+std::optional<StoreLine> parse_store_line(const std::string& out) {
+  const std::string text = trim(out);
+  const std::string a = "stored: loudness_gain_db=";
+  const std::string b = " loudness_hash=";
+  const std::string c = " window_lufs_i=";
+  if (text.rfind(a, 0) != 0 || text.find('\n') != std::string::npos) {
+    return std::nullopt;
+  }
+  const auto bh = text.find(b);
+  const auto cw = text.find(c);
+  if (bh == std::string::npos || cw == std::string::npos || !(bh < cw)) {
+    return std::nullopt;
+  }
+  StoreLine s;
+  s.gain_text = text.substr(a.size(), bh - a.size());
+  s.hash = text.substr(bh + b.size(), cw - bh - b.size());
+  s.window_text = text.substr(cw + c.size());
+  // std::strtod, as test_preview.cpp parses numbers: the pinned macOS libc++
+  // has no floating-point std::from_chars.
+  if (s.window_text.empty()) {
+    return std::nullopt;
+  }
+  char* end = nullptr;
+  s.window_lufs = std::strtod(s.window_text.c_str(), &end);
+  if (end != s.window_text.c_str() + s.window_text.size()) {
+    return std::nullopt;
+  }
+  return s;
+}
+
+bool is_gain_text(const std::string& s) {
+  // -?digits.dd with no leading zero (except a lone 0)
+  std::size_t i = 0;
+  if (i < s.size() && s[i] == '-') {
+    ++i;
+  }
+  const std::size_t digits = i;
+  while (i < s.size() && s[i] >= '0' && s[i] <= '9') {
+    ++i;
+  }
+  if (i == digits || (s[digits] == '0' && i - digits > 1)) {
+    return false;
+  }
+  return i + 3 == s.size() && s[i] == '.' && s[i + 1] >= '0' && s[i + 1] <= '9' && s[i + 2] >= '0' &&
+         s[i + 2] <= '9';
+}
+
+// The bytes the store must write for an original with neither member
+// (File rewrite, Missing members), from the original's own lead and
+// separator of loudness_target_lufs.
+std::string expected_stored_bytes(const std::string& original, const std::string& gain, const std::string& hash) {
+  const std::string key = "\"loudness_target_lufs\"";
+  const auto k = original.find(key);
+  REQUIRE(k != std::string::npos);
+  REQUIRE(original.find("\"loudness_gain_db\"") == std::string::npos);
+  REQUIRE(original.find("\"loudness_hash\"") == std::string::npos);
+  const auto lead_begin = original.find_last_of(",{", k) + 1;
+  const std::string lead = original.substr(lead_begin, k - lead_begin);
+  const auto colon = original.find(':', k + key.size());
+  auto value_begin = colon + 1;
+  while (original[value_begin] == ' ' || original[value_begin] == '\t' || original[value_begin] == '\r' ||
+         original[value_begin] == '\n') {
+    ++value_begin;
+  }
+  const std::string sep = original.substr(k + key.size(), value_begin - (k + key.size()));
+  auto value_end = value_begin;
+  while (value_end < original.size() && std::strchr(",} \t\r\n", original[value_end]) == nullptr) {
+    ++value_end;
+  }
+  return original.substr(0, value_end) + "," + lead + "\"loudness_gain_db\"" + sep + gain + "," + lead +
+         "\"loudness_hash\"" + sep + "\"" + hash + "\"" + original.substr(value_end);
+}
+
+const arcani::test::spec::LoudnessHashVector& store_hash_vector(const std::string& fixture) {
+  for (const auto& v : arcani::test::spec::kLoudnessHashes) {
+    if (fixture == v.fixture) {
+      return v;
+    }
+  }
+  FAIL("no loudness hash vector for " << fixture);
+  return arcani::test::spec::kLoudnessHashes[0];
+}
+
+const arcani::test::spec::LoudnessGainStepVector& gain_step_vector(const std::string& name) {
+  for (const auto& v : arcani::test::spec::kLoudnessGainSteps) {
+    if (name == v.name) {
+      return v;
+    }
+  }
+  FAIL("no gain step vector " << name);
+  return arcani::test::spec::kLoudnessGainSteps[0];
+}
+
+// Stores a gain into `recipe`; requires exit 0, one stdout line, no stderr.
+StoreLine store_ok(const fs::path& recipe, std::uint32_t rate) {
+  const RunResult r = run_cli({recipe.string(), "--store-gain", "--rate", std::to_string(rate)});
+  INFO("stdout: " << r.out << "\nstderr: " << r.err);
+  REQUIRE(r.exit_code == 0);
+  CHECK(r.err.empty());
+  const std::optional<StoreLine> s = parse_store_line(r.out);
+  REQUIRE(s.has_value());
+  return *s;
+}
+
+// A final --loudness render of `recipe`; returns the report and deletes the WAV.
+json::Value final_loudness_render(const fs::path& recipe, const fs::path& dir, std::uint32_t rate,
+                                  int want_exit) {
+  const fs::path wav = dir / "final.wav";
+  const RunResult r = run_cli(
+      {recipe.string(), "--out", wav.string(), "--rate", std::to_string(rate), "--mode", "final", "--loudness"});
+  INFO("stdout: " << r.out << "\nstderr: " << r.err);
+  REQUIRE(r.exit_code == want_exit);
+  CHECK(fs::exists(wav));
+  fs::remove(wav);
+  return require_report(dir / "final.report.json");
+}
+
+const json::Value* assertion_named(const json::Value& report, const std::string& name) {
+  for (const json::Value& a : report.find("assertions")->array()) {
+    if (a.find("name")->string() == name) {
+      return &a;
+    }
+  }
+  return nullptr;
+}
+
+// The final-mode loudness assertions against the report's own readings.
+void check_final_loudness(const json::Value& report, double target, const std::string& want_loudness,
+                          const std::string& want_whole) {
+  const tables::Row& row = tables::row("loudness-tolerance");
+  REQUIRE(row.unit == "LU");
+  const auto& list = report.find("assertions")->array();
+  REQUIRE(list.size() == 3);
+  CHECK(list[0].find("name")->string() == "render speed");
+  CHECK(list[1].find("name")->string() == "loudness");
+  CHECK(list[2].find("name")->string() == "loudness_whole");
+  const json::Value* l = report.find("loudness");
+  REQUIRE(l != nullptr);
+  REQUIRE(l->find("window_lufs_i")->kind() == json::Kind::Number);
+  REQUIRE(l->find("whole_lufs_i")->kind() == json::Kind::Number);
+  const double window = l->find("window_lufs_i")->number();
+  const double whole = l->find("whole_lufs_i")->number();
+  struct Want {
+    const json::Value& a;
+    double measured;
+    const std::string& result;
+  };
+  for (const Want& w : {Want{list[1], window - target, want_loudness}, Want{list[2], whole - target, want_whole}}) {
+    INFO("assertion " << w.a.find("name")->string());
+    CHECK(w.a.find("row")->string() == row.id);
+    CHECK(w.a.find("threshold")->number() == row.value());
+    CHECK(w.a.find("unit")->string() == row.unit);
+    REQUIRE(w.a.find("measured")->kind() == json::Kind::Number);
+    CHECK(arcani::test::api::bits(w.a.find("measured")->number()) == arcani::test::api::bits(w.measured));
+    CHECK(w.a.find("result")->string() == w.result);
+    CHECK(w.a.find("note")->string().empty());
+  }
+  // The pass rule itself: |window - T| <= 1 LU and whole - T <= 1 LU.
+  CHECK((std::fabs(window - target) <= row.value()) == (want_loudness == "pass"));
+  CHECK((whole - target <= row.value()) == (want_whole == "pass"));
+}
+
+}  // namespace
+
+TEST_CASE("--store-gain usage errors exit 2 and leave the recipe unchanged", "[cli][store-gain]") {
+  const fs::path dir = case_dir("store-usage");
+  const std::string name = "theta-cycle-sine.json";
+  const fs::path recipe = temp_copy(dir, name);
+  const std::string before = file_bytes(recipe);
+  const std::string r = recipe.string();
+  const std::string wav = (dir / "x.wav").string();
+  const std::string report = (dir / "x.json").string();
+  const std::vector<std::vector<std::string>> shapes = {
+      {r, "--store-gain", "--out", wav},
+      {r, "--out", wav, "--store-gain"},
+      {r, "--store-gain", "--report", report},
+      {r, "--store-gain", "--preview"},
+      {r, "--store-gain", "--mode", "measure"},
+      {r, "--store-gain", "--mode", "final"},
+      {r, "--mode", "measure", "--store-gain"},
+      {r, "--store-gain", "--loudness"},
+      {r, "--loudness", "--store-gain"},
+      {r, "--store-gain", "--store-gain"},
+      {r, "--store-gain", "--rate", "48000", "--store-gain"},
+      {r, "--store-gain", "stray"},
+      {"--store-gain", r},
+      {"--version", "--store-gain"},
+  };
+  for (const auto& args : shapes) {
+    std::string shown;
+    for (const auto& a : args) {
+      shown += "[" + a + "] ";
+    }
+    INFO("arguments: " << shown);
+    const RunResult res = run_cli(args);
+    INFO("stdout: " << res.out << "\nstderr: " << res.err);
+    CHECK(res.exit_code == 2);
+    CHECK(lower(res.out + res.err).find("usage") != std::string::npos);
+    CHECK(file_bytes(recipe) == before);
+    CHECK(listing(dir) == std::vector<std::string>{name});
+  }
+  // The usage text names --store-gain.
+  const RunResult res = run_cli({r, "--store-gain", "--out", wav});
+  CHECK(lower(res.out + res.err).find("--store-gain") != std::string::npos);
+}
+
+TEST_CASE("--store-gain refuses a 10 s recipe with the window rule and writes nothing", "[cli][store-gain]") {
+  const std::string fixture = "theta-sine-6hz.json";
+  for (std::uint32_t rate : table_rates()) {
+    INFO("rate " << rate);
+    const arcani::test::spec::LoudnessWindowVector& v = loudness_window_vector(fixture, rate);
+    REQUIRE_FALSE(v.accepted);
+    const fs::path dir = case_dir("store-short-" + std::to_string(rate));
+    const fs::path recipe = temp_copy(dir, fixture);
+    const std::string before = file_bytes(recipe);
+    const RunResult r = run_cli({recipe.string(), "--store-gain", "--rate", std::to_string(rate)});
+    INFO("stdout: " << r.out << "\nstderr: " << r.err);
+    CHECK(r.exit_code == 1);
+    CHECK(r.err == loudness_rejected_line(v.parameter, v.value, v.rule, v.limit) + "\n");
+    CHECK(r.out.empty());
+    CHECK(file_bytes(recipe) == before);
+    CHECK(listing(dir) == std::vector<std::string>{fixture});
+  }
+}
+
+TEST_CASE("--store-gain refuses a silent 60 s recipe: value inf, rule range.max, nothing written",
+          "[cli][store-gain]") {
+  const arcani::test::spec::LoudnessGainStepVector& v = gain_step_vector("silent window");
+  REQUIRE_FALSE(v.stored);
+  REQUIRE(std::string(v.value) == "inf");
+  const fs::path dir = case_dir("store-silent");
+  std::string text = arcani::test::api::valid(arcani::test::api::kNoLayers);
+  REQUIRE(lg::replace_member_value(text, "length_s", "60"));
+  const fs::path recipe = dir / "no-layers-60s.json";
+  write_text(recipe, text);
+  const RunResult r = run_cli({recipe.string(), "--store-gain"});
+  INFO("stdout: " << r.out << "\nstderr: " << r.err);
+  CHECK(r.exit_code == 1);
+  CHECK(r.err == loudness_rejected_line(v.parameter, v.value, v.rule, v.limit) + "\n");
+  CHECK(r.err == std::string("rejected: parameter=/loudness_gain_db value=inf rule=range.max limit=") +
+                     arcani::test::spec::kLoudnessGain_max_limit + "\n");
+  CHECK(file_bytes(recipe) == text);
+  CHECK(listing(dir) == std::vector<std::string>{"no-layers-60s.json"});
+}
+
+TEST_CASE("--store-gain writes both members into a temp copy, byte-exact; storing again changes nothing",
+          "[cli][store-gain]") {
+  ScopedEnv env(kEnv, nullptr);
+  for (const char* fixture : arcani::test::spec::kLoudnessGain_store_fixtures) {
+    INFO("fixture " << fixture);
+    const fs::path dir = case_dir(std::string("store-") + fixture);
+    const fs::path recipe = temp_copy(dir, fixture);
+    const std::string original = file_bytes(recipe);
+    const StoreLine s = store_ok(recipe, 48000);
+    CHECK(listing(dir) == std::vector<std::string>{fixture});  // no WAV, report, or partial file
+    CHECK(is_gain_text(s.gain_text));
+    CHECK(s.hash == store_hash_vector(fixture).loudness_hash);
+    // The gain is the rounding of the printed reading (Gain rounding).
+    const double target = -36.0;
+    const std::int64_t k = static_cast<std::int64_t>(std::round(100.0 * (target - s.window_lufs)));
+    CHECK(s.gain_text == lg::harness_gain_text(k));
+    const std::string stored = file_bytes(recipe);
+    CHECK(stored == expected_stored_bytes(original, s.gain_text, s.hash));
+    // It compiles in final mode with the vector hash.
+    namespace api = arcani::test::api;
+    for (std::uint32_t rate : table_rates()) {
+      api::PlanPtr p = api::compile_ok(stored, api::options(ARC_MODE_FINAL, rate));
+      CHECK(lg::plan_loudness_hash(p.get()) == s.hash);
+    }
+    // Storing again reads the same window and writes the same bytes.
+    const StoreLine again = store_ok(recipe, 48000);
+    CHECK(again.gain_text == s.gain_text);
+    CHECK(again.hash == s.hash);
+    CHECK(again.window_text == s.window_text);
+    CHECK(file_bytes(recipe) == stored);
+    CHECK(listing(dir) == std::vector<std::string>{fixture});
+  }
+}
+
+TEST_CASE("--store-gain reads the window_lufs_i of a measure-mode --loudness render; that report has no "
+          "loudness assertion",
+          "[cli][store-gain]") {
+  ScopedEnv env(kEnv, nullptr);
+  const std::string fixture = "theta-cycle-sine.json";  // non-looping, 120 s, measured whole
+  for (std::uint32_t rate : table_rates()) {
+    INFO("rate " << rate);
+    const fs::path dir = case_dir("store-window-" + std::to_string(rate));
+    const fs::path recipe = temp_copy(dir, fixture);
+    const fs::path wav = dir / "m.wav";
+    const RunResult m = run_cli({recipe.string(), "--out", wav.string(), "--rate", std::to_string(rate), "--loudness"});
+    INFO("stdout: " << m.out << "\nstderr: " << m.err);
+    REQUIRE(m.exit_code == 0);
+    fs::remove(wav);
+    const json::Value report = require_report(dir / "m.report.json");
+    const auto& list = report.find("assertions")->array();
+    REQUIRE(list.size() == 1);
+    CHECK(list[0].find("name")->string() == "render speed");
+    CHECK(assertion_named(report, "loudness") == nullptr);
+    CHECK(assertion_named(report, "loudness_whole") == nullptr);
+    const double window = report.find("loudness")->find("window_lufs_i")->number();
+    fs::remove(dir / "m.report.json");
+    const StoreLine s = store_ok(recipe, rate);
+    CHECK(arcani::test::api::bits(s.window_lufs) == arcani::test::api::bits(window));
+  }
+}
+
+TEST_CASE("final render of a stored copy with --loudness: loudness and loudness_whole pass", "[cli][store-gain]") {
+  ScopedEnv env(kEnv, nullptr);
+  for (const char* fixture : arcani::test::spec::kLoudnessGain_store_fixtures) {
+    INFO("fixture " << fixture);
+    const bool looping = std::string(fixture) == "starter-focus-layers.json";
+    const fs::path dir = case_dir(std::string("store-final-") + fixture);
+    const fs::path recipe = temp_copy(dir, fixture);
+    store_ok(recipe, 48000);
+    // The looping fixture renders 45 min: 48 kHz only.
+    const std::vector<std::uint32_t> rates = looping ? std::vector<std::uint32_t>{48000} : table_rates();
+    for (std::uint32_t rate : rates) {
+      INFO("rate " << rate);
+      const json::Value report = final_loudness_render(recipe, dir, rate, 0);
+      CHECK(report.find("mode")->string() == "final");
+      check_final_loudness(report, -36.0, "pass", "pass");
+    }
+  }
+}
+
+TEST_CASE("final render must-fail: the stored gain plus 1.5 dB fails loudness, exit 4", "[cli][store-gain][mustfail]") {
+  ScopedEnv env(kEnv, nullptr);
+  const std::string fixture = "theta-cycle-sine.json";
+  const fs::path dir = case_dir("store-mustfail");
+  const fs::path recipe = temp_copy(dir, fixture);
+  const StoreLine s = store_ok(recipe, 48000);
+  const double offset = arcani::test::spec::kLoudnessGain_must_fail_db;
+  const std::int64_t k = static_cast<std::int64_t>(std::round(100.0 * std::strtod(s.gain_text.c_str(), nullptr)));
+  const std::int64_t doctored_k = k + static_cast<std::int64_t>(std::round(100.0 * offset));
+  REQUIRE(doctored_k <= 0);  // still inside row loudness-gain, so it compiles
+  std::string text = file_bytes(recipe);
+  REQUIRE(lg::replace_member_value(text, "loudness_gain_db", lg::harness_gain_text(doctored_k)));
+  const fs::path doctored = dir / "plus-1.5.json";
+  write_text(doctored, text);
+  const json::Value report = final_loudness_render(doctored, dir, 48000, 4);
+  check_final_loudness(report, -36.0, "fail", "fail");
+  // The undoctored copy passes at the same rate.
+  check_final_loudness(final_loudness_render(recipe, dir, 48000, 0), -36.0, "pass", "pass");
+}
+
+TEST_CASE("final render of a stored copy with length_s edited is stale: final.loudness_hash, exit 1",
+          "[cli][store-gain]") {
+  const std::string fixture = "theta-cycle-sine.json";
+  const fs::path dir = case_dir("store-stale");
+  const fs::path recipe = temp_copy(dir, fixture);
+  const StoreLine s = store_ok(recipe, 48000);
+  std::string text = file_bytes(recipe);
+  REQUIRE(lg::replace_member_value(text, "length_s", "119"));
+  write_text(recipe, text);
+  const std::string h = lg::engine_loudness_hash(text);
+  REQUIRE(h.size() == 64);
+  CHECK(h != s.hash);
+  const fs::path wav = dir / "x.wav";
+  const RunResult r =
+      run_cli({recipe.string(), "--out", wav.string(), "--mode", "final", "--loudness"});
+  INFO("stdout: " << r.out << "\nstderr: " << r.err);
+  CHECK(r.exit_code == 1);
+  CHECK(r.err == "rejected: parameter=/loudness_hash value=" + s.hash + " rule=final.loudness_hash limit== " + h + "\n");
+  CHECK(listing(dir) == std::vector<std::string>{fixture});
+}
+
+// Story 4.2 review: a gain stored on the dev PC and committed. The final
+// render reads it as committed, never re-stored, so an engine change that
+// moves the level fails the loudness checks (spec decision 1).
+TEST_CASE("final render of the committed stored-gain fixture passes both loudness checks without re-storing",
+          "[cli][store-gain]") {
+  ScopedEnv env(kEnv, nullptr);
+  const std::string fixture = "theta-cycle-sine-stored.json";
+  const fs::path recipe = fixture_path(fixture);
+  const std::string committed = file_bytes(recipe);
+  // The committed gain: -31.96 dB, k = -3196 (stored at 48 kHz on the dev PC).
+  const std::string gain = lg::member_value(committed, "loudness_gain_db");
+  CHECK(gain == "-31.96");
+  const std::int64_t k = static_cast<std::int64_t>(std::round(100.0 * std::strtod(gain.c_str(), nullptr)));
+  CHECK(k == -3196);
+  CHECK(lg::harness_gain_text(k) == gain);
+  for (std::uint32_t rate : table_rates()) {
+    INFO("rate " << rate);
+    const fs::path dir = case_dir("stored-fixture-" + std::to_string(rate));
+    const json::Value report = final_loudness_render(recipe, dir, rate, 0);
+    CHECK(report.find("mode")->string() == "final");
+    check_final_loudness(report, -36.0, "pass", "pass");
+  }
+  CHECK(file_bytes(recipe) == committed);  // never rewritten
 }

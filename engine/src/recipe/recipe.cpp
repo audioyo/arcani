@@ -367,6 +367,20 @@ Value strip_hash_excluded(const Value& v, const std::string& prefix) {
   return Value::object_value(std::move(kept));
 }
 
+// Story 4.2 (docs/signal-spec.md, Loudness gain, Loudness hash): the object
+// of only the top-level members whose field is tagged loudness-relevant,
+// each with its whole value.
+Value loudness_relevant_members(const Value& root) {
+  std::vector<Value::Member> kept;
+  for (const auto& [key, child] : root.object()) {
+    const Field* f = field_at("/" + pointer_part(key));
+    if (f != nullptr && f->tag == FieldTag::LoudnessRelevant) {
+      kept.emplace_back(key, child);
+    }
+  }
+  return Value::object_value(std::move(kept));
+}
+
 double number_at(const Value& obj, std::string_view key) {
   const Value* v = obj.find(key);
   return v != nullptr ? v->number() : 0.0;
@@ -463,6 +477,7 @@ ParseResult parse(std::string_view utf8) {
     r.loop = l;
   }
   r.hash = crypto::sha256_hex(json::canonicalize(strip_hash_excluded(root, "")));
+  r.loudness_hash_computed = crypto::sha256_hex(json::canonicalize(loudness_relevant_members(root)));
   result.recipe = std::move(r);
   return result;
 }

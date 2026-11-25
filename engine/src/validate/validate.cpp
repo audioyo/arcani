@@ -34,6 +34,7 @@ namespace {
 constexpr RangeRow kRows[] = {
     {"session-length", 0.0, 8.0, false, "h"},
     {"loudness-tones", -36.0, -36.0, false, "LUFS-I"},
+    {"loudness-gain", -60.0, 0.0, false, "dB"},  // Story 4.2
     {"theta-rate", 1.0, 6.0, false, "Hz"},
     {"theta-carrier", 100.0, 500.0, false, "Hz"},
     {"theta-depth", 0.0, 100.0, false, "percent"},
@@ -94,6 +95,9 @@ Lookup field_value(const recipe::Recipe& r, std::string_view path) {
   }
   if (path == "/loudness_target_lufs") {
     return {true, r.loudness_target_lufs};
+  }
+  if (path == "/loudness_gain_db") {  // Story 4.2: checked when present, in both modes
+    return {true, r.loudness_gain_db};
   }
   if (path == "/theta_reference/carrier_hz") {
     if (r.theta_reference) {

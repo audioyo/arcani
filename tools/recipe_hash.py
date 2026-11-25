@@ -15,8 +15,12 @@ This tool checks JSON syntax only, not the recipe schema: a recipe the
 schema rejects still gets a hash here, and that hash means nothing. Validate
 against recipes/recipe.schema.json (or parse with the engine) first.
 
+Loudness hash (Story 4.2): the same, over only the top-level members tagged
+`loudness-relevant` that the recipe has (docs/signal-spec.md, Loudness gain).
+
 Usage:
   python tools/recipe_hash.py RECIPE.json [...]   print each recipe hash
+  python tools/recipe_hash.py --loudness RECIPE.json [...]   print each loudness hash
   python tools/recipe_hash.py --write-vectors     refresh the vectors file
 """
 
@@ -35,6 +39,7 @@ VECTORS_PATH = REPO_ROOT / "tests" / "data" / "recipe_hash_vectors.json"
 # Same limit as the engine (engine/src/json/value.hpp, kMaxDepth). "[]" is depth 1.
 MAX_DEPTH = 64
 HASH_EXCLUDED = "hash-excluded"
+LOUDNESS_RELEVANT = "loudness-relevant"
 
 
 class StrictJSONError(ValueError):
@@ -434,6 +439,18 @@ def hash_bytes(data, schema=None):
     return hash_value(strict_loads(data), schema)
 
 
+def loudness_hash_value(value, schema=None):
+    """Loudness hash of a parsed recipe (Story 4.2; docs/signal-spec.md, Loudness gain):
+    SHA-256 hex of the RFC 8785 form of only the top-level loudness-relevant members present."""
+    tags = load_tags(load_schema() if schema is None else schema)
+    kept = {key: item for key, item in value.items() if tags.get(f"/{_pointer_part(key)}") == LOUDNESS_RELEVANT}
+    return hashlib.sha256(canonicalize(kept)).hexdigest()
+
+
+def loudness_hash_bytes(data, schema=None):
+    return loudness_hash_value(strict_loads(data), schema)
+
+
 def compute_vectors():
     schema = load_schema()
     return {p.name: hash_bytes(p.read_bytes(), schema) for p in sorted(VALID_DIR.glob("*.json"))}
@@ -445,6 +462,8 @@ def main(argv=None):
                                      "syntax only, not the schema: the hash of a recipe the "
                                      "schema rejects means nothing.")
     parser.add_argument("recipes", nargs="*", type=Path, help="recipe files to hash")
+    parser.add_argument("--loudness", action="store_true",
+                        help="print the loudness hash (Story 4.2) instead of the recipe hash")
     parser.add_argument("--write-vectors", action="store_true",
                         help=f"write every valid fixture's hash to {VECTORS_PATH.relative_to(REPO_ROOT).as_posix()}")
     args = parser.parse_args(argv)
@@ -456,7 +475,8 @@ def main(argv=None):
     status = 0
     for path in args.recipes:
         try:
-            print(f"{hash_bytes(path.read_bytes(), schema)}  {path}")
+            digest = loudness_hash_bytes if args.loudness else hash_bytes
+            print(f"{digest(path.read_bytes(), schema)}  {path}")
         except (StrictJSONError, OSError) as err:
             print(f"{path}: {err}", file=sys.stderr)
             status = 1

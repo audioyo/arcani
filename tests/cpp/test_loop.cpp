@@ -63,6 +63,7 @@
     __has_include("recipe/recipe.hpp")
 
 #include "api_helpers.hpp"
+#include "loudness_gain_helpers.hpp"
 #include "core/phase.hpp"
 #include "plan/plan.hpp"
 #include "recipe/recipe.hpp"
@@ -172,10 +173,12 @@ const tables::Row& cap_row(const std::string& mode) {
 std::string with_gain(const std::string& text) {
   const auto at = text.find('{');
   REQUIRE(at != std::string::npos);
-  return text.substr(0, at + 1) +
-         "\"loudness_gain_db\": -1.5, "
-         "\"loudness_hash\": \"6a29ccd608e4c1945bfff95af078a97daea48eca54a38e065ae33dfa9c2d83a6\", " +
-         text.substr(at + 1);
+  // Story 4.2: the engine's loudness hash in place of the placeholder.
+  return arcani::test::loudness::stored_hash_text(
+      text.substr(0, at + 1) +
+      "\"loudness_gain_db\": -1.5, "
+      "\"loudness_hash\": \"6a29ccd608e4c1945bfff95af078a97daea48eca54a38e065ae33dfa9c2d83a6\", " +
+      text.substr(at + 1));
 }
 
 // The same recipe text with the top-level loop object and its comma removed.
@@ -284,7 +287,8 @@ std::string make(const LoopRecipe& r) {
     s += ", \"loop\": {\"mode\": \"" + r.mode + "\", \"opening_s\": " + r.opening + ", \"body_s\": " + r.body +
          ", \"max_run_time_min\": " + cap + "}";
   }
-  return s + "}";
+  // Story 4.2: the engine's loudness hash in place of the placeholder.
+  return arcani::test::loudness::stored_hash_text(s + "}");
 }
 
 struct Want {

@@ -24,6 +24,7 @@ typedef const char* (*recipe_hash_fn)(const arc_plan*); /* Story 1.4 */
 typedef uint64_t (*seed_fn)(const arc_plan*);            /* Story 1.4 */
 typedef arc_status (*component_fn)(const arc_plan*, size_t, arc_component*, arc_error*); /* Story 3.1 */
 typedef arc_status (*spacing_fn)(const arc_plan*, arc_ear, arc_spacing*, arc_error*);    /* Story 3.2 */
+typedef arc_status (*loudness_hash_fn)(const arc_plan*, char[65], arc_error*);           /* Story 4.2 */
 
 int arc_test_c_header(void);
 
@@ -46,6 +47,8 @@ int arc_test_c_header(void) {
   count_fn component_count = arc_plan_component_count; /* Story 3.1 */
   component_fn component = arc_plan_component;
   spacing_fn spacing = arc_plan_spacing; /* Story 3.2 */
+  loudness_hash_fn loudness_hash = arc_plan_loudness_hash; /* Story 4.2 */
+  char hash[65];
 
   arc_error error;
   arc_compile_options options;
@@ -65,6 +68,7 @@ int arc_test_c_header(void) {
   error.rule[0] = '\0';
   error.limit[0] = '\0';
   error.detail[ARC_ERROR_DETAIL_BYTES - 1] = '\0'; /* Story 3.2 */
+  hash[64] = '\0';                                 /* Story 4.2 */
   options.mode = ARC_MODE_FINAL;
   options.sample_rate = 48000u;
   options.mute_binaural_ear = ARC_MUTE_LEFT;
@@ -101,6 +105,7 @@ int arc_test_c_header(void) {
          (line.level > 0.0) + (line.low_hz <= line.center_hz) + (line.center_hz <= line.high_hz);
   sum += (spacing != NULL) + (int)worst.has_pair + (worst.margin_hz < worst.min_distance_hz) +
          (int)(worst.component_2 - worst.component_1) + error.detail[ARC_ERROR_DETAIL_BYTES - 1];
+  sum += (loudness_hash != NULL) + (int)sizeof hash + hash[64]; /* Story 4.2 */
   sum += (int)sizeof error + error.parameter[0] + (int)options.sample_rate + (taps.master == NULL);
   return sum;
 }

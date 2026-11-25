@@ -61,7 +61,7 @@
       "type": "number"
     },
     "loudness_gain_db": {
-      "description": "Stored loudness gain in dB, written by the measure pass.",
+      "description": "Stored loudness gain in dB, written by arcani-render --store-gain; held to range row loudness-gain (-60 to 0 dB) at compile.",
       "x-arcani-tag": "hash-excluded",
       "type": "number"
     },

@@ -75,6 +75,11 @@ jobs:
           uv run --no-project python tools/nightly_gate.py --event "$EVENT_NAME" --main-sha "$MAIN_SHA" \
             --runs runs.json --github-output "$GITHUB_OUTPUT" | tee -a "$GITHUB_STEP_SUMMARY"
 
+      - name: Recipes unchanged (no gain is stored in CI)
+        if: always()
+        shell: bash
+        run: uv run --no-project python tools/check_recipes_unchanged.py
+
       - name: Wall time against budget
         if: always()
         shell: bash
@@ -190,6 +195,11 @@ jobs:
           name: hashprobe-windows-x64
           path: probe-out/hashprobe-windows-x64
           if-no-files-found: error
+
+      - name: Recipes unchanged (no gain is stored in CI)
+        if: always()
+        shell: bash
+        run: uv run --no-project python tools/check_recipes_unchanged.py
 
       - name: Wall time against budget
         if: always()
@@ -307,6 +317,11 @@ jobs:
           path: probe-out/hashprobe-windows-arm64
           if-no-files-found: error
 
+      - name: Recipes unchanged (no gain is stored in CI)
+        if: always()
+        shell: bash
+        run: uv run --no-project python tools/check_recipes_unchanged.py
+
       - name: Wall time against budget
         if: always()
         shell: bash
@@ -413,6 +428,11 @@ jobs:
           path: probe-out/hashprobe-macos-arm64
           if-no-files-found: error
 
+      - name: Recipes unchanged (no gain is stored in CI)
+        if: always()
+        shell: bash
+        run: uv run --no-project python tools/check_recipes_unchanged.py
+
       - name: Wall time against budget
         if: always()
         shell: bash
@@ -518,6 +538,11 @@ jobs:
             build/android-arm64/arcani_engine_check.json
           if-no-files-found: error
 
+      - name: Recipes unchanged (no gain is stored in CI)
+        if: always()
+        shell: bash
+        run: uv run --no-project python tools/check_recipes_unchanged.py
+
       - name: Wall time against budget
         if: always()
         shell: bash
@@ -570,6 +595,11 @@ jobs:
           name: hashprobe-android-arm64
           path: probe-out/hashprobe-android-arm64
           if-no-files-found: error
+
+      - name: Recipes unchanged (no gain is stored in CI)
+        if: always()
+        shell: bash
+        run: uv run --no-project python tools/check_recipes_unchanged.py
 
       - name: Wall time against budget
         if: always()
@@ -657,6 +687,11 @@ jobs:
             --check-json build/contract/arcani_engine_check.json --probe-dir "$out"
           uv run --no-project python tools/hash_compare.py --must-differ "$out"
 
+      - name: Recipes unchanged (no gain is stored in CI)
+        if: always()
+        shell: bash
+        run: uv run --no-project python tools/check_recipes_unchanged.py
+
       - name: Wall time against budget
         if: always()
         shell: bash
@@ -694,6 +729,11 @@ jobs:
           set -euo pipefail
           uv run --no-project python tools/hash_compare.py artifacts | tee -a "$GITHUB_STEP_SUMMARY"
 
+      - name: Recipes unchanged (no gain is stored in CI)
+        if: always()
+        shell: bash
+        run: uv run --no-project python tools/check_recipes_unchanged.py
+
       - name: Wall time against budget
         if: always()
         shell: bash
@@ -729,6 +769,11 @@ jobs:
           set -euo pipefail
           printf '%s' "$NEEDS_JSON" > needs.json
           uv run --no-project python tools/ci_verdict.py --needs needs.json | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Recipes unchanged (no gain is stored in CI)
+        if: always()
+        shell: bash
+        run: uv run --no-project python tools/check_recipes_unchanged.py
 
       - name: Wall time against budget
         if: always()

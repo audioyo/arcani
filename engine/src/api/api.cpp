@@ -234,6 +234,19 @@ arc_status arc_plan_loop(const arc_plan* plan, arc_loop_frames* out_loop, arc_er
   return ARC_OK;
 }
 
+arc_status arc_plan_loudness_hash(const arc_plan* plan, char out_hash[65], arc_error* error) {
+  if (plan == nullptr) {
+    return null_argument(error, "plan");
+  }
+  if (out_hash == nullptr) {
+    return null_argument(error, "out_hash");
+  }
+  const std::string& h = plan->plan.loudness_hash;  // 64 lowercase hex digits
+  std::memcpy(out_hash, h.data(), 64);
+  out_hash[64] = '\0';
+  return ARC_OK;
+}
+
 size_t arc_plan_component_count(const arc_plan* plan) {
   return plan == nullptr ? 0 : plan->plan.components.size();
 }

@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-25",
+  "rationale": "Stored-gain fixture (Story 4.2): theta-cycle-sine.json with its loudness gain and loudness hash stored by arcani-render --store-gain on the dev PC at 48 kHz, never re-stored in CI. The final-mode loudness checks render it as committed, so an engine change that moves the level fails them. Theta reference: a 450 Hz carrier amplitude-modulated by the sine envelope at a theta rate that cycles over 1 to 6 Hz every 60 s, 75 percent AM depth, 120 s. Values are placeholders, not starter defaults. A test fixture, not for listening.",
+  "length_s": 120,
+  "loudness_target_lufs": -36,
+  "loudness_gain_db": -31.96,
+  "loudness_hash": "f5cada8fb98f8ab3dcebc530fab7d255f74506f31c8deabbde9fc40552e5ebc6",
+  "theta_reference": {
+    "carrier_hz": 450,
+    "rate_hz": 3.5,
+    "am_depth_percent": 75,
+    "shape": "sine",
+    "rate_cycle": {
+      "swing_hz": 2.5,
+      "period_s": 60,
+      "start_phase_deg": 0
+    }
+  }
+}

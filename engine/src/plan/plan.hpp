@@ -168,6 +168,11 @@ struct Plan {
   std::array<std::optional<validate::SpacingPair>, 2> spacing{};
   std::array<StageKind, 5> stages{};
   std::vector<recipe::Error> warnings;  // non-blocking; empty in v0.1
+  // Story 4.2 (docs/signal-spec.md, Loudness gain): the recipe's loudness
+  // hash (both modes), and the master chain's per-channel gain g: 1.0 in
+  // measure mode, the stored gain's linear gain in final mode.
+  std::string loudness_hash;
+  double master_gain = 1.0;
 };
 
 struct CompileResult {

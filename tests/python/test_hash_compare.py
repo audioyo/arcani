@@ -839,7 +839,7 @@ def real_rates():
 
 
 def test_real_expected_file_has_every_component_with_its_scope():
-    """Stories 1.6 to 3.1: the sine, stub chain, theta, gamma, swell, binaural, burst, rate-curve, loop, and component table entries, scoped; probe-arith is the only probe entry."""
+    """Stories 1.6 to 4.2: the sine, stub chain, theta, gamma, swell, binaural, burst, rate-curve, loop, component table, and final-mode stub chain entries, scoped; probe-arith is the only probe entry."""
     components = load_ci("hash_expected.json")["components"]
     rates = real_rates()
     want = {"probe-arith": ("probe", 4096), "components": ("engine", 6600)}  # components: Story 3.1
@@ -854,6 +854,7 @@ def test_real_expected_file_has_every_component_with_its_scope():
         want[f"gamma-bursts-{fs}"] = ("engine", 2 * 3 * 5 * fs)  # Story 2.4
         want[f"rate-curves-{fs}"] = ("engine", 2 * 2 * 10 * fs)  # Story 2.6
         want[f"loop-{fs}"] = ("engine", 2 * 2 * 5 * fs)  # Story 2.7
+        want[f"stub-chain-final-{fs}"] = ("engine", 2 * fs)  # Story 4.2
     assert set(components) == set(want), sorted(components)
     for name, (scope, samples) in want.items():
         entry = components[name]

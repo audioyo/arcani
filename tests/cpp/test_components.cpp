@@ -49,6 +49,7 @@
     __has_include("plan/plan.hpp") && __has_include("recipe/recipe.hpp")
 
 #include "api_helpers.hpp"
+#include "loudness_gain_helpers.hpp"
 #include "plan/plan.hpp"
 #include "recipe/recipe.hpp"
 #include "spec_helpers.hpp"
@@ -450,11 +451,13 @@ TEST_CASE("components: the table is the same bits at both sample rates and in bo
   // Final mode with a stored gain: the same table as measure mode.
   const std::string text = std::string(find_case("three-layers").recipe);
   const auto at = text.find('{');
-  const std::string with_gain = text.substr(0, at + 1) +
-                                "\"loudness_gain_db\": -1.5, "
-                                "\"loudness_hash\": "
-                                "\"6a29ccd608e4c1945bfff95af078a97daea48eca54a38e065ae33dfa9c2d83a6\", " +
-                                text.substr(at + 1);
+  // Story 4.2: the engine's loudness hash in place of the placeholder.
+  const std::string with_gain = arcani::test::loudness::stored_hash_text(
+      text.substr(0, at + 1) +
+      "\"loudness_gain_db\": -1.5, "
+      "\"loudness_hash\": "
+      "\"6a29ccd608e4c1945bfff95af078a97daea48eca54a38e065ae33dfa9c2d83a6\", " +
+      text.substr(at + 1));
   auto final_plan = api::compile_ok(with_gain, api::options(ARC_MODE_FINAL, rates[0]));
   CHECK(same_bits(api_table(final_plan.get()), compiled_table(text, rates[0], ARC_MUTE_NONE)));
 }

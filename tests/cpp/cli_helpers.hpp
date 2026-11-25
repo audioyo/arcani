@@ -639,6 +639,15 @@ inline std::vector<std::string> report_problems(const json::Value& r) {
         (result->string() != "pass" && result->string() != "fail" && !na)) {
       p.push_back("assertion result is not pass, fail, or not_applicable");
     }
+    // Story 4.2: a final-mode loudness assertion on a silent reading (-inf)
+    // is a fail with measured null and note "silent".
+    const json::Value* name = a.find("name");
+    const bool silent = is_string(name) && (name->string() == "loudness" || name->string() == "loudness_whole") &&
+                        is_string(result) && result->string() == "fail" && measured->kind() == json::Kind::Null &&
+                        is_string(note) && note->string() == "silent";
+    if (silent) {
+      continue;
+    }
     if (na && measured->kind() != json::Kind::Null) {
       p.push_back("not_applicable assertion has a measured value");
     }

@@ -5,7 +5,8 @@
 //
 // Writes one raw little-endian float32 file per component into OUT_DIR
 // (probe-arith.f32, sine-44100.f32, sine-48000.f32, stub-chain-44100.f32,
-// stub-chain-48000.f32, stub-chain-blocks-44100.f32,
+// stub-chain-48000.f32, stub-chain-final-44100.f32, stub-chain-final-48000.f32,
+// stub-chain-blocks-44100.f32,
 // stub-chain-blocks-48000.f32, theta-envelopes-44100.f32,
 // theta-envelopes-48000.f32, gamma-uncoupled-44100.f32,
 // gamma-uncoupled-48000.f32, gamma-swell-44100.f32, gamma-swell-48000.f32,
@@ -211,6 +212,36 @@ constexpr char kStubChainRecipe[] = R"({
   "rationale": "Hash probe stub chain component (Stories 1.2 and 1.5): 300 Hz unmodulated theta reference sine in both channels (0 percent AM depth), 400 Hz unmodulated sine in the left ear, 406 Hz unmodulated sine in the right ear, 1 s.",
   "length_s": 1,
   "loudness_target_lufs": -36,
+  "theta_reference": {
+    "carrier_hz": 300,
+    "rate_hz": 6,
+    "am_depth_percent": 0,
+    "shape": "sine"
+  },
+  "binaural": {
+    "carrier_left_hz": 400,
+    "beat_rate_hz": 6
+  }
+})";
+
+// Components stub-chain-final-44100 and stub-chain-final-48000 (Story 4.2;
+// docs/signal-spec.md, Loudness gain, Applied gain): the recipe of
+// recipes/fixtures/valid/stub-chain-1s-beat-6.json (the stub chain recipe
+// above with its stored gain -1.5 dB and its loudness hash), compiled in
+// final mode (ARC_MODE_FINAL) and rendered in one call, interleaved stereo,
+// each binary64 sample converted to float32: 2 * fs samples. The master and
+// the output are the binaural join times g of k = -150.
+constexpr char kStubChainFinalRecipe[] = R"({
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani hash probe",
+  "date": "2026-11-25",
+  "rationale": "Hash probe final-mode stub chain component (Story 4.2): the stub chain recipe with its stored loudness gain -1.5 dB, compiled in final mode.",
+  "length_s": 1,
+  "loudness_target_lufs": -36,
+  "loudness_gain_db": -1.5,
+  "loudness_hash": "f75875bb4e8157d5519b7369467d6362f2f4aaf97056f25fc04500bcc0a04f34",
   "theta_reference": {
     "carrier_hz": 300,
     "rate_hz": 6,
@@ -507,10 +538,11 @@ constexpr char kRateCurveBurstsRecipe[] = R"({
 // Empty on any API failure (main reports it). With cycle_block_sizes false the
 // whole recipe renders in one call; with it true, in calls cycling through
 // kBlockSizes.
-std::vector<float> render_recipe(const std::string& recipe, std::uint32_t fs, bool cycle_block_sizes) {
+std::vector<float> render_recipe(const std::string& recipe, std::uint32_t fs, bool cycle_block_sizes,
+                                 arc_mode mode = ARC_MODE_MEASURE) {
   arc_compile_options options;
   std::memset(&options, 0, sizeof options);
-  options.mode = ARC_MODE_MEASURE;
+  options.mode = mode;
   options.sample_rate = fs;
   options.mute_binaural_ear = ARC_MUTE_NONE;
   arc_error error;
@@ -554,6 +586,11 @@ std::vector<float> render_recipe(const std::string& recipe, std::uint32_t fs, bo
 
 std::vector<float> probe_stub_chain(std::uint32_t fs, bool cycle_block_sizes) {
   return render_recipe(std::string(kStubChainRecipe, sizeof kStubChainRecipe - 1), fs, cycle_block_sizes);
+}
+
+std::vector<float> probe_stub_chain_final(std::uint32_t fs) {
+  return render_recipe(std::string(kStubChainFinalRecipe, sizeof kStubChainFinalRecipe - 1), fs, false,
+                       ARC_MODE_FINAL);
 }
 
 // The theta fixtures in turn; empty if any one fails.
@@ -796,6 +833,8 @@ int main(int argc, char** argv) {
       {"loop-44100", probe_loop(44100)},
       {"loop-48000", probe_loop(48000)},
       {"components", probe_components()},
+      {"stub-chain-final-44100", probe_stub_chain_final(44100)},  // Story 4.2
+      {"stub-chain-final-48000", probe_stub_chain_final(48000)},
   };
   for (const Component& c : components) {
     if (c.samples.empty()) {

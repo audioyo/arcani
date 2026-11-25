@@ -46,7 +46,7 @@ typedef enum arc_status {
 
 typedef enum arc_mode {
   ARC_MODE_MEASURE = 0, /* the stored loudness gain may be absent */
-  ARC_MODE_FINAL = 1    /* loudness_gain_db and loudness_hash are required */
+  ARC_MODE_FINAL = 1    /* loudness_gain_db and a matching loudness_hash are required; the stored gain is applied */
 } arc_mode;
 
 /* Offline measurement control for the binaural isolation test (FR-4): the
@@ -133,6 +133,11 @@ typedef struct arc_loop_frames {
 
 /* Fills *out_loop. ARC_ERR_INVALID_ARGUMENT for a NULL plan or out_loop. */
 arc_status arc_plan_loop(const arc_plan* plan, arc_loop_frames* out_loop, arc_error* error);
+
+/* Story 4.2: writes the plan's loudness hash (docs/signal-spec.md, Loudness
+   gain): 64 lowercase hex digits and a terminating NUL, into out_hash. The
+   same in both modes. ARC_ERR_INVALID_ARGUMENT for a NULL plan or out_hash. */
+arc_status arc_plan_loudness_hash(const arc_plan* plan, char out_hash[65], arc_error* error);
 
 /* Spectral component table (docs/signal-spec.md, Components; Story 3.1).
    Per ear (the left ear's rows first) and per layer (theta reference, gamma
