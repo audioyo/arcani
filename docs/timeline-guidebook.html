@@ -634,9 +634,12 @@ var EPICS = [
       ["x","Whole-render loudness recorded and never more than 1 LU over target"],
       ["x","CI never writes a gain (must-fail step caught)"]
     ] },
-  { id:"4.3", title:"True peak", status:"backlog",
+  { id:"4.3", title:"True peak", status:"ready-for-dev",
     plain:"Every render's true peak measured with oversampling and held at or below -1 dBTP.",
-    steps:S7(), acs:[
+    spec:["spec-4-3-true-peak.md"],
+    steps:[true,false,false,false,false,false,false],
+    stepNotes:["102e9d9: spec approved 2026-11-25 by Audio; two true-peak meters (Python and CLI) per BS.1770 Annex 2, Tech 3341 cases synthesized from the published document; true-peak check on every final render; 1 s final fixture gain -1.5 to -10 dB"],
+    acs:[
       [" ","True-peak tool passes Tech 3341 and known inter-sample peak signals"],
       [" ","Inter-sample peak must-fail fails where a sample-peak check would pass"],
       [" ","Every final 24-bit render at or below -1 dBTP"],
@@ -757,6 +760,7 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-25","102e9d9","4.3","Spec approved by Audio: two true-peak meters (Python and CLI) per BS.1770 Annex 2, calibrated on Tech 3341 true-peak cases synthesized from the published document; true-peak check on every final render; --store-gain refuses a gain over -1 dBTP; sprint-status.yaml ready-for-dev; branch story/4-3-true-peak; not pushed"],
   ["2026-11-25","6c07f73","4.2","PR #24 merged: CI green on both tiers (full windows-x64 23.2 min, windows-arm64 22.3, macos-arm64 22.3, fast linux-x64 15.5, fast windows-x64 27.4); Story 4.2 done; next: Story 4.3"],
   ["2026-11-25","7f8aa94","4.2","Code review pass 1: 5 patches (c8b8af3..87e7846) incl. a committed dev-PC stored gain rendered in final mode in CI so a level change is caught; 15 findings rejected with reasons in the spec; ctest green, pytest 3,811 pass; sprint-status.yaml review; CLAUDE.md gains the --store-gain command (e4113d3)"],
   ["2026-11-25","bff987b","4.2","Failing tests 9dff18b (fresh QA agent), then the implementation in 7 commits: loudness hash, gain range -60 to 0 dB, final-mode hash check and applied gain c^k, arcani-render --store-gain, final loudness checks, CI recipes-unchanged step; ctest green, pytest 3807 pass with 3 waiting on probe pins; about 1 CPU-minute added per platform; not pushed"],
