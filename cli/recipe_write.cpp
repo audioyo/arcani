@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <cstdlib>
 #include <stdexcept>
 #include <system_error>
 
@@ -247,11 +248,16 @@ std::optional<double> top_level_number(std::string_view s, std::string_view name
     if (m.name != name) {
       continue;
     }
-    const char* first = s.data() + m.value_begin;
-    const char* last = s.data() + m.value_end;
-    double v = 0.0;
-    const auto r = std::from_chars(first, last, v);
-    if (r.ec != std::errc() || r.ptr != last) {
+    // strtod in the default "C" locale, correctly rounded, as the tables
+    // reader does (tests/assertions/tables.cpp); Apple libc++ has no
+    // floating-point std::from_chars.
+    const std::string token(s.substr(m.value_begin, m.value_end - m.value_begin));
+    if (token.empty() || token[0] == '"' || token[0] == '{' || token[0] == '[') {
+      return std::nullopt;
+    }
+    char* end = nullptr;
+    const double v = std::strtod(token.c_str(), &end);
+    if (end != token.c_str() + token.size()) {
       return std::nullopt;
     }
     return v;

@@ -37,8 +37,8 @@ struct Member {
 // the text is one JSON object (whitespace around it allowed).
 std::vector<Member> top_level_members(std::string_view accepted_json);
 
-// The value of a top-level member read with std::from_chars (correctly
-// rounded); empty when the member is absent or its value is not a number.
+// The value of a top-level member read with strtod in the "C" locale
+// (correctly rounded); empty when the member is absent or its value is not a number.
 std::optional<double> top_level_number(std::string_view accepted_json, std::string_view name);
 
 // The file rewrite: a present loudness_gain_db or loudness_hash gets the new
