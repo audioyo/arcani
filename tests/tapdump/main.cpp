@@ -53,6 +53,12 @@
 //   right; has_pair 0 or 1; the doubles as %.17g; 0 in every field without a
 //   pair), LF line ends. Prints "arcani-tapdump: spacing".
 //
+// Story 4.2 adds a final-mode compile (docs/signal-spec.md, Loudness gain):
+//
+// --final as the last argument, after any of the forms above: compiles in
+//   final mode, so the master tap and the output carry the stored gain.
+//   Every form is otherwise unchanged.
+//
 // A rejection prints the rejected line, with " detail=<detail>" appended
 // when the error's detail is not empty (the spacing rule).
 
@@ -74,7 +80,8 @@ const char* const kUsage =
     "       arcani-tapdump RECIPE RATE OUT_DIR --window START FRAMES\n"
     "       arcani-tapdump RECIPE RATE OUT_DIR --output-only\n"
     "       arcani-tapdump RECIPE RATE OUT_DIR --components [--mute left|right]\n"
-    "       arcani-tapdump RECIPE RATE OUT_DIR --spacing [--mute left|right]\n";
+    "       arcani-tapdump RECIPE RATE OUT_DIR --spacing [--mute left|right]\n"
+    "       (any form above) --final: compile in final mode\n";
 
 bool parse_u64(const char* text, std::uint64_t& out) {
   if (text == nullptr || *text == '\0') {
@@ -143,9 +150,14 @@ struct Args {
   std::uint64_t start = 0;   // Window: the seek frame
   std::uint64_t frames = 0;  // Window: the frames rendered
   arc_mute_ear mute = ARC_MUTE_NONE;  // Components: the muted binaural ear
+  bool final_mode = false;            // Story 4.2: --final last
 };
 
 bool parse_args(int argc, char** argv, Args& a) {
+  if (argc >= 5 && std::strcmp(argv[argc - 1], "--final") == 0) {
+    a.final_mode = true;
+    --argc;
+  }
   if (argc < 4 || !parse_u64(argv[2], a.rate) || a.rate > UINT32_MAX) {
     return false;
   }
@@ -334,7 +346,7 @@ int main(int argc, char** argv) {
 
   arc_compile_options options;
   std::memset(&options, 0, sizeof options);
-  options.mode = ARC_MODE_MEASURE;
+  options.mode = args.final_mode ? ARC_MODE_FINAL : ARC_MODE_MEASURE;
   options.sample_rate = static_cast<std::uint32_t>(args.rate);
   options.mute_binaural_ear = args.mute;
   arc_error error;
