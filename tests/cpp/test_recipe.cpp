@@ -1565,7 +1565,6 @@ namespace {
 // path -> reason. Fields here carry no range row.
 const std::map<std::string, std::string> kRangeExempt = {
     {"/seed", "schema-bounded integer (0 to 2^53 - 1 in the schema)"},
-    {"/loudness_gain_db", "written by the measure pass, not authored; Story 4.2 checks it"},
     // Story 2.5: the worst-case rate checks (r - s and r + s against row
     // beat-rate, f_C + s against binaural-carrier-right) and swing_hz >= 0
     // bound it; signal spec, Rate curve, Range checks.
@@ -1588,6 +1587,8 @@ const std::map<std::string, std::string> kRangeExempt = {
 const std::map<std::string, std::pair<std::string, double>> kExpectedRegistration = {
     {"/length_s", {"session-length", 3600.0}},
     {"/loudness_target_lufs", {"loudness-tones", 1.0}},
+    // Story 4.2: the stored gain is range-checked in both modes.
+    {"/loudness_gain_db", {"loudness-gain", 1.0}},
     {"/theta_reference/carrier_hz", {"theta-carrier", 1.0}},
     {"/theta_reference/rate_hz", {"theta-rate", 1.0}},             // Story 2.1
     {"/theta_reference/am_depth_percent", {"theta-depth", 1.0}},   // Story 2.1
@@ -1780,8 +1781,8 @@ void run_registration_test() {
     }
     SECTION("must fail: an exempt field that names a row") {
       auto doctored = real;
-      field_at(doctored, "/loudness_gain_db").range_row = "loudness-tones";
-      CHECK(any_names(registration_problems(doctored, rows), "/loudness_gain_db",
+      field_at(doctored, "/seed").range_row = "loudness-tones";
+      CHECK(any_names(registration_problems(doctored, rows), "/seed",
                       "exempt field names"));
     }
     SECTION("must fail: a non-numeric field that names a row") {

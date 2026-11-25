@@ -928,6 +928,160 @@ TEST_CASE("loop_report lists every seam of an arc_loop_frames; none when not loo
   check_loop_report();
 }
 
+// ------------------------------------------------ final-mode loudness (4.2)
+//
+// docs/signal-spec.md, Loudness gain, Final-mode checks. Contracts (spec
+// Implementation Notes): in cli/report.hpp
+//   Assertion loudness_assertion(const Row& row, double window_lufs, double target);
+//   Assertion loudness_whole_assertion(const Row& row, double whole_lufs, double target);
+// row loudness-tolerance (1 LU). loudness: name "loudness", measured
+// window - T (one binary64 subtraction), pass when |measured| <= threshold.
+// loudness_whole: name "loudness_whole", measured whole - T, pass when
+// measured <= threshold (no lower bound). A reading of -inf: measured empty
+// (null), fail, note "silent"; otherwise the note is empty. threshold
+// row.value(), unit row.unit, row row.id.
+//
+// Lookup probe: global fallbacks, hidden by the real arcani::cli functions
+// once report.hpp declares them (a using-directive inside arcani::
+// report_loudness_probe makes arcani::cli visible as members of arcani,
+// which unqualified lookup reaches before the global namespace).
+
+namespace report_loudness_missing {
+struct Missing {
+  template <class... A>
+  arcani::cli::Assertion operator()(A...) const {
+    arcani::cli::Assertion a;
+    a.name = "missing";
+    return a;
+  }
+};
+}  // namespace report_loudness_missing
+
+inline constexpr report_loudness_missing::Missing loudness_assertion{};
+inline constexpr report_loudness_missing::Missing loudness_whole_assertion{};
+
+namespace arcani::report_loudness_probe {
+
+using namespace arcani::cli;
+
+inline constexpr bool kLoudnessDeclared =
+    !std::is_same_v<std::remove_cvref_t<decltype(loudness_assertion)>, ::report_loudness_missing::Missing>;
+inline constexpr bool kWholeDeclared =
+    !std::is_same_v<std::remove_cvref_t<decltype(loudness_whole_assertion)>, ::report_loudness_missing::Missing>;
+
+inline arcani::cli::Assertion call_loudness(const arcani::test::tables::Row& row, double window, double target) {
+  return loudness_assertion(row, window, target);
+}
+inline arcani::cli::Assertion call_whole(const arcani::test::tables::Row& row, double whole, double target) {
+  return loudness_whole_assertion(row, whole, target);
+}
+
+}  // namespace arcani::report_loudness_probe
+
+namespace {
+
+namespace lp = arcani::report_loudness_probe;
+
+const tables::Row& tolerance_row() {
+  const tables::Row& r = tables::row("loudness-tolerance");
+  REQUIRE(r.unit == "LU");
+  return r;
+}
+
+void check_shape(const cli::Assertion& a, const char* name, const tables::Row& r) {
+  CHECK(a.name == name);
+  CHECK(a.row == r.id);
+  CHECK(a.threshold == r.value());
+  CHECK(a.unit == r.unit);
+}
+
+}  // namespace
+
+TEST_CASE("final-mode loudness assertions: inclusive 1 LU bounds, silent readings fail", "[report][cli][loudness-gain]") {
+  REQUIRE(lp::kLoudnessDeclared);  // cli::loudness_assertion (Story 4.2)
+  REQUIRE(lp::kWholeDeclared);     // cli::loudness_whole_assertion (Story 4.2)
+  const tables::Row& r = tolerance_row();
+  const double tol = r.value();
+  const double t = -36.0;
+  struct Case {
+    double reading;
+    cli::Result loudness;
+    cli::Result whole;
+  };
+  const double inf = std::numeric_limits<double>::infinity();
+  const Case cases[] = {
+      {t, cli::Result::pass, cli::Result::pass},
+      {t + tol, cli::Result::pass, cli::Result::pass},  // exactly 1 LU above passes
+      {t - tol, cli::Result::pass, cli::Result::pass},  // exactly 1 LU below passes
+      {std::nextafter(t + tol, inf), cli::Result::fail, cli::Result::fail},
+      {std::nextafter(t - tol, -inf), cli::Result::fail, cli::Result::pass},  // no lower bound for whole
+      {t + 1.5, cli::Result::fail, cli::Result::fail},                      // the must-fail offset
+      {t - 20.0, cli::Result::fail, cli::Result::pass},                     // a quiet fade
+  };
+  for (const Case& c : cases) {
+    INFO("reading " << c.reading);
+    const cli::Assertion a = lp::call_loudness(r, c.reading, t);
+    check_shape(a, "loudness", r);
+    REQUIRE(a.measured.has_value());
+    CHECK(*a.measured == c.reading - t);
+    CHECK(a.result == c.loudness);
+    CHECK(a.note.empty());
+    const cli::Assertion w = lp::call_whole(r, c.reading, t);
+    check_shape(w, "loudness_whole", r);
+    REQUIRE(w.measured.has_value());
+    CHECK(*w.measured == c.reading - t);
+    CHECK(w.result == c.whole);
+    CHECK(w.note.empty());
+  }
+  for (const auto& a : {lp::call_loudness(r, -inf, t), lp::call_whole(r, -inf, t)}) {
+    INFO(a.name);
+    CHECK_FALSE(a.measured.has_value());
+    CHECK(a.result == cli::Result::fail);
+    CHECK(a.note == "silent");
+  }
+  // A failed loudness assertion exits 4.
+  CHECK(cli::assertions_exit_code({lp::call_loudness(r, t + 1.5, t)}) == 4);
+  CHECK(cli::assertions_exit_code({lp::call_loudness(r, t, t), lp::call_whole(r, t, t)}) == 0);
+}
+
+TEST_CASE("final-mode loudness assertions written in a report pass the report check; silent is null",
+          "[report][cli][loudness-gain]") {
+  REQUIRE(lp::kLoudnessDeclared);
+  const tables::Row& r = tolerance_row();
+  cli::Report rep;
+  rep.engine_version = "0.0.1";
+  rep.seed = 42;
+  rep.sample_rate = 48000;
+  rep.mode = "final";
+  rep.frames = 5760000;
+  cli::LoudnessReport l;
+  l.window_start_frame = 0;
+  l.window_body_frames = 5760000;
+  l.window_repeats = 1;
+  l.window_frames = 5760000;
+  l.window_lufs_i = -36.25;
+  l.whole_lufs_i = -36.25;
+  rep.loudness = l;
+  rep.determinism_key.recipe_hash = std::string(64, 'a');
+  rep.determinism_key.engine_version = "0.0.1";
+  rep.determinism_key.sample_rate = 48000;
+  rep.assertions.push_back(cli::render_speed(speed_row(), rep.frames, 48000, 1.0, false));
+  rep.assertions.push_back(lp::call_loudness(r, -36.25, -36.0));
+  rep.assertions.push_back(lp::call_whole(r, -std::numeric_limits<double>::infinity(), -36.0));
+  const json::Value v = parse_ok(cli::report_json(rep));
+  for (const std::string& p : h::report_problems(v)) {
+    UNSCOPED_INFO(p);
+  }
+  CHECK(h::report_problems(v).empty());
+  const auto& list = v.find("assertions")->array();
+  REQUIRE(list.size() == 3);
+  CHECK(list[1].find("measured")->number() == -0.25);
+  CHECK(list[1].find("result")->string() == "pass");
+  CHECK(list[2].find("measured")->kind() == json::Kind::Null);
+  CHECK(list[2].find("result")->string() == "fail");
+  CHECK(list[2].find("note")->string() == "silent");
+}
+
 #else
 
 TEST_CASE("not implemented: cli/report.hpp (arcani_cli_core)", "[report][cli]") {

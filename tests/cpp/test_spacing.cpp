@@ -56,6 +56,7 @@
     __has_include("plan/plan.hpp") && __has_include("recipe/recipe.hpp")
 
 #include "api_helpers.hpp"
+#include "loudness_gain_helpers.hpp"
 #include "core/rate_cycle.hpp"
 #include "json/value.hpp"
 #include "plan/plan.hpp"
@@ -157,10 +158,12 @@ plan::MuteEar plan_mute(std::string_view mute) {
 std::string with_gain(const std::string& text) {
   const auto at = text.find('{');
   REQUIRE(at != std::string::npos);
-  return text.substr(0, at + 1) +
-         "\"loudness_gain_db\": -1.5, "
-         "\"loudness_hash\": \"6a29ccd608e4c1945bfff95af078a97daea48eca54a38e065ae33dfa9c2d83a6\", " +
-         text.substr(at + 1);
+  // Story 4.2: the engine's loudness hash in place of the placeholder.
+  return arcani::test::loudness::stored_hash_text(
+      text.substr(0, at + 1) +
+      "\"loudness_gain_db\": -1.5, "
+      "\"loudness_hash\": \"6a29ccd608e4c1945bfff95af078a97daea48eca54a38e065ae33dfa9c2d83a6\", " +
+      text.substr(at + 1));
 }
 
 // The recipe text with its length_s replaced.

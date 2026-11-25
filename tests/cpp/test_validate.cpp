@@ -169,6 +169,7 @@
 #if __has_include("validate/validate.hpp") && defined(ARC_ERROR_FIELD_BYTES)
 
 #include "api_helpers.hpp"
+#include "loudness_gain_helpers.hpp"
 #include "spec_helpers.hpp"
 #include "recipe/field_table.hpp"
 #include "tables.hpp"
@@ -418,7 +419,9 @@ std::string make_recipe(const Values& v) {
     s += "\n  }";
   }
   s += "\n}\n";
-  return s;
+  // Story 4.2: the engine's loudness hash in place of the placeholder, so
+  // final mode compiles the recipe (loudness_gain_helpers.hpp).
+  return v.gain ? arcani::test::loudness::stored_hash_text(s) : s;
 }
 
 constexpr arc_mode kModes[] = {ARC_MODE_MEASURE, ARC_MODE_FINAL};
@@ -473,8 +476,9 @@ TEST_CASE("engine range table equals ranges.tsv row for row", "[validate][ranges
   // Story 2.1 adds theta-rate and theta-depth; Story 2.2 adds gamma-carrier,
   // gamma-rate, and coupling-depth; Story 2.3 adds coupling-phase; Story 2.5
   // adds rate-cycle-period and rate-cycle-start-phase; Story 2.7 adds
-  // max-run-time-focus and max-run-time-learn.
-  REQUIRE(expected_ids.size() == 16);
+  // max-run-time-focus and max-run-time-learn; Story 4.2 adds loudness-gain.
+  REQUIRE(expected_ids.size() == 17);
+  CHECK(expected_ids.count("loudness-gain") == 1);
   CHECK(expected_ids.count("max-run-time-focus") == 1);
   CHECK(expected_ids.count("max-run-time-learn") == 1);
   CHECK(expected_ids.count("rate-cycle-period") == 1);

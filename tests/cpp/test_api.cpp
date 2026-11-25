@@ -102,8 +102,12 @@
 
 #include "api_helpers.hpp"
 #include "host_fp_mode.hpp"
+#include "loudness_gain_helpers.hpp"
+#include "spec_helpers.hpp"
 
+#include <cmath>
 #include <cstring>
+#include <iterator>
 #include <map>
 #include <string>
 #include <type_traits>
@@ -730,6 +734,382 @@ TEST_CASE("host mode check catches a call that changes the host mode", "[api][fp
   fp::set(flushed & ~fp::flush_bits());  // a leaky call
   CHECK(fp::controls() != flushed);
   CHECK(fp::half_of_smallest_normal() != 0.0);
+}
+
+// ------------------------------------------------ stored loudness gain (4.2)
+//
+// docs/signal-spec.md, Loudness gain. Contracts (spec Implementation Notes):
+//   arc_status arc_plan_loudness_hash(const arc_plan* plan, char out_hash[65], arc_error* error);
+//   64 lowercase hex digits and a NUL into out_hash, in both modes. NULL plan
+//   or out_hash: ARC_ERR_INVALID_ARGUMENT, parameter "plan" or "out_hash",
+//   value "null", rule "argument.null", limit "non-null" (the C API error
+//   contract above).
+//   The range check on loudness_gain_db (row loudness-gain) runs in both
+//   modes; final mode then checks final.required (unchanged) and
+//   final.loudness_hash: parameter /loudness_hash, value the stored hash,
+//   limit "= " + H computed for the recipe.
+//   The master tap and the output are the binaural join times g (Linear
+//   gain) in final mode, times 1.0 in measure mode; every other tap is the
+//   same in both modes.
+// Vectors: kLoudnessHashes, kLoudnessGainValues, kLoudnessGain_*; row
+// loudness-gain through the assertion call. Harness copies of the fixtures
+// are the doctored cases.
+
+namespace {
+
+namespace lg = arcani::test::loudness;
+namespace spec = arcani::test::spec;
+
+bool is_store_fixture(const std::string& name) {
+  for (const char* f : spec::kLoudnessGain_store_fixtures) {
+    if (name == f) {
+      return true;
+    }
+  }
+  return false;
+}
+
+const spec::LoudnessHashVector& loudness_hash_vector(const std::string& fixture) {
+  for (const auto& v : spec::kLoudnessHashes) {
+    if (fixture == v.fixture) {
+      return v;
+    }
+  }
+  FAIL("no loudness hash vector for " << fixture);
+  return spec::kLoudnessHashes[0];
+}
+
+const spec::LoudnessGainValueVector& gain_value(const std::string& text) {
+  for (const auto& v : spec::kLoudnessGainValues) {
+    if (text == v.text) {
+      return v;
+    }
+  }
+  FAIL("no stored gain vector for " << text);
+  return spec::kLoudnessGainValues[0];
+}
+
+void require_loudness_hash_declared() {
+  if (!lg::kHaveLoudnessHash) {
+    FAIL("not implemented: arcani/arcani.h does not declare arc_plan_loudness_hash (Story 4.2)");
+  }
+}
+
+// The text with a top-level member's value text replaced.
+std::string with_member(std::string text, const std::string& name, const std::string& value_text) {
+  INFO("member " << name);
+  REQUIRE(lg::replace_member_value(text, name, value_text));
+  return text;
+}
+
+// The stored hash of a fixture text, without its quotes.
+std::string stored_hash(const std::string& text) {
+  const std::string v = lg::member_value(text, "loudness_hash");
+  REQUIRE(v.size() == 66);
+  return v.substr(1, 64);
+}
+
+struct TapRender {
+  std::vector<double> out;
+  api::TapBuffers taps;
+  explicit TapRender(std::size_t frames) : taps(frames) {}
+};
+
+TapRender render_taps(const std::string& text, arc_mode mode, std::uint32_t fs) {
+  api::PlanPtr plan = api::compile_ok(text, api::options(mode, fs));
+  const std::size_t frames = static_cast<std::size_t>(arc_plan_frame_count(plan.get()));
+  REQUIRE(frames > 0);
+  TapRender r(frames);
+  api::RendererPtr renderer = api::renderer(plan.get());
+  arc_taps t = r.taps.taps();
+  r.out = api::render(renderer.get(), frames, &t);
+  return r;
+}
+
+// Every master sample is the join sample times g, bit for bit.
+std::size_t master_mismatches(const TapRender& r, double g) {
+  std::size_t bad = 0;
+  for (std::size_t i = 0; i < r.taps.master.size(); ++i) {
+    if (api::bits(r.taps.master[i]) != api::bits(r.taps.binaural_join[i] * g)) {
+      ++bad;
+    }
+  }
+  return bad;
+}
+
+}  // namespace
+
+TEST_CASE("loudness hash: arc_plan_loudness_hash gives every loudness hash vector in both modes and rates",
+          "[api][loudness-gain]") {
+  require_loudness_hash_declared();
+  std::size_t accepted = 0;
+  for (const auto& v : spec::kLoudnessHashes) {
+    INFO("fixture " << v.fixture);
+    const std::string text = api::valid(v.fixture);
+    for (const std::uint32_t fs : spec::sample_rates()) {
+      INFO("fs " << fs);
+      const api::Compiled c = api::compile(text, api::options(ARC_MODE_MEASURE, fs));
+      if (c.status != ARC_OK) {
+        // Only the loudness target variant is refused (row loudness-tones).
+        CHECK(std::string(v.fixture) == "both-layers-loudness-target-changed.json");
+        continue;
+      }
+      ++accepted;
+      char buffer[65];
+      std::memset(buffer, 'X', sizeof buffer);
+      arc_error e;
+      api::poison(e);
+      const lg::HashCall h = lg::call_loudness_hash(c.plan.get(), buffer, &e);
+      CHECK(h.status == ARC_OK);
+      CHECK(h.terminated);
+      CHECK(h.hash == v.loudness_hash);
+      CHECK(std::string(arc_plan_recipe_hash(c.plan.get())) == v.recipe_hash);
+    }
+  }
+  CHECK(accepted == spec::sample_rates().size() * (std::size(spec::kLoudnessHashes) - 1));
+}
+
+TEST_CASE("loudness hash: a NULL plan or buffer is ARC_ERR_INVALID_ARGUMENT", "[api][loudness-gain]") {
+  require_loudness_hash_declared();
+  api::PlanPtr plan = api::compile_ok(api::valid(api::kBeat6), api::options(ARC_MODE_MEASURE, 48000));
+  char buffer[65];
+  arc_error e;
+  api::poison(e);
+  lg::HashCall c = lg::call_loudness_hash(nullptr, buffer, &e);
+  require_null_argument(c.status, e, "plan");
+  api::poison(e);
+  c = lg::call_loudness_hash(plan.get(), nullptr, &e);
+  require_null_argument(c.status, e, "out_hash");
+  // error may be NULL.
+  c = lg::call_loudness_hash(plan.get(), buffer, nullptr);
+  CHECK(c.status == ARC_OK);
+  CHECK(c.hash == loudness_hash_vector(api::kBeat6).loudness_hash);
+}
+
+TEST_CASE("final mode: every loudness hash fixture compiles but the refused ones", "[api][loudness-gain]") {
+  for (const auto& v : spec::kLoudnessHashes) {
+    const std::string name = v.fixture;
+    INFO("fixture " << name);
+    const std::string text = api::valid(name);
+    for (const std::uint32_t fs : spec::sample_rates()) {
+      INFO("fs " << fs);
+      const api::Compiled c = api::compile(text, api::options(ARC_MODE_FINAL, fs));
+      INFO(api::describe(c.error));
+      if (name == "both-layers-loudness-target-changed.json") {
+        CHECK(c.status == ARC_ERR_REJECTED);
+        CHECK(std::string(c.error.parameter) == "/loudness_target_lufs");
+        CHECK(std::string(c.error.rule).rfind("range.", 0) == 0);
+      } else if (name == api::kNoGain || is_store_fixture(name)) {
+        CHECK(c.status == ARC_ERR_REJECTED);
+        CHECK(std::string(c.error.parameter) == "/loudness_gain_db");
+        CHECK(std::string(c.error.rule) == "final.required");
+      } else {
+        CHECK(c.status == ARC_OK);
+        if (c.status == ARC_OK) {
+          CHECK(lg::plan_loudness_hash(c.plan.get()) == v.loudness_hash);
+        }
+      }
+    }
+  }
+}
+
+TEST_CASE("final mode: a stored placeholder hash is stale (final.loudness_hash)", "[api][loudness-gain]") {
+  std::size_t checked = 0;
+  for (const auto& v : spec::kLoudnessHashes) {
+    const std::string name = v.fixture;
+    if (name == "both-layers-loudness-target-changed.json" || name == api::kNoGain || is_store_fixture(name)) {
+      continue;
+    }
+    INFO("fixture " << name);
+    const std::string text = with_member(api::valid(name), "loudness_hash",
+                                         std::string("\"") + lg::kPlaceholderHash + "\"");
+    for (const std::uint32_t fs : spec::sample_rates()) {
+      INFO("fs " << fs);
+      const api::Compiled c = api::compile(text, api::options(ARC_MODE_FINAL, fs));
+      INFO(api::describe(c.error));
+      CHECK(c.status == ARC_ERR_REJECTED);
+      CHECK(c.plan == nullptr);
+      REQUIRE(api::all_written(c.error));
+      CHECK(std::string(c.error.parameter) == spec::kLoudnessGain_hash_parameter);
+      CHECK(std::string(c.error.value) == lg::kPlaceholderHash);
+      CHECK(std::string(c.error.rule) == spec::kLoudnessGain_hash_rule);
+      CHECK(std::string(c.error.limit) == std::string("= ") + v.loudness_hash);
+      // Measure mode never compares the stored hash.
+      api::compile_ok(text, api::options(ARC_MODE_MEASURE, fs));
+    }
+    ++checked;
+  }
+  CHECK(checked >= 10);
+}
+
+TEST_CASE("final mode: a loudness-relevant edit after storing is stale; metadata edits compile",
+          "[api][loudness-gain]") {
+  require_loudness_hash_declared();
+  const std::string base = api::valid(api::kBeat6);
+  const std::string stored = stored_hash(base);
+  CHECK(stored == loudness_hash_vector(api::kBeat6).loudness_hash);
+
+  SECTION("stale: length_s, a theta carrier, or a beat rate edited; a respelled length is not") {
+    const std::vector<std::string> stale = {
+        with_member(base, "length_s", "2"),
+        with_member(base, "length_s", "1.5"),
+    };
+    std::vector<std::string> all = stale;
+    std::string carrier = base;
+    const auto at = carrier.find("\"carrier_hz\": 300");
+    REQUIRE(at != std::string::npos);
+    carrier.replace(at, std::string("\"carrier_hz\": 300").size(), "\"carrier_hz\": 301");
+    all.push_back(carrier);
+    std::string beat = base;
+    const auto b = beat.find("\"beat_rate_hz\": 6");
+    REQUIRE(b != std::string::npos);
+    beat.replace(b, std::string("\"beat_rate_hz\": 6").size(), "\"beat_rate_hz\": 5");
+    all.push_back(beat);
+    for (const std::string& text : all) {
+      INFO(text);
+      const std::string h = lg::engine_loudness_hash(text);
+      REQUIRE(h.size() == 64);
+      CHECK(h != stored);
+      for (const std::uint32_t fs : spec::sample_rates()) {
+        const api::Compiled c = api::compile(text, api::options(ARC_MODE_FINAL, fs));
+        INFO(api::describe(c.error));
+        CHECK(c.status == ARC_ERR_REJECTED);
+        REQUIRE(api::all_written(c.error));
+        CHECK(std::string(c.error.parameter) == "/loudness_hash");
+        CHECK(std::string(c.error.value) == stored);
+        CHECK(std::string(c.error.rule) == "final.loudness_hash");
+        CHECK(std::string(c.error.limit) == "= " + h);
+      }
+    }
+    // The same binary64 written another way keeps the hash.
+    const std::string respelled = with_member(base, "length_s", "1.0");
+    CHECK(lg::engine_loudness_hash(respelled) == stored);
+    api::compile_ok(respelled, api::options(ARC_MODE_FINAL, 48000));
+  }
+
+  SECTION("not stale: author, date, rationale, seed, and the stored gain") {
+    const std::vector<std::string> edits = {
+        with_member(base, "author", "\"Someone else\""),
+        with_member(base, "date", "\"2027-01-02\""),
+        with_member(base, "rationale", "\"Edited after storing the gain.\""),
+        with_member(base, "seed", "7"),
+        with_member(base, "loudness_gain_db", "-20.00"),
+    };
+    for (const std::string& text : edits) {
+      INFO(text);
+      for (const std::uint32_t fs : spec::sample_rates()) {
+        api::PlanPtr p = api::compile_ok(text, api::options(ARC_MODE_FINAL, fs));
+        CHECK(lg::plan_loudness_hash(p.get()) == stored);
+      }
+    }
+  }
+}
+
+TEST_CASE("range: loudness_gain_db is held to row loudness-gain in both modes", "[api][loudness-gain]") {
+  const arcani::test::tables::Row& r = spec::row(spec::kLoudnessGain_row);
+  REQUIRE(r.kind == "ranges");
+  REQUIRE(r.unit == "dB");
+  CHECK(r.min == spec::kLoudnessGain_min_db);
+  CHECK(r.max == spec::kLoudnessGain_max_db);
+  CHECK(">= " + r.min_text + " dB (row " + r.id + ")" == spec::kLoudnessGain_min_limit);
+  CHECK("<= " + r.max_text + " dB (row " + r.id + ")" == spec::kLoudnessGain_max_limit);
+  const std::string base = api::valid(api::kBeat6);
+  struct Case {
+    const char* text;
+    const char* rule;  // nullptr: compiles
+    const char* limit;
+  };
+  const Case cases[] = {
+      {"-60.01", "range.min", spec::kLoudnessGain_min_limit},
+      {"-61", "range.min", spec::kLoudnessGain_min_limit},
+      {"0.01", "range.max", spec::kLoudnessGain_max_limit},
+      {"1.5", "range.max", spec::kLoudnessGain_max_limit},
+      {"-60", nullptr, nullptr},
+      {"-60.00", nullptr, nullptr},
+      {"0", nullptr, nullptr},
+      {"-0.00", nullptr, nullptr},
+  };
+  for (const Case& k : cases) {
+    INFO("loudness_gain_db " << k.text);
+    const std::string text = with_member(base, "loudness_gain_db", k.text);
+    for (const arc_mode mode : {ARC_MODE_MEASURE, ARC_MODE_FINAL}) {
+      for (const std::uint32_t fs : spec::sample_rates()) {
+        INFO("mode " << mode << ", fs " << fs);
+        const api::Compiled c = api::compile(text, api::options(mode, fs));
+        INFO(api::describe(c.error));
+        if (k.rule == nullptr) {
+          CHECK(c.status == ARC_OK);
+          continue;
+        }
+        CHECK(c.status == ARC_ERR_REJECTED);
+        REQUIRE(api::all_written(c.error));
+        CHECK(std::string(c.error.parameter) == spec::kLoudnessGain_gain_parameter);
+        CHECK(std::string(c.error.value) == k.text);
+        CHECK(std::string(c.error.rule) == k.rule);
+        CHECK(std::string(c.error.limit) == k.limit);
+      }
+    }
+  }
+}
+
+TEST_CASE("applied gain: the final master is the join times g of -1.5 dB; every other tap is measure's",
+          "[api][loudness-gain]") {
+  const std::string text = api::valid(spec::kLoudnessGain_final_fixture);
+  CHECK(lg::member_value(text, "loudness_gain_db") == "-1.5");
+  const spec::LoudnessGainValueVector& v = gain_value("-1.5");
+  CHECK(v.k == -150);
+  CHECK(api::bits(v.g) == v.g_bits);
+  CHECK(api::bits(lg::harness_linear_gain(v.k, spec::kLoudnessGain_c)) == v.g_bits);
+  for (const std::uint32_t fs : spec::sample_rates()) {
+    INFO("fs " << fs);
+    const TapRender m = render_taps(text, ARC_MODE_MEASURE, fs);
+    const TapRender f = render_taps(text, ARC_MODE_FINAL, fs);
+    CHECK(api::same_bytes(f.taps.theta_reference, m.taps.theta_reference));
+    CHECK(api::same_bytes(f.taps.gamma_pac, m.taps.gamma_pac));
+    CHECK(api::same_bytes(f.taps.stereo_bus, m.taps.stereo_bus));
+    CHECK(api::same_bytes(f.taps.binaural_join, m.taps.binaural_join));
+    CHECK(master_mismatches(f, v.g) == 0);
+    CHECK(api::same_bytes(f.out, f.taps.master));
+    // Measure mode is unit gain, so the gain did change the final output.
+    CHECK(master_mismatches(m, 1.0) == 0);
+    CHECK_FALSE(api::same_bytes(f.out, m.out));
+  }
+}
+
+TEST_CASE("applied gain: every stored gain vector applies its g bit for bit; a zero gain changes nothing",
+          "[api][loudness-gain]") {
+  const std::string base = api::valid(spec::kLoudnessGain_final_fixture);
+  const std::uint32_t fs = spec::sample_rates().back();
+  const TapRender m = render_taps(base, ARC_MODE_MEASURE, fs);
+  for (const auto& v : spec::kLoudnessGainValues) {
+    INFO("stored gain " << v.text);
+    CHECK(api::bits(lg::harness_linear_gain(v.k, spec::kLoudnessGain_c)) == v.g_bits);
+    const std::string text = with_member(base, "loudness_gain_db", v.text);
+    const TapRender f = render_taps(text, ARC_MODE_FINAL, fs);
+    CHECK(api::same_bytes(f.taps.binaural_join, m.taps.binaural_join));
+    CHECK(master_mismatches(f, v.g) == 0);
+    if (v.k == 0) {
+      CHECK(api::same_bytes(f.out, m.out));
+      CHECK(api::same_bytes(f.taps.master, m.taps.master));
+    } else {
+      CHECK_FALSE(api::same_bytes(f.out, m.out));
+    }
+    // Measure mode ignores the stored gain.
+    const TapRender mm = render_taps(text, ARC_MODE_MEASURE, fs);
+    CHECK(api::same_bytes(mm.out, m.out));
+  }
+  // The zero texts at both rates, and the must-fail: a g one ulp off.
+  for (const std::uint32_t rate : spec::sample_rates()) {
+    INFO("fs " << rate);
+    const TapRender mr = render_taps(base, ARC_MODE_MEASURE, rate);
+    for (const char* zero : {"0.00", "-0.00"}) {
+      INFO("stored gain " << zero);
+      const TapRender f = render_taps(with_member(base, "loudness_gain_db", zero), ARC_MODE_FINAL, rate);
+      CHECK(api::same_bytes(f.out, mr.out));
+    }
+    const TapRender f = render_taps(base, ARC_MODE_FINAL, rate);
+    CHECK(master_mismatches(f, std::nextafter(gain_value("-1.5").g, 1.0)) > 0);
+  }
 }
 
 #else  // ARC_ERROR_FIELD_BYTES
