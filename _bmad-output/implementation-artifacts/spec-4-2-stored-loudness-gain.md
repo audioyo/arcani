@@ -147,3 +147,30 @@ Every test that stores a gain uses the 4.1 `loudness_constants.assertion_fixture
 - `powershell -File tools/dev.ps1 cmake --workflow --preset windows-clang-cl`: expected build passes and ctest is green.
 - `uv run --locked pytest -n auto`: expected all pass.
 - `git status --porcelain -- recipes` after the suite: expected empty.
+
+## Review Triage Log
+
+Pass 1 (2026-11-25): blind-hunter (B), edge-case-hunter (E), verification-gap (V).
+
+| # | Finding | Verdict | Evidence | Route |
+|---|---------|---------|----------|-------|
+| B1 | No CI test catches an engine change that moves the level | high | Every final-mode loudness test first runs `--store-gain` with the current engine on a temp copy; no committed recipe holds a measured gain, so a level shift is re-measured and passes. Contradicts intent decision 1. Root cause is a missing fixture and test, not code: the implementation would re-derive identically, so patch instead of a revert loopback. | patch |
+| B2/E10 | Stored gain depends on `--rate`, and the hash does not record the rate | low | Real: storing at 44.1 kHz then 48 kHz can differ by one 0.01 dB step. Error is far inside the 1 LU tolerance; the default rate is 48000; a fix adds a rule or removes a spec'd option. | reject |
+| B3 | The final report does not echo the applied gain or the loudness hash | low | Real, but the gain is in the recipe file, so same file + engine + seed still gives the same bytes (rule 1). The fix adds report members (new surface). | reject |
+| B4 | The schema lacks the -60 to 0 bounds | low | Bounds are not schema-borne by convention (2 min/max in the whole schema; ranges live in `ranges.tsv`). Its description "written by the measure pass" is stale: a direct text correction. | patch (description only) |
+| B5 | CLAUDE.md not updated | false | Fixed in e4113d3 at Audio's request. | reject |
+| B6 | CI step position worded two ways; step duplicated across 12 jobs | low | The fix to the wording edits the spec; the duplication follows the existing wall-time step pattern. | reject |
+| B7/E6 | `check_recipes_unchanged.py` misses gitignored, quoted, renamed, or restored paths | low | No current test writes such paths; the fix adds parsing complexity. | reject |
+| B8a/E2 | `run_store` step 7 prints a `rejected:` line for non-REJECTED statuses | low | Real at `cli/main.cpp` step 7; direct correction. Exit 3 for a real rejection matches the signal spec, step 7. | patch |
+| B8b/E4 | `.partial` overwrite, symlink, OneDrive rename retry, untested cleanup | low | Same `.partial` pattern as the WAV writer; rare; the fixes add guards. | reject |
+| B9/V2 | Branch committed with 3 failing tests (missing `stub-chain-final-*` pins) | medium | Real. Precedent (`ci/hash_expected.json` source, theta-envelopes): missing entries stop the desktop probes running in the full run, so pin the windows-x64 dev PC values now and confirm on all four platforms in CI. | patch |
+| B10 | Status fields disagree | false | In-flight states during review; sprint status moves at step 5. | reject |
+| B11 | A recipe 0.005 LU too quiet cannot be stored | false | Intent decision 5 (Audio): a recipe that needs a boost is refused. | reject |
+| B12/E7 | Python reference does not range-check or hash-check in final mode; C++ store tests hard-code the -36 target | low | The engine is the checker; the reference only renders accepted recipes. Every store fixture targets -36. | reject |
+| E1 | An out-of-range stored gain blocks a re-store | low | Only reachable by hand-editing; the range check in both modes is the spec'd contract. | reject |
+| E3 | A huge finite `x` shows the value in steps, not dB | false | Needs a window reading near 4.6e16 dB; unreachable from a finite meter. | reject |
+| E5 | `if: always()` step fails noisily when uv setup never ran | low | Same pattern as the existing wall-time step. | reject |
+| E8 | Test helper key search is fragile | low | Test-only; current fixtures do not trigger it. | reject |
+| E9 | Rounding near a half step could differ between platforms | false | Only the dev PC stores gains (intent decision 2), so cross-platform storing is never needed. | reject |
+| E11 | Positive gains are now rejected in measure mode | false | The range check in both modes is the spec'd contract; Audio confirmed the fixture edit. | reject |
+| V1 | First-failure order of the `loudness_gain_db` range check is not pinned | medium | Pre-verified gap: no order case combines an out-of-range gain with another range fault. | patch |
