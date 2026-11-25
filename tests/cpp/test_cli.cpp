@@ -1461,10 +1461,14 @@ std::optional<StoreLine> parse_store_line(const std::string& out) {
   s.gain_text = text.substr(a.size(), bh - a.size());
   s.hash = text.substr(bh + b.size(), cw - bh - b.size());
   s.window_text = text.substr(cw + c.size());
-  const char* first = s.window_text.data();
-  const char* last = first + s.window_text.size();
-  const auto r = std::from_chars(first, last, s.window_lufs);
-  if (r.ec != std::errc() || r.ptr != last) {
+  // std::strtod, as test_preview.cpp parses numbers: the pinned macOS libc++
+  // has no floating-point std::from_chars.
+  if (s.window_text.empty()) {
+    return std::nullopt;
+  }
+  char* end = nullptr;
+  s.window_lufs = std::strtod(s.window_text.c_str(), &end);
+  if (end != s.window_text.c_str() + s.window_text.size()) {
     return std::nullopt;
   }
   return s;
