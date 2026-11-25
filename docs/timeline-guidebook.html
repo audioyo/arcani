@@ -616,13 +616,14 @@ var EPICS = [
       ["x","Both meters agree on any render within the Tech 3341 tolerance"],
       ["x","Within 1 LU of target passes; 1.5 LU over fails"]
     ] },
-  { id:"4.2", title:"Stored loudness gain", status:"in-progress",
+  { id:"4.2", title:"Stored loudness gain", status:"review",
     plain:"The CLI measures each recipe's loudness once and stores the gain in the recipe.",
     spec:["spec-4-2-stored-loudness-gain.md"],
-    steps:[true,true,true,false,false,false,false],
+    steps:[true,true,true,true,false,false,false],
     stepNotes:["5deeed7: spec approved 2026-11-25 by Audio; stored gain range -60 dB to 0 dB (row loudness-gain), so it can only turn the sound down; 0b3e682 signal spec Loudness gain section, vectors, row, design log (aaa), (bbb)",
                "9dff18b: failing tests by a fresh-context QA agent (C++ store-gain, API, CLI, report; Python store-gain and recipes-unchanged)",
-               "a046fa8..bff987b: engine hash, range, final.loudness_hash and applied gain; reference final mode; CLI --store-gain and final loudness checks; real fixture hashes; CI recipes-unchanged step; all local tests pass except the two stub-chain-final probe pins, which wait for the full CI run"],
+               "a046fa8..bff987b: engine hash, range, final.loudness_hash and applied gain; reference final mode; CLI --store-gain and final loudness checks; real fixture hashes; CI recipes-unchanged step; all local tests pass except the two stub-chain-final probe pins, which wait for the full CI run",
+               "7f8aa94: review pass 1 (three layers): 5 patches (committed stored-gain fixture rendered in CI without re-storing, store step 7 message, schema text, gain range order, stub-chain-final pins from the dev PC), 15 rejected; full suite green on the dev PC"],
     acs:[
       [" ","Measure command writes gain and loudness hash; measuring twice writes identical bytes"],
       [" ","final mode rejects a missing gain or a changed loudness-relevant field"],
@@ -753,6 +754,7 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-25","7f8aa94","4.2","Code review pass 1: 5 patches (c8b8af3..87e7846) incl. a committed dev-PC stored gain rendered in final mode in CI so a level change is caught; 15 findings rejected with reasons in the spec; ctest green, pytest 3,811 pass; sprint-status.yaml review; CLAUDE.md gains the --store-gain command (e4113d3)"],
   ["2026-11-25","bff987b","4.2","Failing tests 9dff18b (fresh QA agent), then the implementation in 7 commits: loudness hash, gain range -60 to 0 dB, final-mode hash check and applied gain c^k, arcani-render --store-gain, final loudness checks, CI recipes-unchanged step; ctest green, pytest 3807 pass with 3 waiting on probe pins; about 1 CPU-minute added per platform; not pushed"],
   ["2026-11-25","5deeed7","4.2","Spec approved by Audio: arcani-render --store-gain writes the loudness gain (0.01 dB steps) and loudness hash; final mode checks both and applies the gain; gain range -60 to 0 dB; sprint-status.yaml in-progress; not pushed"],
   ["2026-11-20","a904bda","4.1","PR #23 merged: CI green on both tiers (full windows-x64 26.6 min, windows-arm64 20.5, macos-arm64 18.7, fast linux-x64 16.0, fast windows-x64 16.7); Story 4.1 done; next: Story 4.2"],
