@@ -634,11 +634,11 @@ var EPICS = [
       ["x","Whole-render loudness recorded and never more than 1 LU over target"],
       ["x","CI never writes a gain (must-fail step caught)"]
     ] },
-  { id:"4.3", title:"True peak", status:"ready-for-dev",
+  { id:"4.3", title:"True peak", status:"in-progress",
     plain:"Every render's true peak measured with oversampling and held at or below -1 dBTP.",
     spec:["spec-4-3-true-peak.md"],
     steps:[true,false,false,false,false,false,false],
-    stepNotes:["102e9d9: spec approved 2026-11-25 by Audio; two true-peak meters (Python and CLI) per BS.1770 Annex 2, Tech 3341 cases synthesized from the published document; true-peak check on every final render; 1 s final fixture gain -1.5 to -10 dB"],
+    stepNotes:["102e9d9: spec approved 2026-11-25 by Audio; two true-peak meters (Python and CLI) per BS.1770 Annex 2, Tech 3341 cases synthesized from the published document; true-peak check on every final render; 1 s final fixture gain -1.5 to -10 dB; 03297b2 signal spec True peak section, vectors, rows true-peak-meter-over and -under, design log (ddd); Tech 3341 cases 15 to 19 only (Audio: 20 to 23 left out, their filter is not printed)"],
     acs:[
       [" ","True-peak tool passes Tech 3341 and known inter-sample peak signals"],
       [" ","Inter-sample peak must-fail fails where a sample-peak check would pass"],
@@ -760,6 +760,7 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-25","03297b2","4.3","Signal spec True peak section: BS.1770 Annex 2 filter as printed, exact in binary64 so both meters agree bit for bit; Tech 3341 cases 15 to 19 (20 to 23 left out by Audio) and known-peak sines, all with a 10 ms fade; two tolerance rows (+0.2 / -0.4 dB); sprint-status.yaml in-progress; ctest and pytest green; not pushed"],
   ["2026-11-25","102e9d9","4.3","Spec approved by Audio: two true-peak meters (Python and CLI) per BS.1770 Annex 2, calibrated on Tech 3341 true-peak cases synthesized from the published document; true-peak check on every final render; --store-gain refuses a gain over -1 dBTP; sprint-status.yaml ready-for-dev; branch story/4-3-true-peak; not pushed"],
   ["2026-11-25","6c07f73","4.2","PR #24 merged: CI green on both tiers (full windows-x64 23.2 min, windows-arm64 22.3, macos-arm64 22.3, fast linux-x64 15.5, fast windows-x64 27.4); Story 4.2 done; next: Story 4.3"],
   ["2026-11-25","7f8aa94","4.2","Code review pass 1: 5 patches (c8b8af3..87e7846) incl. a committed dev-PC stored gain rendered in final mode in CI so a level change is caught; 15 findings rejected with reasons in the spec; ctest green, pytest 3,811 pass; sprint-status.yaml review; CLAUDE.md gains the --store-gain command (e4113d3)"],

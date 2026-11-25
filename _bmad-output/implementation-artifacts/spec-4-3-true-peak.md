@@ -25,7 +25,7 @@ Decisions (planning, 2026-11-25; Audio can overrule any of them at approval):
 2. **Input.** The meter reads the 24-bit integers as written (`quantize_24`), each divided by 2^23. The Annex 2 coefficients are multiples of 2^-13, so every product and sum is exact in binary64: both meters give the same linear true peak bit for bit, and they are compared that way. Only the dB conversion calls `log10`.
 3. **The 1 s final fixture.** `stub-chain-1s-beat-6.json` peaks near 2.0, so its placeholder gain -1.5 dB would fail the new check. It changes to `-10.00` (peak about 0.63, -4 dBTP; a stored gain vectors row already exists). Its `stub-chain-final-*` pins are re-measured and confirmed on all four platforms, as in 4.2.
 4. **Store refusal.** After the final compile (Store, step 7), the store renders frames `[0, N)` in final mode, rounds them to 24 bits, and measures true peak. Above the ceiling, it writes nothing, prints `rejected: parameter=/loudness_gain_db value=<gain text> rule=true_peak limit=<= -1 dBTP (row true-peak) target_lufs=<T> true_peak_dbtp=<tp>`, and exits 1. The `stored:` line is unchanged.
-5. **Tech 3341 cases in scope** (Audio, 2026-11-25). Table 1 true-peak cases 15 to 19 only, every one with the printed tolerance +0.2/-0.4 dB. Cases 20 to 23 are out of scope: their printed description names no anti-aliasing filter and no fade, and the filter sets the peak being measured (as 4.1 left out cases 6 to 8). Cases 16 to 19 are steady tones. Case 15 gets the printed 10 ms fade-in and fade-out as a raised-cosine ramp, written in the spec; the ramp cannot change its peak reading. The `epics.md` criterion and the research library entry record the narrowed case list.
+5. **Tech 3341 cases in scope** (Audio, 2026-11-25). Table 1 true-peak cases 15 to 19 only, every one with the printed tolerance +0.2/-0.4 dB. Cases 20 to 23 are out of scope: their printed description names no anti-aliasing filter and no fade, and the filter sets the peak being measured (as 4.1 left out cases 6 to 8). Every calibration signal (cases 15 to 19 and the closed-form sines) gets case 15's printed 10 ms fade-in and fade-out as a raised-cosine ramp, written in the spec. Without it, the abrupt start of a tone measured from zero state overshoots (case 18 reads -5.32 dBTP against -6.0 +0.2), which is the meter's response to the edge, not the tone's peak; with it, every case reads its steady part within 1e-4 dB (planning correction 2026-11-25, see Spec Change Log). The `epics.md` criterion and the research library entry record the narrowed case list.
 
 ## Boundaries & Constraints
 
@@ -120,6 +120,8 @@ The line is exactly `rejected: parameter=/loudness_gain_db value=<gain_text> rul
 - `tools/check_row_coverage.py` sees `true-peak`, `true-peak-meter-over`, and `true-peak-meter-under` in use.
 
 ## Spec Change Log
+
+- 2026-11-25, phase 1 (03297b2): decision 5 said cases 16 to 19 are steady tones with no fade. Measured from zero state, an abrupt tone start overshoots past the printed +0.2 dB (case 18 reads -5.32 dBTP). Amended: every calibration signal gets case 15's printed 10 ms raised-cosine fade. Audio's call (cases 20 to 23 out of scope) is unchanged; the fade wording was a planning detail. KEEP: the exact-integer meter and the vector SHA-256 pins of the 24-bit signal bytes.
 
 ## Design Notes
 
