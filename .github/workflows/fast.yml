@@ -118,6 +118,11 @@ jobs:
       - name: Row coverage check
         run: uv run --locked python tools/check_row_coverage.py
 
+      - name: Recipes unchanged (no gain is stored in CI)
+        if: always()
+        shell: bash
+        run: uv run --no-project python tools/check_recipes_unchanged.py
+
       - name: Wall time against budget
         if: always()
         shell: bash
@@ -219,6 +224,11 @@ jobs:
 
       - name: Row coverage check
         run: uv run --locked python tools/check_row_coverage.py
+
+      - name: Recipes unchanged (no gain is stored in CI)
+        if: always()
+        shell: bash
+        run: uv run --no-project python tools/check_recipes_unchanged.py
 
       - name: Wall time against budget
         if: always()
