@@ -2,7 +2,7 @@
 title: 'Story 4.2: Stored loudness gain'
 type: 'feature'
 created: '2026-11-21'
-status: 'in-progress'
+status: 'in-review'
 baseline_commit: 'af4f0977df830df0462d6a10dd25c3450e85c12e'
 route: 'dispatch'
 review_loop_iteration: 0
