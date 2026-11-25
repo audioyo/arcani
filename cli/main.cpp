@@ -424,9 +424,13 @@ int run_store(const Args& args) {
 
   // 7. The new bytes must compile in final mode.
   PlanHandle check;
-  if (compile_text(stored, ARC_MODE_FINAL, args.rate, check, error) != ARC_OK) {
+  const arc_status final_status = compile_text(stored, ARC_MODE_FINAL, args.rate, check, error);
+  if (final_status == ARC_ERR_REJECTED) {
     print_rejected(error);
     return file_error("the rewritten recipe does not compile in final mode");
+  }
+  if (final_status != ARC_OK) {
+    return file_error(std::string("final-mode compile of the rewritten recipe failed: rule=") + error.rule);
   }
 
   // 8. Write through RECIPE.partial and a rename, unless nothing changed.
