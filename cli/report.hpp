@@ -135,6 +135,15 @@ double elapsed_seconds(std::chrono::steady_clock::duration total) noexcept;
 Assertion render_speed(const arcani::test::tables::Row& row, std::uint64_t frames,
                        std::uint32_t rate, double elapsed_s, bool is_reference);
 
+// Story 4.2 (docs/signal-spec.md, Loudness gain, Final-mode checks), both on
+// `row` (loudness-tolerance). loudness: measured window_lufs - target (one
+// subtraction), pass when |measured| <= threshold. loudness_whole: measured
+// whole_lufs - target, pass when measured <= threshold (no lower bound). A
+// reading that is not finite (-inf, silent): measured null, fail, note
+// "silent".
+Assertion loudness_assertion(const arcani::test::tables::Row& row, double window_lufs, double target);
+Assertion loudness_whole_assertion(const arcani::test::tables::Row& row, double whole_lufs, double target);
+
 // 4 when any assertion failed, else 0.
 int assertions_exit_code(const std::vector<Assertion>& assertions) noexcept;
 

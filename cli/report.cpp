@@ -277,6 +277,37 @@ Assertion render_speed(const arcani::test::tables::Row& row, std::uint64_t frame
   return a;
 }
 
+namespace {
+
+Assertion loudness_check(const arcani::test::tables::Row& row, const char* name, double reading, double target,
+                         bool two_sided) {
+  Assertion a;
+  a.name = name;
+  a.row = row.id;
+  a.threshold = row.value();
+  a.unit = row.unit;
+  if (!std::isfinite(reading)) {
+    a.result = Result::fail;
+    a.note = "silent";
+    return a;
+  }
+  const double measured = reading - target;
+  a.measured = measured;
+  const bool pass = two_sided ? std::fabs(measured) <= a.threshold : measured <= a.threshold;
+  a.result = pass ? Result::pass : Result::fail;
+  return a;
+}
+
+}  // namespace
+
+Assertion loudness_assertion(const arcani::test::tables::Row& row, double window_lufs, double target) {
+  return loudness_check(row, "loudness", window_lufs, target, true);
+}
+
+Assertion loudness_whole_assertion(const arcani::test::tables::Row& row, double whole_lufs, double target) {
+  return loudness_check(row, "loudness_whole", whole_lufs, target, false);
+}
+
 int assertions_exit_code(const std::vector<Assertion>& assertions) noexcept {
   for (const Assertion& a : assertions) {
     if (a.result == Result::fail) {

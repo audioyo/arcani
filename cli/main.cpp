@@ -4,6 +4,7 @@
 //
 //   arcani-render --version
 //   arcani-render RECIPE --out WAV [--report JSON] [--rate N] [--mode measure|final] [--preview] [--loudness]
+//   arcani-render RECIPE --store-gain [--rate N]
 //
 // --preview (Story 3.3; docs/signal-spec.md, Preview) keeps the first F
 // frames of the recipe's own render, each sample times the preview gain g
@@ -16,15 +17,30 @@
 // A non-looping recipe shorter than row loudness-window-min is rejected
 // (exit 1, nothing written). Not with --preview.
 //
-// Exit codes: 0 rendered, every assertion pass or not applicable; 1 the
-// engine rejected the recipe or an option, or (with --loudness) the window
-// rule loudness_window_rule rejected it; 2 usage; 3 file or internal error;
-// 4 rendered but an assertion failed (WAV and report written).
+// In final mode, --loudness also adds the assertions loudness and
+// loudness_whole (Story 4.2; docs/signal-spec.md, Loudness gain, Final-mode
+// checks) after render speed.
+//
+// --store-gain (Story 4.2; docs/signal-spec.md, Loudness gain, Store)
+// compiles RECIPE in measure mode, renders only the loudness window,
+// rounds the gain to 0.01 dB, and rewrites only the members
+// loudness_gain_db and loudness_hash of RECIPE (RECIPE.partial, then a
+// rename; nothing when the bytes are unchanged). With --out, --report,
+// --preview, --mode, or --loudness it is a usage error. Prints
+// "stored: loudness_gain_db=<gain> loudness_hash=<hash> window_lufs_i=<L>".
+//
+// Exit codes: 0 rendered (or stored), every assertion pass or not
+// applicable; 1 the engine rejected the recipe or an option, or (with
+// --loudness or --store-gain) the window rule loudness_window_rule rejected
+// it, or (--store-gain) the gain is outside row loudness-gain; 2 usage; 3
+// file or internal error; 4 rendered but an assertion failed (WAV and report
+// written).
 
 #include <arcani/arcani.h>
 
 #include "loudness.hpp"
 #include "preview.hpp"
+#include "recipe_write.hpp"
 #include "report.hpp"
 #include "tables.hpp"
 #include "wav.hpp"
@@ -61,6 +77,7 @@ constexpr std::size_t kBlockFrames = 4096;
 const char* const kUsage =
     "usage: arcani-render RECIPE --out WAV [--report JSON] [--rate 44100|48000]"
     " [--mode measure|final] [--preview] [--loudness]\n"
+    "       arcani-render RECIPE --store-gain [--rate 44100|48000]\n"
     "       arcani-render --version\n";
 
 int usage() {
@@ -81,6 +98,7 @@ struct Args {
   arc_mode mode = ARC_MODE_MEASURE;
   bool preview = false;
   bool loudness = false;
+  bool store_gain = false;  // Story 4.2
 };
 
 // ASCII digits only, and the value fits in 32 bits.
@@ -134,6 +152,14 @@ std::optional<Args> parse_args(int argc, char** argv) {
       --i;
       continue;
     }
+    if (flag == "--store-gain") {
+      if (a.store_gain) {
+        return std::nullopt;
+      }
+      a.store_gain = true;
+      --i;
+      continue;
+    }
     if (i + 1 >= argc) {
       return std::nullopt;
     }
@@ -165,6 +191,13 @@ std::optional<Args> parse_args(int argc, char** argv) {
     } else {
       return std::nullopt;
     }
+  }
+  if (a.store_gain) {
+    // Story 4.2: --rate alone may go with it.
+    if (have_out || a.report || have_mode || a.preview || a.loudness) {
+      return std::nullopt;
+    }
+    return a;
   }
   if (!have_out || a.out.empty()) {
     return std::nullopt;
@@ -279,6 +312,144 @@ struct RendererHandle {
   ~RendererHandle() { arc_renderer_destroy(renderer); }
 };
 
+// The engine's rejected line on stderr (Story 3.2: the detail only when it
+// is not empty).
+void print_rejected(const arc_error& error) {
+  if (error.detail[0] != '\0') {
+    std::fprintf(stderr, "rejected: parameter=%s value=%s rule=%s limit=%s detail=%s\n", error.parameter,
+                 error.value, error.rule, error.limit, error.detail);
+  } else {
+    std::fprintf(stderr, "rejected: parameter=%s value=%s rule=%s limit=%s\n", error.parameter, error.value,
+                 error.rule, error.limit);
+  }
+}
+
+arc_status compile_text(const std::string& text, arc_mode mode, std::uint32_t rate, PlanHandle& plan,
+                        arc_error& error) {
+  arc_compile_options options;
+  std::memset(&options, 0, sizeof options);
+  options.mode = mode;
+  options.sample_rate = rate;
+  options.mute_binaural_ear = ARC_MUTE_NONE;
+  std::memset(&error, 0, sizeof error);
+  return arc_compile(text.data(), text.size(), &options, &plan.plan, &error);
+}
+
+// arcani-render RECIPE --store-gain (Story 4.2; docs/signal-spec.md,
+// Loudness gain, Store, steps 1 to 9).
+int run_store(const Args& args) {
+  namespace tables = arcani::test::tables;
+  // 1. The rows, before anything is opened.
+  const tables::Row& window_row = tables::row("loudness-window-min");
+  const std::uint64_t window_min_frames = cli::loudness_window_min_frames(window_row, args.rate);
+  const std::string window_limit = cli::loudness_window_limit(window_row);
+  const tables::Row& gain_row = tables::row("loudness-gain");
+
+  // 2. Read and compile in measure mode.
+  const std::optional<std::string> text = read_file(args.recipe);
+  if (!text) {
+    return file_error("cannot read recipe " + args.recipe);
+  }
+  PlanHandle plan;
+  arc_error error;
+  const arc_status status = compile_text(*text, ARC_MODE_MEASURE, args.rate, plan, error);
+  if (status == ARC_ERR_REJECTED) {
+    print_rejected(error);
+    return kExitRejected;
+  }
+  if (status != ARC_OK) {
+    return file_error(std::string("compile failed: rule=") + error.rule);
+  }
+
+  // 3. The window rule.
+  const std::uint64_t frames = arc_plan_frame_count(plan.plan);
+  arc_loop_frames loop;
+  std::memset(&loop, 0, sizeof loop);
+  if (arc_plan_loop(plan.plan, &loop, &error) != ARC_OK) {
+    return file_error(std::string("loop frames failed: rule=") + error.rule);
+  }
+  const cli::LoudnessWindow window = cli::loudness_window(loop, frames, window_min_frames);
+  if (!window.accepted) {
+    const double length_s = static_cast<double>(frames) / static_cast<double>(args.rate);
+    std::fprintf(stderr, "rejected: parameter=/length_s value=%s rule=loudness_window_rule limit=%s\n",
+                 cli::json_number(length_s).c_str(), window_limit.c_str());
+    return kExitRejected;
+  }
+
+  // 4. Render the window only: every pass from arc_seek to its start.
+  cli::LoudnessMeter meter(args.rate);
+  RendererHandle renderer;
+  if (arc_renderer_create(plan.plan, &renderer.renderer, &error) != ARC_OK) {
+    return file_error(std::string("renderer creation failed: rule=") + error.rule);
+  }
+  std::vector<double> samples(kBlockFrames * 2);
+  for (std::uint64_t pass = 0; pass < window.repeats; ++pass) {
+    if (arc_seek(renderer.renderer, window.start_frame, &error) != ARC_OK) {
+      return file_error(std::string("seek failed: rule=") + error.rule);
+    }
+    for (std::uint64_t done = 0; done < window.body_frames;) {
+      const std::uint64_t left = window.body_frames - done;
+      const std::size_t n = left < kBlockFrames ? static_cast<std::size_t>(left) : kBlockFrames;
+      if (arc_render(renderer.renderer, samples.data(), n, nullptr, &error) != ARC_OK) {
+        return file_error(std::string("render failed: rule=") + error.rule);
+      }
+      meter.add(std::span<const double>(samples.data(), n * 2));
+      done += n;
+    }
+  }
+  if (meter.frames() != window.window_frames) {
+    return file_error("loudness: the window meter read " + std::to_string(meter.frames()) + " frames, not " +
+                      std::to_string(window.window_frames));
+  }
+  const double reading = meter.integrated();
+
+  // 5. The gain rounding against the recipe's target.
+  const std::optional<double> target = cli::top_level_number(*text, "loudness_target_lufs");
+  if (!target) {
+    return file_error("cannot read loudness_target_lufs");
+  }
+  const cli::GainStep step = cli::gain_step(reading, *target, gain_row);
+  if (!step.stored) {
+    std::fprintf(stderr, "rejected: parameter=/loudness_gain_db value=%s rule=%s limit=%s\n", step.value.c_str(),
+                 step.rule.c_str(), step.limit.c_str());
+    return kExitRejected;
+  }
+
+  // 6. The file rewrite with the measure plan's loudness hash.
+  char hash[65];
+  if (arc_plan_loudness_hash(plan.plan, hash, &error) != ARC_OK) {
+    return file_error(std::string("loudness hash failed: rule=") + error.rule);
+  }
+  const std::string stored = cli::rewrite_loudness_members(*text, step.gain_text, hash);
+
+  // 7. The new bytes must compile in final mode.
+  PlanHandle check;
+  if (compile_text(stored, ARC_MODE_FINAL, args.rate, check, error) != ARC_OK) {
+    print_rejected(error);
+    return file_error("the rewritten recipe does not compile in final mode");
+  }
+
+  // 8. Write through RECIPE.partial and a rename, unless nothing changed.
+  if (stored != *text) {
+    const std::string partial = args.recipe + ".partial";
+    if (!write_text_file(partial, stored)) {
+      std::remove(partial.c_str());
+      return file_error("cannot write " + partial);
+    }
+    std::error_code ec;
+    fs::rename(partial, args.recipe, ec);
+    if (ec) {
+      std::remove(partial.c_str());
+      return file_error("cannot rename " + partial + " to " + args.recipe + ": " + ec.message());
+    }
+  }
+
+  // 9. The stored line.
+  std::printf("stored: loudness_gain_db=%s loudness_hash=%s window_lufs_i=%s\n", step.gain_text.c_str(), hash,
+              cli::json_number(reading).c_str());
+  return kExitOk;
+}
+
 int run(const Args& args) {
   const std::string report_path = args.report ? *args.report : default_report_path(args.out);
   // Read before any output is opened, so a missing table writes nothing.
@@ -290,6 +461,13 @@ int run(const Args& args) {
     namespace tables = arcani::test::tables;
     preview_rows = cli::preview_rows(tables::row("preview-length"), tables::row("preview-seam-tail"),
                                      tables::row("preview-peak-level"));
+  }
+
+  // Story 4.2: the final-mode loudness assertions' row, read before anything
+  // is opened.
+  const arcani::test::tables::Row* tolerance_row = nullptr;
+  if (args.loudness && args.mode == ARC_MODE_FINAL) {
+    tolerance_row = &arcani::test::tables::row("loudness-tolerance");
   }
 
   // Story 4.1: the window minimum, read before anything is opened.
@@ -499,6 +677,15 @@ int run(const Args& args) {
   report.assertions.push_back(cli::render_speed(
       speed_row, out_frames, args.rate, cli::elapsed_seconds(render_time),
       cli::is_reference_machine(std::getenv("ARCANI_REFERENCE_MACHINE"))));
+  // Story 4.2: in final mode, the loudness checks against the recipe target.
+  if (tolerance_row != nullptr && loudness) {
+    const std::optional<double> target = cli::top_level_number(*text, "loudness_target_lufs");
+    if (!target) {
+      return file_error("cannot read loudness_target_lufs");
+    }
+    report.assertions.push_back(cli::loudness_assertion(*tolerance_row, loudness->window_lufs_i, *target));
+    report.assertions.push_back(cli::loudness_whole_assertion(*tolerance_row, loudness->whole_lufs_i, *target));
+  }
 
   if (!write_text_file(report_path, cli::report_json(report))) {
     std::remove(report_path.c_str());
@@ -528,6 +715,13 @@ int main(int argc, char** argv) {
   const std::optional<Args> args = parse_args(argc, argv);
   if (!args) {
     return usage();
+  }
+  if (args->store_gain) {
+    try {
+      return run_store(*args);
+    } catch (const std::exception& e) {
+      return file_error(e.what());
+    }
   }
   if (paths_collide(*args, args->report ? *args->report : default_report_path(args->out))) {
     std::fputs("error: RECIPE, --out, its .partial file, and --report must be different files\n",
