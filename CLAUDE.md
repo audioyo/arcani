@@ -71,6 +71,7 @@ Commands (Windows dev PC; on Linux use the `linux-clang` preset and drop the `po
 - C++ tests: `powershell -File tools/dev.ps1 ctest --preset windows-clang-cl`
 - Python reference and signal tests: `uv run pytest`
 - Render a recipe: `build/windows-clang-cl/cli/arcani-render RECIPE --out OUT.wav [--report OUT.json] [--rate 44100|48000] [--mode measure|final]` (writes the WAV and `OUT.report.json`; `--version` prints the engine version)
+- Store a recipe's loudness gain (dev PC only, never in CI): `build/windows-clang-cl/cli/arcani-render RECIPE --store-gain [--rate 44100|48000]` (rewrites only `loudness_gain_db` and `loudness_hash` in RECIPE)
 
 Run the fast tests after every change. Do not commit with failing tests. Golden files change only after a human listening sign-off.
 
