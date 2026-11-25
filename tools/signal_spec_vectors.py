@@ -3876,7 +3876,7 @@ LOUDNESS_AGREEMENT_FIXTURES = (
     "minimal-no-layers.json", "minimal-seed-7-0.json", "minimal-seed-7.json", "minimal-seed-max.json",
     "minimal-seed-zero.json", "preview-gamma-250-am-60-bursts.json", "preview-gamma-250-am-60-swell.json",
     "starter-focus-layers.json", "starter-learn-layers.json", "starter-relax-layers.json",
-    "starter-sleep-layers.json", "swell-theta-cycle.json", "theta-cycle-sine.json",
+    "starter-sleep-layers.json", "swell-theta-cycle.json", "theta-cycle-sine-stored.json", "theta-cycle-sine.json",
     "theta-cycle-smoothed-on-off.json", "theta-reference-only.json",
 )
 LOUDNESS_REJECTED_FIXTURES = ("theta-sine-6hz.json", "stub-chain-1s-beat-0.json")
@@ -4281,7 +4281,8 @@ LOUDNESS_STORE_FIXTURES = (LOUDNESS_ASSERTION_FIXTURE, "theta-cycle-sine.json")
 # once Story 4.2 writes it.
 LOUDNESS_FINAL_FIXTURE = "stub-chain-1s-beat-6.json"
 # Vectors: loudness hash: every valid fixture that carries a loudness_hash
-# (each gets its own real hash in Story 4.2), then the store fixtures.
+# (each gets its own real hash in Story 4.2; theta-cycle-sine-stored.json
+# holds a gain stored on the dev PC), then the store fixtures.
 LOUDNESS_HASH_FIXTURES = (
     "binaural-only.json", "both-layers.json", "both-layers-beat-rate-changed.json",
     "both-layers-binaural-carrier-left-changed.json", "both-layers-engine-version-changed.json",
@@ -4289,7 +4290,8 @@ LOUDNESS_HASH_FIXTURES = (
     "both-layers-metadata-edited.json", "both-layers-reformatted.json", "both-layers-schema-minor-changed.json",
     "both-layers-seed-changed.json", "both-layers-theta-carrier-changed.json", "stub-chain-1s-beat-0.json",
     "stub-chain-1s-beat-6.json", "stub-chain-1s-no-gain.json", "stub-chain-1s-no-layers.json",
-    "theta-reference-only.json", "starter-focus-layers.json", "theta-cycle-sine.json",
+    "theta-reference-only.json", "theta-cycle-sine-stored.json", "starter-focus-layers.json",
+    "theta-cycle-sine.json",
 )
 # Vectors: gain rounding: (case, window reading L as decimal text or "-inf").
 # Each L is the binary64 nearest the text; d = target - L.

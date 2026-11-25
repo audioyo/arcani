@@ -4832,6 +4832,7 @@ Per fixture and sample rate: the agreement set (every compile-accepted valid fix
 | starter-relax-layers.json | 44100 | no | 1800.0 | 79380000 | accepted | 0 | 79380000 | 1 | 79380000 | 1800.0 | none | none | none | none |
 | starter-sleep-layers.json | 44100 | no | 2700.0 | 119070000 | accepted | 0 | 119070000 | 1 | 119070000 | 2700.0 | none | none | none | none |
 | swell-theta-cycle.json | 44100 | no | 120.0 | 5292000 | accepted | 0 | 5292000 | 1 | 5292000 | 120.0 | none | none | none | none |
+| theta-cycle-sine-stored.json | 44100 | no | 120.0 | 5292000 | accepted | 0 | 5292000 | 1 | 5292000 | 120.0 | none | none | none | none |
 | theta-cycle-sine.json | 44100 | no | 120.0 | 5292000 | accepted | 0 | 5292000 | 1 | 5292000 | 120.0 | none | none | none | none |
 | theta-cycle-smoothed-on-off.json | 44100 | no | 120.0 | 5292000 | accepted | 0 | 5292000 | 1 | 5292000 | 120.0 | none | none | none | none |
 | theta-reference-only.json | 44100 | no | 600.0 | 26460000 | accepted | 0 | 26460000 | 1 | 26460000 | 600.0 | none | none | none | none |
@@ -4868,6 +4869,7 @@ Per fixture and sample rate: the agreement set (every compile-accepted valid fix
 | starter-relax-layers.json | 48000 | no | 1800.0 | 86400000 | accepted | 0 | 86400000 | 1 | 86400000 | 1800.0 | none | none | none | none |
 | starter-sleep-layers.json | 48000 | no | 2700.0 | 129600000 | accepted | 0 | 129600000 | 1 | 129600000 | 2700.0 | none | none | none | none |
 | swell-theta-cycle.json | 48000 | no | 120.0 | 5760000 | accepted | 0 | 5760000 | 1 | 5760000 | 120.0 | none | none | none | none |
+| theta-cycle-sine-stored.json | 48000 | no | 120.0 | 5760000 | accepted | 0 | 5760000 | 1 | 5760000 | 120.0 | none | none | none | none |
 | theta-cycle-sine.json | 48000 | no | 120.0 | 5760000 | accepted | 0 | 5760000 | 1 | 5760000 | 120.0 | none | none | none | none |
 | theta-cycle-smoothed-on-off.json | 48000 | no | 120.0 | 5760000 | accepted | 0 | 5760000 | 1 | 5760000 | 120.0 | none | none | none | none |
 | theta-reference-only.json | 48000 | no | 600.0 | 28800000 | accepted | 0 | 28800000 | 1 | 28800000 | 600.0 | none | none | none | none |
@@ -5024,6 +5026,7 @@ Per fixture: the loudness-relevant members it has, the object `O_L` in RFC 8785 
 | stub-chain-1s-no-gain.json | binaural, length_s, loudness_target_lufs | `{"binaural":{"beat_rate_hz":6,"carrier_left_hz":400},"length_s":1,"loudness_target_lufs":-36}` | `47077b17ad9b2ffe137e8d07ccc3f37ad795ef239bcae2cbc93742a1d5f36820` | `787c57a25880f925c4212b5563e54e37dd89349ed1ed31ee7944ee1f7c48ed34` |
 | stub-chain-1s-no-layers.json | length_s, loudness_target_lufs | `{"length_s":1,"loudness_target_lufs":-36}` | `2f95717464e109ee870e67bfc2b3f6d16d7bdd239957bf5f418cac6eda2d105b` | `0024c63ea1c830ffa3f0258e30313d06bda81c94c2fedecb940df540a3a0ed84` |
 | theta-reference-only.json | length_s, loudness_target_lufs, theta_reference | `{"length_s":600,"loudness_target_lufs":-36,"theta_reference":{"am_depth_percent":0,"carrier_hz":200,"rate_hz":6,"shape":"sine"}}` | `1ea594ff00f001401853bc62e8b0bf714fb2c5d222008d81b3e6893b749667e0` | `529bf5d376aaecba726bd843aa43a862900bb8981934978928615b14a28dc4f6` |
+| theta-cycle-sine-stored.json | length_s, loudness_target_lufs, theta_reference | `{"length_s":120,"loudness_target_lufs":-36,"theta_reference":{"am_depth_percent":75,"carrier_hz":450,"rate_cycle":{"period_s":60,"start_phase_deg":0,"swing_hz":2.5},"rate_hz":3.5,"shape":"sine"}}` | `f5cada8fb98f8ab3dcebc530fab7d255f74506f31c8deabbde9fc40552e5ebc6` | `edd6b7d194afc8b5e43645a8ae7c1f24d3da6c761a929156775bb04930ac6559` |
 | starter-focus-layers.json | gamma_pac, length_s, loop, loudness_target_lufs, theta_reference | `{"gamma_pac":{"am_depth_percent":100,"carrier_hz":250,"carrier_wave":"sine","coupling":"bursts","coupling_phase_deg":0,"rate_hz":40},"length_s":2700,"loop":{"body_s":120,"max_run_time_min":45,"mode":"focus","opening_s":60},"loudness_target_lufs":-36,"theta_reference":{"am_depth_percent":75,"carrier_hz":450,"rate_hz":6,"shape":"sine"}}` | `1c4d0eea9cf4ee718d3953db3c9a9fa2bea57240ece29916474dd036baedc32a` | `c2a4253592cb6aeff615dee25b62e22324da8651467e3921ba2a9a79b44928bd` |
 | theta-cycle-sine.json | length_s, loudness_target_lufs, theta_reference | `{"length_s":120,"loudness_target_lufs":-36,"theta_reference":{"am_depth_percent":75,"carrier_hz":450,"rate_cycle":{"period_s":60,"start_phase_deg":0,"swing_hz":2.5},"rate_hz":3.5,"shape":"sine"}}` | `f5cada8fb98f8ab3dcebc530fab7d255f74506f31c8deabbde9fc40552e5ebc6` | `edd6b7d194afc8b5e43645a8ae7c1f24d3da6c761a929156775bb04930ac6559` |
 

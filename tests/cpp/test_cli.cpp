@@ -1805,3 +1805,28 @@ TEST_CASE("final render of a stored copy with length_s edited is stale: final.lo
   CHECK(r.err == "rejected: parameter=/loudness_hash value=" + s.hash + " rule=final.loudness_hash limit== " + h + "\n");
   CHECK(listing(dir) == std::vector<std::string>{fixture});
 }
+
+// Story 4.2 review: a gain stored on the dev PC and committed. The final
+// render reads it as committed, never re-stored, so an engine change that
+// moves the level fails the loudness checks (spec decision 1).
+TEST_CASE("final render of the committed stored-gain fixture passes both loudness checks without re-storing",
+          "[cli][store-gain]") {
+  ScopedEnv env(kEnv, nullptr);
+  const std::string fixture = "theta-cycle-sine-stored.json";
+  const fs::path recipe = fixture_path(fixture);
+  const std::string committed = file_bytes(recipe);
+  // The committed gain: -31.96 dB, k = -3196 (stored at 48 kHz on the dev PC).
+  const std::string gain = lg::member_value(committed, "loudness_gain_db");
+  CHECK(gain == "-31.96");
+  const std::int64_t k = static_cast<std::int64_t>(std::round(100.0 * std::strtod(gain.c_str(), nullptr)));
+  CHECK(k == -3196);
+  CHECK(lg::harness_gain_text(k) == gain);
+  for (std::uint32_t rate : table_rates()) {
+    INFO("rate " << rate);
+    const fs::path dir = case_dir("stored-fixture-" + std::to_string(rate));
+    const json::Value report = final_loudness_render(recipe, dir, rate, 0);
+    CHECK(report.find("mode")->string() == "final");
+    check_final_loudness(report, -36.0, "pass", "pass");
+  }
+  CHECK(file_bytes(recipe) == committed);  // never rewritten
+}

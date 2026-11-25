@@ -64026,6 +64026,7 @@
       "starter-relax-layers.json",
       "starter-sleep-layers.json",
       "swell-theta-cycle.json",
+      "theta-cycle-sine-stored.json",
       "theta-cycle-sine.json",
       "theta-cycle-smoothed-on-off.json",
       "theta-reference-only.json"
@@ -65482,6 +65483,24 @@
       "limit": "none"
     },
     {
+      "fixture": "theta-cycle-sine-stored.json",
+      "fs": 44100,
+      "looping": "no",
+      "length_s": "120.0",
+      "end_frame": "5292000",
+      "min_frames": "2646000",
+      "result": "accepted",
+      "start_frame": "0",
+      "body_frames": "5292000",
+      "repeats": "1",
+      "window_frames": "5292000",
+      "window_s": "120.0",
+      "parameter": "none",
+      "value": "none",
+      "rule": "none",
+      "limit": "none"
+    },
+    {
       "fixture": "theta-cycle-sine.json",
       "fs": 44100,
       "looping": "no",
@@ -66130,6 +66149,24 @@
       "limit": "none"
     },
     {
+      "fixture": "theta-cycle-sine-stored.json",
+      "fs": 48000,
+      "looping": "no",
+      "length_s": "120.0",
+      "end_frame": "5760000",
+      "min_frames": "2880000",
+      "result": "accepted",
+      "start_frame": "0",
+      "body_frames": "5760000",
+      "repeats": "1",
+      "window_frames": "5760000",
+      "window_s": "120.0",
+      "parameter": "none",
+      "value": "none",
+      "rule": "none",
+      "limit": "none"
+    },
+    {
       "fixture": "theta-cycle-sine.json",
       "fs": 48000,
       "looping": "no",
@@ -66451,6 +66488,17 @@
       "canonical": "{\"length_s\":600,\"loudness_target_lufs\":-36,\"theta_reference\":{\"am_depth_percent\":0,\"carrier_hz\":200,\"rate_hz\":6,\"shape\":\"sine\"}}",
       "loudness_hash": "1ea594ff00f001401853bc62e8b0bf714fb2c5d222008d81b3e6893b749667e0",
       "recipe_hash": "529bf5d376aaecba726bd843aa43a862900bb8981934978928615b14a28dc4f6"
+    },
+    {
+      "fixture": "theta-cycle-sine-stored.json",
+      "members": [
+        "length_s",
+        "loudness_target_lufs",
+        "theta_reference"
+      ],
+      "canonical": "{\"length_s\":120,\"loudness_target_lufs\":-36,\"theta_reference\":{\"am_depth_percent\":75,\"carrier_hz\":450,\"rate_cycle\":{\"period_s\":60,\"start_phase_deg\":0,\"swing_hz\":2.5},\"rate_hz\":3.5,\"shape\":\"sine\"}}",
+      "loudness_hash": "f5cada8fb98f8ab3dcebc530fab7d255f74506f31c8deabbde9fc40552e5ebc6",
+      "recipe_hash": "edd6b7d194afc8b5e43645a8ae7c1f24d3da6c761a929156775bb04930ac6559"
     },
     {
       "fixture": "starter-focus-layers.json",
