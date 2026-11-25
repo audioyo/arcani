@@ -77,7 +77,7 @@
   summary: Add an isolation calibration case with a second component in the muted channel at the spacing-rule distance from the measured carrier, once a layer other than the binaural pair shares a channel (Story 2.5).
   evidence: Unverified (would be medium). Calibration today holds only the leaked carrier in the muted channel; Hann sidelobe leakage from a 50 Hz neighbour into the single-bin DFT is unmeasured. Settle it with a Python calibration signal carrying a known interferer and a check that the C++ measurement still reads the known leakage within 0.5 dB.
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-2-c-api-fixed-stage-list-seek-and-isolation-assertion.md`
-  summary: Replace the shared placeholder `loudness_hash` in the valid recipe fixtures (Story 1.1 and Story 1.2 stub-chain ones) when Story 4.2 makes `final` mode check the hash match, or those fixtures and the final-mode API tests will fail.
+  summary: (closed by Story 4.2: every valid fixture that stores a loudness_hash now carries its real loudness hash, and final mode checks it with rule final.loudness_hash) Replace the shared placeholder `loudness_hash` in the valid recipe fixtures (Story 1.1 and Story 1.2 stub-chain ones) when Story 4.2 makes `final` mode check the hash match, or those fixtures and the final-mode API tests will fail.
   evidence: Every valid fixture carries the same placeholder hash; `tests/cpp/test_api.cpp` compiles stub-chain fixtures in `final` mode.
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-2-c-api-fixed-stage-list-seek-and-isolation-assertion.md`
   summary: Prove the denormal guard at the C API call sites with a fixture whose output contains subnormals, rendered with host FTZ and DAZ set and compared byte for byte with an IEEE-mode render, once a layer (Epic 2 envelopes or ramps) can produce one.
@@ -125,7 +125,7 @@
   summary: The render speed assertion of a preview counts the F preview frames, but no test renders a preview with `ARCANI_REFERENCE_MACHINE=1`, so a preview speed pass or fail is never driven. Add one when the reference-machine speed tests (`tests/cpp/test_cli.cpp`, render speed cases) are next touched.
   evidence: Story 3.3 review; `cli/main.cpp` passes `out_frames` to `cli::render_speed`, and the `--preview` CLI tests run with the variable unset.
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-1-loudness-meter.md`
-  summary: Story 4.2 must decide how a stored loudness_gain_db stays byte-identical across platforms (round the gain before storing, or pin the measuring platform), since the 4.1 meters call tan and log10 and are not bit-exact across platforms.
+  summary: (closed by Story 4.2: the gain is rounded half away from zero to 0.01 dB before storing, design log 2026-11-25 (bbb)) Story 4.2 must decide how a stored loudness_gain_db stays byte-identical across platforms (round the gain before storing, or pin the measuring platform), since the 4.1 meters call tan and log10 and are not bit-exact across platforms.
   evidence: Review pass 1 finding B9; the 4.1 Implementation Notes say the readings may differ in the last bits; 4.2 requires measuring twice to write identical bytes.
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-1-loudness-meter.md`
   summary: Story 4.4 must prove the looping loudness window starts at the opening end frame O, with a fixture whose ramp-in makes the opening differ from the body, since no 4.1 fixture can tell [O, O + B) from [0, B).
