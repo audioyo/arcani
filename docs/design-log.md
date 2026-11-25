@@ -86,6 +86,13 @@ Sources point to `docs/research-library.md`, a research run under `_bmad-output/
 
 ## Entries
 
+### 2026-11-25 (ccc): The committed stored-gain fixture and the final-mode probe pins (S4.2)
+
+- **Stored-gain fixture:** `recipes/fixtures/valid/theta-cycle-sine-stored.json` is `theta-cycle-sine.json` (120 s, non-looping) with its gain and loudness hash stored by `arcani-render --store-gain` on the dev PC at 48 kHz: `loudness_gain_db` -31.96 (`k` = -3196), window reading -4.04093694543638 LUFS-I, loudness hash `f5cada8f...`. CI renders it as committed, never re-stored, in final mode with `--loudness` at 44.1 and 48 kHz and requires `loudness` and `loudness_whole` to pass, so an engine change that moves the level fails CI (Story 4.2 spec, decision 1). Re-store it only on the dev PC, and only with a reason logged here.
+- **Probe pins:** `ci/hash_expected.json` gains `stub-chain-final-44100` (88200 samples, `e4c4aef5...`) and `stub-chain-final-48000` (96000 samples, `e9afc6fa...`), scope `engine`: the final-mode render of `stub-chain-1s-beat-6.json` (stored gain -1.5 dB). They are the windows-x64 dev PC probe; the next full run must show all four platforms equal to them, per the pin update rule of entry (kk).
+- **Source:** Story 4.2 review; dev PC store and probe results above.
+- **Status:** proposed.
+
 ### 2026-11-25 (aaa): Allowed range of the stored loudness gain (S4.2)
 
 - **New range row:** `loudness-gain`, -60 dB to 0 dB, inclusive, unit dB, pending on Story 4.2 until its tests read it. It bounds the recipe member `loudness_gain_db`, which Story 1.1 left with no range row ("Story 4.2 checks it"). The engine checks it at compile in both modes, in field table order right after `loudness_target_lufs`, with rules `range.min` (limit `>= -60 dB (row loudness-gain)`) and `range.max` (limit `<= 0 dB (row loudness-gain)`). `arcani-render --store-gain` applies the same check to the gain it would write, and writes nothing when it fails.
