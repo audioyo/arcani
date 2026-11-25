@@ -69,12 +69,12 @@ Decisions (planning, 2026-11-21, within AD-13; Audio can overrule any of them at
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `docs/signal-spec.md`, `tools/signal_spec_vectors.py`, `tests/tables/ranges.tsv`, `docs/design-log.md`, `recipes/README.md`: add the loudness hash, the gain rounding, `c^k`, row `loudness-gain`, design-log entries for the row and the rounding step, and vectors. The signal spec is the single formula source, merged before code.
-- [ ] `tests/cpp/test_store_gain.cpp`, `tests/cpp/test_api.cpp`, `tests/cpp/test_cli.cpp`, `tests/python/test_store_gain.py`, `tests/python/test_recipes_unchanged.py`: failing tests from the matrix, as a tests-only commit (rule 6).
-- [ ] engine (`recipe.cpp`, validate, `plan.cpp`, `renderer.cpp`, `arcani.h`, `api.cpp`) and `reference/stub_chain.py`: hash, range, final checks, and applied gain.
-- [ ] `cli/recipe_write.{hpp,cpp}`, `cli/main.cpp`, `cli/report.{hpp,cpp}`, `cli/CMakeLists.txt`: `--store-gain` and the final-mode checks.
-- [ ] `recipes/fixtures/valid/*.json`: real loudness hashes.
-- [ ] `tools/check_recipes_unchanged.py`, `.github/workflows/*.yml`: the CI check, plus a pytest must-fail that runs it in a temp git repo with a modified recipe.
+- [x] `docs/signal-spec.md`, `tools/signal_spec_vectors.py`, `tests/tables/ranges.tsv`, `docs/design-log.md`, `recipes/README.md`: add the loudness hash, the gain rounding, `c^k`, row `loudness-gain`, design-log entries for the row and the rounding step, and vectors. The signal spec is the single formula source, merged before code.
+- [x] `tests/cpp/test_store_gain.cpp`, `tests/cpp/test_api.cpp`, `tests/cpp/test_cli.cpp`, `tests/python/test_store_gain.py`, `tests/python/test_recipes_unchanged.py`: failing tests from the matrix, as a tests-only commit (rule 6).
+- [x] engine (`recipe.cpp`, validate, `plan.cpp`, `renderer.cpp`, `arcani.h`, `api.cpp`) and `reference/stub_chain.py`: hash, range, final checks, and applied gain.
+- [x] `cli/recipe_write.{hpp,cpp}`, `cli/main.cpp`, `cli/report.{hpp,cpp}`, `cli/CMakeLists.txt`: `--store-gain` and the final-mode checks.
+- [x] `recipes/fixtures/valid/*.json`: real loudness hashes.
+- [x] `tools/check_recipes_unchanged.py`, `.github/workflows/*.yml`: the CI check, plus a pytest must-fail that runs it in a temp git repo with a modified recipe.
 
 **Acceptance Criteria:**
 - Given a final-mode render of a stored recipe, when the engine and the Python reference render it at 44.1 and 48 kHz, then they match below -100 dBFS, and the four-platform hash check covers it.
