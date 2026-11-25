@@ -356,6 +356,8 @@ struct Values {
   bool gamma = false;
   bool binaural = true;
   bool gain = true;  // loudness_gain_db and loudness_hash
+  // Story 4.2: the stored gain's value text (row loudness-gain), with gain.
+  std::string loudness_gain_db = "-1.5";
 };
 
 std::string make_recipe(const Values& v) {
@@ -370,7 +372,7 @@ std::string make_recipe(const Values& v) {
       "  \"length_s\": " + v.length_s + ",\n"
       "  \"loudness_target_lufs\": " + v.loudness_target_lufs;
   if (v.gain) {
-    s += ",\n  \"loudness_gain_db\": -1.5,\n"
+    s += ",\n  \"loudness_gain_db\": " + v.loudness_gain_db + ",\n"
          "  \"loudness_hash\": \"6a29ccd608e4c1945bfff95af078a97daea48eca54a38e065ae33dfa9c2d83a6\"";
   }
   if (v.theta) {
@@ -2857,6 +2859,19 @@ TEST_CASE("check order: ranges in field table order, first failure wins", "[vali
     v.loudness_target_lufs = "-16";
     v.theta_carrier_hz = "50";
     v.carrier_left_hz = "1000";
+    expect_rejected(v, {"/loudness_target_lufs", "-16", "range.max",
+                        "<= -36 LUFS-I (row loudness-tones)"});
+  }
+  {
+    Values v;  // Story 4.2: the stored gain right after the target, before theta
+    v.loudness_gain_db = "0.5";
+    v.theta_carrier_hz = "50";
+    expect_rejected(v, {"/loudness_gain_db", "0.5", "range.max", "<= 0 dB (row loudness-gain)"});
+  }
+  {
+    Values v;  // Story 4.2: the target before the stored gain
+    v.loudness_target_lufs = "-16";
+    v.loudness_gain_db = "-61";
     expect_rejected(v, {"/loudness_target_lufs", "-16", "range.max",
                         "<= -36 LUFS-I (row loudness-tones)"});
   }
