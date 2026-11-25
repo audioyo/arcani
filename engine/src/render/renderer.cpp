@@ -110,7 +110,7 @@ void Renderer::render_block(std::size_t count) noexcept {
         const double bus = theta + gamma;                        // stereo bus, within channel c
         const double bin = ears.amplitude[c] * core::sine(ear_phase[c]);  // binaural ear c, a pure sine
         const double join = bus + bin;                           // binaural join, ear c to channel c only
-        const double master = join * 1.0;                        // per-channel gain (stored gain is Epic 4)
+        const double master = join * plan_.master_gain;          // per-channel gain: 1.0 measure, g final (Story 4.2)
         theta_[k] = theta;
         gamma_[k] = gamma;
         bus_[k] = bus;

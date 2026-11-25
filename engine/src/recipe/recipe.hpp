@@ -125,6 +125,9 @@ struct Recipe {
   std::optional<Binaural> binaural;
   std::optional<Loop> loop;  // Story 2.7; absent when the field is absent
   std::string hash;  // recipe hash, 64 lowercase hex digits
+  // Story 4.2: the loudness hash of this recipe (docs/signal-spec.md,
+  // Loudness gain), 64 lowercase hex digits; not the stored loudness_hash.
+  std::string loudness_hash_computed;
 };
 
 struct ParseResult {

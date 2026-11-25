@@ -20,8 +20,9 @@ constexpr Field kFields[] = {
     {"/rationale", String, HashExcluded, true, "", 1.0},
     {"/length_s", Number, LoudnessRelevant, true, "session-length", 3600.0},  // 8 h = 28800 s
     {"/loudness_target_lufs", Number, LoudnessRelevant, true, "loudness-tones", 1.0},
-    // Written by the measure pass, not authored; Story 4.2 checks it.
-    {"/loudness_gain_db", Number, HashExcluded, false, "", 1.0},
+    // Written by arcani-render --store-gain, not authored; Story 4.2: held to
+    // row loudness-gain in both modes (docs/signal-spec.md, Loudness gain).
+    {"/loudness_gain_db", Number, HashExcluded, false, "loudness-gain", 1.0},
     {"/loudness_hash", String, HashExcluded, false, "", 1.0},
     {"/theta_reference", Object, LoudnessRelevant, false, "", 1.0},
     {"/theta_reference/carrier_hz", Number, LoudnessRelevant, true, "theta-carrier", 1.0},
