@@ -73,7 +73,7 @@ development_status:
   epic-4: in-progress
   4-1-loudness-meter: done
   4-2-stored-loudness-gain: done
-  4-3-true-peak: backlog
+  4-3-true-peak: ready-for-dev
   4-4-gain-ramps: backlog
   4-5-limiter-idle: backlog
   epic-4-retrospective: optional
