@@ -81,6 +81,57 @@ Decisions (planning, 2026-11-21, within AD-13; Audio can overrule any of them at
 - Given any existing `measure` render, when it runs, then its WAV and report bytes do not change.
 - Given the full suite, when it runs on the dev PC and in CI, then everything passes and `tools/check_row_coverage.py` sees `loudness-gain` in use.
 
+## Implementation Notes
+
+Everything below follows `docs/signal-spec.md`, Loudness gain, and its vectors (`tests/data/signal_spec_vectors.json`, keys `loudness_gain_constants`, `loudness_hashes`, `loudness_gain_steps`, `loudness_gain_values`, `loudness_rewrites`; C++ `kLoudnessGain_*`, `kLoudnessHashes`, `kLoudnessGainSteps`, `kLoudnessGainValues`, `kLoudnessRewrites` in the generated `spec_tables.hpp`). Vector constants are cross-checked against the rows, never used in their place. Row `loudness-gain` is in `tests/tables/ranges.tsv`, pending on this story; clear `pending` once a test reads it through `row()`.
+
+**Engine.**
+
+- `engine/src/recipe/field_table.cpp`: `/loudness_gain_db` names range row `loudness-gain` (scale 1.0); `engine/src/validate/validate.cpp` gains `{"loudness-gain", -60.0, 0.0, false, "dB"}` and a value lookup for the field (present only). The range check runs in both modes, in field table order. The engine range table test then expects 17 ids.
+- `engine/src/recipe/recipe.cpp`: the loudness hash next to `strip_hash_excluded`: the root's members whose field table entry is top level and tagged `LoudnessRelevant`, then `json::canonicalize` and `crypto::sha256_hex`. The recipe hash is unchanged.
+- `engine/src/plan/plan.cpp`: after the two `final.required` checks, `final.loudness_hash` (parameter `/loudness_hash`, value the stored hash, limit `"= " + H`). `Plan` gains `loudness_hash` (both modes) and `master_gain` (1.0 in measure mode; `g` by Linear gain in final mode).
+- `engine/src/render/renderer.cpp`: `join * 1.0` becomes `join * plan.master_gain`.
+- C API, in the style of `arc_plan_loop`:
+
+```
+/* Writes the plan's loudness hash (docs/signal-spec.md, Loudness gain): 64
+   lowercase hex digits and a terminating NUL, into out_hash. Both modes.
+   ARC_ERR_INVALID_ARGUMENT for a NULL plan or out_hash. */
+arc_status arc_plan_loudness_hash(const arc_plan* plan, char out_hash[65], arc_error* error);
+```
+
+**Python.** `tools/recipe_hash.py` gains `loudness_hash_value(value, schema=None)` and `loudness_hash_bytes(data, schema=None)`, from `canonicalize`, `load_tags`, and the top-level `loudness-relevant` members, and a `--loudness` flag that prints the loudness hash instead of the recipe hash. `reference/stub_chain.py` takes the compile mode (`measure` default, `final`) and, in final mode, `loudness_gain_db` from the recipe, computes `k` and `g` by the spec steps in binary64, and multiplies the master by `g`.
+
+**Command-line tooling, `cli/recipe_write.{hpp,cpp}`** in `arcani_cli_core`, namespace `arcani::cli` (no `engine/src` include):
+
+```
+struct Member { std::string name; std::size_t lead_begin, key_begin, key_end, value_begin, value_end; };  // byte offsets; name unescaped
+std::vector<Member> top_level_members(std::string_view accepted_json);   // throws std::invalid_argument unless one JSON object
+std::optional<double> top_level_number(std::string_view accepted_json, std::string_view name);  // std::from_chars of the value token
+std::string rewrite_loudness_members(std::string_view accepted_json, std::string_view gain_text, std::string_view loudness_hash);
+                                                                          // throws std::invalid_argument without loudness_target_lufs
+std::string gain_text(std::int64_t k);                                    // "-35.27", "0.00"
+struct GainStep { bool stored; std::int64_t k; std::string gain_text, value, rule, limit; };  // k 0 and texts empty when not applicable
+GainStep gain_step(double window_lufs, double target_lufs, const arcani::test::tables::Row& gain_row);
+                                                                          // throws TableError unless a ranges row in dB with finite bounds
+```
+
+`gain_step` limits come from the row's `min_text` and `max_text`: `>= -60 dB (row loudness-gain)`, `<= 0 dB (row loudness-gain)`. `arcani-render --store-gain` follows Loudness gain, Store, steps 1 to 9. The final-mode assertions `loudness` and `loudness_whole` go in `cli/report.{hpp,cpp}` (functions `loudness_assertion(row, window_lufs, target)` and `loudness_whole_assertion(row, whole_lufs, target)` returning `Assertion`), appended after render speed only in final mode with `--loudness`. Update the usage text, the `main.cpp` header comment, and the `CLAUDE.md` render command line.
+
+**Test tools.** `arcani-tapdump` gains an optional `--final` argument (compile in final mode; every other mode unchanged), so the Python reference match can read a final-mode master. Hash probe components `stub-chain-final-44100` and `stub-chain-final-48000`: the final-mode render of `stub-chain-1s-beat-6.json` (scope `engine`); their `ci/hash_expected.json` entries wait for a green four-platform full run, as in earlier stories.
+
+**CI check, `tools/check_recipes_unchanged.py`** (standard library only): runs `git status --porcelain --untracked-files=all -- recipes` in the repo (`--repo DIR`, default the repo root); exit 0 when empty; exit 1 with one line per modified, added, deleted, or untracked path, naming it; exit 2 on a git error. It is the last step of every job in `.github/workflows/fast.yml` and `full.yml`, after the tests.
+
+**Test contracts (the QA agent may split differently; keep the added CI time to about 3 minutes of CPU per platform; every store works on a temp copy, never on the checkout; delete each large file as soon as it is read):**
+
+- `tests/cpp/test_store_gain.cpp` (guarded by `__has_include("recipe_write.hpp")`): `gain_step` against every `kLoudnessGainSteps` row with the real `loudness-gain` row, and a doctored row with unit `LU` throws; `gain_text` against every `kLoudnessGainValues` row whose `two_decimals` is true; `rewrite_loudness_members` against every `kLoudnessRewrites` row (output bytes exact, the output rewritten again unchanged); each output compiles in final mode through `arc_compile`, and `arc_plan_loudness_hash` on the input equals the row's hash; `top_level_members` finds the escaped names of the `escaped member names` case; `top_level_number` reads `loudness_target_lufs` as -36. Must-fails doctored here: a tie rounded toward zero gives a different `k`; an output with one byte changed differs.
+- `tests/cpp/test_api.cpp`: `arc_plan_loudness_hash` equals `kLoudnessHashes` for every listed fixture the engine accepts in measure mode, at both rates; NULL plan or buffer gives `ARC_ERR_INVALID_ARGUMENT`. Final mode: every listed fixture compiles except `both-layers-loudness-target-changed.json` (range) and `stub-chain-1s-no-gain.json` (`final.required`); a harness copy with the old placeholder hash is rejected with parameter `/loudness_hash`, value the placeholder, rule `final.loudness_hash`, limit `= ` plus the vector hash; a harness copy with `length_s` changed is stale; copies with `author`, `date`, or `rationale` changed compile. Range in both modes: `-60.01` fails `range.min` and `0.01` fails `range.max` with the vector limits, `-60` and `0` compile. Applied gain on `stub-chain-1s-beat-6.json` with all taps at both rates: final-mode master equals join times the `-1.5` row's `g` bit for bit, the theta, gamma, bus, and join taps equal measure mode's, and with the stored gain `0.00` or `-0.00` the final output equals the measure output bit for bit. Add the accessor to `test_api_c.c`.
+- `tests/cpp/test_cli.cpp`: `--store-gain` with each excluded option, and twice, exits 2 and leaves the file's bytes unchanged; a temp copy of `theta-sine-6hz.json` exits 1 with the `loudness_window_rule` line, unchanged; a temp copy of a recipe with no layers and a 60 s session (made in the harness) exits 1 with `value=inf rule=range.max`, unchanged. On temp copies of both store fixtures at 48 kHz: exit 0, the stdout line, every byte outside the two members unchanged, the gain text two decimals, the hash equal to the `kLoudnessHashes` row; a second store gives the same bytes. Final render of each stored copy with `--mode final --loudness` at 48 kHz (and the non-looping one at 44.1 kHz too): exit 0, `loudness` and `loudness_whole` pass; the must-fail copy (gain `+1.5` dB, `k + 150`) exits 4 with `loudness` failing; a stored copy with `length_s` edited exits 1 with the `final.loudness_hash` line. The measure-mode `--loudness` report has no loudness assertion.
+- `tests/python/test_store_gain.py`: `loudness_hash_value` against every `loudness_hashes` row, and the same and different relations among the `both-layers` variants; `reference/stub_chain.py` in final mode on `stub-chain-1s-beat-6.json` against the engine (`arcani-tapdump --final`) at both rates, every compared signal below `reference-match`; its `g` equals the stored gain vectors bit for bit; the Python meter on a final-mode render of a stored temp copy reads within `loudness-tolerance` of the target; the rows `loudness-gain` and the vector bounds agree.
+- `tests/python/test_recipes_unchanged.py`: in a temp git repo, a clean tree exits 0; a modified recipe, an added (untracked) recipe, and a deleted recipe each exit 1 naming the path; a change outside `recipes/` exits 0; a must-fail CI step that writes a gain into a recipe in that repo is caught.
+
+## Spec Change Log
+
 ## Design Notes
 
 **Phased handoff.** As in Story 4.1, on branch `story/4-2-stored-loudness-gain`:

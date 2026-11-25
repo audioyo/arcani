@@ -1,4 +1,4 @@
-"""Writes the worked test vectors of docs/signal-spec.md: core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer and rate curve, loop, components, spacing, preview, loudness, 24-bit rounding.
+"""Writes the worked test vectors of docs/signal-spec.md: core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer and rate curve, loop, components, spacing, preview, loudness, loudness gain, 24-bit rounding.
 
 Usage:
   python tools/signal_spec_vectors.py            write tests/data/signal_spec_vectors.json
@@ -107,6 +107,16 @@ engine or from binary64 library calls:
   cosine); the Tech 3341 readings in steady state, 100 ms at a time, with the
   gates as written (decimal log10); the window frames by the
   seconds-to-samples rule and exact integer arithmetic.
+- Loudness gain (Story 4.2): the loudness hash from tools/recipe_hash.py's
+  strict loader, RFC 8785 canonical form, and schema tags (the top-level
+  loudness-relevant members), SHA-256 by hashlib; the gain rounding with
+  d and x in binary64 and k rounded half away from zero in exact Fraction
+  arithmetic; c = 10^(1/2000) in 70-digit decimal arithmetic (decimal ln and
+  exp), its binary64 checked against both neighbors; g by the spec's binary
+  exponentiation in binary64, with the exact 10^(k/2000) at 25 digits and
+  the largest relative error over every k from 0 to -6000; the file rewrite
+  by an independent byte scanner and splice, each output checked to keep
+  the loudness hash and the recipe hash and to be its own rewrite.
 - 24-bit rounding (Story 1.4): x = s * 2^23 in exact Fraction arithmetic,
   clamped to [-8388608, 8388607], else rounded to the nearest integer, ties
   to even; NaN gives 0. Written as 3 bytes, little-endian two's complement.
@@ -116,6 +126,7 @@ Standard library only.
 
 import argparse
 import functools
+import hashlib
 import json
 import math
 import struct
@@ -125,6 +136,8 @@ from fractions import Fraction
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import recipe_hash as _rh  # noqa: E402  (tools/recipe_hash.py: strict parse, RFC 8785, schema tags)
 DEFAULT_OUT = REPO_ROOT / "tests" / "data" / "signal_spec_vectors.json"
 
 CYCLE = 2**64
@@ -4247,6 +4260,413 @@ def loudness_constants():
     }
 
 
+# ---------------------------------------------------- loudness gain (Story 4.2)
+
+LOUDNESS_GAIN_ROW = "loudness-gain"
+LOUDNESS_GAIN_MIN_DB = -60.0         # row loudness-gain (Audio, 2026-11-25)
+LOUDNESS_GAIN_MAX_DB = 0.0
+LOUDNESS_GAIN_STEPS_PER_DB = 100     # the gain is stored as k = 100 * gain, an integer
+LOUDNESS_GAIN_PARAMETER = "/loudness_gain_db"
+LOUDNESS_HASH_PARAMETER = "/loudness_hash"
+LOUDNESS_HASH_RULE = "final.loudness_hash"
+LOUDNESS_RELEVANT = "loudness-relevant"
+LOUDNESS_TARGET_LUFS = -36.0         # row loudness-tones, the only target the engine accepts
+LOUDNESS_GAIN_MUST_FAIL_DB = "1.5"   # the doctored stored gain above the measured one
+# The fixtures a stored-gain test measures, on a temp copy: the Story 4.1
+# assertion fixture (looping, 45 min, body 120 s) and one non-looping
+# fixture of 120 s (window = whole session).
+LOUDNESS_STORE_FIXTURES = (LOUDNESS_ASSERTION_FIXTURE, "theta-cycle-sine.json")
+# A final-mode render short enough for the reference match and the hash
+# probe: 1 s, its stored placeholder gain -1.5 dB, its real loudness hash
+# once Story 4.2 writes it.
+LOUDNESS_FINAL_FIXTURE = "stub-chain-1s-beat-6.json"
+# Vectors: loudness hash: every valid fixture that carries a loudness_hash
+# (each gets its own real hash in Story 4.2), then the store fixtures.
+LOUDNESS_HASH_FIXTURES = (
+    "binaural-only.json", "both-layers.json", "both-layers-beat-rate-changed.json",
+    "both-layers-binaural-carrier-left-changed.json", "both-layers-engine-version-changed.json",
+    "both-layers-length-changed.json", "both-layers-loudness-target-changed.json",
+    "both-layers-metadata-edited.json", "both-layers-reformatted.json", "both-layers-schema-minor-changed.json",
+    "both-layers-seed-changed.json", "both-layers-theta-carrier-changed.json", "stub-chain-1s-beat-0.json",
+    "stub-chain-1s-beat-6.json", "stub-chain-1s-no-gain.json", "stub-chain-1s-no-layers.json",
+    "theta-reference-only.json", "starter-focus-layers.json", "theta-cycle-sine.json",
+)
+# Vectors: gain rounding: (case, window reading L as decimal text or "-inf").
+# Each L is the binary64 nearest the text; d = target - L.
+LOUDNESS_GAIN_STEP_CASES = (
+    ("typical", "-0.73"),
+    ("loud window", "2.5"),
+    ("one step", "-35.99"),
+    ("tie away from zero, below", "-35.875"),
+    ("tie away from zero, above", "-36.125"),
+    ("rounds to 0.00, below", "-35.996"),
+    ("rounds to 0.00, above", "-36.004"),
+    ("half step below, binary64", "-35.995"),
+    ("half step above, binary64", "-36.005"),
+    ("whole dB", "-1"),
+    ("half dB", "-12.5"),
+    ("at the row minimum", "24"),
+    ("inside the row minimum", "24.004"),
+    ("half step past the row minimum", "24.005"),
+    ("past the row minimum", "24.01"),
+    ("far past the row maximum", "-69.9"),
+    ("silent window", "-inf"),
+)
+# Vectors: stored gain: gain texts as a recipe holds them. The store writes
+# only two-decimal texts; the others are hand-written values between steps.
+LOUDNESS_GAIN_TEXTS = (
+    "0.00", "-0.00", "-0.01", "-0.02", "-0.05", "-0.13", "-1.00", "-1.50", "-10.00", "-20.00", "-35.27",
+    "-35.28", "-59.99", "-60.00", "-35.275", "-35.2749", "-0.005", "-0.004", "0", "-60", "-1.5",
+)
+# The two-decimal texts by k; the store writes k from 0 down to -6000.
+LOUDNESS_GAIN_C_DIGITS = 60
+
+
+def loudness_gain_c():
+    """c = 10^(1/2000): (Decimal at PREC digits, the binary64 nearest it), checked against both neighbors."""
+    with localcontext() as ctx:
+        ctx.prec = LOUDNESS_GAIN_C_DIGITS + 10
+        c = (Decimal(10).ln() / 2000).exp()
+    exact = Fraction(c)
+    b = float(exact)
+    lo, hi = math.nextafter(b, 0.0), math.nextafter(b, 2.0)
+    d = abs(exact - Fraction(b))
+    # Not near a tie: the decimal error (1e-70) is far below the distance to either midpoint.
+    assert d < abs(exact - Fraction(lo)) and d < abs(exact - Fraction(hi))
+    assert abs(d - (Fraction(hi) - Fraction(b)) / 2) > Fraction(1, 10**60)
+    return c, b
+
+
+def gain_power(m, c):
+    """c^m for an integer m >= 0 by binary exponentiation in binary64, the spec's order."""
+    p = 1.0
+    b = c
+    while m > 0:
+        if m & 1:
+            p = p * b
+        m >>= 1
+        if m > 0:
+            b = b * b
+    return p
+
+
+def linear_gain(k):
+    """Loudness gain, Linear gain: g for an integer k (binary64)."""
+    _, c = loudness_gain_c()
+    p = gain_power(abs(k), c)
+    return 1.0 / p if k < 0 else p
+
+
+def gain_ideal(k):
+    """The exact 10^(k / 2000) as a Decimal at PREC digits."""
+    with localcontext() as ctx:
+        ctx.prec = PREC + 10
+        return (Decimal(10).ln() * k / 2000).exp()
+
+
+def round_half_away(x):
+    """The integer nearest the binary64 x, a tie away from zero (exact; as C++ std::round)."""
+    f = Fraction(x)
+    n = math.floor(abs(f) + Fraction(1, 2))
+    return -n if f < 0 else n
+
+
+def gain_text(k):
+    """Loudness gain, Gain text: k as a decimal with exactly two decimals ("0.00" for 0)."""
+    sign = "-" if k < 0 else ""
+    a = abs(k)
+    return f"{sign}{a // 100}.{a % 100:02d}"
+
+
+def gain_k_from_value(v):
+    """Loudness gain, Stored gain to k: k = round half away from zero of 100.0 * v (one binary64 product)."""
+    return round_half_away(100.0 * v)
+
+
+def gain_limit(op, bound):
+    return f"{op} {_shortest(bound)} dB (row {LOUDNESS_GAIN_ROW})"
+
+
+def gain_step(l_window, target=LOUDNESS_TARGET_LUFS):
+    """Loudness gain, Gain rounding: (d, x, k or None, result row fields)."""
+    d = target - l_window             # binary64, one rounding
+    x = 100.0 * d                     # binary64, one rounding
+    if math.isinf(x) and x > 0:       # a silent window: L = -inf
+        return d, x, None, {"result": "rejected", "parameter": LOUDNESS_GAIN_PARAMETER, "value": "inf",
+                            "rule": "range.max", "limit": gain_limit("<=", LOUDNESS_GAIN_MAX_DB)}
+    assert math.isfinite(x)
+    k = round_half_away(x)
+    v = k / LOUDNESS_GAIN_STEPS_PER_DB  # binary64 k / 100.0, one correctly rounded division
+    assert v == float(Fraction(k, 100))
+    if v < LOUDNESS_GAIN_MIN_DB:
+        return d, x, k, {"result": "rejected", "parameter": LOUDNESS_GAIN_PARAMETER, "value": _shortest(v),
+                         "rule": "range.min", "limit": gain_limit(">=", LOUDNESS_GAIN_MIN_DB)}
+    if v > LOUDNESS_GAIN_MAX_DB:
+        return d, x, k, {"result": "rejected", "parameter": LOUDNESS_GAIN_PARAMETER, "value": _shortest(v),
+                         "rule": "range.max", "limit": gain_limit("<=", LOUDNESS_GAIN_MAX_DB)}
+    return d, x, k, {"result": "stored", "parameter": "none", "value": "none", "rule": "none", "limit": "none"}
+
+
+def loudness_gain_step_rows():
+    rows = []
+    for case, text in LOUDNESS_GAIN_STEP_CASES:
+        l_window = -math.inf if text == "-inf" else float(text)
+        d, x, k, r = gain_step(l_window)
+        stored = r["result"] == "stored"
+        rows.append({"case": case, "window_lufs": text, "window_hex": hexf(l_window),
+                     "target_lufs": dec(LOUDNESS_TARGET_LUFS), "d_hex": hexf(d), "x_hex": hexf(x),
+                     "k": "none" if k is None else str(k), "gain_text": gain_text(k) if stored else "none",
+                     **r})
+    return rows
+
+
+def loudness_gain_value_rows():
+    rows = []
+    for text in LOUDNESS_GAIN_TEXTS:
+        v = float(text)
+        x = 100.0 * v
+        k = gain_k_from_value(v)
+        g = linear_gain(k)
+        rows.append({"text": text, "v_hex": hexf(v), "x_hex": hexf(x), "k": str(k),
+                     "two_decimals": "yes" if text == gain_text(k) else "no",
+                     "g_hex": hexf(g), "g_bits": bits(g), "ideal": format_ideal(gain_ideal(k))})
+    return rows
+
+
+def loudness_gain_error():
+    """The largest |g / 10^(k/2000) - 1| over every storable k (0 to -6000), and its k."""
+    _, c = loudness_gain_c()
+    worst, worst_k = Fraction(0), 0
+    with localcontext() as ctx:
+        ctx.prec = 40
+        ln10 = Decimal(10).ln()
+        for k in range(0, -6001, -1):
+            g = linear_gain(k)
+            ideal = (ln10 * k / 2000).exp()
+            err = abs(Decimal(g) / ideal - 1)
+            if err > worst:
+                worst, worst_k = err, k
+    return worst, worst_k
+
+
+def loudness_hash_members():
+    """The top-level members the schema tags loudness-relevant, in name order."""
+    tags = _rh.load_tags(_rh.load_schema())
+    names = sorted(p[1:] for p, t in tags.items() if t == LOUDNESS_RELEVANT and p.count("/") == 1)
+    assert names == ["binaural", "gamma_pac", "length_s", "loop", "loudness_target_lufs", "theta_reference"], names
+    return names
+
+
+def loudness_hash_object(recipe, tags):
+    """The object the loudness hash covers: the top-level loudness-relevant members present."""
+    return {key: value for key, value in recipe.items() if tags.get(f"/{_rh._pointer_part(key)}") == LOUDNESS_RELEVANT}
+
+
+def loudness_hash(data, schema):
+    tags = _rh.load_tags(schema)
+    return hashlib.sha256(_rh.canonicalize(loudness_hash_object(_rh.strict_loads(data), tags))).hexdigest()
+
+
+def loudness_hash_rows():
+    schema = _rh.load_schema()
+    tags = _rh.load_tags(schema)
+    rows = []
+    for fixture in LOUDNESS_HASH_FIXTURES:
+        data = (REPO_ROOT / "recipes" / "fixtures" / "valid" / fixture).read_bytes()
+        recipe = _rh.strict_loads(data)
+        obj = loudness_hash_object(recipe, tags)
+        canonical = _rh.canonicalize(obj)
+        rows.append({"fixture": fixture, "members": sorted(obj), "canonical": canonical.decode("utf-8"),
+                     "loudness_hash": hashlib.sha256(canonical).hexdigest(),
+                     "recipe_hash": _rh.hash_bytes(data, schema)})
+    return rows
+
+
+# ---- the file rewrite (Loudness gain, File rewrite), an independent Python
+# implementation of the member scanner and the splice, on bytes.
+
+_WS = b" \t\r\n"
+
+
+def _skip_ws(b, i):
+    while i < len(b) and b[i] in _WS:
+        i += 1
+    return i
+
+
+def _string_end(b, i):
+    """b[i] is the opening quote: the index just past the closing quote."""
+    assert b[i:i + 1] == b'"'
+    i += 1
+    while b[i:i + 1] != b'"':
+        i += 2 if b[i:i + 1] == b"\\" else 1
+    return i + 1
+
+
+def _value_end(b, i):
+    if b[i:i + 1] == b'"':
+        return _string_end(b, i)
+    if b[i:i + 1] in (b"{", b"["):
+        depth = 0
+        while True:
+            ch = b[i:i + 1]
+            if ch == b'"':
+                i = _string_end(b, i)
+                continue
+            if ch in (b"{", b"["):
+                depth += 1
+            elif ch in (b"}", b"]"):
+                depth -= 1
+                if depth == 0:
+                    return i + 1
+            i += 1
+    while i < len(b) and b[i:i + 1] not in (b",", b"}", b"]") and b[i] not in _WS:
+        i += 1
+    return i
+
+
+def top_members(b):
+    """Per top-level member of the root object, in file order: (name, lead_start, key_start, key_end,
+    value_start, value_end). lead is the whitespace between the preceding '{' or ',' and the key."""
+    i = _skip_ws(b, 0)
+    assert b[i:i + 1] == b"{"
+    i += 1
+    out = []
+    while True:
+        lead = i
+        i = _skip_ws(b, i)
+        if b[i:i + 1] == b"}":
+            return out
+        key_start = i
+        key_end = _string_end(b, i)
+        name = json.loads(b[key_start:key_end].decode("utf-8"))
+        i = _skip_ws(b, key_end)
+        assert b[i:i + 1] == b":"
+        i = _skip_ws(b, i + 1)
+        value_start = i
+        value_end = _value_end(b, i)
+        out.append((name, lead, key_start, key_end, value_start, value_end))
+        i = _skip_ws(b, value_end)
+        if b[i:i + 1] == b",":
+            i += 1
+            continue
+        assert b[i:i + 1] == b"}"
+        return out
+
+
+def rewrite(b, gain, hash_hex):
+    """Loudness gain, File rewrite: the new bytes for gain text and hash."""
+    members = {m[0]: m for m in top_members(b)}
+    new = {"loudness_gain_db": gain.encode("ascii"), "loudness_hash": b'"' + hash_hex.encode("ascii") + b'"'}
+    edits = []      # (start, end, replacement)
+    for name in ("loudness_gain_db", "loudness_hash"):
+        if name in members:
+            m = members[name]
+            edits.append((m[4], m[5], new[name]))
+    missing = [name for name in ("loudness_gain_db", "loudness_hash") if name not in members]
+    if missing:
+        t = members["loudness_target_lufs"]
+        lead = b[t[1]:t[2]]
+        sep = b[t[3]:t[4]]
+        run = b"".join(b"," + lead + json.dumps(name).encode("ascii") + sep + new[name] for name in missing)
+        edits.append((t[5], t[5], run))
+    out = b
+    for start, end, text in sorted(edits, reverse=True):
+        out = out[:start] + text + out[end:]
+    return out
+
+
+_REWRITE_HEAD = (
+    '"schema_version": "1.0"', '"engine_version": "0.0.1"', '"seed": 1', '"author": "Arcani test fixtures"',
+    '"date": "2026-11-25"', '"rationale": "File rewrite case (Story 4.2). Values are placeholders."',
+    '"length_s": 600',
+)
+_REWRITE_THETA = '"theta_reference": {"carrier_hz": 200, "rate_hz": 6, "am_depth_percent": 0, "shape": "sine"}'
+_PLACEHOLDER_HASH = "6a29ccd608e4c1945bfff95af078a97daea48eca54a38e065ae33dfa9c2d83a6"
+LOUDNESS_REWRITE_K = -3527
+
+
+def _pretty(members, lead="\n  ", end="\n"):
+    return "{" + ",".join(lead + m for m in members) + end + "}" + end
+
+
+def loudness_rewrite_cases():
+    """(case, input text): every case is schema-valid and compiles in measure mode."""
+    target = '"loudness_target_lufs": -36'
+    gain_old = '"loudness_gain_db": -1.5'
+    hash_old = f'"loudness_hash": "{_PLACEHOLDER_HASH}"'
+    head = list(_REWRITE_HEAD)
+    return (
+        ("pretty, both missing", _pretty(head + [target, _REWRITE_THETA])),
+        ("pretty, both present", _pretty(head + [target, gain_old, hash_old, _REWRITE_THETA])),
+        ("gain present, hash missing", _pretty(head + [target, gain_old, _REWRITE_THETA])),
+        ("hash present, gain missing", _pretty(head + [target, hash_old, _REWRITE_THETA])),
+        ("both present elsewhere, hash first", _pretty([hash_old] + head + [target, _REWRITE_THETA, gain_old])),
+        ("compact, both missing",
+         _pretty([m.replace(": ", ":").replace(", ", ",") for m in head + [target, _REWRITE_THETA]], lead="",
+                 end="")),
+        ("CRLF and tabs, both missing", _pretty(head + [target, _REWRITE_THETA], lead="\r\n\t", end="\r\n")),
+        ("target first, both missing", _pretty([target] + head + [_REWRITE_THETA])),
+        ("target last, both missing", _pretty(head + [_REWRITE_THETA, target])),
+        ("space before colon, both missing",
+         _pretty(head + ['"loudness_target_lufs" :  -36', _REWRITE_THETA])),
+        ("escaped member names",
+         _pretty(head + ['"loudness\\u005ftarget_lufs": -36', '"loudness_gain\\u005fdb": -1.5', _REWRITE_THETA])),
+    )
+
+
+def loudness_rewrite_rows():
+    schema = _rh.load_schema()
+    rows = []
+    gain = gain_text(LOUDNESS_REWRITE_K)
+    for case, text in loudness_rewrite_cases():
+        data = text.encode("utf-8")
+        h = loudness_hash(data, schema)
+        out = rewrite(data, gain, h)
+        again = rewrite(out, gain, h)
+        assert again == out, case                     # measuring twice writes the same bytes
+        assert loudness_hash(out, schema) == h, case  # the rewrite leaves every loudness-relevant byte
+        assert _rh.hash_bytes(out, schema) == _rh.hash_bytes(data, schema), case
+        rows.append({"case": case, "gain_text": gain, "loudness_hash": h, "input": text,
+                     "output": out.decode("utf-8")})
+    # Already stored: the output of the first case, rewritten, is unchanged.
+    first = rows[0]
+    rows.append({"case": "already stored", "gain_text": gain, "loudness_hash": first["loudness_hash"],
+                 "input": first["output"], "output": first["output"]})
+    return rows
+
+
+def loudness_gain_constants():
+    c_dec, c = loudness_gain_c()
+    worst, worst_k = loudness_gain_error()
+    with localcontext() as ctx:
+        ctx.prec = 3
+        worst_text = format(+worst, "e")
+    return {
+        "row": LOUDNESS_GAIN_ROW,
+        "min_db": dec(LOUDNESS_GAIN_MIN_DB),
+        "max_db": dec(LOUDNESS_GAIN_MAX_DB),
+        "min_limit": gain_limit(">=", LOUDNESS_GAIN_MIN_DB),
+        "max_limit": gain_limit("<=", LOUDNESS_GAIN_MAX_DB),
+        "steps_per_db": LOUDNESS_GAIN_STEPS_PER_DB,
+        "k_min": int(LOUDNESS_GAIN_MIN_DB * LOUDNESS_GAIN_STEPS_PER_DB),
+        "k_max": int(LOUDNESS_GAIN_MAX_DB * LOUDNESS_GAIN_STEPS_PER_DB),
+        "c_ideal": format_ideal(c_dec),
+        "c_hex": hexf(c),
+        "c_bits": bits(c),
+        "max_relative_error": worst_text,
+        "max_relative_error_k": worst_k,
+        "gain_parameter": LOUDNESS_GAIN_PARAMETER,
+        "hash_parameter": LOUDNESS_HASH_PARAMETER,
+        "hash_rule": LOUDNESS_HASH_RULE,
+        "hash_members": loudness_hash_members(),
+        "must_fail_db": LOUDNESS_GAIN_MUST_FAIL_DB,
+        "store_fixtures": list(LOUDNESS_STORE_FIXTURES),
+        "final_fixture": LOUDNESS_FINAL_FIXTURE,
+        "rewrite_k": LOUDNESS_REWRITE_K,
+    }
+
+
 # ------------------------------------------------------- 24-bit rounding
 
 Q24_MAX = 8388607   # 2^23 - 1
@@ -4328,7 +4748,7 @@ def quantize_rows():
 
 def build():
     return {
-        "spec": "docs/signal-spec.md (sections core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer, rate curve (the beat rate, Story 2.5; the theta and gamma rates, Story 2.6), loop (Story 2.7), components (Story 3.1), spacing (Story 3.2), preview (Story 3.3), loudness (Story 4.1), and 24-bit rounding)",
+        "spec": "docs/signal-spec.md (sections core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer, rate curve (the beat rate, Story 2.5; the theta and gamma rates, Story 2.6), loop (Story 2.7), components (Story 3.1), spacing (Story 3.2), preview (Story 3.3), loudness (Story 4.1), loudness gain (Story 4.2), and 24-bit rounding)",
         "generator": "tools/signal_spec_vectors.py",
         "cycle": str(CYCLE),
         "sine_coefficients": sine_coefficients(),
@@ -4438,6 +4858,11 @@ def build():
         "loudness_tech3341": tech3341_rows(),
         "loudness_window_cases": loudness_window_case_rows(),
         "loudness_windows": loudness_window_rows(),
+        "loudness_gain_constants": loudness_gain_constants(),
+        "loudness_hashes": loudness_hash_rows(),
+        "loudness_gain_steps": loudness_gain_step_rows(),
+        "loudness_gain_values": loudness_gain_value_rows(),
+        "loudness_rewrites": loudness_rewrite_rows(),
         "quantize_24": quantize_rows(),
     }
 
@@ -4901,6 +5326,33 @@ def tables(data):
                    f"| {r['result']} | {r['start_frame']} | {r['body_frames']} | {r['repeats']} "
                    f"| {r['window_frames']} | {r['window_s']} | {r['parameter']} | {r['value']} | {r['rule']} "
                    f"| {r['limit']} |")
+    out.append("")
+    out.append("| Fixture | Members | Canonical form | Loudness hash | Recipe hash |")
+    out.append("| --- | --- | --- | --- | --- |")
+    for r in data["loudness_hashes"]:
+        out.append(f"| {r['fixture']} | {', '.join(r['members'])} | `{r['canonical']}` | `{r['loudness_hash']}` "
+                   f"| `{r['recipe_hash']}` |")
+    out.append("")
+    out.append("| Case | Window L (LUFS) | L (hex) | Target | d = target - L (hex) | x = 100 * d (hex) | k | Result "
+               "| Gain text | Parameter | Value | Rule | Limit |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["loudness_gain_steps"]:
+        out.append(f"| {r['case']} | {r['window_lufs']} | `{r['window_hex']}` | {r['target_lufs']} | `{r['d_hex']}` "
+                   f"| `{r['x_hex']}` | {r['k']} | {r['result']} | {r['gain_text']} | {r['parameter']} "
+                   f"| {r['value']} | {r['rule']} | {r['limit']} |")
+    out.append("")
+    out.append("| Stored text | v (hex) | x = 100 * v (hex) | k | Two decimals | Gain g (hex) | g bits "
+               "| Ideal 10^(k/2000) |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["loudness_gain_values"]:
+        out.append(f"| {r['text']} | `{r['v_hex']}` | `{r['x_hex']}` | {r['k']} | {r['two_decimals']} "
+                   f"| `{r['g_hex']}` | `{r['g_bits']}` | {r['ideal']} |")
+    out.append("")
+    out.append("| Case | Gain text | Loudness hash | Input (JSON string) | Output (JSON string) |")
+    out.append("| --- | --- | --- | --- | --- |")
+    for r in data["loudness_rewrites"]:
+        out.append(f"| {r['case']} | {r['gain_text']} | `{r['loudness_hash']}` | `{json.dumps(r['input'])}` "
+                   f"| `{json.dumps(r['output'])}` |")
     out.append("")
     out.append("| Rule | Case | s (hex) | x = s * 2^23 (hex) | Value | Bytes (little-endian) |")
     out.append("| --- | --- | --- | --- | --- | --- |")
