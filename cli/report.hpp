@@ -85,6 +85,14 @@ struct LoudnessReport {
   double whole_lufs_i = 0.0;
 };
 
+// The true_peak member of a final-mode render (docs/signal-spec.md, True
+// peak, Report; Story 4.3): TP of the 24-bit samples written, and
+// 20 log10(TP) in dBTP, -infinity written as null.
+struct TruePeakReport {
+  double linear = 0.0;
+  double dbtp = 0.0;
+};
+
 struct Report {
   std::string engine_version;
   std::uint64_t seed = 0;
@@ -95,6 +103,7 @@ struct Report {
   std::optional<SpacingReport> spacing;  // Story 3.2; written only when present
   std::optional<PreviewReport> preview;  // Story 3.3; written only when present
   std::optional<LoudnessReport> loudness;  // Story 4.1; written only when present
+  std::optional<TruePeakReport> true_peak;  // Story 4.3; final mode only, written only when present
   DeterminismKey determinism_key;
   std::vector<Assertion> assertions;
 };
@@ -117,8 +126,8 @@ std::optional<LoopReport> loop_report(const arc_loop_frames& frames);
 bool spacing_report(const arc_plan* plan, std::optional<SpacingReport>& out, std::string& rule);
 
 // The report as one UTF-8 JSON object, members in struct order. The loop,
-// spacing, preview, and loudness members are left out when absent, so a
-// report without them is unchanged.
+// spacing, preview, loudness, and true_peak members are left out when
+// absent, so a report without them is unchanged.
 std::string report_json(const Report& report);
 
 // True only when the value of ARCANI_REFERENCE_MACHINE (nullptr when unset)
@@ -143,6 +152,12 @@ Assertion render_speed(const arcani::test::tables::Row& row, std::uint64_t frame
 // "silent".
 Assertion loudness_assertion(const arcani::test::tables::Row& row, double window_lufs, double target);
 Assertion loudness_whole_assertion(const arcani::test::tables::Row& row, double whole_lufs, double target);
+
+// Story 4.3 (docs/signal-spec.md, True peak, Assertion) on `row`
+// (true-peak): name true_peak, measured true_peak_dbtp(linear), pass when
+// measured <= threshold. linear 0 (silent): measured null, pass, note
+// "silent".
+Assertion true_peak_assertion(const arcani::test::tables::Row& row, double linear);
 
 // 4 when any assertion failed, else 0.
 int assertions_exit_code(const std::vector<Assertion>& assertions) noexcept;

@@ -2,6 +2,8 @@
 
 #include "recipe_write.hpp"
 
+#include "true_peak.hpp"
+
 #include <algorithm>
 #include <charconv>
 #include <cmath>
@@ -371,6 +373,24 @@ GainStep gain_step(double window_lufs, double target_lufs, const arcani::test::t
   g.stored = true;
   g.gain_text = gain_text(g.k);
   return g;
+}
+
+TruePeakStep true_peak_step(const arcani::test::tables::Row& row, double tp_linear, double target_lufs,
+                            std::string_view gain_text) {
+  namespace tables = arcani::test::tables;
+  if (row.kind != "thresholds" || row.unit != "dBTP" || row.values.size() != 1 || !std::isfinite(row.values[0])) {
+    throw tables::TableError("row " + row.id + ": the true-peak row must be a thresholds row in dBTP with one finite value");
+  }
+  const double ceiling = row.values[0];
+  TruePeakStep t;
+  t.dbtp = true_peak_dbtp(tp_linear);
+  t.stored = t.dbtp <= ceiling;
+  if (!t.stored) {
+    t.line = "rejected: parameter=/loudness_gain_db value=" + std::string(gain_text) +
+             " rule=true_peak limit=<= " + row.value_text + " " + row.unit + " (row " + row.id + ")" +
+             " target_lufs=" + shortest(target_lufs) + " true_peak_dbtp=" + shortest(t.dbtp);
+  }
+  return t;
 }
 
 }  // namespace arcani::cli
