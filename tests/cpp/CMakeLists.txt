@@ -40,7 +40,8 @@ add_executable(arcani_tests
   test_preview.cpp
   test_loudness.cpp
   test_store_gain.cpp
-  test_true_peak.cpp)
+  test_true_peak.cpp
+  test_gain_ramps.cpp)
 # arcani::engine_internal exposes engine/src (core/phase.hpp, core/sine.hpp)
 # to the tests; the public C API header stays the only shipped include path.
 target_link_libraries(arcani_tests PRIVATE

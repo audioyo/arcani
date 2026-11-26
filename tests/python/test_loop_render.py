@@ -24,7 +24,8 @@ Contract with the tap dump (tests/tapdump/main.cpp, target arcani-tapdump):
 
 - `arcani-tapdump RECIPE RATE OUT_DIR --window START FRAMES`: compiles in
   measure mode, seeks to START, renders FRAMES frames in one call with every
-  tap, writes the same six files, and prints
+  tap, writes the same ten files (Story 4.4: the six plus theta_gained,
+  gamma_gained, binaural, binaural_gained), and prints
   `arcani-tapdump: frames N start S total T` (T the frames rendered).
 - `arcani-tapdump RECIPE RATE OUT_DIR --output-only`: renders the whole
   session in calls of 65536 frames without taps, writes out.f64 only, and
@@ -101,7 +102,8 @@ SAMPLE_RATES = [int(v) for v in load_tables()["sample-rates"].values]
 # the seam with the engine render from seam + round(PHASE_STEP_S * fs).
 PHASE_STEP_S = 0.001
 CLICK_CHUNK_S = 20.0
-DUMP_FILES = ("out", "theta", "gamma", "bus", "join", "master")
+DUMP_FILES = ("out", "theta", "gamma", "bus", "join", "master", "theta_gained", "gamma_gained", "binaural",
+              "binaural_gained")  # Story 4.4: ten files
 TAP_KEYS = (("theta", "theta"), ("gamma", "gamma"), ("bus", "bus"), ("output", "out"))
 # Fixtures written before Story 2.7, short and with every layer kind and cycle.
 OLDER_FIXTURES = ("gamma-cycle-swell-theta-cycle.json", "binaural-cycle-sleep.json", "bursts-theta-cycle.json")
@@ -507,7 +509,7 @@ def run_dump(exe, args, timeout=300):
 
 
 def engine_window(exe, fixture, fs, start, frames, out_dir, row_fixture=None):
-    """The six dump files of a --window render, as interleaved stereo arrays by tap key.
+    """The ten dump files of a --window render, as interleaved stereo arrays by tap key.
     row_fixture names the loop fixture whose frame vectors hold the session end (a harness
     copy of a fixture gives the original's name)."""
     out_dir.mkdir(parents=True, exist_ok=True)

@@ -444,7 +444,8 @@ def test_stub_chain_takes_both_ears_from_the_binaural_reference(vectors):
         for fs in SAMPLE_RATES:
             frames = frames_of(vectors, fixture, fs)
             out = sc.render(FIXTURES_VALID / fixture, fs, frames=frames + EXTRA_FRAMES)
-            assert set(out) == {"output", "theta", "gamma", "bus", "join", "master"}
+            assert set(out) == {"output", "theta", "gamma", "bus", "join", "master", "theta_gained",
+                                "gamma_gained", "binaural", "binaural_gained"}  # Story 4.4
             left, right = mod.render(recipe["binaural"], fs, frames)
             for c, want in ((0, left), (1, right)):
                 for key in ("join", "master", "output"):

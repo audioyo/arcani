@@ -201,6 +201,14 @@ inline constexpr std::string_view kPhaseNeedsCoupledLimit = "(missing)";
 inline constexpr std::string_view kBurstsNeedsPhaseLimit = "(missing)";  // Story 2.4
 inline constexpr std::string_view kNonSineBinauralRule = "(missing)";
 inline constexpr std::string_view kModeledBinauralWaveforms = "(missing)";
+// Story 4.4.
+inline constexpr double kGainRampMinMs = -1.0;
+inline constexpr std::string_view kGainRampMinRule = "(missing)";
+inline constexpr std::string_view kGainOutsideRule = "(missing)";
+inline constexpr std::string_view kGainOverlapRule = "(missing)";
+inline constexpr std::string_view kGainLoopBodyRule = "(missing)";
+inline constexpr std::string_view kThetaSilentRule = "(missing)";
+inline constexpr std::string_view kThetaSilentLimit = "(missing)";
 
 namespace arcani::validate_probe {
 using namespace arcani::validate;
@@ -213,6 +221,13 @@ inline const std::string phase_needs_coupled_limit(kPhaseNeedsCoupledLimit);
 inline const std::string bursts_needs_phase_limit(kBurstsNeedsPhaseLimit);
 inline const std::string non_sine_binaural_rule(kNonSineBinauralRule);
 inline const std::string modeled_binaural_waveforms(kModeledBinauralWaveforms);
+inline const double gain_ramp_min_ms = kGainRampMinMs;  // Story 4.4
+inline const std::string gain_ramp_min_rule(kGainRampMinRule);
+inline const std::string gain_outside_rule(kGainOutsideRule);
+inline const std::string gain_overlap_rule(kGainOverlapRule);
+inline const std::string gain_loop_body_rule(kGainLoopBodyRule);
+inline const std::string theta_silent_rule(kThetaSilentRule);
+inline const std::string theta_silent_limit(kThetaSilentLimit);
 }  // namespace arcani::validate_probe
 
 namespace api = arcani::test::api;
@@ -290,6 +305,10 @@ std::set<std::string> ids_named_by_fields() {
   // these two; the validator reads both (signal spec, Loop, Compile order).
   out.insert("max-run-time-focus");
   out.insert("max-run-time-learn");
+  // Story 4.4: the ramp count of each gain schedule is checked by name
+  // against row gain-ramp-count (no field names it; signal spec, Gain
+  // ramps, Compile order, step 2).
+  out.insert("gain-ramp-count");
   return out;
 }
 
@@ -478,8 +497,12 @@ TEST_CASE("engine range table equals ranges.tsv row for row", "[validate][ranges
   // Story 2.1 adds theta-rate and theta-depth; Story 2.2 adds gamma-carrier,
   // gamma-rate, and coupling-depth; Story 2.3 adds coupling-phase; Story 2.5
   // adds rate-cycle-period and rate-cycle-start-phase; Story 2.7 adds
-  // max-run-time-focus and max-run-time-learn; Story 4.2 adds loudness-gain.
-  REQUIRE(expected_ids.size() == 17);
+  // max-run-time-focus and max-run-time-learn; Story 4.2 adds loudness-gain;
+  // Story 4.4 adds layer-gain (named by every gain's initial and to) and
+  // gain-ramp-count.
+  REQUIRE(expected_ids.size() == 19);
+  CHECK(expected_ids.count("layer-gain") == 1);
+  CHECK(expected_ids.count("gain-ramp-count") == 1);
   CHECK(expected_ids.count("loudness-gain") == 1);
   CHECK(expected_ids.count("max-run-time-focus") == 1);
   CHECK(expected_ids.count("max-run-time-learn") == 1);
@@ -573,6 +596,42 @@ TEST_CASE("range table comparison catches a doctored engine table", "[validate][
     t.push_back({"no-such-row", 0.0, 1.0, false});
     CHECK(any_names(range_table_problems(t, expected_ids, lookup), "no-such-row", "ranges.tsv"));
   }
+}
+
+// Story 4.4 (spec Implementation Notes, Validator): range_rows() gains
+// {"layer-gain", 0.0, 1.0, false, "ratio"} and {"gain-ramp-count", 0.0,
+// 8.0, false, "ramps"}; kGainRampMinMs (threshold row gain-ramp-min) and the
+// rule names are constants of validate.hpp, reached through a lookup probe.
+TEST_CASE("gain: the engine range table names layer-gain and gain-ramp-count with their units",
+          "[validate][gain-ramps][ranges]") {
+  for (const char* id : {"layer-gain", "gain-ramp-count"}) {
+    INFO(id);
+    const tables::Row& r = tables::row(id);
+    bool found = false;
+    for (const auto& e : validate::range_rows()) {
+      if (e.id == id) {
+        found = true;
+        CHECK(e.min == r.min);
+        CHECK(e.max == r.max);
+        CHECK_FALSE(e.max_exclusive);
+        CHECK(std::string(e.unit) == r.unit);
+      }
+    }
+    CHECK(found);
+  }
+  CHECK(std::string(tables::row("layer-gain").unit) == "ratio");
+  CHECK(std::string(tables::row("gain-ramp-count").unit) == "ramps");
+}
+
+TEST_CASE("gain: the rule constants hold the spec text; the ramp minimum is row gain-ramp-min",
+          "[validate][gain-ramps]") {
+  CHECK(vprobe::gain_ramp_min_ms == tables::row(spec::kGain_ramp_min_row).value());
+  CHECK(vprobe::gain_ramp_min_rule == spec::kGain_ramp_min_rule);
+  CHECK(vprobe::gain_outside_rule == spec::kGain_outside_rule);
+  CHECK(vprobe::gain_overlap_rule == spec::kGain_overlap_rule);
+  CHECK(vprobe::gain_loop_body_rule == spec::kGain_loop_body_rule);
+  CHECK(vprobe::theta_silent_rule == spec::kGain_theta_silent_rule);
+  CHECK(vprobe::theta_silent_limit == spec::kGain_theta_silent_limit);
 }
 
 TEST_CASE("carrier ratio constant equals threshold row carrier-rule", "[validate][carrier]") {

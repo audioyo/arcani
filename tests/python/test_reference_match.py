@@ -16,7 +16,8 @@ ideal`):
 - `render(recipe_path, fs, frames=None) -> dict[str, numpy.ndarray]`.
   `recipe_path` is a str or os.PathLike naming a recipe JSON file, read with
   the standard library `json` module; `fs` is 44100 or 48000. The dict has
-  exactly the keys "output", "theta", "gamma", "bus", "join", "master". Each
+  exactly the keys "output", "theta", "gamma", "bus", "join", "master", and
+  (Story 4.4) "theta_gained", "gamma_gained", "binaural", "binaural_gained". Each
   value is a 1-D C-contiguous float64 array of 2 * T samples, interleaved
   stereo (left, right per frame), where T = `frames` when given (any int
   >= 0) and else N = ideal.seconds_to_samples(length_s, fs). Every sample at
@@ -133,9 +134,13 @@ BEAT_0 = "stub-chain-1s-beat-0.json"
 BEAT_6 = "stub-chain-1s-beat-6.json"
 FIXTURES = (BEAT_0, BEAT_6)
 RATES = (44100, 48000)
-KEYS = ("output", "theta", "gamma", "bus", "join", "master")
+# Story 4.4 (docs/signal-spec.md, Gain ramps, Taps): four taps more, after
+# master; the tap dump writes ten files.
+KEYS = ("output", "theta", "gamma", "bus", "join", "master", "theta_gained", "gamma_gained", "binaural",
+        "binaural_gained")
 DUMP_FILES = {"output": "out", "theta": "theta", "gamma": "gamma", "bus": "bus", "join": "join",
-              "master": "master"}
+              "master": "master", "theta_gained": "theta_gained", "gamma_gained": "gamma_gained",
+              "binaural": "binaural", "binaural_gained": "binaural_gained"}
 MATCHED = ("output", "theta", "bus", "join", "master")
 EXTRA_FRAMES = 64
 CYCLE = 2**64

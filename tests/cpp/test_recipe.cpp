@@ -254,7 +254,25 @@ const char* tag_name(recipe::FieldTag t) {
   return "?";
 }
 
+// Story 4.4: FieldType gains Array, reached through a requires-expression so
+// the suite builds before it exists.
+template <class E>
+constexpr bool kHasArrayType = requires { E::Array; };
+
+template <class E>
+bool is_array_type(E t) {
+  if constexpr (kHasArrayType<E>) {
+    return t == E::Array;
+  } else {
+    (void)t;
+    return false;
+  }
+}
+
 const char* type_name(recipe::FieldType t) {
+  if (is_array_type(t)) {
+    return "array";
+  }
   switch (t) {
     case recipe::FieldType::String:
       return "string";
@@ -320,6 +338,13 @@ void walk(const json::Value& root, const json::Value& object, const std::string&
     out[path] = {type->string(), tag->string(), required.count(name) == 1};
     if (type->string() == "object") {
       walk(root, p, path, out);
+    }
+    // Story 4.4: an array's items are listed under the path segment "*"
+    // (the items object itself is no field of its own).
+    if (type->string() == "array") {
+      const json::Value* items = member(p, "items");
+      REQUIRE(items != nullptr);
+      walk(root, *items, path + "/*", out);
     }
   }
 }
@@ -641,6 +666,15 @@ TEST_CASE("engine parse names binaural waveform and cycle faults", "[recipe][bin
   }
 }
 
+// Story 4.4 (docs/signal-spec.md, Gain ramps, Recipe fields): the six rows
+// of a gain member, under its schedule's path, in this order.
+const std::vector<std::string> kGainRows = {"/gain",
+                                            "/gain/initial",
+                                            "/gain/ramps",
+                                            "/gain/ramps/*/start_s",
+                                            "/gain/ramps/*/duration_s",
+                                            "/gain/ramps/*/to"};
+
 TEST_CASE("field table orders the binaural rows before the loop rows, the cycle and waveform after the beat rate",
           "[recipe][binaural][schema]") {
   std::vector<std::string> paths;
@@ -654,15 +688,20 @@ TEST_CASE("field table orders the binaural rows before the loop rows, the cycle 
   const auto at = std::find(paths.begin(), paths.end(), binaural.front());
   REQUIRE(at != paths.end());
   const auto start = static_cast<std::size_t>(at - paths.begin());
-  // Story 2.7: the five loop rows follow the binaural rows and end the table.
-  REQUIRE(start + binaural.size() + 5 == paths.size());
+  // Story 2.7: the five loop rows follow the binaural rows. Story 4.4: the
+  // six binaural gain rows come before them, and the seven master rows end
+  // the table.
+  REQUIRE(start + binaural.size() + kGainRows.size() + 5 + 1 + kGainRows.size() == paths.size());
   for (std::size_t i = 0; i < binaural.size(); ++i) {
     CHECK(paths[start + i] == binaural[i]);
   }
-  CHECK(paths[start + binaural.size()] == "/loop");
+  for (std::size_t i = 0; i < kGainRows.size(); ++i) {
+    CHECK(paths[start + binaural.size() + i] == "/binaural" + kGainRows[i]);
+  }
+  CHECK(paths[start + binaural.size() + kGainRows.size()] == "/loop");
   for (const auto& f : recipe::fields()) {
     const std::string path(f.path);
-    if (path.rfind("/binaural", 0) != 0) {
+    if (path.rfind("/binaural", 0) != 0 || path.rfind("/binaural/gain", 0) == 0) {
       continue;
     }
     INFO(path);
@@ -931,11 +970,15 @@ TEST_CASE("field table orders the gamma rows between theta and binaural", "[reci
   }
   REQUIRE(start >= 1);
   CHECK(paths[start - 1].rfind("/theta_reference", 0) == 0);
-  REQUIRE(start + gamma.size() < paths.size());
-  CHECK(paths[start + gamma.size()] == "/binaural");
+  // Story 4.4: the six gain rows follow the rate cycle.
+  REQUIRE(start + gamma.size() + kGainRows.size() < paths.size());
+  for (std::size_t i = 0; i < kGainRows.size(); ++i) {
+    CHECK(paths[start + gamma.size() + i] == "/gamma_pac" + kGainRows[i]);
+  }
+  CHECK(paths[start + gamma.size() + kGainRows.size()] == "/binaural");
   for (const auto& f : recipe::fields()) {
     const std::string path(f.path);
-    if (path.rfind("/gamma_pac", 0) != 0) {
+    if (path.rfind("/gamma_pac", 0) != 0 || path.rfind("/gamma_pac/gain", 0) == 0) {
       continue;
     }
     INFO(path);
@@ -1169,11 +1212,15 @@ TEST_CASE("field table orders the theta rows, the rate cycle after shape", "[rec
   const auto at = std::find(paths.begin(), paths.end(), theta.front());
   REQUIRE(at != paths.end());
   const auto start = static_cast<std::size_t>(at - paths.begin());
-  REQUIRE(start + theta.size() < paths.size());
+  // Story 4.4: the six gain rows follow the rate cycle.
+  REQUIRE(start + theta.size() + kGainRows.size() < paths.size());
   for (std::size_t i = 0; i < theta.size(); ++i) {
     CHECK(paths[start + i] == theta[i]);
   }
-  CHECK(paths[start + theta.size()] == "/gamma_pac");
+  for (std::size_t i = 0; i < kGainRows.size(); ++i) {
+    CHECK(paths[start + theta.size() + i] == "/theta_reference" + kGainRows[i]);
+  }
+  CHECK(paths[start + theta.size() + kGainRows.size()] == "/gamma_pac");
   for (const auto& f : recipe::fields()) {
     const std::string path(f.path);
     if (path.rfind("/theta_reference/rate_cycle", 0) != 0 && path.rfind("/gamma_pac/rate_cycle", 0) != 0) {
@@ -1424,7 +1471,7 @@ TEST_CASE("the five invalid loop fixtures fail parse with their named fault", "[
   }
 }
 
-TEST_CASE("field table ends with the loop rows, after the binaural rows", "[recipe][loop][schema]") {
+TEST_CASE("field table has the loop rows after the binaural rows, then the master rows", "[recipe][loop][schema]") {
   std::vector<std::string> paths;
   for (const auto& f : recipe::fields()) {
     paths.emplace_back(f.path);
@@ -1435,10 +1482,15 @@ TEST_CASE("field table ends with the loop rows, after the binaural rows", "[reci
   REQUIRE(at != paths.end());
   const auto start = static_cast<std::size_t>(at - paths.begin());
   REQUIRE(start > 0);
-  REQUIRE(start + loop.size() == paths.size());
+  // Story 4.4: the seven master rows (/master and its gain rows) end the table.
+  REQUIRE(start + loop.size() + 1 + kGainRows.size() == paths.size());
   CHECK(paths[start - 1].rfind("/binaural", 0) == 0);
   for (std::size_t i = 0; i < loop.size(); ++i) {
     CHECK(paths[start + i] == loop[i]);
+  }
+  CHECK(paths[start + loop.size()] == "/master");
+  for (std::size_t i = 0; i < kGainRows.size(); ++i) {
+    CHECK(paths[start + loop.size() + 1 + i] == "/master" + kGainRows[i]);
   }
   for (const auto& f : recipe::fields()) {
     const std::string path(f.path);
@@ -1545,6 +1597,325 @@ TEST_CASE("engine recipe hash equals the shared hash vectors", "[recipe][hash]")
   }
 }
 
+// ------------------------------------------------- gain schedules (Story 4.4)
+//
+// docs/signal-spec.md, Gain ramps, Recipe fields; spec Implementation Notes,
+// Recipe and Field table:
+//   struct GainRampField { double start_s = 0.0; double duration_s = 0.0; double to = 0.0; };
+//   struct Gain { double initial = 1.0; std::vector<GainRampField> ramps; };
+//   std::optional<Gain> gain in ThetaReference, GammaPac, and Binaural;
+//   struct Master { std::optional<Gain> gain; }; std::optional<Master> master in Recipe.
+// FieldType gains Array; array items are listed with the path segment "*".
+// Parse: `ramps` not an array is rule type, limit array, at /.../gain/ramps;
+// an element not an object is rule type, limit object, at /.../ramps/<i>;
+// a missing or unknown member inside an element is named with its index.
+// The members are read through requires-expressions, so the suite builds
+// before they exist.
+
+namespace {
+
+const char* const kGainSchedulePaths[] = {"/theta_reference", "/gamma_pac", "/binaural", "/master"};
+
+// A recipe with every layer; `theta_gain`, `gamma_gain`, `binaural_gain`
+// are appended inside their layer (empty: none), `tail` after binaural.
+std::string gain_recipe(const std::string& theta_gain, const std::string& gamma_gain = "",
+                        const std::string& binaural_gain = "", const std::string& tail = "") {
+  const auto member = [](const std::string& g) { return g.empty() ? std::string() : ", \"gain\": " + g; };
+  return "{\"schema_version\": \"1.0\", \"engine_version\": \"0.0.1\", \"seed\": 42, "
+         "\"author\": \"Arcani test\", \"date\": \"2026-11-26\", "
+         "\"rationale\": \"Gain parse test, made in the test.\", "
+         "\"length_s\": 600, \"loudness_target_lufs\": -36, "
+         "\"theta_reference\": {\"carrier_hz\": 450, \"rate_hz\": 4, \"am_depth_percent\": 75, \"shape\": \"sine\"" +
+         member(theta_gain) +
+         "}, \"gamma_pac\": {\"carrier_hz\": 250, \"rate_hz\": 40, \"am_depth_percent\": 100, \"carrier_wave\": "
+         "\"sine\", \"coupling\": \"smooth_swell\", \"coupling_phase_deg\": 0" +
+         member(gamma_gain) + "}, \"binaural\": {\"carrier_left_hz\": 100, \"beat_rate_hz\": 2" +
+         member(binaural_gain) + "}" + tail + "}";
+}
+
+template <class R>
+concept RecipeHasGain = requires(const R& r) {
+  { r.theta_reference->gain.has_value() } -> std::convertible_to<bool>;
+  { r.gamma_pac->gain.has_value() } -> std::convertible_to<bool>;
+  { r.binaural->gain.has_value() } -> std::convertible_to<bool>;
+  { r.master.has_value() } -> std::convertible_to<bool>;
+  { r.master->gain.has_value() } -> std::convertible_to<bool>;
+  { r.theta_reference->gain->initial } -> std::convertible_to<double>;
+  { r.theta_reference->gain->ramps.size() } -> std::convertible_to<std::size_t>;
+  { r.theta_reference->gain->ramps[0].start_s } -> std::convertible_to<double>;
+  { r.theta_reference->gain->ramps[0].duration_s } -> std::convertible_to<double>;
+  { r.theta_reference->gain->ramps[0].to } -> std::convertible_to<double>;
+};
+
+struct WantRamp {
+  double start_s, duration_s, to;
+};
+
+struct WantGain {
+  double initial;
+  std::vector<WantRamp> ramps;
+};
+
+template <class G>
+void check_gain(const G& got, const std::optional<WantGain>& want, const char* where) {
+  INFO(where);
+  REQUIRE(got.has_value() == want.has_value());
+  if (!want) {
+    return;
+  }
+  CHECK(got->initial == want->initial);
+  REQUIRE(got->ramps.size() == want->ramps.size());
+  for (std::size_t i = 0; i < want->ramps.size(); ++i) {
+    INFO("ramp " << i);
+    CHECK(got->ramps[i].start_s == want->ramps[i].start_s);
+    CHECK(got->ramps[i].duration_s == want->ramps[i].duration_s);
+    CHECK(got->ramps[i].to == want->ramps[i].to);
+  }
+}
+
+// theta, gamma, binaural, master; a recipe without a layer passes nullopt for it.
+template <class R>
+void check_recipe_gains(const R& r, const std::optional<WantGain> (&want)[4], bool has_master) {
+  if constexpr (RecipeHasGain<R>) {
+    if (r.theta_reference) {
+      check_gain(r.theta_reference->gain, want[0], "theta_reference");
+    }
+    if (r.gamma_pac) {
+      check_gain(r.gamma_pac->gain, want[1], "gamma_pac");
+    }
+    if (r.binaural) {
+      check_gain(r.binaural->gain, want[2], "binaural");
+    }
+    REQUIRE(r.master.has_value() == has_master);
+    if (has_master) {
+      check_gain(r.master->gain, want[3], "master");
+    }
+  } else {
+    (void)r;
+    (void)want;
+    (void)has_master;
+    FAIL("not implemented: recipe::Gain, GainRampField, the gain members, and recipe::Master (Story 4.4)");
+  }
+}
+
+template <class R>
+void check_nine_ramps_and_empty_master(const R& r) {
+  if constexpr (RecipeHasGain<R>) {
+    CHECK(r.theta_reference->gain->ramps.size() == 9);
+    REQUIRE(r.master.has_value());
+    CHECK_FALSE(r.master->gain.has_value());
+  } else {
+    (void)r;
+    FAIL("not implemented: recipe::Gain and recipe::Master (Story 4.4)");
+  }
+}
+
+}  // namespace
+
+TEST_CASE("field table: the gain rows of every schedule, in order, with their types, tags, and rows",
+          "[recipe][gain-ramps][schema]") {
+  std::vector<std::string> paths;
+  for (const auto& f : recipe::fields()) {
+    paths.emplace_back(f.path);
+  }
+  const auto master = std::find(paths.begin(), paths.end(), "/master");
+  REQUIRE(master != paths.end());
+  for (const char* schedule : kGainSchedulePaths) {
+    INFO(schedule);
+    const auto at = std::find(paths.begin(), paths.end(), std::string(schedule) + "/gain");
+    REQUIRE(at != paths.end());
+    const auto start = static_cast<std::size_t>(at - paths.begin());
+    REQUIRE(start + kGainRows.size() <= paths.size());
+    for (std::size_t i = 0; i < kGainRows.size(); ++i) {
+      CHECK(paths[start + i] == schedule + kGainRows[i]);
+    }
+  }
+  std::size_t gain_rows = 0;
+  for (const auto& f : recipe::fields()) {
+    const std::string path(f.path);
+    if (path == "/master") {
+      CHECK(f.type == recipe::FieldType::Object);
+      CHECK_FALSE(f.required);
+      CHECK(f.tag == recipe::FieldTag::LoudnessRelevant);
+      CHECK(f.range_row.empty());
+      continue;
+    }
+    const auto g = path.find("/gain");
+    if (g == std::string::npos) {
+      continue;
+    }
+    INFO(path);
+    ++gain_rows;
+    const std::string rest = path.substr(g);
+    CHECK(f.tag == recipe::FieldTag::LoudnessRelevant);
+    if (rest == "/gain") {
+      CHECK(f.type == recipe::FieldType::Object);
+      CHECK_FALSE(f.required);
+      CHECK(f.range_row.empty());
+    } else if (rest == "/gain/initial" || rest == "/gain/ramps/*/to") {
+      CHECK(f.type == recipe::FieldType::Number);
+      CHECK(f.required);
+      CHECK(std::string(f.range_row) == tables::row("layer-gain").id);
+      CHECK(f.range_scale == 1.0);
+    } else if (rest == "/gain/ramps") {
+      CHECK(is_array_type(f.type));
+      CHECK(std::string(type_name(f.type)) == "array");
+      CHECK_FALSE(f.required);
+      CHECK(f.range_row.empty());  // the count is checked by name, row gain-ramp-count
+    } else {
+      CHECK((rest == "/gain/ramps/*/start_s" || rest == "/gain/ramps/*/duration_s"));
+      CHECK(f.type == recipe::FieldType::Number);
+      CHECK(f.required);
+      CHECK(f.range_row.empty());
+    }
+  }
+  CHECK(gain_rows == 4 * kGainRows.size());
+}
+
+TEST_CASE("engine parse stage fills the gain schedules and the master", "[recipe][gain-ramps]") {
+  {
+    const auto r = recipe::parse(fixture("valid", "gain-master-fade.json"));
+    INFO(r.error.rule << " " << r.error.parameter << " " << r.error.value);
+    REQUIRE(r.recipe.has_value());
+    const std::optional<WantGain> want[4] = {std::nullopt, std::nullopt, WantGain{0.0, {{0.0, 0.01, 1.0}}},
+                                             WantGain{1.0, {{120.0, 300.0, 0.0}}}};
+    check_recipe_gains(*r.recipe, want, true);
+  }
+  {
+    const auto r = recipe::parse(fixture("valid", "gain-ramp-in-loop.json"));
+    INFO(r.error.rule << " " << r.error.parameter << " " << r.error.value);
+    REQUIRE(r.recipe.has_value());
+    const std::optional<WantGain> want[4] = {WantGain{0.0, {{0.0, 300.0, 1.0}}}, WantGain{0.0, {{0.0, 300.0, 1.0}}},
+                                             std::nullopt, std::nullopt};
+    check_recipe_gains(*r.recipe, want, false);
+  }
+  {
+    // Every schedule, an empty ramps array, and two ramps in array order;
+    // parse keeps the values as written (compile applies the rules).
+    const auto r = recipe::parse(gain_recipe(
+        "{\"initial\": 0.25, \"ramps\": []}", "{\"initial\": 1}",
+        "{\"ramps\": [{\"to\": 0.5, \"duration_s\": 0.0099, \"start_s\": 10}, "
+        "{\"start_s\": 5, \"duration_s\": 1, \"to\": 1.5}], \"initial\": -1}",
+        ", \"master\": {\"gain\": {\"initial\": 0.5, \"ramps\": [{\"start_s\": 1, \"duration_s\": 2, \"to\": 0}]}}"));
+    INFO(r.error.rule << " " << r.error.parameter << " " << r.error.value);
+    REQUIRE(r.recipe.has_value());
+    const std::optional<WantGain> want[4] = {WantGain{0.25, {}}, WantGain{1.0, {}},
+                                             WantGain{-1.0, {{10.0, 0.0099, 0.5}, {5.0, 1.0, 1.5}}},
+                                             WantGain{0.5, {{1.0, 2.0, 0.0}}}};
+    check_recipe_gains(*r.recipe, want, true);
+  }
+  {
+    // A master without a gain member, and nine ramps (the count is a
+    // compile check, row gain-ramp-count).
+    std::string nine;
+    for (int i = 0; i < 9; ++i) {
+      nine += std::string(i ? ", " : "") + "{\"start_s\": " + std::to_string(10 * (i + 1)) +
+              ", \"duration_s\": 1, \"to\": 1}";
+    }
+    const auto r = recipe::parse(gain_recipe("{\"initial\": 1, \"ramps\": [" + nine + "]}", "", "", ", \"master\": {}"));
+    INFO(r.error.rule << " " << r.error.parameter << " " << r.error.value);
+    REQUIRE(r.recipe.has_value());
+    check_nine_ramps_and_empty_master(*r.recipe);
+  }
+  // Every fixture written before Story 4.4 has no gain and no master.
+  for (const char* name : {"both-layers.json", "theta-sine-6hz.json", "swell-theta-cycle.json",
+                           "bursts-theta-cycle.json", "binaural-cycle-sleep.json", "loop-swell-theta-cycle.json"}) {
+    INFO(name);
+    const auto r = recipe::parse(fixture("valid", name));
+    REQUIRE(r.recipe.has_value());
+    const std::optional<WantGain> none[4] = {};
+    check_recipe_gains(*r.recipe, none, false);
+  }
+}
+
+TEST_CASE("engine parse names gain faults with the element index", "[recipe][gain-ramps]") {
+  struct Case {
+    std::string text;
+    const char* rule;
+    const char* parameter;
+    const char* limit;  // nullptr: not checked
+  };
+  const std::string ramp = "{\"start_s\": 1, \"duration_s\": 1, \"to\": 1}";
+  const Case cases[] = {
+      {gain_recipe("{\"initial\": 1, \"ramps\": 5}"), "type", "/theta_reference/gain/ramps", "array"},
+      {gain_recipe("{\"initial\": 1, \"ramps\": {}}"), "type", "/theta_reference/gain/ramps", "array"},
+      {gain_recipe("{\"initial\": 1, \"ramps\": [" + ramp + ", 3]}"), "type", "/theta_reference/gain/ramps/1",
+       "object"},
+      {gain_recipe("", "{\"initial\": 1, \"ramps\": [[]]}"), "type", "/gamma_pac/gain/ramps/0", "object"},
+      {gain_recipe("", "", "{\"initial\": 1, \"ramps\": [" + ramp + ", " + ramp + ", {\"start_s\": 1, \"duration_s\": 1}]}"),
+       "required", "/binaural/gain/ramps/2/to", "present"},
+      {gain_recipe("{\"initial\": 1, \"ramps\": [{\"duration_s\": 1, \"to\": 1}]}"), "required",
+       "/theta_reference/gain/ramps/0/start_s", "present"},
+      {gain_recipe("{\"initial\": 1, \"ramps\": [{\"start_s\": 1, \"duration_s\": 1, \"to\": 1, \"shape\": \"cos\"}]}"),
+       "unknown_property", "/theta_reference/gain/ramps/0/shape", nullptr},
+      {gain_recipe("{\"initial\": 1, \"ramps\": [{\"start_s\": 1, \"duration_s\": 1, \"to\": \"1\"}]}"), "type",
+       "/theta_reference/gain/ramps/0/to", "number"},
+      {gain_recipe("{}"), "required", "/theta_reference/gain/initial", "present"},
+      {gain_recipe("{\"initial\": \"1\"}"), "type", "/theta_reference/gain/initial", "number"},
+      {gain_recipe("", "", "1"), "type", "/binaural/gain", "object"},
+      {gain_recipe("", "", "{\"initial\": 1, \"fade_s\": 5}"), "unknown_property", "/binaural/gain/fade_s",
+       "initial, ramps"},
+      {gain_recipe("", "", "", ", \"master\": {\"gain\": {\"initial\": 1}, \"fade\": 1}"), "unknown_property",
+       "/master/fade", "gain"},
+      {gain_recipe("", "", "", ", \"master\": 1"), "type", "/master", "object"},
+      {gain_recipe("", "", "", ", \"master\": {\"gain\": {\"initial\": 1, \"ramps\": [" + ramp + ", null]}}"), "type",
+       "/master/gain/ramps/1", "object"},
+  };
+  for (const auto& c : cases) {
+    INFO(c.text);
+    const auto r = recipe::parse(c.text);
+    INFO("got " << r.error.rule << " " << r.error.parameter << " " << r.error.value << " " << r.error.limit);
+    REQUIRE_FALSE(r.recipe.has_value());
+    CHECK(r.error.rule == c.rule);
+    CHECK(r.error.parameter == c.parameter);
+    if (c.limit != nullptr) {
+      CHECK(r.error.limit == c.limit);
+    }
+  }
+}
+
+TEST_CASE("the five invalid gain fixtures fail parse with their named fault", "[recipe][gain-ramps][fixtures]") {
+  struct Case {
+    const char* name;
+    const char* parameter;
+    const char* rule;
+    const char* limit;
+  };
+  const Case cases[] = {
+      {"gain-ramps-as-object.json", "/theta_reference/gain/ramps", "type", "array"},
+      {"gain-ramp-missing-to.json", "/gamma_pac/gain/ramps/0/to", "required", "present"},
+      {"gain-unknown-property.json", "/binaural/gain/fade_s", "unknown_property", "initial, ramps"},
+      {"gain-initial-as-string.json", "/master/gain/initial", "type", "number"},
+      {"gain-ramp-not-an-object.json", "/theta_reference/gain/ramps/0", "type", "object"},
+  };
+  for (const auto& c : cases) {
+    INFO(c.name);
+    const auto r = recipe::parse(fixture("invalid", c.name));
+    INFO("got " << r.error.rule << " " << r.error.parameter << " " << r.error.value << " " << r.error.limit);
+    REQUIRE_FALSE(r.recipe.has_value());
+    CHECK(r.error.parameter == c.parameter);
+    CHECK(r.error.rule == c.rule);
+    CHECK(r.error.limit == c.limit);
+  }
+}
+
+TEST_CASE("the gain fixtures have distinct recipe hashes; a gain member changes the hash", "[recipe][gain-ramps][hash]") {
+  std::set<std::string> hashes;
+  for (const char* name : {"gain-ramp-in-loop.json", "gain-layer-ramp-10min.json", "gain-master-fade.json",
+                           "gain-end-fade-loop.json", "gain-theta-silent.json"}) {
+    INFO(name);
+    const auto r = recipe::parse(fixture("valid", name));
+    REQUIRE(r.recipe.has_value());
+    CHECK(hashes.insert(r.recipe->hash).second);
+  }
+  // A unity gain renders the same bits but is a different recipe text.
+  const auto plain = recipe::parse(gain_recipe(""));
+  const auto unity = recipe::parse(gain_recipe("{\"initial\": 1}"));
+  REQUIRE(plain.recipe.has_value());
+  REQUIRE(unity.recipe.has_value());
+  CHECK(plain.recipe->hash != unity.recipe->hash);
+}
+
 // ------------------------------------------- range registration (Story 1.3)
 //
 // Every numeric field (Number or Integer) names its locked-range row in the
@@ -1581,6 +1952,17 @@ const std::map<std::string, std::string> kRangeExempt = {
     {"/loop/opening_s", "bounded by the loop rules, no range row of its own"},
     {"/loop/body_s", "bounded by the loop rules, no range row of its own"},
     {"/loop/max_run_time_min", "checked against the row its loop mode names, not a fixed row"},
+    // Story 4.4: the gain rules bound a ramp's start and length (at least 10
+    // ms, inside the session, no overlap, out of the first body pass);
+    // signal spec, Gain ramps, Compile order.
+    {"/theta_reference/gain/ramps/*/start_s", "bounded by the gain rules, no range row of its own"},
+    {"/theta_reference/gain/ramps/*/duration_s", "bounded by the gain rules, no range row of its own"},
+    {"/gamma_pac/gain/ramps/*/start_s", "bounded by the gain rules, no range row of its own"},
+    {"/gamma_pac/gain/ramps/*/duration_s", "bounded by the gain rules, no range row of its own"},
+    {"/binaural/gain/ramps/*/start_s", "bounded by the gain rules, no range row of its own"},
+    {"/binaural/gain/ramps/*/duration_s", "bounded by the gain rules, no range row of its own"},
+    {"/master/gain/ramps/*/start_s", "bounded by the gain rules, no range row of its own"},
+    {"/master/gain/ramps/*/duration_s", "bounded by the gain rules, no range row of its own"},
 };
 
 // The field-to-row mapping settled in the Story 1.3 spec (path -> row, scale).
@@ -1604,6 +1986,16 @@ const std::map<std::string, std::pair<std::string, double>> kExpectedRegistratio
     {"/theta_reference/rate_cycle/start_phase_deg", {"rate-cycle-start-phase", 1.0}},  // Story 2.6
     {"/gamma_pac/rate_cycle/period_s", {"rate-cycle-period", 1.0}},                   // Story 2.6
     {"/gamma_pac/rate_cycle/start_phase_deg", {"rate-cycle-start-phase", 1.0}},        // Story 2.6
+    // Story 4.4: every gain is linear, row layer-gain (the ramp count is
+    // checked by name against row gain-ramp-count, not through a field).
+    {"/theta_reference/gain/initial", {"layer-gain", 1.0}},
+    {"/theta_reference/gain/ramps/*/to", {"layer-gain", 1.0}},
+    {"/gamma_pac/gain/initial", {"layer-gain", 1.0}},
+    {"/gamma_pac/gain/ramps/*/to", {"layer-gain", 1.0}},
+    {"/binaural/gain/initial", {"layer-gain", 1.0}},
+    {"/binaural/gain/ramps/*/to", {"layer-gain", 1.0}},
+    {"/master/gain/initial", {"layer-gain", 1.0}},
+    {"/master/gain/ramps/*/to", {"layer-gain", 1.0}},
 };
 
 template <class F>
@@ -1627,6 +2019,8 @@ std::string unit_problem(const std::string& path, const std::string& unit, doubl
       {"_hz", "Hz", 1.0},       {"_s", "s", 1.0},           {"_s", "min", 60.0},
       {"_s", "h", 3600.0},      {"_lufs", "LUFS-I", 1.0},   {"_deg", "degrees", 1.0},
       {"_db", "dB", 1.0},       {"_percent", "percent", 1.0},
+      // Story 4.4: a gain has no unit suffix; initial and to are ratios.
+      {"/initial", "ratio", 1.0}, {"/to", "ratio", 1.0},
   };
   bool suffix_known = false;
   for (const auto& fit : kFits) {

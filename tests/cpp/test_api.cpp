@@ -105,8 +105,10 @@
 #include "loudness_gain_helpers.hpp"
 #include "spec_helpers.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
 #include <iterator>
 #include <map>
 #include <string>
@@ -1113,6 +1115,114 @@ TEST_CASE("applied gain: every stored gain vector applies its g bit for bit; a z
     }
     const TapRender f = render_taps(base, ARC_MODE_FINAL, rate);
     CHECK(master_mismatches(f, std::nextafter(gain_value(spec::kTruePeak_final_fixture_gain).g, 1.0)) > 0);
+  }
+}
+
+// ---------------------------------------------- Story 4.4: the gain taps
+//
+// docs/signal-spec.md, Gain ramps, Per sample and Taps: arc_taps gains
+// theta_reference_gained, gamma_pac_gained, binaural (before gain), and
+// binaural_gained after master. Without a gain member every gain is 1.0, so
+// on every fixture written before Story 4.4 each after-gain tap equals its
+// before-gain partner bit for bit; the bus is the sum of the after-gain
+// theta and gamma taps, the join adds the after-gain binaural tap, and the
+// master is (join * g) * gM (gM = 1.0 here, g the loudness gain).
+
+namespace {
+
+std::vector<std::string> pre_gain_fixtures() {
+  std::vector<std::string> out;
+  for (const auto& e : std::filesystem::directory_iterator(std::string(ARCANI_RECIPES_DIR) + "/fixtures/valid")) {
+    const std::string name = e.path().filename().string();
+    if (e.path().extension() == ".json" && name.rfind("gain-", 0) != 0) {
+      out.push_back(name);
+    }
+  }
+  std::sort(out.begin(), out.end());
+  return out;
+}
+
+// Mismatching samples of the Per sample lines with every gain 1.0 and
+// loudness gain g; each tap and channel counted.
+std::size_t unity_gain_mismatches(const api::TapBuffers& t, const std::vector<double>& out, double g) {
+  std::size_t bad = 0;
+  for (std::size_t k = 0; k < out.size(); ++k) {
+    bad += api::bits(t.theta_gained[k]) != api::bits(t.theta_reference[k]);
+    bad += api::bits(t.gamma_gained[k]) != api::bits(t.gamma_pac[k]);
+    bad += api::bits(t.binaural_gained[k]) != api::bits(t.binaural[k]);
+    bad += api::bits(t.stereo_bus[k]) != api::bits(t.theta_gained[k] + t.gamma_gained[k]);
+    bad += api::bits(t.binaural_join[k]) != api::bits(t.stereo_bus[k] + t.binaural_gained[k]);
+    bad += api::bits(t.master[k]) != api::bits((t.binaural_join[k] * g) * 1.0);
+    bad += api::bits(out[k]) != api::bits(t.master[k]);
+  }
+  return bad;
+}
+
+}  // namespace
+
+TEST_CASE("gain taps: on every fixture written before Story 4.4 each after-gain tap equals its partner",
+          "[api][gain-ramps][taps]") {
+  if (!api::HasGainTaps<arc_taps>) {
+    FAIL("not implemented: arc_taps has no theta_reference_gained, gamma_pac_gained, binaural, binaural_gained "
+         "(Story 4.4)");
+  }
+  constexpr std::size_t kFrames = 4096;
+  std::size_t rendered = 0;
+  for (const std::string& name : pre_gain_fixtures()) {
+    const std::string text = api::valid(name);
+    for (const std::uint32_t fs : spec::sample_rates()) {
+      const api::Compiled c = api::compile(text, api::options(ARC_MODE_MEASURE, fs));
+      if (c.status != ARC_OK) {
+        continue;  // a schema-valid fixture that compile rejects
+      }
+      INFO(name << " at " << fs);
+      const std::size_t frames =
+          static_cast<std::size_t>(std::min<std::uint64_t>(kFrames, arc_plan_frame_count(c.plan.get())));
+      api::TapBuffers taps(frames);
+      auto r = api::renderer(c.plan.get());
+      const arc_taps t = taps.taps();
+      const auto out = api::render(r.get(), frames, &t);
+      CHECK(unity_gain_mismatches(taps, out, 1.0) == 0);
+      ++rendered;
+    }
+  }
+  CHECK(rendered > 20);
+  // Must-fail: a binaural tap that is the join (theta and gamma left in)
+  // fails on a fixture with every layer.
+  {
+    auto plan = api::compile_ok(api::valid("both-layers.json"), api::options(ARC_MODE_MEASURE, 48000));
+    api::TapBuffers taps(kFrames);
+    auto r = api::renderer(plan.get());
+    const arc_taps t = taps.taps();
+    const auto out = api::render(r.get(), kFrames, &t);
+    CHECK(unity_gain_mismatches(taps, out, 1.0) == 0);
+    api::TapBuffers doctored = taps;
+    doctored.binaural = doctored.binaural_join;
+    doctored.binaural_gained = doctored.binaural_join;
+    CHECK(unity_gain_mismatches(doctored, out, 1.0) > 0);
+    // And a master that drops the loudness gain fails at g != 1.
+    CHECK(unity_gain_mismatches(taps, out, 0.5) > 0);
+  }
+}
+
+TEST_CASE("gain taps: in final mode the master is (join * g) * 1.0 and every after-gain tap is measure's",
+          "[api][gain-ramps][taps][loudness-gain]") {
+  if (!api::HasGainTaps<arc_taps>) {
+    FAIL("not implemented: arc_taps has no theta_reference_gained, gamma_pac_gained, binaural, binaural_gained "
+         "(Story 4.4)");
+  }
+  const std::string text = api::valid(spec::kLoudnessGain_final_fixture);
+  const spec::LoudnessGainValueVector& v = gain_value(spec::kTruePeak_final_fixture_gain);
+  for (const std::uint32_t fs : spec::sample_rates()) {
+    INFO("fs " << fs);
+    const TapRender m = render_taps(text, ARC_MODE_MEASURE, fs);
+    const TapRender f = render_taps(text, ARC_MODE_FINAL, fs);
+    CHECK(unity_gain_mismatches(f.taps, f.out, v.g) == 0);
+    CHECK(unity_gain_mismatches(m.taps, m.out, 1.0) == 0);
+    CHECK(api::same_bytes(f.taps.theta_gained, m.taps.theta_gained));
+    CHECK(api::same_bytes(f.taps.gamma_gained, m.taps.gamma_gained));
+    CHECK(api::same_bytes(f.taps.binaural, m.taps.binaural));
+    CHECK(api::same_bytes(f.taps.binaural_gained, m.taps.binaural_gained));
   }
 }
 

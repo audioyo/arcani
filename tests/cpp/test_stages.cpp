@@ -512,6 +512,117 @@ TEST_CASE("render of zero frames succeeds and writes nothing", "[stages][taps]")
   CHECK(api::bits(out[2]) != 0);
 }
 
+// ------------------------------------------------ Story 4.4: the gain taps
+//
+// docs/signal-spec.md, Gain ramps, Taps: four taps after master
+// (theta_reference_gained, gamma_pac_gained, binaural, binaural_gained),
+// each optional, +0.0 past the session end and without their layer; a muted
+// ear is +0.0 before and after the binaural gain.
+
+namespace {
+
+void require_gain_taps() {
+  if (!api::HasGainTaps<arc_taps>) {
+    FAIL("not implemented: arc_taps has no theta_reference_gained, gamma_pac_gained, binaural, binaural_gained "
+         "(Story 4.4)");
+  }
+}
+
+}  // namespace
+
+TEST_CASE("gain taps: no layer fields and past the session end are exact zeros", "[stages][gain-ramps][taps]") {
+  require_gain_taps();
+  const FullRender none = render_session(api::kNoLayers, 48000, ARC_MUTE_NONE);
+  CHECK(api::all_exact_zero(none.taps.theta_gained));
+  CHECK(api::all_exact_zero(none.taps.gamma_gained));
+  CHECK(api::all_exact_zero(none.taps.binaural));
+  CHECK(api::all_exact_zero(none.taps.binaural_gained));
+  for (const std::uint32_t fs : {44100u, 48000u}) {
+    INFO(fs);
+    const FullRender f = render_session(api::kBeat6, fs, ARC_MUTE_NONE, 1000);
+    const auto end = static_cast<std::size_t>(2 * f.frames);
+    REQUIRE(f.taps.binaural.size() == end + 2000);
+    CHECK(api::bits(f.taps.binaural[end - 2]) != 0);
+    CHECK(api::bits(f.taps.theta_gained[end - 2]) != 0);
+    for (const std::vector<double>* tap : {&f.taps.theta_gained, &f.taps.gamma_gained, &f.taps.binaural,
+                                           &f.taps.binaural_gained}) {
+      CHECK(api::all_exact_zero(tap->data() + end, 2000));
+    }
+    // The binaural tap is the binaural layer alone: the join less the theta
+    // reference (no gamma layer in beat-6), bit for bit by the join line.
+    CHECK(api::same_bytes(f.taps.binaural_gained, f.taps.binaural));
+    std::size_t bad = 0;
+    for (std::size_t k = 0; k < end; ++k) {
+      bad += api::bits(f.taps.binaural_join[k]) != api::bits(f.taps.stereo_bus[k] + f.taps.binaural[k]);
+    }
+    CHECK(bad == 0);
+  }
+}
+
+TEST_CASE("gain taps: a muted ear is +0.0 before and after the binaural gain", "[stages][gain-ramps][mute]") {
+  require_gain_taps();
+  for (const std::uint32_t fs : {44100u, 48000u}) {
+    const FullRender both = render_session(api::kBeat6, fs, ARC_MUTE_NONE);
+    for (const arc_mute_ear mute : {ARC_MUTE_LEFT, ARC_MUTE_RIGHT}) {
+      const int muted = mute == ARC_MUTE_LEFT ? 0 : 1;
+      INFO(fs << ", muted channel " << muted);
+      const FullRender m = render_session(api::kBeat6, fs, mute);
+      CHECK(api::all_exact_zero(api::channel(m.taps.binaural, muted)));
+      CHECK(api::all_exact_zero(api::channel(m.taps.binaural_gained, muted)));
+      CHECK(api::same_bytes(api::channel(m.taps.binaural, 1 - muted), api::channel(both.taps.binaural, 1 - muted)));
+      CHECK_FALSE(api::all_exact_zero(api::channel(m.taps.binaural, 1 - muted).data(),
+                                      static_cast<std::size_t>(m.frames)));
+    }
+  }
+  // Must-fail: the unmuted render's binaural channel is not +0.0.
+  const FullRender both = render_session(api::kBeat6, 48000, ARC_MUTE_NONE);
+  CHECK_FALSE(api::all_exact_zero(api::channel(both.taps.binaural, 0)));
+}
+
+TEST_CASE("gain taps: each is optional; an unwanted one is not written and the output does not change",
+          "[stages][gain-ramps][taps]") {
+  require_gain_taps();
+  auto p = api::compile_ok(api::valid(api::kBeat6), api::options(ARC_MODE_MEASURE, 48000));
+  constexpr std::size_t kFrames = 3000;
+  auto r0 = api::renderer(p.get());
+  const auto plain = api::render(r0.get(), kFrames, nullptr);
+  auto r1 = api::renderer(p.get());
+  api::TapBuffers all(kFrames);
+  const arc_taps t_all = all.taps();
+  CHECK(api::same_bytes(plain, api::render(r1.get(), kFrames, &t_all)));
+  CHECK_FALSE(api::all_exact_zero(all.binaural));
+  // Only the four new taps, then only the old five.
+  auto r2 = api::renderer(p.get());
+  api::TapBuffers some(kFrames);
+  arc_taps t_new = some.taps();
+  t_new.theta_reference = nullptr;
+  t_new.gamma_pac = nullptr;
+  t_new.stereo_bus = nullptr;
+  t_new.binaural_join = nullptr;
+  t_new.master = nullptr;
+  CHECK(api::same_bytes(plain, api::render(r2.get(), kFrames, &t_new)));
+  CHECK(api::same_bytes(some.binaural, all.binaural));
+  CHECK(api::same_bytes(some.theta_gained, all.theta_gained));
+  for (const double x : some.master) {
+    REQUIRE(x == -7.0);
+  }
+  auto r3 = api::renderer(p.get());
+  api::TapBuffers old(kFrames);
+  arc_taps t_old{};  // the four new taps NULL
+  t_old.theta_reference = old.theta_reference.data();
+  t_old.gamma_pac = old.gamma_pac.data();
+  t_old.stereo_bus = old.stereo_bus.data();
+  t_old.binaural_join = old.binaural_join.data();
+  t_old.master = old.master.data();
+  CHECK(api::same_bytes(plain, api::render(r3.get(), kFrames, &t_old)));
+  for (const std::vector<double>* tap : {&old.theta_gained, &old.gamma_gained, &old.binaural, &old.binaural_gained}) {
+    for (const double x : *tap) {
+      REQUIRE(x == -7.0);
+    }
+  }
+  CHECK(api::same_bytes(old.master, all.master));
+}
+
 #else  // ARC_ERROR_FIELD_BYTES
 
 TEST_CASE("stage list through the C API: five kinds in order", "[stages][api]") {

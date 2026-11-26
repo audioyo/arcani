@@ -68,6 +68,36 @@
       "rule": "pattern",
       "schema_keyword": "pattern"
     },
+    "gain-initial-as-string.json": {
+      "parameter": "/master/gain/initial",
+      "rule": "type",
+      "limit": "number",
+      "schema_keyword": "type"
+    },
+    "gain-ramp-missing-to.json": {
+      "parameter": "/gamma_pac/gain/ramps/0/to",
+      "rule": "required",
+      "limit": "present",
+      "schema_keyword": "required"
+    },
+    "gain-ramp-not-an-object.json": {
+      "parameter": "/theta_reference/gain/ramps/0",
+      "rule": "type",
+      "limit": "object",
+      "schema_keyword": "type"
+    },
+    "gain-ramps-as-object.json": {
+      "parameter": "/theta_reference/gain/ramps",
+      "rule": "type",
+      "limit": "array",
+      "schema_keyword": "type"
+    },
+    "gain-unknown-property.json": {
+      "parameter": "/binaural/gain/fade_s",
+      "rule": "unknown_property",
+      "limit": "initial, ramps",
+      "schema_keyword": "additionalProperties"
+    },
     "gamma-carrier-wave-not-in-enum.json": {
       "parameter": "/gamma_pac/carrier_wave",
       "rule": "enum",

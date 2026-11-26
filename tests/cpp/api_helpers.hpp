@@ -14,6 +14,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -127,25 +128,51 @@ inline RendererPtr renderer(arc_plan* plan) {
   return RendererPtr(raw);
 }
 
+// Story 4.4 (docs/signal-spec.md, Gain ramps, Taps): arc_taps gains four
+// taps after master. Reached through this concept, so the suite builds
+// before they exist.
+template <class T>
+concept HasGainTaps = requires(T t) {
+  { t.theta_reference_gained } -> std::convertible_to<double*>;
+  { t.gamma_pac_gained } -> std::convertible_to<double*>;
+  { t.binaural } -> std::convertible_to<double*>;
+  { t.binaural_gained } -> std::convertible_to<double*>;
+};
+
 // One buffer per tap, each interleaved stereo over the same frames as the
-// render output.
+// render output. The four Story 4.4 buffers are wired only once arc_taps
+// has their members; until then they keep their sentinel.
 struct TapBuffers {
   std::vector<double> theta_reference, gamma_pac, stereo_bus, binaural_join, master;
+  std::vector<double> theta_gained, gamma_gained, binaural, binaural_gained;  // Story 4.4
 
   explicit TapBuffers(std::size_t frames)
       : theta_reference(2 * frames, -7.0),
         gamma_pac(2 * frames, -7.0),
         stereo_bus(2 * frames, -7.0),
         binaural_join(2 * frames, -7.0),
-        master(2 * frames, -7.0) {}
+        master(2 * frames, -7.0),
+        theta_gained(2 * frames, -7.0),
+        gamma_gained(2 * frames, -7.0),
+        binaural(2 * frames, -7.0),
+        binaural_gained(2 * frames, -7.0) {}
 
-  arc_taps taps() {
-    arc_taps t;
+  arc_taps taps() { return make_taps<arc_taps>(); }
+
+  template <class T>
+  T make_taps() {
+    T t{};  // every member NULL first, so a member added later is not garbage
     t.theta_reference = theta_reference.data();
     t.gamma_pac = gamma_pac.data();
     t.stereo_bus = stereo_bus.data();
     t.binaural_join = binaural_join.data();
     t.master = master.data();
+    if constexpr (HasGainTaps<T>) {
+      t.theta_reference_gained = theta_gained.data();
+      t.gamma_pac_gained = gamma_gained.data();
+      t.binaural = binaural.data();
+      t.binaural_gained = binaural_gained.data();
+    }
     return t;
   }
 };
