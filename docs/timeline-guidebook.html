@@ -651,9 +651,12 @@ var EPICS = [
       ["x","Every final 24-bit render at or below -1 dBTP"],
       ["x","Measure command writes no gain if true peak would exceed the ceiling"]
     ] },
-  { id:"4.4", title:"Gain ramps", status:"backlog",
+  { id:"4.4", title:"Gain ramps", status:"ready-for-dev",
     plain:"Per-layer and master gain ramps, none faster than 10 ms, so fades and ramp-ins are smooth.",
-    steps:S7(), acs:[
+    spec:["spec-4-4-gain-ramps.md"],
+    steps:[true,false,false,false,false,false,false],
+    stepNotes:["29e2e2c: spec approved 2026-11-26 by Audio; optional gain schedules on each layer and the master, raised-cosine ramps (Audio's pick), none under 10 ms; taps before and after layer gain; ramp-free loudness window; coupled gamma rejected at silent theta; 5 min end fade at the Focus and Learn cap"],
+    acs:[
       [" ","signal-spec ramps section with worked vectors"],
       [" ","Tap before and after layer gain; bit-identical at unity"],
       [" ","Ramp under 10 ms rejected; exactly 10 ms passes"],
@@ -766,6 +769,7 @@ var EPICS = [
 
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
+  ["2026-11-26","29e2e2c","4.4","Spec approved by Audio: optional per-layer and master gain schedules with raised-cosine ramps (none under 10 ms), taps before and after layer gain, ramp-free loudness window, coupled gamma rejected at silent theta, 5 min end fade at the Focus and Learn cap; sprint-status.yaml ready-for-dev; branch story/4-4-gain-ramps; not pushed"],
   ["2026-11-26","dde1030","4.3","PR #25 merged: CI green on both tiers on the first run (full windows-x64 30.2 min, windows-arm64 23.0, macos-arm64 14.8, fast linux-x64 16.3, fast windows-x64 29.8); re-pinned stub-chain-final hashes confirmed on all four platforms; Story 4.3 done; next: Story 4.4"],
   ["2026-11-26","a2ccf4c","4.3","Code review pass 1: 3 patches (f2098e0), 1 deferred, 9 rejected with reasons in the spec; ctest green, pytest 3,859 pass; sprint-status.yaml review; next: push and open the PR for CI"],
   ["2026-11-26","695d374","4.3","Implementation in 5 commits: both true-peak meters, the report check on every final render, the store refusal, the -10 dB final fixture and re-pinned stub-chain-final hashes (wait for the four-platform run); ctest green, pytest 3,859 pass in 14.5 min; not pushed; next: code review"],
