@@ -7,7 +7,9 @@ approximation.
 
 render(recipe_path, fs, frames=None, start=0, mode="measure") reads the recipe JSON with the
 standard library and returns a dict with the keys "output", "theta",
-"gamma", "bus", "join", and "master". Each value is a 1-D C-contiguous
+"gamma", "bus", "join", "master", and (Story 4.4) "theta_gained",
+"gamma_gained", "binaural", and "binaural_gained" (theta and gamma are
+before each layer's gain). Each value is a 1-D C-contiguous
 float64 array of 2 * T samples, interleaved stereo (left, right per frame),
 for the frames [start, start + T), where T is `frames` when given and else
 max(N - start, 0), N = seconds_to_samples(length_s, fs). Every sample at
@@ -26,10 +28,13 @@ For 0 <= n < N and each channel c, in the spec's order:
 
     theta[c][n]  = theta.render(...)[n]       the same value in both channels
     gamma[c][n]  = gamma.render(...)[n]       the same value in both channels
-    bus[c][n]    = theta[c][n] + gamma[c][n]
+    theta_g      = theta[c][n] * gT[n]       Story 4.4: gains from reference/gain.py
+    gamma_g      = gamma[c][n] * gG[n]
+    bus[c][n]    = theta_g + gamma_g
     bin[c][n]    = binaural.render(...)[c][n]   ear c (left, right)
-    join[c][n]   = bus[c][n] + bin[c][n]
-    master[c][n] = join[c][n] * g
+    bin_g[c][n]  = bin[c][n] * gB[n]          one gain for both ears
+    join[c][n]   = bus[c][n] + bin_g[c][n]
+    master[c][n] = (join[c][n] * g) * gM[n]
     out[c][n]    = master[c][n]
 
 with g = 1.0 in mode "measure" (the default) and, in mode "final" (Story
@@ -61,9 +66,10 @@ from fractions import Fraction
 
 import numpy as np
 
-from . import binaural as binaural_layer, gamma as gamma_layer, ideal, theta as theta_layer
+from . import binaural as binaural_layer, gain as gain_layer, gamma as gamma_layer, ideal, theta as theta_layer
 
-KEYS = ("output", "theta", "gamma", "bus", "join", "master")
+KEYS = ("output", "theta", "gamma", "bus", "join", "master", "theta_gained", "gamma_gained", "binaural",
+        "binaural_gained")
 MODES = ("measure", "final")
 GAIN_STEP = float.fromhex("0x1.004b7e9b5ce5dp+0")  # the binary64 nearest 10^(1/2000)
 
@@ -143,20 +149,32 @@ def render(recipe_path, fs, frames=None, start=0, mode="measure"):
         gamma = gamma_layer.render(gamma_pac, fs, n, theta_ref)
     else:
         gamma = np.zeros(n.size, dtype=np.float64)
-    bus = theta + gamma
+    # Story 4.4 (Gain ramps): each layer's gain after its before-gain tap,
+    # the master gain after the loudness gain; 1.0 without a gain member.
+    def schedule(holder):
+        return None if holder is None else holder.get("gain")
+
+    theta_g = theta * gain_layer.values(schedule(theta_ref), fs, n)
+    gamma_g = gamma * gain_layer.values(schedule(gamma_pac), fs, n)
+    bus = theta_g + gamma_g
 
     binaural = recipe.get("binaural")
     if binaural is not None:
         ears = binaural_layer.render(binaural, fs, n)
     else:
         ears = (np.zeros(n.size, dtype=np.float64), np.zeros(n.size, dtype=np.float64))
+    g_binaural = gain_layer.values(schedule(binaural), fs, n)
+    g_master = gain_layer.values(schedule(recipe.get("master")), fs, n)
 
     joins = []
     masters = []
+    ears_g = []
     for c in (0, 1):
-        join_c = bus + ears[c]
+        ear_g = ears[c] * g_binaural
+        ears_g.append(ear_g)
+        join_c = bus + ear_g
         joins.append(join_c)
-        masters.append(join_c * g)
+        masters.append((join_c * g) * g_master)
 
     out = {
         "theta": _interleave(theta, theta, total),
@@ -164,6 +182,10 @@ def render(recipe_path, fs, frames=None, start=0, mode="measure"):
         "bus": _interleave(bus, bus, total),
         "join": _interleave(joins[0], joins[1], total),
         "master": _interleave(masters[0], masters[1], total),
+        "theta_gained": _interleave(theta_g, theta_g, total),
+        "gamma_gained": _interleave(gamma_g, gamma_g, total),
+        "binaural": _interleave(ears[0], ears[1], total),
+        "binaural_gained": _interleave(ears_g[0], ears_g[1], total),
     }
     out["output"] = out["master"].copy()
     return {key: np.ascontiguousarray(out[key]) for key in KEYS}
