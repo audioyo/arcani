@@ -158,18 +158,49 @@ double LoudnessMeter::integrated(bool gating) const {
   return lufs(sum / static_cast<double>(count));
 }
 
-LoudnessWindow loudness_window(const arc_loop_frames& loop, std::uint64_t end_frame,
-                               std::uint64_t min_frames) noexcept {
+LoudnessWindow loudness_window(const arc_loop_frames& loop, std::uint64_t end_frame, std::uint64_t min_frames,
+                               std::span<const FrameSpan> ramps) noexcept {
   LoudnessWindow w;
   if (loop.looping == 0) {
-    if (end_frame < min_frames) {
+    // The longest run of [0, end_frame) inside no ramp, the earliest on a
+    // tie. A frame is steady unless some span covers it; walk the spans'
+    // starts in time order (insertion order of at most 32 spans).
+    std::uint64_t best_start = 0;
+    std::uint64_t best_len = 0;
+    std::uint64_t at = 0;  // the first frame not yet known to be in a ramp
+    std::vector<bool> used(ramps.size(), false);
+    for (;;) {
+      // The next span (smallest start) not yet used.
+      std::size_t next = ramps.size();
+      for (std::size_t i = 0; i < ramps.size(); ++i) {
+        if (!used[i] && (next == ramps.size() || ramps[i].start < ramps[next].start)) {
+          next = i;
+        }
+      }
+      const std::uint64_t stop = next == ramps.size() ? end_frame
+                                 : ramps[next].start < end_frame ? ramps[next].start
+                                                                 : end_frame;
+      if (stop > at && stop - at > best_len) {
+        best_start = at;
+        best_len = stop - at;
+      }
+      if (next == ramps.size()) {
+        break;
+      }
+      used[next] = true;
+      if (ramps[next].end > at) {
+        at = ramps[next].end;
+      }
+    }
+    w.steady_frames = best_len;
+    if (best_len < min_frames || best_len == 0) {
       return w;
     }
     w.accepted = true;
-    w.start_frame = 0;
-    w.body_frames = end_frame;
+    w.start_frame = best_start;
+    w.body_frames = best_len;
     w.repeats = 1;
-    w.window_frames = end_frame;
+    w.window_frames = best_len;
     return w;
   }
   if (loop.body_frames == 0) {
@@ -188,6 +219,26 @@ LoudnessWindow loudness_window(const arc_loop_frames& loop, std::uint64_t end_fr
   w.repeats = k;
   w.window_frames = k * loop.body_frames;
   return w;
+}
+
+LoudnessWindow loudness_window(const arc_loop_frames& loop, std::uint64_t end_frame,
+                               std::uint64_t min_frames) noexcept {
+  return loudness_window(loop, end_frame, min_frames, std::span<const FrameSpan>());
+}
+
+bool gain_ramp_spans(const arc_plan* plan, std::vector<FrameSpan>& out, std::string& rule) {
+  out.clear();
+  const std::size_t count = arc_plan_gain_ramp_count(plan);
+  for (std::size_t i = 0; i < count; ++i) {
+    arc_gain_ramp ramp;
+    arc_error error;
+    if (arc_plan_gain_ramp(plan, i, &ramp, &error) != ARC_OK) {
+      rule = error.rule;
+      return false;
+    }
+    out.push_back(FrameSpan{ramp.start_frame, ramp.end_frame});
+  }
+  return true;
 }
 
 std::uint64_t loudness_window_min_frames(const arcani::test::tables::Row& row, std::uint32_t fs) {

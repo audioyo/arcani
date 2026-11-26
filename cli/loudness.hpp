@@ -78,20 +78,40 @@ class LoudnessMeter {
   std::vector<double> steps_;  // summed y^2 of every whole step
 };
 
-// Loudness, Window. Without a loop: accepted when end_frame >= min_frames,
-// frames [0, end_frame) once. With one: always accepted, frames [O, O + B)
-// repeated k = max(1, ceil(min_frames / B)) times. A rejected window has
-// every number 0.
+// One gain ramp [start, end) in frames (Story 4.4; arc_plan_gain_ramp).
+struct FrameSpan {
+  std::uint64_t start = 0;
+  std::uint64_t end = 0;
+};
+
+// Loudness, Window. Without a loop: the steady stretches are the maximal
+// runs of [0, end_frame) inside no ramp (spans may overlap and come in any
+// order); the window is the longest, the earliest on a tie, measured once,
+// accepted when it is at least min_frames (without ramps, [0, end_frame)).
+// With a loop: always accepted, frames [O, O + B) repeated
+// k = max(1, ceil(min_frames / B)) times (loop rule 8 keeps the body
+// ramp-free, so the ramps are not read). A rejected window has every number
+// 0 but steady_frames, the length of the longest steady stretch (Story 4.4),
+// which is set without a loop whether accepted or not, and 0 with one.
 struct LoudnessWindow {
   bool accepted = false;
   std::uint64_t start_frame = 0;
   std::uint64_t body_frames = 0;
   std::uint64_t repeats = 0;
   std::uint64_t window_frames = 0;
+  std::uint64_t steady_frames = 0;
 };
 
+LoudnessWindow loudness_window(const arc_loop_frames& loop, std::uint64_t end_frame, std::uint64_t min_frames,
+                               std::span<const FrameSpan> ramps) noexcept;
+
+// The same without ramps.
 LoudnessWindow loudness_window(const arc_loop_frames& loop, std::uint64_t end_frame,
                                std::uint64_t min_frames) noexcept;
+
+// Every ramp of the plan's schedules (arc_plan_gain_ramp). False, with the
+// failing rule, when the C API refuses.
+bool gain_ramp_spans(const arc_plan* plan, std::vector<FrameSpan>& out, std::string& rule);
 
 // W_min = seconds_to_samples(row value, fs). Throws tables::TableError,
 // naming the row, unless its unit is "s" and its value is finite and above 0.
