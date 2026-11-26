@@ -5127,7 +5127,7 @@ TP        = max(TP_0, TP_1)                               the linear true peak
 dBTP      = 20 * log10(TP)                                -inf when TP = 0
 ```
 
-**Exact.** Every product `h_p[k] * x` is an integer times 2^-36 with at most 37 significant bits, and every partial sum is an integer times 2^-36 below 2^2 in magnitude (`sum |n_p[k]|` is at most 16571, and `|v| <= 2^23`), so it needs at most 38 bits. Every product and sum is exact in binary64, in any order, and `TP` is the exact value `max |sum n_p[k] v[m - k]| / 2^36`. Both meters therefore give the same `TP` bit for bit on the same integers, on every platform, and they are compared that way. Only the dB conversion calls `log10`; `dBTP` is not bit exact across platforms. A meter may work in 64-bit integers instead (the sums are below 2^39) and divide by 2^36 once.
+**Exact.** Every product `h_p[k] * x` is an integer times 2^-36 with at most 37 significant bits, and every partial sum is an integer times 2^-36 below 2^2 in magnitude (`sum |n_p[k]|` is at most 16571, and `|v| <= 2^23`), so it needs at most 38 bits. Every product and sum is exact in binary64, in any order, and `TP` is the exact value `max |sum n_p[k] v[m - k]| / 2^36`. Both meters therefore give the same `TP` bit for bit on the same integers, on every platform, and they are compared that way. Only the dB conversion calls `log10`; `dBTP` is not bit exact across platforms. A meter may work in 64-bit integers instead (the sums are below 2^38) and divide by 2^36 once.
 
 **Pass.** `dBTP <= ceiling` (inclusive), with `ceiling` the value of row `true-peak`. When `TP = 0` (silent), `dBTP` is `-inf` and passes.
 

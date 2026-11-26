@@ -49,12 +49,11 @@ def _channels(x24):
         raise ValueError(f"true peak: samples must be integers, not {x.dtype}")
     if x.ndim == 1:
         x = x[:, None]
-    elif x.ndim != 2 or x.shape[1] not in (1, 2):
+    elif x.ndim != 2 or x.shape[1] != 2:
         raise ValueError(f"true peak: shape {x.shape} is not (frames, 2) or (frames,)")
-    x = x.astype(np.int64)
     if x.size and (int(x.min()) < V_MIN or int(x.max()) > V_MAX):
         raise ValueError("true peak: a sample is outside the 24-bit range")
-    return x
+    return x.astype(np.int64)
 
 
 def true_peak(x24, fs) -> float:
