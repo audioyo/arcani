@@ -151,6 +151,28 @@ struct LoopFrames {
   std::uint64_t seam_count = 0;         // M = (N - O - 1) / B
 };
 
+// Gain schedule (docs/signal-spec.md, Gain ramps; Story 4.4): an initial
+// gain and up to kMaxGainRamps ramps in time order, in frames. A default
+// schedule (no gain member) is 1.0 on every frame.
+inline constexpr std::size_t kMaxGainRamps = 8;  // row gain-ramp-count
+
+struct GainRamp {
+  std::uint64_t start_frame = 0;    // n0 = seconds_to_samples(start_s, fs)
+  std::uint64_t length_frames = 0;  // L = seconds_to_samples(duration_s, fs)
+  std::uint64_t end_frame = 0;      // n1 = n0 + L
+  double from = 1.0;                // a: the gain before the ramp
+  double to = 1.0;                  // b: the gain from n1 on
+};
+
+struct GainSchedule {
+  double initial = 1.0;
+  std::size_t count = 0;
+  std::array<GainRamp, kMaxGainRamps> ramps{};
+};
+
+// Gain ramps, Law: the gain at frame n, by exact integer comparisons.
+double gain_at(const GainSchedule& s, std::uint64_t n) noexcept;
+
 struct Plan {
   std::uint32_t sample_rate = 0;
   std::uint64_t frame_count = 0;  // seconds_to_samples(length_s, fs)
@@ -173,6 +195,12 @@ struct Plan {
   // measure mode, the stored gain's linear gain in final mode.
   std::string loudness_hash;
   double master_gain = 1.0;
+  // Story 4.4 (docs/signal-spec.md, Gain ramps): the layer schedules and the
+  // master ramp schedule (after master_gain).
+  GainSchedule theta_gain;
+  GainSchedule gamma_gain;
+  GainSchedule binaural_gain;
+  GainSchedule master_ramp;
 };
 
 struct CompileResult {

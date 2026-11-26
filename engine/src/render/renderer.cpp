@@ -102,24 +102,48 @@ void Renderer::render_block(std::size_t count) noexcept {
       right_offset = core::rate_cycle_offset(cycle_phase_, ears.cycle_k, ears.cycle_c0);
     }
     const std::array<std::uint64_t, 2> ear_phase{phase_[0], phase_[1] + right_offset};  // mod 2^64
+    // Gain ramps (Story 4.4): one gain per schedule and frame, the same in
+    // both channels; 1.0 without a gain member.
+    double g_theta = 1.0;
+    double g_gamma = 1.0;
+    double g_binaural = 1.0;
+    double g_master = 1.0;
+    if (i < live) {
+      const std::uint64_t n = position_ + i;
+      g_theta = plan::gain_at(plan_.theta_gain, n);
+      g_gamma = plan::gain_at(plan_.gamma_gain, n);
+      g_binaural = plan::gain_at(plan_.binaural_gain, n);
+      g_master = plan::gain_at(plan_.master_ramp, n);
+    }
     for (std::size_t c = 0; c < 2; ++c) {
       const std::size_t k = 2 * i + c;
       if (i < live) {
-        const double theta = theta_sample;                       // theta reference, same in both channels
-        const double gamma = gamma_sample;                       // gamma PAC layer, same in both channels
-        const double bus = theta + gamma;                        // stereo bus, within channel c
-        const double bin = ears.amplitude[c] * core::sine(ear_phase[c]);  // binaural ear c, a pure sine
-        const double join = bus + bin;                           // binaural join, ear c to channel c only
-        const double master = join * plan_.master_gain;          // per-channel gain: 1.0 measure, g final (Story 4.2)
+        const double theta = theta_sample;                       // theta reference before gain, same in both channels
+        const double theta_g = theta * g_theta;                  // after gain
+        const double gamma = gamma_sample;                       // gamma PAC layer before gain, same in both channels
+        const double gamma_g = gamma * g_gamma;                  // after gain
+        const double bus = theta_g + gamma_g;                    // stereo bus, within channel c
+        const double bin = ears.amplitude[c] * core::sine(ear_phase[c]);  // binaural ear c before gain, a pure sine
+        const double bin_g = bin * g_binaural;                   // after gain: one gain for both ears
+        const double join = bus + bin_g;                         // binaural join, ear c to channel c only
+        const double master = (join * plan_.master_gain) * g_master;  // loudness gain (Story 4.2), then the master gain
         theta_[k] = theta;
+        theta_gained_[k] = theta_g;
         gamma_[k] = gamma;
+        gamma_gained_[k] = gamma_g;
         bus_[k] = bus;
+        binaural_[k] = bin;
+        binaural_gained_[k] = bin_g;
         join_[k] = join;
         master_[k] = master;  // stereo-linked limiter stub: identity
       } else {
         theta_[k] = 0.0;
+        theta_gained_[k] = 0.0;
         gamma_[k] = 0.0;
+        gamma_gained_[k] = 0.0;
         bus_[k] = 0.0;
+        binaural_[k] = 0.0;
+        binaural_gained_[k] = 0.0;
         join_[k] = 0.0;
         master_[k] = 0.0;
       }
@@ -147,9 +171,14 @@ void Renderer::render(double* out, std::size_t frames, Taps taps) noexcept {
     copy_out(taps.stereo_bus, bus_.data(), count);
     copy_out(taps.binaural_join, join_.data(), count);
     copy_out(taps.master, master_.data(), count);
+    copy_out(taps.theta_reference_gained, theta_gained_.data(), count);
+    copy_out(taps.gamma_pac_gained, gamma_gained_.data(), count);
+    copy_out(taps.binaural, binaural_.data(), count);
+    copy_out(taps.binaural_gained, binaural_gained_.data(), count);
     out += 2 * count;
     for (double** tap : {&taps.theta_reference, &taps.gamma_pac, &taps.stereo_bus, &taps.binaural_join,
-                         &taps.master}) {
+                         &taps.master, &taps.theta_reference_gained, &taps.gamma_pac_gained, &taps.binaural,
+                         &taps.binaural_gained}) {
       if (*tap != nullptr) {
         *tap += 2 * count;
       }

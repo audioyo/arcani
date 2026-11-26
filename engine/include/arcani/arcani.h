@@ -90,6 +90,12 @@ typedef struct arc_taps {
   double* stereo_bus;
   double* binaural_join; /* the engine output point */
   double* master;        /* equals the render output */
+  /* Story 4.4 (docs/signal-spec.md, Gain ramps, Taps). The theta_reference
+     and gamma_pac taps above are before each layer's gain. */
+  double* theta_reference_gained; /* theta reference after its gain */
+  double* gamma_pac_gained;       /* gamma PAC layer after its gain */
+  double* binaural;               /* binaural layer before its gain, ear c in channel c */
+  double* binaural_gained;        /* binaural layer after its gain (one gain for both ears) */
 } arc_taps;
 
 typedef struct arc_plan arc_plan;         /* opaque, immutable, reference-counted */
@@ -133,6 +139,31 @@ typedef struct arc_loop_frames {
 
 /* Fills *out_loop. ARC_ERR_INVALID_ARGUMENT for a NULL plan or out_loop. */
 arc_status arc_plan_loop(const arc_plan* plan, arc_loop_frames* out_loop, arc_error* error);
+
+/* Gain ramps (docs/signal-spec.md, Gain ramps; Story 4.4): every ramp of
+   every schedule, in schedule order (theta reference, gamma PAC, binaural,
+   master), each schedule in array order, in frames at the plan's rate:
+   [start_frame, end_frame) is the ramp, from the gain before it to `to`. */
+typedef enum arc_gain_target {
+  ARC_GAIN_THETA_REFERENCE = 0,
+  ARC_GAIN_GAMMA_PAC = 1,
+  ARC_GAIN_BINAURAL = 2,
+  ARC_GAIN_MASTER = 3
+} arc_gain_target;
+
+typedef struct arc_gain_ramp {
+  arc_gain_target target;
+  uint64_t start_frame; /* n0 */
+  uint64_t end_frame;   /* n1 = n0 + L */
+  double from;          /* the gain before the ramp */
+  double to;            /* the gain from end_frame on */
+} arc_gain_ramp;
+
+/* Ramp count over every schedule; 0 for NULL. */
+size_t arc_plan_gain_ramp_count(const arc_plan* plan);
+/* Fills *out_ramp with ramp `index`. ARC_ERR_INVALID_ARGUMENT for a NULL plan
+   or out_ramp, or an index at or past the count. */
+arc_status arc_plan_gain_ramp(const arc_plan* plan, size_t index, arc_gain_ramp* out_ramp, arc_error* error);
 
 /* Story 4.2: writes the plan's loudness hash (docs/signal-spec.md, Loudness
    gain): 64 lowercase hex digits and a terminating NUL, into out_hash. The
