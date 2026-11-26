@@ -161,6 +161,12 @@ The window rule's rejection value is `steady_frames / fs`. `--loudness` with a n
 - `tests/python/test_probe_gain_ramps.py` (or in an existing probe test): the `gain-ramps-<fs>` component's segments match `reference/stub_chain.py` windows below `reference-match`.
 - `tools/check_row_coverage.py` sees `gain-ramp-min`, `layer-gain`, and `gain-ramp-count` in use.
 
+**Gaps settled in the implementation phase (QA flags on 4043edb):**
+
+- **Ramp tool at signal edges and inside ramps.** A change is measured only between two held values. A window that opens inside a ramp, or a ramp at the first frames of a session where the before-gain carrier is 0 (the 10 ms binaural ramp of `gain-master-fade.json` at 0 s), reads from its first held value; a change still running at the signal end is not completed. Neither is counted, so those edges are judged by the reference match and the click tool, not the ramp tool. After a change the next one is judged from the last valid estimate of the new hold window. A change no larger than row `sine-error` as a gain (1e-6) is not a gain change: the engine law starts and ends 2.8e-8 of the ramp height off its end values (the engine cosine at 0 and pi is `sine(2^62)`), so a long ramp creeps within `HOLD_TOL` of a value 2.8e-8 short of `to` and steps onto it at `n1`. Without this floor the 10 min ramp's last window failed with a 2-frame change. The spec section (Law, Ramp tool) says so.
+- **Superseded-window must-fail margin.** Measured on the engine render of `gain-ramp-in-loop.json`: body window -3.7813 LUFS-I at 44.1 kHz (-3.7814 at 48 kHz), superseded window `[0, O + B)` -5.2310 LUFS-I, first `[0, B)` -17.7299 LUFS-I. The gain from the superseded window plays the body 1.4498 LU above target at both rates, against row `loudness-tolerance` (1 LU): a 0.45 LU margin, the same on every platform (the render is bit-exact).
+- **CI cost.** See the story report: the added test time and the whole-session output dump of the superseded-window test (847 MB at 44.1 kHz, read through `np.memmap`).
+
 ## Design Notes
 
 **Phased handoff,** as in 4.1 to 4.3, on branch `story/4-4-gain-ramps`. The implementation agent writes the spec section, vectors, rows, and log, then commits. A fresh-context QA agent commits the failing tests. The implementation agent then implements without editing a test expectation. No push until review.

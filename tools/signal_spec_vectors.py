@@ -4473,7 +4473,8 @@ def loudness_hash_members():
     """The top-level members the schema tags loudness-relevant, in name order."""
     tags = _rh.load_tags(_rh.load_schema())
     names = sorted(p[1:] for p, t in tags.items() if t == LOUDNESS_RELEVANT and p.count("/") == 1)
-    assert names == ["binaural", "gamma_pac", "length_s", "loop", "loudness_target_lufs", "theta_reference"], names
+    assert names == ["binaural", "gamma_pac", "length_s", "loop", "loudness_target_lufs", "master",
+                     "theta_reference"], names  # Story 4.4 adds master
     return names
 
 

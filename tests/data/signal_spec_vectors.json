@@ -67794,6 +67794,7 @@
       "length_s",
       "loop",
       "loudness_target_lufs",
+      "master",
       "theta_reference"
     ],
     "must_fail_db": "1.5",
