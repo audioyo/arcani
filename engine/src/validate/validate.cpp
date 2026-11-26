@@ -4,11 +4,14 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <array>
 #include <iterator>
+#include <vector>
 #include <optional>
 #include <string>
 #include <utility>
 
+#include "core/phase.hpp"
 #include "json/number.hpp"
 #include "recipe/field_table.hpp"
 
@@ -49,6 +52,8 @@ constexpr RangeRow kRows[] = {
     {"rate-cycle-start-phase", 0.0, 360.0, false, "degrees"},
     {"max-run-time-focus", 45.0, 45.0, false, "min"},
     {"max-run-time-learn", 20.0, 20.0, false, "min"},
+    {"layer-gain", 0.0, 1.0, false, "ratio"},       // Story 4.4
+    {"gain-ramp-count", 0.0, 8.0, false, "ramps"},  // Story 4.4
 };
 
 constexpr std::string_view kRightCarrierRow = "binaural-carrier-right";
@@ -61,6 +66,8 @@ constexpr std::string_view kThetaRateRow = "theta-rate";
 constexpr std::string_view kGammaRateRow = "gamma-rate";
 constexpr std::string_view kFocusCapRow = "max-run-time-focus";
 constexpr std::string_view kLearnCapRow = "max-run-time-learn";
+constexpr std::string_view kLayerGainRow = "layer-gain";
+constexpr std::string_view kGainRampCountRow = "gain-ramp-count";
 
 // Index of a row in kRows, or std::size(kRows) when absent.
 constexpr std::size_t row_index(std::string_view id) noexcept {
@@ -80,6 +87,49 @@ static_assert(row_index(kThetaRateRow) < std::size(kRows));
 static_assert(row_index(kGammaRateRow) < std::size(kRows));
 static_assert(row_index(kFocusCapRow) < std::size(kRows));
 static_assert(row_index(kLearnCapRow) < std::size(kRows));
+static_assert(row_index(kLayerGainRow) < std::size(kRows));
+static_assert(row_index(kGainRampCountRow) < std::size(kRows));
+
+// Story 4.4 (docs/signal-spec.md, Gain ramps): the four schedules in their
+// order, with the JSON Pointer of each gain member.
+struct GainRef {
+  std::string_view path;  // "/theta_reference/gain", ...
+  const recipe::Gain* gain;
+};
+
+std::array<GainRef, 4> gains_of(const recipe::Recipe& r) {
+  return {GainRef{"/theta_reference/gain",
+                  r.theta_reference && r.theta_reference->gain ? &*r.theta_reference->gain : nullptr},
+          GainRef{"/gamma_pac/gain", r.gamma_pac && r.gamma_pac->gain ? &*r.gamma_pac->gain : nullptr},
+          GainRef{"/binaural/gain", r.binaural && r.binaural->gain ? &*r.binaural->gain : nullptr},
+          GainRef{"/master/gain", r.master && r.master->gain ? &*r.master->gain : nullptr}};
+}
+
+const recipe::Gain* gain_at_path(const recipe::Recipe& r, std::string_view field_path) {
+  for (const GainRef& g : gains_of(r)) {
+    if (field_path.substr(0, g.path.size()) == g.path) {
+      return g.gain;
+    }
+  }
+  return nullptr;
+}
+
+constexpr std::uint32_t kNativeRates[] = {44100, 48000};
+
+// Ramp frames (Gain ramps, Ramp frames): n0, L, n1 = n0 + L.
+struct RampFrames {
+  std::uint64_t n0, length, n1;
+};
+
+RampFrames ramp_frames(const recipe::GainRampField& ramp, std::uint32_t fs) noexcept {
+  const std::uint64_t n0 = core::seconds_to_samples(ramp.start_s, fs);
+  const std::uint64_t length = core::seconds_to_samples(ramp.duration_s, fs);
+  return {n0, length, n0 + length};
+}
+
+std::string ramp_pointer(std::string_view gain_path, std::size_t i, std::string_view member) {
+  return std::string(gain_path) + "/ramps/" + std::to_string(i) + "/" + std::string(member);
+}
 
 // A range-governed field's value lookup. known is false for a path the
 // validator has no mapping for; value is empty when the field's layer is
@@ -189,6 +239,12 @@ Lookup field_value(const recipe::Recipe& r, std::string_view path) {
     }
     return {true, std::nullopt};
   }
+  if (path.size() > 13 && path.substr(path.size() - 13) == "/gain/initial") {  // Story 4.4
+    if (const recipe::Gain* g = gain_at_path(r, path)) {
+      return {true, g->initial};
+    }
+    return {true, std::nullopt};
+  }
   return {false, std::nullopt};
 }
 
@@ -269,6 +325,129 @@ bool whole_cycles(double body_s, double period_s) noexcept {
   return is_whole(q) && q * period_s == body_s;
 }
 
+// Gain ramps, Compile order, rules 9 to 11, per schedule and ramp.
+std::optional<recipe::Error> check_gain_rules(const recipe::Recipe& r) {
+  const double min_s = kGainRampMinMs / 1000.0;  // one rounding: 0x1.47ae147ae147bp-7
+  for (const GainRef& g : gains_of(r)) {
+    if (g.gain == nullptr) {
+      continue;
+    }
+    const auto& ramps = g.gain->ramps;
+    for (std::size_t k = 0; k < ramps.size(); ++k) {
+      const recipe::GainRampField& ramp = ramps[k];
+      if (!(ramp.duration_s >= min_s)) {
+        return recipe::Error{ramp_pointer(g.path, k, "duration_s"), json::format_number(ramp.duration_s),
+                             std::string(kGainRampMinRule),
+                             ">= " + json::format_number(kGainRampMinMs) + " ms (row gain-ramp-min)"};
+      }
+      if (!(ramp.start_s >= 0.0)) {
+        return recipe::Error{ramp_pointer(g.path, k, "start_s"), json::format_number(ramp.start_s),
+                             std::string(kGainOutsideRule), ">= 0 s"};
+      }
+      const double end_s = ramp.start_s + ramp.duration_s;
+      bool inside = end_s <= r.length_s;
+      for (const std::uint32_t fs : kNativeRates) {
+        inside = inside && ramp_frames(ramp, fs).n1 <= core::seconds_to_samples(r.length_s, fs);
+      }
+      if (!inside) {
+        return recipe::Error{ramp_pointer(g.path, k, "duration_s"), json::format_number(end_s),
+                             std::string(kGainOutsideRule),
+                             "<= " + json::format_number(r.length_s) + " s (length_s)"};
+      }
+      if (k >= 1) {
+        for (const std::uint32_t fs : kNativeRates) {
+          if (ramp_frames(ramp, fs).n0 < ramp_frames(ramps[k - 1], fs).n1) {
+            const double prev_end = ramps[k - 1].start_s + ramps[k - 1].duration_s;
+            return recipe::Error{ramp_pointer(g.path, k, "start_s"), json::format_number(ramp.start_s),
+                                 std::string(kGainOverlapRule),
+                                 ">= " + json::format_number(prev_end) + " s (end of ramp " +
+                                     std::to_string(k - 1) + ")"};
+          }
+        }
+      }
+    }
+  }
+  return std::nullopt;
+}
+
+// Gain ramps, Silent theta reference: the zero frames of a schedule on the
+// ideal law, as [start, stop) spans in time order.
+struct Span {
+  std::uint64_t start, stop;
+};
+
+std::vector<Span> zero_frames(const recipe::Gain* g, std::uint64_t end, std::uint32_t fs) {
+  std::vector<Span> out;
+  if (g == nullptr) {
+    return out;
+  }
+  std::uint64_t at = 0;
+  double value = g->initial;
+  for (const recipe::GainRampField& ramp : g->ramps) {
+    const RampFrames f = ramp_frames(ramp, fs);
+    if (value == 0.0 && f.n0 > at) {
+      out.push_back({at, f.n0});
+    }
+    if (value == 0.0 && ramp.to == 0.0) {
+      out.push_back({f.n0, f.n1});
+    } else if (value == 0.0) {
+      out.push_back({f.n0, f.n0 + 1});
+    }
+    at = f.n1;
+    value = ramp.to;
+  }
+  if (value == 0.0 && end > at) {
+    out.push_back({at, end});
+  }
+  for (Span& s : out) {
+    s.stop = s.stop < end ? s.stop : end;
+  }
+  return out;
+}
+
+// True when every frame of `inner` lies in some span of `cover` (both in time order).
+bool covered(const std::vector<Span>& inner, const std::vector<Span>& cover) {
+  for (const Span& s : inner) {
+    std::uint64_t at = s.start;
+    for (const Span& c : cover) {
+      if (at >= s.stop) {
+        break;
+      }
+      if (c.start <= at && at < c.stop) {
+        at = c.stop;
+      }
+    }
+    if (at < s.stop) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Rule 12 (AD-5): coupled gamma with depth never sounds over a silent theta
+// reference, at either native rate. The master gain does not count.
+std::optional<recipe::Error> check_theta_silent(const recipe::Recipe& r) {
+  if (!r.gamma_pac) {
+    return std::nullopt;
+  }
+  const recipe::GammaPac& gamma = *r.gamma_pac;
+  const bool bursts = gamma.coupling == recipe::GammaCoupling::Bursts;
+  const bool coupled = bursts || gamma.coupling == recipe::GammaCoupling::SmoothSwell;
+  if (!coupled || !(gamma.am_depth_percent > 0.0)) {
+    return std::nullopt;
+  }
+  const recipe::Gain* theta = r.theta_reference && r.theta_reference->gain ? &*r.theta_reference->gain : nullptr;
+  const recipe::Gain* g = gamma.gain ? &*gamma.gain : nullptr;
+  for (const std::uint32_t fs : kNativeRates) {
+    const std::uint64_t end = core::seconds_to_samples(r.length_s, fs);
+    if (!covered(zero_frames(theta, end, fs), zero_frames(g, end, fs))) {
+      return recipe::Error{"/gamma_pac/coupling", bursts ? "bursts" : "smooth_swell", std::string(kThetaSilentRule),
+                           std::string(kThetaSilentLimit)};
+    }
+  }
+  return std::nullopt;
+}
+
 }  // namespace
 
 std::span<const RangeRow> range_rows() noexcept { return kRows; }
@@ -331,6 +510,26 @@ std::optional<recipe::Error> check_loop(const recipe::Recipe& r) {
     return recipe::Error{"/loop/body_s", json::format_number(total), std::string(kLoopExceedsRule),
                          "<= " + json::format_number(r.length_s) + " s (length_s)"};
   }
+  // 8. (Story 4.4) Every ramp ends at or before O or starts at or after
+  // O + B, at both native rates, so the first body pass is ramp-free.
+  for (const GainRef& g : gains_of(r)) {
+    if (g.gain == nullptr) {
+      continue;
+    }
+    for (std::size_t k = 0; k < g.gain->ramps.size(); ++k) {
+      for (const std::uint32_t fs : kNativeRates) {
+        const std::uint64_t o = core::seconds_to_samples(loop.opening_s, fs);
+        const std::uint64_t b = core::seconds_to_samples(loop.body_s, fs);
+        const RampFrames f = ramp_frames(g.gain->ramps[k], fs);
+        if (!(f.n1 <= o || f.n0 >= o + b)) {
+          return recipe::Error{ramp_pointer(g.path, k, "start_s"), json::format_number(g.gain->ramps[k].start_s),
+                               std::string(kGainLoopBodyRule),
+                               "ends <= " + json::format_number(loop.opening_s) + " s or starts >= " +
+                                   json::format_number(total) + " s (first body pass)"};
+        }
+      }
+    }
+  }
   return std::nullopt;
 }
 
@@ -361,6 +560,29 @@ std::optional<recipe::Error> check_ranges(const recipe::Recipe& r) {
         if (auto e = check_rate_worst_case(kGammaSwingPath, kGammaRateRow, r.gamma_pac->rate_hz,
                                            *r.gamma_pac->rate_cycle)) {
           return e;
+        }
+      }
+      continue;
+    }
+    if (f.type == recipe::FieldType::Array && ends_with(f.path, "/gain/ramps")) {
+      // Story 4.4: the ramp count against row gain-ramp-count, by name.
+      if (const recipe::Gain* g = gain_at_path(r, f.path)) {
+        const std::size_t i = row_index(kGainRampCountRow);
+        if (auto e = check_row(f.path, static_cast<double>(g->ramps.size()), i, 1.0, kRows[i].unit)) {
+          return e;
+        }
+      }
+      continue;
+    }
+    if (ends_with(f.path, "/gain/ramps/*/to")) {
+      // Story 4.4: each ramp's to against its row, in array order.
+      if (const recipe::Gain* g = gain_at_path(r, f.path)) {
+        const std::size_t i = row_index(f.range_row);
+        const std::string_view gain_path = f.path.substr(0, f.path.size() - std::string_view("/ramps/*/to").size());
+        for (std::size_t k = 0; k < g->ramps.size(); ++k) {
+          if (auto e = check_row(ramp_pointer(gain_path, k, "to"), g->ramps[k].to, i, 1.0, kRows[i].unit)) {
+            return e;
+          }
         }
       }
       continue;
@@ -457,7 +679,11 @@ std::optional<recipe::Error> check_rules(const recipe::Recipe& r) {
     return recipe::Error{"/binaural/waveform", "triangle", std::string(kNonSineBinauralRule),
                          std::string(kModeledBinauralWaveforms)};
   }
-  return std::nullopt;
+  // Story 4.4: the schedule rules 9 to 11, then the silent theta rule 12.
+  if (auto e = check_gain_rules(r)) {
+    return e;
+  }
+  return check_theta_silent(r);
 }
 
 std::optional<recipe::Error> check_carrier_rule(std::string_view parameter, double carrier_hz,
