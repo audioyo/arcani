@@ -53,6 +53,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <limits>
 #include <optional>
 #include <string>
 #include <system_error>
@@ -81,9 +82,11 @@
 #include "cli_helpers.hpp"
 #include "determinism_helpers.hpp"
 #include "loudness_gain_helpers.hpp"
+#include "spec_helpers.hpp"
 #include "spec_tables.hpp"
 #include "json/value.hpp"
 #include "tables.hpp"
+#include "true_peak_helpers.hpp"
 
 namespace fs = std::filesystem;
 namespace h = arcani::test::cli;
@@ -317,12 +320,73 @@ void check_report_members(const json::Value& v, const std::string& fixture, cons
   CHECK(key.find("engine_version")->string() == arc_engine_version());
   CHECK(key.find("sample_rate")->number() == static_cast<double>(rate));
   const auto& list = v.find("assertions")->array();
-  REQUIRE(list.size() == 1);
+  // Story 4.3: a final-mode render adds the true_peak member and, last, the
+  // true_peak assertion; a measure-mode report has neither.
+  if (mode == "final") {
+    CHECK(v.find("true_peak") != nullptr);
+    REQUIRE(list.size() == 2);
+    CHECK(list[1].find("name")->string() == "true_peak");
+  } else {
+    CHECK(v.find("true_peak") == nullptr);
+    REQUIRE(list.size() == 1);
+  }
   const tables::Row& row = tables::row("render-speed");
   CHECK(list[0].find("name")->string() == "render speed");
   CHECK(list[0].find("row")->string() == row.id);
   CHECK(list[0].find("threshold")->number() == row.value());
   CHECK(list[0].find("unit")->string() == row.unit);
+}
+
+// Story 4.3 (docs/signal-spec.md, True peak, Report): the true_peak member
+// and the last assertion, true_peak on row true-peak, of a final-mode
+// report. When `samples` is given (the interleaved 24-bit integers of the
+// WAV), linear equals the harness integer meter on them bit for bit.
+// Returns dbtp (-inf when null).
+double check_true_peak(const json::Value& report, const std::string& want_result,
+                       const std::vector<std::int32_t>* samples = nullptr) {
+  namespace tp = arcani::test::true_peak;
+  const tables::Row& row = tables::row("true-peak");
+  REQUIRE(row.unit == "dBTP");
+  const json::Value* t = report.find("true_peak");
+  REQUIRE(t != nullptr);
+  REQUIRE(t->find("linear") != nullptr);
+  REQUIRE(t->find("linear")->kind() == json::Kind::Number);
+  const double linear = t->find("linear")->number();
+  const json::Value* dbtp = t->find("dbtp");
+  REQUIRE(dbtp != nullptr);
+  if (samples != nullptr) {
+    CHECK(arcani::test::api::bits(linear) == arcani::test::api::bits(tp::harness_true_peak(*samples)));
+  }
+  const auto& list = report.find("assertions")->array();
+  REQUIRE_FALSE(list.empty());
+  const json::Value& a = list.back();
+  CHECK(a.find("name")->string() == "true_peak");
+  CHECK(a.find("row")->string() == row.id);
+  CHECK(a.find("threshold")->number() == row.value());
+  CHECK(a.find("unit")->string() == row.unit);
+  CHECK(a.find("result")->string() == want_result);
+  if (linear == 0.0) {
+    CHECK(dbtp->kind() == json::Kind::Null);
+    CHECK(a.find("measured")->kind() == json::Kind::Null);
+    CHECK(a.find("note")->string() == "silent");
+    return -std::numeric_limits<double>::infinity();
+  }
+  REQUIRE(dbtp->kind() == json::Kind::Number);
+  CHECK(std::fabs(dbtp->number() - tp::harness_dbtp(linear)) <= 1e-12);
+  REQUIRE(a.find("measured")->kind() == json::Kind::Number);
+  CHECK(arcani::test::api::bits(a.find("measured")->number()) == arcani::test::api::bits(dbtp->number()));
+  CHECK(a.find("note")->string().empty());
+  CHECK((dbtp->number() <= row.value()) == (want_result == "pass"));
+  return dbtp->number();
+}
+
+// The interleaved 24-bit integers of a CLI WAV of `frames` frames at `rate`.
+std::vector<std::int32_t> wav_integers(const fs::path& wav, std::uint64_t frames, std::uint32_t rate) {
+  const auto bytes = h::read_bytes(wav.string());
+  REQUIRE(bytes.has_value());
+  const std::size_t header = h::expected_wav_header(frames, rate).size();
+  REQUIRE(bytes->size() == header + frames * h::kBlockAlign);
+  return arcani::test::true_peak::wav_samples(*bytes, header);
 }
 
 const json::Value& speed(const json::Value& report) {
@@ -503,8 +567,120 @@ TEST_CASE("final mode with the stored gain renders and reports mode final", "[cl
   REQUIRE(r.exit_code == 0);
   const Expected want = engine_render(text, ARC_MODE_FINAL, 48000);
   require_wav(wav, want, 48000);
-  check_report_members(require_report(dir / "x.report.json"), fixture, text, 48000, "final",
-                       want.frames);
+  const json::Value report = require_report(dir / "x.report.json");
+  check_report_members(report, fixture, text, 48000, "final", want.frames);
+  // Story 4.3 decision 3: the fixture stores -10.00 dB, and its final render
+  // passes true_peak, linear equal to the harness meter on the WAV samples.
+  CHECK(arcani::test::loudness::member_value(text, "loudness_gain_db") ==
+        arcani::test::spec::kTruePeak_final_fixture_gain);
+  const std::vector<std::int32_t> samples = wav_integers(wav, want.frames, 48000);
+  check_true_peak(report, "pass", &samples);
+}
+
+// Story 4.3 (docs/signal-spec.md, True peak, Report): every final-mode render
+// reads its 24-bit samples with the meter; the 1 s final fixture
+// (stub-chain-1s-beat-6.json, -10.00 dB) reads about -4 dBTP at both rates.
+TEST_CASE("final render of the 1 s final fixture passes true_peak at about -4 dBTP at both rates",
+          "[cli][true-peak]") {
+  ScopedEnv env(kEnv, nullptr);
+  const std::string fixture = arcani::test::spec::kTruePeak_final_fixture;
+  const std::string text = arcani::test::api::valid(fixture);
+  for (const std::uint32_t rate : arcani::test::spec::sample_rates()) {
+    INFO("rate " << rate);
+    const fs::path dir = case_dir("true-peak-final-" + std::to_string(rate));
+    const fs::path wav = dir / "x.wav";
+    const RunResult r =
+        run_cli({fixture_path(fixture), "--out", wav.string(), "--rate", std::to_string(rate), "--mode", "final"});
+    INFO("stdout: " << r.out << "\nstderr: " << r.err);
+    REQUIRE(r.exit_code == 0);
+    const Expected want = engine_render(text, ARC_MODE_FINAL, rate);
+    require_wav(wav, want, rate);
+    const std::vector<std::int32_t> samples = wav_integers(wav, want.frames, rate);
+    fs::remove(wav);
+    const json::Value report = require_report(dir / "x.report.json");
+    check_report_members(report, fixture, text, rate, "final", want.frames);
+    const double db = check_true_peak(report, "pass", &samples);
+    CHECK(std::fabs(db - (-4.0)) <= 0.5);
+    // The member sits right before determinism_key.
+    const std::string report_text = read_text_file(dir / "x.report.json");
+    const auto at = report_text.find("  \"true_peak\": {\n    \"linear\": ");
+    REQUIRE(at != std::string::npos);
+    CHECK(report_text.find("\n  },\n  \"determinism_key\": {", at) != std::string::npos);
+  }
+}
+
+TEST_CASE("final render must-fail: the 1 s final fixture at -6.50 dB fails true_peak, exit 4",
+          "[cli][true-peak][mustfail]") {
+  ScopedEnv env(kEnv, nullptr);
+  const std::string fixture = arcani::test::spec::kTruePeak_final_fixture;
+  std::string text = arcani::test::api::valid(fixture);
+  // Hash-excluded, so the doctored copy still compiles in final mode.
+  REQUIRE(arcani::test::loudness::replace_member_value(text, "loudness_gain_db", "-6.50"));
+  for (const std::uint32_t rate : arcani::test::spec::sample_rates()) {
+    INFO("rate " << rate);
+    const fs::path dir = case_dir("true-peak-over-" + std::to_string(rate));
+    const fs::path recipe = dir / "raised.json";
+    write_text(recipe, text);
+    const fs::path wav = dir / "x.wav";
+    const RunResult r =
+        run_cli({recipe.string(), "--out", wav.string(), "--rate", std::to_string(rate), "--mode", "final"});
+    INFO("stdout: " << r.out << "\nstderr: " << r.err);
+    REQUIRE(r.exit_code == 4);
+    const Expected want = engine_render(text, ARC_MODE_FINAL, rate);
+    require_wav(wav, want, rate);
+    const std::vector<std::int32_t> samples = wav_integers(wav, want.frames, rate);
+    fs::remove(wav);
+    const json::Value report = require_report(dir / "x.report.json");
+    const double db = check_true_peak(report, "fail", &samples);
+    CHECK(db > tables::row("true-peak").value());
+    CHECK(speed(report).find("result")->string() != "fail");
+  }
+}
+
+TEST_CASE("measure-mode render: no true_peak member or assertion; the WAV is the engine output",
+          "[cli][true-peak]") {
+  ScopedEnv env(kEnv, nullptr);
+  const std::string fixture = arcani::test::api::kBeat6;
+  const std::string text = arcani::test::api::valid(fixture);
+  for (const std::uint32_t rate : arcani::test::spec::sample_rates()) {
+    INFO("rate " << rate);
+    const fs::path dir = case_dir("true-peak-measure-" + std::to_string(rate));
+    const fs::path wav = dir / "x.wav";
+    const RunResult r = run_cli({fixture_path(fixture), "--out", wav.string(), "--rate", std::to_string(rate)});
+    INFO("stdout: " << r.out << "\nstderr: " << r.err);
+    REQUIRE(r.exit_code == 0);
+    require_wav(wav, engine_render(text, ARC_MODE_MEASURE, rate), rate);
+    fs::remove(wav);
+    const json::Value report = require_report(dir / "x.report.json");
+    check_report_members(report, fixture, text, rate, "measure", static_cast<std::uint64_t>(rate));
+    CHECK(read_text_file(dir / "x.report.json").find("true_peak") == std::string::npos);
+  }
+}
+
+TEST_CASE("silent final render: linear 0, dbtp null, true_peak passes with note silent", "[cli][true-peak]") {
+  ScopedEnv env(kEnv, nullptr);
+  const std::string fixture = arcani::test::api::kNoLayers;
+  const std::string text = arcani::test::api::valid(fixture);
+  for (const std::uint32_t rate : arcani::test::spec::sample_rates()) {
+    INFO("rate " << rate);
+    const fs::path dir = case_dir("true-peak-silent-" + std::to_string(rate));
+    const fs::path wav = dir / "x.wav";
+    const RunResult r =
+        run_cli({fixture_path(fixture), "--out", wav.string(), "--rate", std::to_string(rate), "--mode", "final"});
+    INFO("stdout: " << r.out << "\nstderr: " << r.err);
+    REQUIRE(r.exit_code == 0);
+    const Expected want = engine_render(text, ARC_MODE_FINAL, rate);
+    require_wav(wav, want, rate);
+    const std::vector<std::int32_t> samples = wav_integers(wav, want.frames, rate);
+    fs::remove(wav);
+    for (const std::int32_t s : samples) {
+      REQUIRE(s == 0);
+    }
+    const json::Value report = require_report(dir / "x.report.json");
+    check_report_members(report, fixture, text, rate, "final", want.frames);
+    CHECK(report.find("true_peak")->find("linear")->number() == 0.0);
+    CHECK(std::isinf(check_true_peak(report, "pass", &samples)));
+  }
 }
 
 // -------------------------------------------------------------- rejection
@@ -1576,10 +1752,12 @@ void check_final_loudness(const json::Value& report, double target, const std::s
   const tables::Row& row = tables::row("loudness-tolerance");
   REQUIRE(row.unit == "LU");
   const auto& list = report.find("assertions")->array();
-  REQUIRE(list.size() == 3);
+  REQUIRE(list.size() == 4);
   CHECK(list[0].find("name")->string() == "render speed");
   CHECK(list[1].find("name")->string() == "loudness");
   CHECK(list[2].find("name")->string() == "loudness_whole");
+  // Story 4.3: true_peak is the last assertion of every final render.
+  CHECK(list[3].find("name")->string() == "true_peak");
   const json::Value* l = report.find("loudness");
   REQUIRE(l != nullptr);
   REQUIRE(l->find("window_lufs_i")->kind() == json::Kind::Number);
@@ -1604,6 +1782,9 @@ void check_final_loudness(const json::Value& report, double target, const std::s
   // The pass rule itself: |window - T| <= 1 LU and whole - T <= 1 LU.
   CHECK((std::fabs(window - target) <= row.value()) == (want_loudness == "pass"));
   CHECK((whole - target <= row.value()) == (want_whole == "pass"));
+  // Every stored copy renders far under the ceiling (and the must-fail's
+  // 1.5 dB too): true_peak passes.
+  check_true_peak(report, "pass");
 }
 
 }  // namespace

@@ -510,24 +510,56 @@ inline void loudness_problems(const json::Value& r, std::vector<std::string>& p)
   }
 }
 
+// Story 4.3: a final-mode report has the member true_peak after loudness
+// (or spacing, loop, or frames) and before determinism_key, with exactly
+// linear (a non-negative number) and dbtp (a number, or null exactly when
+// linear is 0). A measure-mode report never has it.
+inline void true_peak_problems(const json::Value& r, std::vector<std::string>& p) {
+  const json::Value& t = *r.find("true_peak");
+  if (!members_are(t, {"linear", "dbtp"})) {
+    p.push_back("true_peak members are not exactly linear, dbtp (in that order)");
+    return;
+  }
+  const json::Value* mode = r.find("mode");
+  if (!is_string(mode) || mode->string() != "final") {
+    p.push_back("true_peak is written in a report whose mode is not final");
+  }
+  const json::Value* linear = t.find("linear");
+  const json::Value* dbtp = t.find("dbtp");
+  if (linear->kind() != json::Kind::Number || !(linear->number() >= 0.0)) {
+    p.push_back("true_peak linear is not a non-negative number");
+    return;
+  }
+  if (!is_reading(dbtp)) {
+    p.push_back("true_peak dbtp is neither a number nor null");
+    return;
+  }
+  if ((dbtp->kind() == json::Kind::Null) != (linear->number() == 0.0)) {
+    p.push_back("true_peak dbtp is null other than at linear 0");
+  }
+}
+
 inline std::vector<std::string> report_problems(const json::Value& r) {
   std::vector<std::string> p;
   const bool has_loop = r.kind() == json::Kind::Object && r.find("loop") != nullptr;
   const bool has_spacing = r.kind() == json::Kind::Object && r.find("spacing") != nullptr;
   const bool has_preview = r.kind() == json::Kind::Object && r.find("preview") != nullptr;
   const bool has_loudness = r.kind() == json::Kind::Object && r.find("loudness") != nullptr;
+  const bool has_true_peak = r.kind() == json::Kind::Object && r.find("true_peak") != nullptr;
   const bool looping = has_loop;
   std::vector<std::string> names = {"engine_version", "seed", "sample_rate", "mode", "frames"};
   if (has_loop) names.push_back("loop");
   if (has_spacing) names.push_back("spacing");
   if (has_preview) names.push_back("preview");
   if (has_loudness) names.push_back("loudness");
+  if (has_true_peak) names.push_back("true_peak");
   names.push_back("determinism_key");
   names.push_back("assertions");
   const bool shape = members_are(r, names);
   if (!shape) {
     p.push_back("top-level members are not exactly engine_version, seed, sample_rate, mode, "
-                "frames, [loop,] [spacing,] [preview,] [loudness,] determinism_key, assertions (in that order)");
+                "frames, [loop,] [spacing,] [preview,] [loudness,] [true_peak,] determinism_key, assertions (in that "
+                "order)");
     return p;
   }
   if (has_preview) {
@@ -535,6 +567,9 @@ inline std::vector<std::string> report_problems(const json::Value& r) {
   }
   if (has_loudness) {
     loudness_problems(r, p);
+  }
+  if (has_true_peak) {
+    true_peak_problems(r, p);
   }
   if (has_spacing) {
     spacing_problems(*r.find("spacing"), p);
@@ -646,6 +681,14 @@ inline std::vector<std::string> report_problems(const json::Value& r) {
                         is_string(result) && result->string() == "fail" && measured->kind() == json::Kind::Null &&
                         is_string(note) && note->string() == "silent";
     if (silent) {
+      continue;
+    }
+    // Story 4.3: a true_peak assertion on a silent render (linear 0) is a
+    // pass with measured null and note "silent".
+    const bool silent_pass = is_string(name) && name->string() == "true_peak" && is_string(result) &&
+                             result->string() == "pass" && measured->kind() == json::Kind::Null &&
+                             is_string(note) && note->string() == "silent";
+    if (silent_pass) {
       continue;
     }
     if (na && measured->kind() != json::Kind::Null) {

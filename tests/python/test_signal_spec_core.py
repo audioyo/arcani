@@ -299,9 +299,10 @@ def test_spec_tables_equal_json(vectors):
     # loudness (6: K-weighting prototype, K-weighting coefficients, gating
     # blocks, Tech 3341 cases, loudness window rule, loudness windows),
     # loudness gain (4: loudness hash, gain rounding, stored gain, file
-    # rewrite),
+    # rewrite), true peak (3: true-peak filter, true-peak signals, true-peak
+    # step),
     # 24-bit rounding (1).
-    assert len(generated) == 60, generated
+    assert len(generated) == 63, generated
     assert len(in_doc) == len(generated), [b[0] for b in in_doc]
     assert not problems, "\n".join(problems)
 

@@ -4547,7 +4547,7 @@ Per preview fixture and sample rate: the session end `N`, the opening end `O` an
 
 ## Loudness
 
-Story 4.1 writes integrated loudness and its measurement window. Loudness is a measurement, not an engine stage: two meters implement this section on their own, one in the Python assertion library (`tests/assertions/loudness.py`) and one in the command-line tooling (`cli/loudness.{hpp,cpp}`, in `arcani_cli_core`), and neither lives in `engine/`. Neither meter changes a sample, a vector, a fixture byte, a recipe hash, a pinned hash, or any render or report made without `--loudness`. Story 4.2 stores a loudness gain measured by this section; Story 4.3 adds true peak; Story 4.4 adds the ramps the window leaves out.
+Story 4.1 writes integrated loudness and its measurement window. Loudness is a measurement, not an engine stage: two meters implement this section on their own, one in the Python assertion library (`tests/assertions/loudness.py`) and one in the command-line tooling (`cli/loudness.{hpp,cpp}`, in `arcani_cli_core`), and neither lives in `engine/`. Neither meter changes a sample, a vector, a fixture byte, a recipe hash, a pinned hash, or any render or report made without `--loudness`. Story 4.2 stores a loudness gain measured by this section; True peak (Story 4.3) measures the 24-bit output of every final-mode render against the -1 dBTP ceiling; Story 4.4 adds the ramps the window leaves out.
 
 **Input.** A meter reads the binary64 render output (Stub chain, Output and taps), both channels, before 24-bit rounding: in measure mode every layer runs at unit amplitude and the master gain is 1.0, so a 24-bit WAV of a render with two layers clips and is not a measurement of the output. Channel 0 is left, channel 1 is right, and each has the BS.1770 channel weight `G = 1.0`. A meter is defined for any sample rate `fs` that is a positive multiple of 10 (so a block and a step are whole frames); the engine renders at 44.1 and 48 kHz (row `sample-rates`). These meters are not bit exact across platforms: the filter design calls `tan`, and the sums run in each meter's own order. That is why two meters exist and why they agree within row `loudness-meter-agreement`, not bit for bit.
 
@@ -4962,19 +4962,20 @@ Measure mode never compares the stored hash. So a final compile accepts a recipe
 
 ### Store
 
-`arcani-render RECIPE --store-gain [--rate 44100|48000]` (no value; the rate defaults to 48000). With `--out`, `--report`, `--preview`, `--mode`, or `--loudness`, or with `--store-gain` given twice, it is a usage error: exit 2, nothing read or written. The steps run in this order, and nothing is written before step 8:
+`arcani-render RECIPE --store-gain [--rate 44100|48000]` (no value; the rate defaults to 48000). With `--out`, `--report`, `--preview`, `--mode`, or `--loudness`, or with `--store-gain` given twice, it is a usage error: exit 2, nothing read or written. The steps run in this order, and nothing is written before step 9:
 
-1. Read rows `loudness-window-min` and `loudness-gain`. A table error exits 3.
+1. Read rows `loudness-window-min`, `loudness-gain`, and `true-peak` (Story 4.3). A table error exits 3.
 2. Read the bytes of RECIPE and compile them in measure mode at the rate. A rejection prints the usual `rejected:` line and exits 1.
 3. The window rule (Loudness, Window). A rejection prints its `rejected:` line and exits 1.
 4. Render the window only, into the command-line meter: a looping recipe's frames `[O, O + B)` once for each pass of the window (its repeat count, Loudness, Window), each pass by `arc_seek` to `O`; a non-looping recipe's frames `[0, N)`. No other frame is rendered. `arc_seek` is pure and the meter's reading does not depend on how the frames are split, so `L` equals, bit for bit, the `window_lufs_i` of a measure-mode `--loudness` render at the same rate.
 5. The gain rounding with `T` the recipe's `loudness_target_lufs` (read by the member scanner of step 6 from the accepted bytes and converted by `std::from_chars`, which is correctly rounded, so it is the binary64 the engine parsed). A range rejection prints `rejected: parameter=/loudness_gain_db value=<value> rule=<rule> limit=<limit>` and exits 1.
 6. The file rewrite (File rewrite) of the bytes with the gain text of `k` and `H` from the measure-mode plan (`arc_plan_loudness_hash`).
 7. Compile the new bytes in final mode at the same rate. By construction they are accepted (the same content, a stored gain in the row, and the matching hash). A rejection here is an internal fault: it prints the `rejected:` line and exits 3, and nothing is written.
-8. When the new bytes equal the old ones, nothing is written. Otherwise they are written to `RECIPE.partial` in the same directory, which is then renamed over RECIPE. On any failure the partial file is removed, RECIPE is unchanged, and the exit is 3.
-9. Print one line to stdout, `stored: loudness_gain_db=<gain text> loudness_hash=<H> window_lufs_i=<L>` (`L` as its shortest round-trip text), and exit 0.
+8. True peak (Story 4.3; True peak, Store step): render frames `[0, N)` of the final-mode plan of step 7, round every sample to 24 bits, and measure the true peak. Above row `true-peak`, it prints the `rejected: ... rule=true_peak ...` line of that section and exits 1, and nothing is written.
+9. When the new bytes equal the old ones, nothing is written. Otherwise they are written to `RECIPE.partial` in the same directory, which is then renamed over RECIPE. On any failure the partial file is removed, RECIPE is unchanged, and the exit is 3.
+10. Print one line to stdout, `stored: loudness_gain_db=<gain text> loudness_hash=<H> window_lufs_i=<L>` (`L` as its shortest round-trip text), and exit 0.
 
-Storing a second time reads the same `L` (step 4: the measure compile ignores the stored members), so it gives the same `k`, the same `H`, and the same bytes. The store writes no WAV and no report, and the session outside the window is never rendered. Only the dev PC stores gains; no CI job writes one, and a CI check fails any run that leaves a file under `recipes/` changed or added (Story 4.2).
+Storing a second time reads the same `L` (step 4: the measure compile ignores the stored members), so it gives the same `k`, the same `H`, and the same bytes. The store writes no WAV and no report. Step 4 renders only the window in measure mode; step 8 renders the whole session once in final mode. Only the dev PC stores gains; no CI job writes one, and a CI check fails any run that leaves a file under `recipes/` changed or added (Story 4.2).
 
 **Store fixtures.** The tests that store a gain work on temp copies of `starter-focus-layers.json` (the Story 4.1 assertion fixture: looping, 45 min, a 120 s body measured once) and `theta-cycle-sine.json` (non-looping, 120 s, measured whole), never on the checkout.
 
@@ -4995,11 +4996,11 @@ So the rewrite never changes a loudness-relevant byte or any member the recipe h
 - `loudness`: measured `window_lufs_i - T` in LU (one binary64 subtraction), pass when `|measured| <= 1` (inclusive). The steady part reads the target.
 - `loudness_whole`: measured `whole_lufs_i - T` in LU, pass when `measured <= 1` (inclusive). The whole-render ceiling: ramps and fades are quieter by design, so it has no lower bound.
 
-A reading of `-inf` (silent) gives measured `null`, result `fail`, note `silent`; otherwise the note is empty. A failed assertion exits 4 with the WAV and the report written, as for every assertion. A measure-mode `--loudness` report has neither assertion (a measure render runs at unit gain and reads far above the target), and a final-mode render without `--loudness` has neither; both reports are unchanged byte for byte.
+A reading of `-inf` (silent) gives measured `null`, result `fail`, note `silent`; otherwise the note is empty. A failed assertion exits 4 with the WAV and the report written, as for every assertion. A measure-mode `--loudness` report has neither assertion (a measure render runs at unit gain and reads far above the target), and a final-mode render without `--loudness` has neither. Every final-mode render, with or without `--loudness`, also gains the report member and assertion `true_peak`, the last assertion (True peak, Report); a measure-mode report is unchanged byte for byte.
 
 **Must-fail.** The harness adds 1.5 dB to the stored gain of a stored temp copy (`k + 150`, the gain text rewritten; the gain is hash-excluded, so the copy still compiles in final mode). Its final render reads about 1.5 LU above `T` and fails `loudness` (and `loudness_whole`), exit 4.
 
-**Final fixture.** `stub-chain-1s-beat-6.json` keeps its placeholder gain `-1.5` (`k = -150`) with its real loudness hash: a 1 s final-mode render for the Python reference match and the four-platform hash check at 44.1 and 48 kHz. It is shorter than 60 s, so it is never measured.
+**Final fixture.** `stub-chain-1s-beat-6.json` holds the gain `-10.00` (`k = -1000`; Story 4.3 decision 3, replacing the Story 4.2 placeholder `-1.5`, whose final render peaked above 0 dBTP) with its real loudness hash: a 1 s final-mode render for the Python reference match, the true-peak assertion, and the four-platform hash check at 44.1 and 48 kHz. It is shorter than 60 s, so its loudness is never measured. The gain is hash-excluded, so its recipe hash and loudness hash are unchanged.
 
 **Vectors.** The loudness hash vectors give `O_L` in canonical form, `H`, and the recipe hash per fixture: the metadata, seed, engine version, schema minor, and reformatted variants of `both-layers.json` share its `H` and not its recipe hash, and the beat rate, carrier, theta carrier, length, and loudness target variants differ from it. The gain rounding vectors give `d`, `x`, `k`, and the gain text or the rejection for chosen readings at `T = -36`: ties away from zero, readings that round to `0.00` from either side, both row bounds, a needed boost, and a silent window. The stored gain vectors give `v`, `x`, `k`, and `g` (hex and bits) with the exact `10^(k / 2000)` at 25 digits for two-decimal texts from `0.00` to `-60.00` and for hand-written values between steps. The file rewrite vectors give each case's input and output for gain text `-35.27`.
 
@@ -5100,6 +5101,185 @@ Per case: the gain text, the loudness hash `H` of the input, and the input and o
 | space before colon, both missing | -35.27 | `1ea594ff00f001401853bc62e8b0bf714fb2c5d222008d81b3e6893b749667e0` | `"{\n  \"schema_version\": \"1.0\",\n  \"engine_version\": \"0.0.1\",\n  \"seed\": 1,\n  \"author\": \"Arcani test fixtures\",\n  \"date\": \"2026-11-25\",\n  \"rationale\": \"File rewrite case (Story 4.2). Values are placeholders.\",\n  \"length_s\": 600,\n  \"loudness_target_lufs\" :  -36,\n  \"theta_reference\": {\"carrier_hz\": 200, \"rate_hz\": 6, \"am_depth_percent\": 0, \"shape\": \"sine\"}\n}\n"` | `"{\n  \"schema_version\": \"1.0\",\n  \"engine_version\": \"0.0.1\",\n  \"seed\": 1,\n  \"author\": \"Arcani test fixtures\",\n  \"date\": \"2026-11-25\",\n  \"rationale\": \"File rewrite case (Story 4.2). Values are placeholders.\",\n  \"length_s\": 600,\n  \"loudness_target_lufs\" :  -36,\n  \"loudness_gain_db\" :  -35.27,\n  \"loudness_hash\" :  \"1ea594ff00f001401853bc62e8b0bf714fb2c5d222008d81b3e6893b749667e0\",\n  \"theta_reference\": {\"carrier_hz\": 200, \"rate_hz\": 6, \"am_depth_percent\": 0, \"shape\": \"sine\"}\n}\n"` |
 | escaped member names | -35.27 | `1ea594ff00f001401853bc62e8b0bf714fb2c5d222008d81b3e6893b749667e0` | `"{\n  \"schema_version\": \"1.0\",\n  \"engine_version\": \"0.0.1\",\n  \"seed\": 1,\n  \"author\": \"Arcani test fixtures\",\n  \"date\": \"2026-11-25\",\n  \"rationale\": \"File rewrite case (Story 4.2). Values are placeholders.\",\n  \"length_s\": 600,\n  \"loudness\\u005ftarget_lufs\": -36,\n  \"loudness_gain\\u005fdb\": -1.5,\n  \"theta_reference\": {\"carrier_hz\": 200, \"rate_hz\": 6, \"am_depth_percent\": 0, \"shape\": \"sine\"}\n}\n"` | `"{\n  \"schema_version\": \"1.0\",\n  \"engine_version\": \"0.0.1\",\n  \"seed\": 1,\n  \"author\": \"Arcani test fixtures\",\n  \"date\": \"2026-11-25\",\n  \"rationale\": \"File rewrite case (Story 4.2). Values are placeholders.\",\n  \"length_s\": 600,\n  \"loudness\\u005ftarget_lufs\": -36,\n  \"loudness_hash\": \"1ea594ff00f001401853bc62e8b0bf714fb2c5d222008d81b3e6893b749667e0\",\n  \"loudness_gain\\u005fdb\": -35.27,\n  \"theta_reference\": {\"carrier_hz\": 200, \"rate_hz\": 6, \"am_depth_percent\": 0, \"shape\": \"sine\"}\n}\n"` |
 | already stored | -35.27 | `1ea594ff00f001401853bc62e8b0bf714fb2c5d222008d81b3e6893b749667e0` | `"{\n  \"schema_version\": \"1.0\",\n  \"engine_version\": \"0.0.1\",\n  \"seed\": 1,\n  \"author\": \"Arcani test fixtures\",\n  \"date\": \"2026-11-25\",\n  \"rationale\": \"File rewrite case (Story 4.2). Values are placeholders.\",\n  \"length_s\": 600,\n  \"loudness_target_lufs\": -36,\n  \"loudness_gain_db\": -35.27,\n  \"loudness_hash\": \"1ea594ff00f001401853bc62e8b0bf714fb2c5d222008d81b3e6893b749667e0\",\n  \"theta_reference\": {\"carrier_hz\": 200, \"rate_hz\": 6, \"am_depth_percent\": 0, \"shape\": \"sine\"}\n}\n"` | `"{\n  \"schema_version\": \"1.0\",\n  \"engine_version\": \"0.0.1\",\n  \"seed\": 1,\n  \"author\": \"Arcani test fixtures\",\n  \"date\": \"2026-11-25\",\n  \"rationale\": \"File rewrite case (Story 4.2). Values are placeholders.\",\n  \"length_s\": 600,\n  \"loudness_target_lufs\": -36,\n  \"loudness_gain_db\": -35.27,\n  \"loudness_hash\": \"1ea594ff00f001401853bc62e8b0bf714fb2c5d222008d81b3e6893b749667e0\",\n  \"theta_reference\": {\"carrier_hz\": 200, \"rate_hz\": 6, \"am_depth_percent\": 0, \"shape\": \"sine\"}\n}\n"` |
+
+## True peak
+
+Story 4.3 writes the true-peak measurement and the -1 dBTP ceiling (row `true-peak`, FR-5, NFR15). True peak is a measurement, not an engine stage: two meters implement this section on their own, one in the Python assertion library (`tests/assertions/true_peak.py`) and one in the command-line tooling (`cli/true_peak.{hpp,cpp}`, in `arcani_cli_core`), and neither lives in `engine/`. Neither changes a sample, a recipe hash, a loudness hash, or any measure-mode WAV or report.
+
+**Rows.** `true-peak` (-1 dBTP): the ceiling. `true-peak-meter-over` (0.2 dB) and `true-peak-meter-under` (0.4 dB): each meter reads each calibration signal at most 0.2 dB above and at most 0.4 dB below its expected true peak, the +0.2/-0.4 dB that EBU Tech 3341 v4.0 (November 2023), Table 1, states for every true-peak case. Design log 2026-11-25 (ddd).
+
+**Input.** A meter reads the 24-bit integers the WAV holds (24-bit rounding), both channels: sample `v` stands for `x = v / 2^23`, exact in binary64. Channel 0 is left, channel 1 is right. True peak judges what a player decodes, so it reads after rounding and clamping, never the binary64 output. A meter is defined for any sample rate; the reading does not depend on it (Filter).
+
+### Filter
+
+ITU-R BS.1770-5, Annex 2, gives the stages attenuate (12.04 dB), 4x oversample, low-pass filter, absolute value, and conversion to dBTP, and prints one set of filter coefficients: order 48, 4 phases of 12 taps (Vectors: true-peak filter). Each printed coefficient is an integer times 2^-13 (`h_p[k] = n_p[k] / 8192`, phase `p` 0 to 3, tap `k` 0 to 11, in printed order); phase 2 is phase 1 reversed and phase 3 is phase 0 reversed. The attenuation step is left out: Annex 2 says it "is not necessary if the calculations are performed in floating point", and it only gives integer arithmetic headroom, so the meters neither attenuate nor add 12.04 dB back.
+
+The filter is the same at every rate. Annex 2 presumes 48 kHz (192 kHz oversampled) and names 192 kHz as the oversampled rate for dBTP; at 44.1 kHz the 4x rate is 176.4 kHz. The filter and its under-read depend only on the frequency as a fraction of the sample rate (Annex 2, Attachment 1: at most `20 log10(cos(pi * fnorm / 4))`, 0.69 dB at fnorm 0.5), and Tech 3341 gives its tones as fractions of the rate (fs/4, fs/6, fs/8), so the same 48 taps run at both engine rates and the calibration (Calibration) holds at both.
+
+### Meter
+
+Per channel, with `L` the frames and `x[i] = 0` for `i < 0` and `i >= L` (zero filter state at the start, 11 zero inputs after the last frame, so every input reaches every tap):
+
+```
+y[4m + p] = sum over k = 0..11 of h_p[k] * x[m - k]      m = 0 .. L + 10, p = 0 .. 3
+TP_c      = max over m, p of |y[4m + p]|                  per channel
+TP        = max(TP_0, TP_1)                               the linear true peak
+dBTP      = 20 * log10(TP)                                -inf when TP = 0
+```
+
+**Exact.** Every product `h_p[k] * x` is an integer times 2^-36 with at most 37 significant bits, and every partial sum is an integer times 2^-36 below 2^2 in magnitude (`sum |n_p[k]|` is at most 16571, and `|v| <= 2^23`), so it needs at most 38 bits. Every product and sum is exact in binary64, in any order, and `TP` is the exact value `max |sum n_p[k] v[m - k]| / 2^36`. Both meters therefore give the same `TP` bit for bit on the same integers, on every platform, and they are compared that way. Only the dB conversion calls `log10`; `dBTP` is not bit exact across platforms. A meter may work in 64-bit integers instead (the sums are below 2^38) and divide by 2^36 once.
+
+**Pass.** `dBTP <= ceiling` (inclusive), with `ceiling` the value of row `true-peak`. When `TP = 0` (silent), `dBTP` is `-inf` and passes.
+
+### Calibration
+
+Both meters are calibrated on EBU Tech 3341 v4.0, Table 1, true-peak cases 15 to 19, synthesized in the test harness from the frequencies, amplitudes, and phases printed in that public document (Story 4.3 decision 5, Audio, 2026-11-25). The EBU test files are never downloaded or committed (Loudness, Calibration). Cases 20 to 23 are out of scope: their printed description names no anti-aliasing filter and no fade, and the filter sets the peak being measured.
+
+**Signal.** Each case is a stereo sine, the same in both channels, at `fs / D` (`D` 4, 6, or 8), amplitude `A` in FFS (fraction of full scale), and starting phase `phi` in degrees, lasting `N = seconds_to_samples(0.1, fs)` frames (Tech 3341: the duration "does not matter"), with a 10 ms raised-cosine fade-in and fade-out of `F = seconds_to_samples(0.01, fs)` frames each (Core, seconds-to-samples rule):
+
+```
+w[n] = (1 - cos(pi * n / F)) / 2            n < F
+w[n] = (1 - cos(pi * (N - 1 - n) / F)) / 2  n >= N - F
+w[n] = 1                                    otherwise
+s[n] = A * w[n] * sin(2 * pi * n / D + phi * pi / 180)
+v[n] = s[n] * 2^23 rounded to the nearest integer, ties to even, clamped to [-8388608, 8388607]
+```
+
+`v[n]` is defined from the exact value of `s[n]`. The generator computes it in decimal arithmetic; a harness may compute `s[n]` in binary64, and the SHA-256 of its 24-bit samples (3 bytes little-endian per sample, left then right per frame, as in the WAV data) must equal the vector's, which proves it built the same integers.
+
+Tech 3341 prints the fade for case 15 only. Every signal here carries it: without it the meter reads the abrupt start of a tone, not the tone. With no fade, case 18 (fs/8, 67.5 degrees) reads about -5.32 dBTP from zero filter state, 0.68 dB above the expected -6.0 and outside the tolerance, while its steady part reads -6.03; with the fade every case reads its steady part (within 1e-4 dB) and passes.
+
+**Closed-form signals.** A sine at fs/4 starting at 45 degrees has its samples at `+-A / sqrt(2)` and its crests on the 4x grid, so its true peak is exactly `A` while its sample peak is 3.01 dB lower. With the same fade, at `A = 10^(L / 20)`, it is a calibration signal against the expected `L` dBTP: at -20 dB (low level), at -1.5 dB (under the ceiling, the passing fixture of the assertion), and at -0.5 dB (the hidden overshoot, the must-fail). An all-zero signal of `N` frames is the silent case.
+
+**Pass.** Each meter reads each case and closed-form signal at both rates with `-under <= dBTP - expected <= over` (rows `true-peak-meter-under`, `true-peak-meter-over`), and its `TP` equals the vector's bit for bit (Vectors: true-peak signals).
+
+**Must-fail.** The hidden overshoot has a sample peak of -3.51 dBFS, so a sample-peak check against the ceiling (`20 log10(max |v| / 2^23) <= -1`, in the harness only) passes, while its true peak reads -0.455 dBTP and the true-peak assertion fails. No sample-peak check ever stands in for the meter.
+
+### Assertion
+
+`check_true_peak(x24, fs)` (Python) is the true-peak assertion against row `true-peak`, in the report shape of every assertion (Story 1.4): name `true_peak`, row `true-peak`, threshold -1, unit `dBTP`, measured `dBTP`, result `pass` when `dBTP <= -1` (inclusive), else `fail`, note empty. A silent signal (`TP = 0`) gives measured `null`, result `pass`, note `silent`. `true_peak(x24, fs)` returns `TP`, the linear true peak, as a binary64. `x24` holds the 24-bit integers, shape (frames, 2).
+
+### Report
+
+Every final-mode render (`arcani-render RECIPE --out WAV --mode final`, with or without `--loudness`) feeds every sample it writes, after 24-bit rounding, to the command-line meter, and adds a member `true_peak` after `loudness` when present (else after `spacing`, `loop`, or `frames`, whichever comes last) and before `determinism_key`; for example (the readings here are only an illustration):
+
+```
+  "true_peak": {
+    "linear": 0.5,
+    "dbtp": -6.020599913279624
+  },
+```
+
+`linear` is `TP` and `dbtp` is `20 * log10(TP)`, each as the shortest round-trip text of its binary64; `dbtp` is `null` when `TP = 0`. The report also gains the assertion `true_peak` (Assertion), the last one: after render speed, and after `loudness` and `loudness_whole` with `--loudness`. Its measured value is `dbtp`. A failed assertion exits 4 with the WAV and the report written, as for every assertion.
+
+A measure-mode render has no `true_peak` member and no `true_peak` assertion: it runs at unit gain and clips by design (Loudness, Input), so its WAV and report are unchanged byte for byte. The meter changes no sample: a final-mode WAV is unchanged byte for byte.
+
+### Store step
+
+`arcani-render RECIPE --store-gain` runs one more step, step 8 of Loudness gain, Store, between the final compile (step 7) and the write (step 9): render frames `[0, N)` of the final-mode plan of step 7, from frame 0 in one pass, round every sample to 24 bits, and measure `TP` and `dBTP`. When `dBTP` is above the ceiling, nothing is written: it prints
+
+```
+rejected: parameter=/loudness_gain_db value=<gain text> rule=true_peak limit=<= -1 dBTP (row true-peak) target_lufs=<T> true_peak_dbtp=<dBTP>
+```
+
+and exits 1. `<gain text>` is the gain it would have stored (the gain needed), `<T>` the recipe's `loudness_target_lufs`, and `<dBTP>`, each as the shortest round-trip text of its binary64 (the gain text as written). The limit names the row's value. When `dBTP` is at or below the ceiling the store goes on as in Story 4.2 and prints the same `stored:` line. The step reads row `true-peak` with the rows of step 1 (a table error exits 3). The whole session is rendered once more, so a store of a 45 min recipe renders 45 min of final-mode output.
+
+`true_peak_step(row, tp_linear, target, gain_text)` (`cli/recipe_write.{hpp,cpp}`) is the step's pure decision: stored, or the rejection line above, from the row's value and unit (a row that is not a threshold in `dBTP` is a table error). The tables are compiled in, so the over-ceiling case is tested on it with a doctored row and on the vectors (Vectors: true-peak step). The `<dBTP>` text comes from `log10`, so a test compares it with the vector's `dBTP text` after parsing, within 1e-12 dB, and exactly only for `TP = 1` (0 dBTP).
+
+**Final fixture.** `stub-chain-1s-beat-6.json` stores the gain `-10.00` (`k = -1000`; Story 4.3 decision 3). Its two layers peak near 2.0 at unit gain, so the Story 4.2 placeholder `-1.5` gave a true peak above 0 dBTP; at `-10.00` it is about -4 dBTP and its final render passes `true_peak`.
+
+### Vectors: true-peak filter
+
+The 48 coefficients as BS.1770-5 Annex 2 prints them, phase by phase, the integer `n_p[k] = h_p[k] * 2^13` (exact), and the binary64 each meter holds. The phase sums of `n_p` are 8205, 7971, 7971, 8205.
+
+| Phase | Tap | Printed (BS.1770) | Integer (times 2^-13) | Binary64 (hex) |
+| --- | --- | --- | --- | --- |
+| 0 | 0 | 0.0017089843750 | 14 | `0x1.c000000000000p-10` |
+| 0 | 1 | 0.0109863281250 | 90 | `0x1.6800000000000p-7` |
+| 0 | 2 | -0.0196533203125 | -161 | `-0x1.4200000000000p-6` |
+| 0 | 3 | 0.0332031250000 | 272 | `0x1.1000000000000p-5` |
+| 0 | 4 | -0.0594482421875 | -487 | `-0x1.e700000000000p-5` |
+| 0 | 5 | 0.1373291015625 | 1125 | `0x1.1940000000000p-3` |
+| 0 | 6 | 0.9721679687500 | 7964 | `0x1.f1c0000000000p-1` |
+| 0 | 7 | -0.1022949218750 | -838 | `-0x1.a300000000000p-4` |
+| 0 | 8 | 0.0476074218750 | 390 | `0x1.8600000000000p-5` |
+| 0 | 9 | -0.0266113281250 | -218 | `-0x1.b400000000000p-6` |
+| 0 | 10 | 0.0148925781250 | 122 | `0x1.e800000000000p-7` |
+| 0 | 11 | -0.0083007812500 | -68 | `-0x1.1000000000000p-7` |
+| 1 | 0 | -0.0291748046875 | -239 | `-0x1.de00000000000p-6` |
+| 1 | 1 | 0.0292968750000 | 240 | `0x1.e000000000000p-6` |
+| 1 | 2 | -0.0517578125000 | -424 | `-0x1.a800000000000p-5` |
+| 1 | 3 | 0.0891113281250 | 730 | `0x1.6d00000000000p-4` |
+| 1 | 4 | -0.1665039062500 | -1364 | `-0x1.5500000000000p-3` |
+| 1 | 5 | 0.4650878906250 | 3810 | `0x1.dc40000000000p-2` |
+| 1 | 6 | 0.7797851562500 | 6388 | `0x1.8f40000000000p-1` |
+| 1 | 7 | -0.2003173828125 | -1641 | `-0x1.9a40000000000p-3` |
+| 1 | 8 | 0.1015625000000 | 832 | `0x1.a000000000000p-4` |
+| 1 | 9 | -0.0582275390625 | -477 | `-0x1.dd00000000000p-5` |
+| 1 | 10 | 0.0330810546875 | 271 | `0x1.0f00000000000p-5` |
+| 1 | 11 | -0.0189208984375 | -155 | `-0x1.3600000000000p-6` |
+| 2 | 0 | -0.0189208984375 | -155 | `-0x1.3600000000000p-6` |
+| 2 | 1 | 0.0330810546875 | 271 | `0x1.0f00000000000p-5` |
+| 2 | 2 | -0.0582275390625 | -477 | `-0x1.dd00000000000p-5` |
+| 2 | 3 | 0.1015625000000 | 832 | `0x1.a000000000000p-4` |
+| 2 | 4 | -0.2003173828125 | -1641 | `-0x1.9a40000000000p-3` |
+| 2 | 5 | 0.7797851562500 | 6388 | `0x1.8f40000000000p-1` |
+| 2 | 6 | 0.4650878906250 | 3810 | `0x1.dc40000000000p-2` |
+| 2 | 7 | -0.1665039062500 | -1364 | `-0x1.5500000000000p-3` |
+| 2 | 8 | 0.0891113281250 | 730 | `0x1.6d00000000000p-4` |
+| 2 | 9 | -0.0517578125000 | -424 | `-0x1.a800000000000p-5` |
+| 2 | 10 | 0.0292968750000 | 240 | `0x1.e000000000000p-6` |
+| 2 | 11 | -0.0291748046875 | -239 | `-0x1.de00000000000p-6` |
+| 3 | 0 | -0.0083007812500 | -68 | `-0x1.1000000000000p-7` |
+| 3 | 1 | 0.0148925781250 | 122 | `0x1.e800000000000p-7` |
+| 3 | 2 | -0.0266113281250 | -218 | `-0x1.b400000000000p-6` |
+| 3 | 3 | 0.0476074218750 | 390 | `0x1.8600000000000p-5` |
+| 3 | 4 | -0.1022949218750 | -838 | `-0x1.a300000000000p-4` |
+| 3 | 5 | 0.9721679687500 | 7964 | `0x1.f1c0000000000p-1` |
+| 3 | 6 | 0.1373291015625 | 1125 | `0x1.1940000000000p-3` |
+| 3 | 7 | -0.0594482421875 | -487 | `-0x1.e700000000000p-5` |
+| 3 | 8 | 0.0332031250000 | 272 | `0x1.1000000000000p-5` |
+| 3 | 9 | -0.0196533203125 | -161 | `-0x1.4200000000000p-6` |
+| 3 | 10 | 0.0109863281250 | 90 | `0x1.6800000000000p-7` |
+| 3 | 11 | 0.0017089843750 | 14 | `0x1.c000000000000p-10` |
+
+### Vectors: true-peak signals
+
+Per signal and sample rate (Calibration): the tone `fs / D`, the amplitude, the phase, `N` and `F`, the largest `|v|` and its level, the largest `|sum n_p[k] v[m - k]|` and the first output index `4m + p` that reaches it, `TP` (hex, exact), `dBTP` and the sample peak in decimal at 25 digits, the expected reading, `dBTP - expected`, the calibration result against rows `true-peak-meter-over` and `true-peak-meter-under`, the assertion result against row `true-peak`, the sample-peak check (harness only), and the SHA-256 of the 24-bit stereo samples.
+
+| Signal | Source | fs | Tone | Amplitude (FFS) | Phase (deg) | Frames | Fade frames | Sample peak (integer) | Sample peak (dBFS) | Peak output (times 2^-36) | Peak index (4m + p) | True peak (hex) | True peak (dBTP) | Expected (dBTP) | Reading - expected (dB) | Calibration | Assertion | Sample-peak check | Samples SHA-256 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| case 15 | Tech 3341 case 15 | 44100 | fs/4 | 0.50 | 0.0 | 4410 | 441 | 4194304 | -6.020599913279623904274778 | 33588056360 | 15892 | `0x1.f480444a00000p-2` | -6.217899413051842831054968 | -6.0 | -0.2178994130518428310549677 | pass | pass | pass | `38c35c789ff9484b36bf9ee42ed7107d8075a7f74e5d7a5800eab35b23ff9e10` |
+| case 16 | Tech 3341 case 16 | 44100 | fs/4 | 0.50 | 45.0 | 4410 | 441 | 2965821 | -9.030899286406375393600728 | 34536985545 | 1809 | `0x1.0152127920000p-1` | -5.975908301627496111385689 | -6.0 | 0.02409169837250388861431149 | pass | pass | pass | `171b9b5dc98b8081dcbbfe20a94f5e96682e134c1471a31a90c286a74d3a3ef3` |
+| case 17 | Tech 3341 case 17 | 44100 | fs/6 | 0.50 | 60.0 | 4410 | 441 | 3632374 | -7.269986837448161590679374 | 33211029900 | 1790 | `0x1.eee2066300000p-2` | -6.315950005694304616476244 | -6.0 | -0.3159500056943046164762444 | pass | pass | pass | `c8bee0686b7aeb90e88828e0e09a30b3f0e1aff5a045646f95c5ad2bf57208b4` |
+| case 18 | Tech 3341 case 18 | 44100 | fs/8 | 0.50 | 67.5 | 4410 | 441 | 3875032 | -6.708292140243925025618416 | 34330794913 | 1801 | `0x1.ff9196e840000p-2` | -6.027919689637279322692227 | -6.0 | -0.02791968963727932269222733 | pass | pass | pass | `f46a047b5b0bd74a303874597c4f58a6d7e10e4b9905bfcdd6371766d1788057` |
+| case 19 | Tech 3341 case 19 | 44100 | fs/4 | 1.41 | 45.0 | 4410 | 441 | 8363615 | -0.02591734849639627918436863 | 97394296675 | 1809 | `0x1.6ad2707630000p+0` | 3.029073636282483003030671 | 3.0 | 0.02907363628248300303067127 | pass | fail | fail | `b4aabd0f3e5fa23567c46df8155915eda8cda473381d5dff3ae47bfee4d5a136` |
+| hidden overshoot | closed form | 44100 | fs/4 | 0.9440608762859233803643805 | 45.0 | 4410 | 441 | 5599831 | -3.510299597003604459992807 | 65210031995 | 1809 | `0x1.e5da43ef60000p-1` | -0.4553086122247251777777675 | -0.5 | 0.04469138777527482222223254 | pass | fail | pass | `f5e518f2f58809c646e850872a366aeb0dbc124c160ac77ce781f5e70ff0096c` |
+| under the ceiling | closed form | 44100 | fs/4 | 0.8413951416451950911527419 | 45.0 | 4410 | 441 | 4990854 | -4.510300697156337074809649 | 58118494830 | 1809 | `0x1.b1043b4dc0000p-1` | -1.455309712377457792594609 | -1.5 | 0.04469028762254220740539050 | pass | pass | pass | `7f723ee67981d2ecde61afee77399270d8170ee927ba3677e4ee4373b9b4ac62` |
+| low level | closed form | 44100 | fs/4 | 0.1 | 45.0 | 4410 | 441 | 593164 | -23.01030230179004654211787 | 6907394780 | 1809 | `0x1.9bb67adc00000p-4` | -19.95531131701116725990283 | -20 | 0.04468868298883274009717487 | pass | pass | pass | `08fb28670791bdbcbf321fe13e4325ed481e8d178724a0b5b3eaadc1a6d64f75` |
+| silent | closed form | 44100 | fs/4 | 0 | 0.0 | 4410 | 441 | 0 | -inf | 0 | 0 | `0x0.0p+0` | -inf | none | none | none | pass | pass | `34bb1829335ea366c7e9305a8f0a6fb4ebaa61fc0e4f88b22bdb7ced03164a8a` |
+| case 15 | Tech 3341 case 15 | 48000 | fs/4 | 0.50 | 0.0 | 4800 | 480 | 4194304 | -6.020599913279623904274778 | 33588045283 | 1947 | `0x1.f4803978c0000p-2` | -6.217902277570538249371114 | -6.0 | -0.2179022775705382493711140 | pass | pass | pass | `518b2c0886f58438f7f18904aa930f8eba26ddf96c828fc01c6fa4bb5b15865c` |
+| case 16 | Tech 3341 case 16 | 48000 | fs/4 | 0.50 | 45.0 | 4800 | 480 | 2965821 | -9.030899286406375393600728 | 34536985545 | 1969 | `0x1.0152127920000p-1` | -5.975908301627496111385689 | -6.0 | 0.02409169837250388861431149 | pass | pass | pass | `4ecf8b93b0cce4327efe93ca7d7efa4598d788d1962c842e08276b4e49c2eb4f` |
+| case 17 | Tech 3341 case 17 | 48000 | fs/6 | 0.50 | 60.0 | 4800 | 480 | 3632374 | -7.269986837448161590679374 | 33210993509 | 1946 | `0x1.eee1e2d940000p-2` | -6.315959523266748096940758 | -6.0 | -0.3159595232667480969407580 | pass | pass | pass | `dfd1443c805b1cbef38b17efec9c0738edb2fc7db04e6d58b638bad0e3abe034` |
+| case 18 | Tech 3341 case 18 | 48000 | fs/8 | 0.50 | 67.5 | 4800 | 480 | 3875032 | -6.708292140243925025618416 | 34330815915 | 1945 | `0x1.ff91ab6ac0000p-2` | -6.027914376011456135426562 | -6.0 | -0.02791437601145613542656221 | pass | pass | pass | `25facdd52f6925c7210509d4f45357c87168a5672bd31c48a86446ddf1faa0e4` |
+| case 19 | Tech 3341 case 19 | 48000 | fs/4 | 1.41 | 45.0 | 4800 | 480 | 8363615 | -0.02591734849639627918436863 | 97394296675 | 1969 | `0x1.6ad2707630000p+0` | 3.029073636282483003030671 | 3.0 | 0.02907363628248300303067127 | pass | fail | fail | `c424849ac95b007b99f8aeb9ab0bc2b1667e27e3f0f4b3f530722fefe40c7a6f` |
+| hidden overshoot | closed form | 48000 | fs/4 | 0.9440608762859233803643805 | 45.0 | 4800 | 480 | 5599831 | -3.510299597003604459992807 | 65210031995 | 1969 | `0x1.e5da43ef60000p-1` | -0.4553086122247251777777675 | -0.5 | 0.04469138777527482222223254 | pass | fail | pass | `12c2870d23a223b2f36af3a6c9bc311589690e816b19da976b553cb34cea3cad` |
+| under the ceiling | closed form | 48000 | fs/4 | 0.8413951416451950911527419 | 45.0 | 4800 | 480 | 4990854 | -4.510300697156337074809649 | 58118494830 | 1969 | `0x1.b1043b4dc0000p-1` | -1.455309712377457792594609 | -1.5 | 0.04469028762254220740539050 | pass | pass | pass | `f1ea33ed8959463ff878dfe597b03028b26b26c133e08d539c5eba9251995881` |
+| low level | closed form | 48000 | fs/4 | 0.1 | 45.0 | 4800 | 480 | 593164 | -23.01030230179004654211787 | 6907394780 | 1969 | `0x1.9bb67adc00000p-4` | -19.95531131701116725990283 | -20 | 0.04468868298883274009717487 | pass | pass | pass | `95b6588eb61dd6b4bb8446244dd17fc83dac6385ccedd7723c30ed721d49643c` |
+| silent | closed form | 48000 | fs/4 | 0 | 0.0 | 4800 | 480 | 0 | -inf | 0 | 0 | `0x0.0p+0` | -inf | none | none | none | pass | pass | `19a9b0eb3572bcbee480f15089a756416b5ec8619f8f95fc78658f727be4fbf9` |
+
+### Vectors: true-peak step
+
+The store step on its own (Store step), with target -36 and gain text `-35.27`: per linear true peak, `dBTP` in decimal at 25 digits, the shortest text of the binary64 `20 * log10(TP)` on the dev PC, and the result: stored, or the rejection line.
+
+| Case | True peak (hex) | True peak (dBTP) | dBTP text | Target | Gain text | Result | Line |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| silent | `0x0.0p+0` | -inf | -inf | -36 | -35.27 | stored | none |
+| half scale | `0x1.0000000000000p-1` | -6.020599913279623904274778 | -6.020599913279624 | -36 | -35.27 | stored | none |
+| just under the ceiling | `0x1.c8449835482acp-1` | -1.001000000000000198000544 | -1.0010000000000003 | -36 | -35.27 | stored | none |
+| just over the ceiling | `0x1.c85f7e2f72d9ap-1` | -0.9989999999999997720410131 | -0.9989999999999998 | -36 | -35.27 | rejected | `rejected: parameter=/loudness_gain_db value=-35.27 rule=true_peak limit=<= -1 dBTP (row true-peak) target_lufs=-36 true_peak_dbtp=-0.9989999999999998` |
+| full scale | `0x1.0000000000000p+0` | 0 | 0 | -36 | -35.27 | rejected | `rejected: parameter=/loudness_gain_db value=-35.27 rule=true_peak limit=<= -1 dBTP (row true-peak) target_lufs=-36 true_peak_dbtp=0` |
+| over full scale | `0x1.4000000000000p+0` | 1.938200260161128287175666 | 1.9382002601611283 | -36 | -35.27 | rejected | `rejected: parameter=/loudness_gain_db value=-35.27 rule=true_peak limit=<= -1 dBTP (row true-peak) target_lufs=-36 true_peak_dbtp=1.9382002601611283` |
 
 ## 24-bit rounding
 

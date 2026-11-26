@@ -130,3 +130,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-1-loudness-meter.md`
   summary: Story 4.4 must prove the looping loudness window starts at the opening end frame O, with a fixture whose ramp-in makes the opening differ from the body, since no 4.1 fixture can tell [O, O + B) from [0, B).
   evidence: Review pass 1 finding V2; the verification reviewer measured the same reading for the true window, [0, B), and block-shifted windows on every looping fixture.
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-3-true-peak.md`
+  summary: Run the `--store-gain` true-peak refusal (store step 8) end to end through the binary, checking exit 1, the `rule=true_peak` line, unchanged recipe bytes, and no `RECIPE.partial`.
+  evidence: Story 4.3 review V1 (medium, pre-verified): only the pure `true_peak_step` is tested; no real recipe exceeds the ceiling at -36 LUFS-I with a gain at most 0 dB, and tables are compiled in, so a test hook is needed.

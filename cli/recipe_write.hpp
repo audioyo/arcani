@@ -71,6 +71,23 @@ struct GainStep {
 // ">= -60 dB (row loudness-gain)".
 GainStep gain_step(double window_lufs, double target_lufs, const arcani::test::tables::Row& gain_row);
 
+// Story 4.3 (docs/signal-spec.md, True peak, Store step): the store's
+// true-peak decision for the final-mode render of the new bytes. dbtp is
+// 20 log10(tp_linear) (-infinity at 0). Stored when dbtp <= the row's value;
+// otherwise line is "rejected: parameter=/loudness_gain_db value=<gain_text>
+// rule=true_peak limit=<= <value> dBTP (row <id>) target_lufs=<T>
+// true_peak_dbtp=<dbtp>" (T and dbtp as shortest round-trip texts). line is
+// empty when stored. Throws TableError unless row is a thresholds row in
+// dBTP with one finite value.
+struct TruePeakStep {
+  bool stored = false;
+  double dbtp = 0.0;
+  std::string line;
+};
+
+TruePeakStep true_peak_step(const arcani::test::tables::Row& row, double tp_linear, double target_lufs,
+                            std::string_view gain_text);
+
 }  // namespace arcani::cli
 
 #endif  // ARCANI_CLI_RECIPE_WRITE_HPP

@@ -3,6 +3,8 @@
 
 #include "report.hpp"
 
+#include "true_peak.hpp"
+
 #include <charconv>
 #include <cmath>
 #include <cstring>
@@ -217,6 +219,13 @@ std::string report_json(const Report& report) {
     out += "    \"whole_lufs_i\": " + reading(l.whole_lufs_i) + "\n";
     out += "  },\n";
   }
+  if (report.true_peak) {
+    const TruePeakReport& t = *report.true_peak;
+    out += "  \"true_peak\": {\n";
+    out += "    \"linear\": " + json_number(t.linear) + ",\n";
+    out += "    \"dbtp\": " + reading(t.dbtp) + "\n";
+    out += "  },\n";
+  }
   out += "  \"determinism_key\": {\n";
   out += "    \"recipe_hash\": " + json_string(key.recipe_hash) + ",\n";
   out += "    \"asset_hashes\": [";
@@ -306,6 +315,23 @@ Assertion loudness_assertion(const arcani::test::tables::Row& row, double window
 
 Assertion loudness_whole_assertion(const arcani::test::tables::Row& row, double whole_lufs, double target) {
   return loudness_check(row, "loudness_whole", whole_lufs, target, false);
+}
+
+Assertion true_peak_assertion(const arcani::test::tables::Row& row, double linear) {
+  Assertion a;
+  a.name = "true_peak";
+  a.row = row.id;
+  a.threshold = row.value();
+  a.unit = row.unit;
+  const double dbtp = true_peak_dbtp(linear);
+  if (!std::isfinite(dbtp)) {
+    a.result = Result::pass;
+    a.note = "silent";
+    return a;
+  }
+  a.measured = dbtp;
+  a.result = dbtp <= a.threshold ? Result::pass : Result::fail;
+  return a;
 }
 
 int assertions_exit_code(const std::vector<Assertion>& assertions) noexcept {

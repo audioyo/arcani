@@ -1052,12 +1052,16 @@ TEST_CASE("range: loudness_gain_db is held to row loudness-gain in both modes", 
   }
 }
 
-TEST_CASE("applied gain: the final master is the join times g of -1.5 dB; every other tap is measure's",
+// Story 4.3 decision 3: the final fixture stores -10.00 dB (k = -1000), the
+// gain text of true_peak_constants.final_fixture_gain.
+TEST_CASE("applied gain: the final master is the join times g of the -10.00 dB fixture gain; every other tap is "
+          "measure's",
           "[api][loudness-gain]") {
+  CHECK(std::string(spec::kLoudnessGain_final_fixture) == spec::kTruePeak_final_fixture);
   const std::string text = api::valid(spec::kLoudnessGain_final_fixture);
-  CHECK(lg::member_value(text, "loudness_gain_db") == "-1.5");
-  const spec::LoudnessGainValueVector& v = gain_value("-1.5");
-  CHECK(v.k == -150);
+  CHECK(lg::member_value(text, "loudness_gain_db") == spec::kTruePeak_final_fixture_gain);
+  const spec::LoudnessGainValueVector& v = gain_value(spec::kTruePeak_final_fixture_gain);
+  CHECK(v.k == -1000);
   CHECK(api::bits(v.g) == v.g_bits);
   CHECK(api::bits(lg::harness_linear_gain(v.k, spec::kLoudnessGain_c)) == v.g_bits);
   for (const std::uint32_t fs : spec::sample_rates()) {
@@ -1108,7 +1112,7 @@ TEST_CASE("applied gain: every stored gain vector applies its g bit for bit; a z
       CHECK(api::same_bytes(f.out, mr.out));
     }
     const TapRender f = render_taps(base, ARC_MODE_FINAL, rate);
-    CHECK(master_mismatches(f, std::nextafter(gain_value("-1.5").g, 1.0)) > 0);
+    CHECK(master_mismatches(f, std::nextafter(gain_value(spec::kTruePeak_final_fixture_gain).g, 1.0)) > 0);
   }
 }
 

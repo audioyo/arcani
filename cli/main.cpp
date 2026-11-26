@@ -21,18 +21,26 @@
 // loudness_whole (Story 4.2; docs/signal-spec.md, Loudness gain, Final-mode
 // checks) after render speed.
 //
+// Every final-mode render (Story 4.3; docs/signal-spec.md, True peak)
+// meters the 24-bit samples it writes with the BS.1770 Annex 2 true-peak
+// meter and adds the report member "true_peak" and the assertion true_peak
+// (row true-peak), the last one. Measure-mode reports are unchanged.
+//
 // --store-gain (Story 4.2; docs/signal-spec.md, Loudness gain, Store)
 // compiles RECIPE in measure mode, renders only the loudness window,
 // rounds the gain to 0.01 dB, and rewrites only the members
 // loudness_gain_db and loudness_hash of RECIPE (RECIPE.partial, then a
-// rename; nothing when the bytes are unchanged). With --out, --report,
+// rename; nothing when the bytes are unchanged). Before writing it renders
+// the whole session in final mode with the new gain and refuses a gain
+// whose true peak is above row true-peak (Story 4.3). With --out, --report,
 // --preview, --mode, or --loudness it is a usage error. Prints
 // "stored: loudness_gain_db=<gain> loudness_hash=<hash> window_lufs_i=<L>".
 //
 // Exit codes: 0 rendered (or stored), every assertion pass or not
 // applicable; 1 the engine rejected the recipe or an option, or (with
 // --loudness or --store-gain) the window rule loudness_window_rule rejected
-// it, or (--store-gain) the gain is outside row loudness-gain; 2 usage; 3
+// it, or (--store-gain) the gain is outside row loudness-gain or its
+// final render's true peak is above row true-peak; 2 usage; 3
 // file or internal error; 4 rendered but an assertion failed (WAV and report
 // written).
 
@@ -43,6 +51,7 @@
 #include "recipe_write.hpp"
 #include "report.hpp"
 #include "tables.hpp"
+#include "true_peak.hpp"
 #include "wav.hpp"
 
 #include <charconv>
@@ -336,7 +345,8 @@ arc_status compile_text(const std::string& text, arc_mode mode, std::uint32_t ra
 }
 
 // arcani-render RECIPE --store-gain (Story 4.2; docs/signal-spec.md,
-// Loudness gain, Store, steps 1 to 9).
+// Loudness gain, Store, steps 1 to 10; step 8 is Story 4.3, True peak,
+// Store step).
 int run_store(const Args& args) {
   namespace tables = arcani::test::tables;
   // 1. The rows, before anything is opened.
@@ -344,6 +354,7 @@ int run_store(const Args& args) {
   const std::uint64_t window_min_frames = cli::loudness_window_min_frames(window_row, args.rate);
   const std::string window_limit = cli::loudness_window_limit(window_row);
   const tables::Row& gain_row = tables::row("loudness-gain");
+  const tables::Row& true_peak_row = tables::row("true-peak");
 
   // 2. Read and compile in measure mode.
   const std::optional<std::string> text = read_file(args.recipe);
@@ -433,7 +444,35 @@ int run_store(const Args& args) {
     return file_error(std::string("final-mode compile of the rewritten recipe failed: rule=") + error.rule);
   }
 
-  // 8. Write through RECIPE.partial and a rename, unless nothing changed.
+  // 8. True peak (Story 4.3): the whole session in final mode with the new
+  // gain, rounded to 24 bits, against row true-peak. Nothing is written when
+  // it is above the ceiling.
+  {
+    RendererHandle final_renderer;
+    if (arc_renderer_create(check.plan, &final_renderer.renderer, &error) != ARC_OK) {
+      return file_error(std::string("renderer creation failed: rule=") + error.rule);
+    }
+    const std::uint64_t final_frames = arc_plan_frame_count(check.plan);
+    cli::TruePeakMeter true_peak;
+    for (std::uint64_t done = 0; done < final_frames;) {
+      const std::uint64_t left = final_frames - done;
+      const std::size_t n = left < kBlockFrames ? static_cast<std::size_t>(left) : kBlockFrames;
+      if (arc_render(final_renderer.renderer, samples.data(), n, nullptr, &error) != ARC_OK) {
+        return file_error(std::string("render failed: rule=") + error.rule);
+      }
+      for (std::size_t i = 0; i < n; ++i) {
+        true_peak.add(cli::quantize_24(samples[2 * i]), cli::quantize_24(samples[2 * i + 1]));
+      }
+      done += n;
+    }
+    const cli::TruePeakStep tp_step = cli::true_peak_step(true_peak_row, true_peak.linear(), *target, step.gain_text);
+    if (!tp_step.stored) {
+      std::fprintf(stderr, "%s\n", tp_step.line.c_str());
+      return kExitRejected;
+    }
+  }
+
+  // 9. Write through RECIPE.partial and a rename, unless nothing changed.
   if (stored != *text) {
     const std::string partial = args.recipe + ".partial";
     if (!write_text_file(partial, stored)) {
@@ -448,7 +487,7 @@ int run_store(const Args& args) {
     }
   }
 
-  // 9. The stored line.
+  // 10. The stored line.
   std::printf("stored: loudness_gain_db=%s loudness_hash=%s window_lufs_i=%s\n", step.gain_text.c_str(), hash,
               cli::json_number(reading).c_str());
   return kExitOk;
@@ -472,6 +511,13 @@ int run(const Args& args) {
   const arcani::test::tables::Row* tolerance_row = nullptr;
   if (args.loudness && args.mode == ARC_MODE_FINAL) {
     tolerance_row = &arcani::test::tables::row("loudness-tolerance");
+  }
+
+  // Story 4.3: the true-peak ceiling of a final-mode render, read before
+  // anything is opened.
+  const arcani::test::tables::Row* true_peak_row = nullptr;
+  if (args.mode == ARC_MODE_FINAL) {
+    true_peak_row = &arcani::test::tables::row("true-peak");
   }
 
   // Story 4.1: the window minimum, read before anything is opened.
@@ -585,6 +631,11 @@ int run(const Args& args) {
   std::vector<double> samples(kBlockFrames * 2);
   std::vector<std::uint8_t> bytes;
   bytes.reserve(samples.size() * 3);
+  // Story 4.3: every sample written, after 24-bit rounding, in final mode.
+  std::optional<cli::TruePeakMeter> true_peak_meter;
+  if (true_peak_row != nullptr) {
+    true_peak_meter.emplace();
+  }
   std::chrono::steady_clock::duration render_time{0};
   for (std::uint64_t done = 0; done < out_frames;) {
     const std::uint64_t left = out_frames - done;
@@ -609,6 +660,11 @@ int run(const Args& args) {
     }
     if (preview) {
       cli::apply_gain(std::span<double>(samples.data(), n * 2), gain);
+    }
+    if (true_peak_meter) {
+      for (std::size_t i = 0; i < n; ++i) {
+        true_peak_meter->add(cli::quantize_24(samples[2 * i]), cli::quantize_24(samples[2 * i + 1]));
+      }
     }
     bytes.clear();
     cli::append_samples(bytes, std::span<const double>(samples.data(), n * 2));
@@ -675,6 +731,12 @@ int run(const Args& args) {
   report.spacing = spacing;
   report.preview = preview;
   report.loudness = loudness;
+  if (true_peak_meter) {
+    cli::TruePeakReport t;
+    t.linear = true_peak_meter->linear();
+    t.dbtp = cli::true_peak_dbtp(t.linear);
+    report.true_peak = t;
+  }
   report.determinism_key.recipe_hash = arc_plan_recipe_hash(plan.plan);
   report.determinism_key.engine_version = report.engine_version;
   report.determinism_key.sample_rate = args.rate;
@@ -689,6 +751,10 @@ int run(const Args& args) {
     }
     report.assertions.push_back(cli::loudness_assertion(*tolerance_row, loudness->window_lufs_i, *target));
     report.assertions.push_back(cli::loudness_whole_assertion(*tolerance_row, loudness->whole_lufs_i, *target));
+  }
+  // Story 4.3: in final mode, the true-peak ceiling, the last assertion.
+  if (true_peak_meter) {
+    report.assertions.push_back(cli::true_peak_assertion(*true_peak_row, report.true_peak->linear));
   }
 
   if (!write_text_file(report_path, cli::report_json(report))) {

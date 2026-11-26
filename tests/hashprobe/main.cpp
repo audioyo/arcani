@@ -227,20 +227,21 @@ constexpr char kStubChainRecipe[] = R"({
 // Components stub-chain-final-44100 and stub-chain-final-48000 (Story 4.2;
 // docs/signal-spec.md, Loudness gain, Applied gain): the recipe of
 // recipes/fixtures/valid/stub-chain-1s-beat-6.json (the stub chain recipe
-// above with its stored gain -1.5 dB and its loudness hash), compiled in
+// above with its stored gain -10.00 dB, Story 4.3 decision 3, and its
+// loudness hash), compiled in
 // final mode (ARC_MODE_FINAL) and rendered in one call, interleaved stereo,
 // each binary64 sample converted to float32: 2 * fs samples. The master and
-// the output are the binaural join times g of k = -150.
+// the output are the binaural join times g of k = -1000.
 constexpr char kStubChainFinalRecipe[] = R"({
   "schema_version": "1.0",
   "engine_version": "0.0.1",
   "seed": 42,
   "author": "Arcani hash probe",
   "date": "2026-11-25",
-  "rationale": "Hash probe final-mode stub chain component (Story 4.2): the stub chain recipe with its stored loudness gain -1.5 dB, compiled in final mode.",
+  "rationale": "Hash probe final-mode stub chain component (Story 4.2): the stub chain recipe with its stored loudness gain -10.00 dB (Story 4.3), compiled in final mode.",
   "length_s": 1,
   "loudness_target_lufs": -36,
-  "loudness_gain_db": -1.5,
+  "loudness_gain_db": -10.00,
   "loudness_hash": "f75875bb4e8157d5519b7369467d6362f2f4aaf97056f25fc04500bcc0a04f34",
   "theta_reference": {
     "carrier_hz": 300,

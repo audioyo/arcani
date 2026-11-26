@@ -296,11 +296,19 @@ def test_engine_final_render_matches_the_reference(tapdump, tmp_path, fs):
                    if x["result"] != "pass"]
     assert not failed, failed
     # The engine applies g bit for bit to its own join, and leaves the
-    # measure-mode taps alone (the gain is the -1.5 vector).
-    g = from_hex(gain_value("-1.5")["g_hex"])
+    # measure-mode taps alone (the gain is the vector of the fixture's stored
+    # gain, -10.00 dB: true_peak_constants.final_fixture_gain, Story 4.3
+    # decision 3).
+    tp = vectors()["true_peak_constants"]
+    assert tp["final_fixture"] == constants()["final_fixture"]
+    text = tp["final_fixture_gain"]
+    assert json.loads(fixture.read_text(encoding="utf-8"))["loudness_gain_db"] == float(text)
+    assert fixture.read_text(encoding="utf-8").count(f'"loudness_gain_db": {text},') == 1
+    assert int(gain_value(text)["k"]) == -1000
+    g = from_hex(gain_value(text)["g_hex"])
     assert np.array_equal(engine["master"].view(np.uint64), (engine["join"] * g).view(np.uint64))
     assert np.array_equal(engine["output"].view(np.uint64), engine["master"].view(np.uint64))
-    # Must fail: the measure-mode reference master is 1.5 dB off the final engine output.
+    # Must fail: the measure-mode reference master is 10 dB off the final engine output.
     assert any(x["result"] != "pass" for x in match.match_stereo("measure vs final", engine["output"], measure["output"]))
 
 
