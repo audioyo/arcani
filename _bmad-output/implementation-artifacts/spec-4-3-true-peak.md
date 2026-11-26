@@ -63,10 +63,10 @@ Decisions (planning, 2026-11-25; Audio can overrule any of them at approval):
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `docs/signal-spec.md`, `tools/signal_spec_vectors.py`, `tests/tables/thresholds.tsv`, `docs/design-log.md`, `docs/research-library.md`: the True peak section, coefficients and Tech 3341 cases read from the documents, vectors (filter taps, calibration cases, closed-form signals, the must-fail), rows, log entries. Merged before code.
-- [ ] `tests/python/test_true_peak_tool.py`, `tests/python/test_true_peak_cli.py`, `tests/cpp/test_true_peak.cpp`, updates to `test_cli.cpp`, `test_api.cpp`, `test_store_gain.py`: failing tests from the matrix and ACs, tests-only commit.
-- [ ] `cli/true_peak.{hpp,cpp}`, `cli/report.{hpp,cpp}`, `cli/main.cpp`, `cli/recipe_write.{hpp,cpp}`, `cli/CMakeLists.txt`, `tests/assertions/true_peak.py`: meters, assertion, report member, store step.
-- [ ] `recipes/fixtures/valid/stub-chain-1s-beat-6.json`, `ci/hash_expected.json`: the decision 3 gain and re-pins.
+- [x] `docs/signal-spec.md`, `tools/signal_spec_vectors.py`, `tests/tables/thresholds.tsv`, `docs/design-log.md`, `docs/research-library.md`: the True peak section, coefficients and Tech 3341 cases read from the documents, vectors (filter taps, calibration cases, closed-form signals, the must-fail), rows, log entries. Merged before code.
+- [x] `tests/python/test_true_peak_tool.py`, `tests/python/test_true_peak_cli.py`, `tests/cpp/test_true_peak.cpp`, updates to `test_cli.cpp`, `test_api.cpp`, `test_store_gain.py`: failing tests from the matrix and ACs, tests-only commit.
+- [x] `cli/true_peak.{hpp,cpp}`, `cli/report.{hpp,cpp}`, `cli/main.cpp`, `cli/recipe_write.{hpp,cpp}`, `cli/CMakeLists.txt`, `tests/assertions/true_peak.py`: meters, assertion, report member, store step.
+- [x] `recipes/fixtures/valid/stub-chain-1s-beat-6.json`, `ci/hash_expected.json`: the decision 3 gain and re-pins.
 
 **Acceptance Criteria:**
 - Given any final render in the suite at 44.1 and 48 kHz, when both meters read it, then their linear true peaks are equal bit for bit and the Python assertion agrees with the report.
