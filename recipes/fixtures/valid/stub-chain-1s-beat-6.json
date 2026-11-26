@@ -7,7 +7,7 @@
   "rationale": "Stub chain fixture (Story 1.2): 1 s, for the C API, seek, and isolation tests. Values are placeholders, not starter defaults. 400 Hz unmodulated sine in the left ear, 406 Hz unmodulated sine in the right ear; the theta reference adds a 300 Hz unmodulated sine to both channels (Story 1.5; at 0 percent AM depth since Story 2.1), so the output peaks near 2.0 and its 24-bit WAV clips. A test fixture, not for listening.",
   "length_s": 1,
   "loudness_target_lufs": -36,
-  "loudness_gain_db": -1.5,
+  "loudness_gain_db": -10.00,
   "loudness_hash": "f75875bb4e8157d5519b7369467d6362f2f4aaf97056f25fc04500bcc0a04f34",
   "theta_reference": {
     "carrier_hz": 300,
