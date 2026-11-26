@@ -20,6 +20,14 @@
 //   join.f64    binaural join tap
 //   master.f64  master tap
 //
+// Story 4.4 adds four taps (docs/signal-spec.md, Gain ramps, Taps), so every
+// form that writes taps writes ten files:
+//
+//   theta_gained.f64     theta reference after its gain
+//   gamma_gained.f64     gamma PAC after its gain
+//   binaural.f64         binaural layer before its gain
+//   binaural_gained.f64  binaural layer after its gain
+//
 // On success prints one line "arcani-tapdump: frames N total T" on stdout
 // (N the session length in frames, T = N + EXTRA_FRAMES) and exits 0. Exit 2
 // on a usage error, 1 when the recipe cannot be read, is rejected, or a file
@@ -28,7 +36,7 @@
 // Story 2.7 adds two modes for long looping sessions:
 //
 // --window START FRAMES: arc_seek to frame START, then FRAMES frames in one
-//   arc_render call with every tap; the same six files. Prints
+//   arc_render call with every tap; the same ten files. Prints
 //   "arcani-tapdump: frames N start S total T" (T = FRAMES).
 // --output-only: the whole session in arc_render calls of kChunkFrames frames
 //   with no taps, streamed to out.f64 alone, so a 20 min session needs no
@@ -197,7 +205,7 @@ bool parse_args(int argc, char** argv, Args& a) {
 }
 
 // Renders `count` frames from the renderer's current frame with every tap
-// and writes the six files.
+// and writes the ten files.
 int dump_taps(arc_renderer* renderer, std::size_t count, const std::string& out_dir, arc_error& error) {
   struct Buffer {
     const char* name;
@@ -207,6 +215,8 @@ int dump_taps(arc_renderer* renderer, std::size_t count, const std::string& out_
       {"out", std::vector<double>(2 * count)},    {"theta", std::vector<double>(2 * count)},
       {"gamma", std::vector<double>(2 * count)},  {"bus", std::vector<double>(2 * count)},
       {"join", std::vector<double>(2 * count)},   {"master", std::vector<double>(2 * count)},
+      {"theta_gained", std::vector<double>(2 * count)}, {"gamma_gained", std::vector<double>(2 * count)},
+      {"binaural", std::vector<double>(2 * count)},     {"binaural_gained", std::vector<double>(2 * count)},
   };
   arc_taps taps;
   std::memset(&taps, 0, sizeof taps);
@@ -215,6 +225,10 @@ int dump_taps(arc_renderer* renderer, std::size_t count, const std::string& out_
   taps.stereo_bus = buffers[3].samples.data();
   taps.binaural_join = buffers[4].samples.data();
   taps.master = buffers[5].samples.data();
+  taps.theta_reference_gained = buffers[6].samples.data();
+  taps.gamma_pac_gained = buffers[7].samples.data();
+  taps.binaural = buffers[8].samples.data();
+  taps.binaural_gained = buffers[9].samples.data();
   if (arc_render(renderer, buffers[0].samples.data(), count, &taps, &error) != ARC_OK) {
     std::fprintf(stderr, "arcani-tapdump: render failed: %s\n", error.rule);
     return 1;
