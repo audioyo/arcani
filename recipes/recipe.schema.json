@@ -76,7 +76,12 @@
       "x-arcani-tag": "loudness-relevant",
       "type": "object",
       "additionalProperties": false,
-      "required": ["carrier_hz", "rate_hz", "am_depth_percent", "shape"],
+      "required": [
+        "carrier_hz",
+        "rate_hz",
+        "am_depth_percent",
+        "shape"
+      ],
       "properties": {
         "carrier_hz": {
           "description": "Theta reference carrier frequency in Hz.",
@@ -97,14 +102,24 @@
           "description": "Envelope shape. custom is accepted here so that compile rejects it by name: the signal spec does not model it.",
           "x-arcani-tag": "loudness-relevant",
           "type": "string",
-          "enum": ["sine", "smoothed_on_off", "sawtooth", "reverse_saw", "custom"]
+          "enum": [
+            "sine",
+            "smoothed_on_off",
+            "sawtooth",
+            "reverse_saw",
+            "custom"
+          ]
         },
         "rate_cycle": {
           "description": "Optional sinusoidal theta rate cycle (docs/signal-spec.md, Rate curve): the theta rate is rate_hz + swing_hz * sin(2 pi t / period_s + start_phase_deg); only the envelope phase follows it, never the carrier.",
           "x-arcani-tag": "loudness-relevant",
           "type": "object",
           "additionalProperties": false,
-          "required": ["swing_hz", "period_s", "start_phase_deg"],
+          "required": [
+            "swing_hz",
+            "period_s",
+            "start_phase_deg"
+          ],
           "properties": {
             "swing_hz": {
               "description": "Swing in Hz: the rate spans rate_hz - swing_hz to rate_hz + swing_hz.",
@@ -122,6 +137,53 @@
               "type": "number"
             }
           }
+        },
+        "gain": {
+          "description": "Optional gain schedule of the theta reference (docs/signal-spec.md, Gain ramps): an initial gain and up to 8 raised-cosine ramps in time order, linear from 0 (silence) to 1 (full); absent means 1.0 on every sample. Compile checks the gains against range row layer-gain, the ramp count against gain-ramp-count, and the ramp rules (at least 10 ms, inside the session, no overlap, out of a loop's first body pass).",
+          "x-arcani-tag": "loudness-relevant",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "initial"
+          ],
+          "properties": {
+            "initial": {
+              "description": "Gain from frame 0 until the first ramp starts, linear, 0 (silence) to 1 (full).",
+              "x-arcani-tag": "loudness-relevant",
+              "type": "number"
+            },
+            "ramps": {
+              "description": "Ramps in time order; each moves the gain from the gain before it to `to` along a raised cosine and holds `to` from its end on.",
+              "x-arcani-tag": "loudness-relevant",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "start_s",
+                  "duration_s",
+                  "to"
+                ],
+                "properties": {
+                  "start_s": {
+                    "description": "Ramp start in seconds.",
+                    "x-arcani-tag": "loudness-relevant",
+                    "type": "number"
+                  },
+                  "duration_s": {
+                    "description": "Ramp length in seconds, at least 10 ms.",
+                    "x-arcani-tag": "loudness-relevant",
+                    "type": "number"
+                  },
+                  "to": {
+                    "description": "Gain at the ramp's end, linear, 0 to 1.",
+                    "x-arcani-tag": "loudness-relevant",
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -130,7 +192,13 @@
       "x-arcani-tag": "loudness-relevant",
       "type": "object",
       "additionalProperties": false,
-      "required": ["carrier_hz", "rate_hz", "am_depth_percent", "carrier_wave", "coupling"],
+      "required": [
+        "carrier_hz",
+        "rate_hz",
+        "am_depth_percent",
+        "carrier_wave",
+        "coupling"
+      ],
       "properties": {
         "carrier_hz": {
           "description": "Gamma PAC carrier frequency in Hz.",
@@ -151,13 +219,21 @@
           "description": "Carrier waveform. triangle and softened_square are accepted here so that compile rejects them by name: the signal spec models only the sine carrier.",
           "x-arcani-tag": "loudness-relevant",
           "type": "string",
-          "enum": ["sine", "triangle", "softened_square"]
+          "enum": [
+            "sine",
+            "triangle",
+            "softened_square"
+          ]
         },
         "coupling": {
           "description": "How the AM depth follows the theta reference. uncoupled: the depth is constant and reads nothing from the theta reference. smooth_swell: the depth rises and falls once per theta cycle, peaking at coupling_phase_deg. bursts: once per theta cycle the depth opens for 50 ms (10 ms raised-cosine edges inside, a 30 ms plateau) centered on coupling_phase_deg, and is 0 for the rest of the cycle; the carrier always plays.",
           "x-arcani-tag": "loudness-relevant",
           "type": "string",
-          "enum": ["uncoupled", "smooth_swell", "bursts"]
+          "enum": [
+            "uncoupled",
+            "smooth_swell",
+            "bursts"
+          ]
         },
         "coupling_phase_deg": {
           "description": "Coupling phase in degrees, measured on the theta reference envelope from its 0 degree point (the envelope peak); 360 is the same point as 0. Required with smooth_swell and bursts and rejected with uncoupled, at compile.",
@@ -169,7 +245,11 @@
           "x-arcani-tag": "loudness-relevant",
           "type": "object",
           "additionalProperties": false,
-          "required": ["swing_hz", "period_s", "start_phase_deg"],
+          "required": [
+            "swing_hz",
+            "period_s",
+            "start_phase_deg"
+          ],
           "properties": {
             "swing_hz": {
               "description": "Swing in Hz: the rate spans rate_hz - swing_hz to rate_hz + swing_hz.",
@@ -187,6 +267,53 @@
               "type": "number"
             }
           }
+        },
+        "gain": {
+          "description": "Optional gain schedule of the gamma PAC layer (docs/signal-spec.md, Gain ramps): an initial gain and up to 8 raised-cosine ramps in time order, linear from 0 (silence) to 1 (full); absent means 1.0 on every sample. Compile checks the gains against range row layer-gain, the ramp count against gain-ramp-count, and the ramp rules (at least 10 ms, inside the session, no overlap, out of a loop's first body pass).",
+          "x-arcani-tag": "loudness-relevant",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "initial"
+          ],
+          "properties": {
+            "initial": {
+              "description": "Gain from frame 0 until the first ramp starts, linear, 0 (silence) to 1 (full).",
+              "x-arcani-tag": "loudness-relevant",
+              "type": "number"
+            },
+            "ramps": {
+              "description": "Ramps in time order; each moves the gain from the gain before it to `to` along a raised cosine and holds `to` from its end on.",
+              "x-arcani-tag": "loudness-relevant",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "start_s",
+                  "duration_s",
+                  "to"
+                ],
+                "properties": {
+                  "start_s": {
+                    "description": "Ramp start in seconds.",
+                    "x-arcani-tag": "loudness-relevant",
+                    "type": "number"
+                  },
+                  "duration_s": {
+                    "description": "Ramp length in seconds, at least 10 ms.",
+                    "x-arcani-tag": "loudness-relevant",
+                    "type": "number"
+                  },
+                  "to": {
+                    "description": "Gain at the ramp's end, linear, 0 to 1.",
+                    "x-arcani-tag": "loudness-relevant",
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -195,7 +322,10 @@
       "x-arcani-tag": "loudness-relevant",
       "type": "object",
       "additionalProperties": false,
-      "required": ["carrier_left_hz", "beat_rate_hz"],
+      "required": [
+        "carrier_left_hz",
+        "beat_rate_hz"
+      ],
       "properties": {
         "carrier_left_hz": {
           "description": "Left-ear carrier frequency in Hz.",
@@ -212,7 +342,11 @@
           "x-arcani-tag": "loudness-relevant",
           "type": "object",
           "additionalProperties": false,
-          "required": ["swing_hz", "period_s", "start_phase_deg"],
+          "required": [
+            "swing_hz",
+            "period_s",
+            "start_phase_deg"
+          ],
           "properties": {
             "swing_hz": {
               "description": "Swing in Hz: the beat rate spans beat_rate_hz - swing_hz to beat_rate_hz + swing_hz.",
@@ -235,7 +369,57 @@
           "description": "Waveform of both ears; absent means sine. triangle is accepted here so that compile rejects it by name: the signal spec models only the sine.",
           "x-arcani-tag": "loudness-relevant",
           "type": "string",
-          "enum": ["sine", "triangle"]
+          "enum": [
+            "sine",
+            "triangle"
+          ]
+        },
+        "gain": {
+          "description": "Optional gain schedule of the binaural layer, one gain for both ears (docs/signal-spec.md, Gain ramps): an initial gain and up to 8 raised-cosine ramps in time order, linear from 0 (silence) to 1 (full); absent means 1.0 on every sample. Compile checks the gains against range row layer-gain, the ramp count against gain-ramp-count, and the ramp rules (at least 10 ms, inside the session, no overlap, out of a loop's first body pass).",
+          "x-arcani-tag": "loudness-relevant",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "initial"
+          ],
+          "properties": {
+            "initial": {
+              "description": "Gain from frame 0 until the first ramp starts, linear, 0 (silence) to 1 (full).",
+              "x-arcani-tag": "loudness-relevant",
+              "type": "number"
+            },
+            "ramps": {
+              "description": "Ramps in time order; each moves the gain from the gain before it to `to` along a raised cosine and holds `to` from its end on.",
+              "x-arcani-tag": "loudness-relevant",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "start_s",
+                  "duration_s",
+                  "to"
+                ],
+                "properties": {
+                  "start_s": {
+                    "description": "Ramp start in seconds.",
+                    "x-arcani-tag": "loudness-relevant",
+                    "type": "number"
+                  },
+                  "duration_s": {
+                    "description": "Ramp length in seconds, at least 10 ms.",
+                    "x-arcani-tag": "loudness-relevant",
+                    "type": "number"
+                  },
+                  "to": {
+                    "description": "Gain at the ramp's end, linear, 0 to 1.",
+                    "x-arcani-tag": "loudness-relevant",
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -244,13 +428,21 @@
       "x-arcani-tag": "loudness-relevant",
       "type": "object",
       "additionalProperties": false,
-      "required": ["mode", "opening_s", "body_s", "max_run_time_min"],
+      "required": [
+        "mode",
+        "opening_s",
+        "body_s",
+        "max_run_time_min"
+      ],
       "properties": {
         "mode": {
           "description": "Listening mode, which names the max run time row: focus (max-run-time-focus) or learn (max-run-time-learn).",
           "x-arcani-tag": "loudness-relevant",
           "type": "string",
-          "enum": ["focus", "learn"]
+          "enum": [
+            "focus",
+            "learn"
+          ]
         },
         "opening_s": {
           "description": "Opening length in seconds, played once before the first body pass; 0 or more.",
@@ -266,6 +458,61 @@
           "description": "Max run time in minutes, against the mode's range row; the session ends there.",
           "x-arcani-tag": "loudness-relevant",
           "type": "number"
+        }
+      }
+    },
+    "master": {
+      "description": "Master chain settings (docs/signal-spec.md, Gain ramps): an optional master gain schedule applied after the loudness gain.",
+      "x-arcani-tag": "loudness-relevant",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "gain": {
+          "description": "Optional gain schedule of the master, after the loudness gain (docs/signal-spec.md, Gain ramps): an initial gain and up to 8 raised-cosine ramps in time order, linear from 0 (silence) to 1 (full); absent means 1.0 on every sample. Compile checks the gains against range row layer-gain, the ramp count against gain-ramp-count, and the ramp rules (at least 10 ms, inside the session, no overlap, out of a loop's first body pass).",
+          "x-arcani-tag": "loudness-relevant",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "initial"
+          ],
+          "properties": {
+            "initial": {
+              "description": "Gain from frame 0 until the first ramp starts, linear, 0 (silence) to 1 (full).",
+              "x-arcani-tag": "loudness-relevant",
+              "type": "number"
+            },
+            "ramps": {
+              "description": "Ramps in time order; each moves the gain from the gain before it to `to` along a raised cosine and holds `to` from its end on.",
+              "x-arcani-tag": "loudness-relevant",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "start_s",
+                  "duration_s",
+                  "to"
+                ],
+                "properties": {
+                  "start_s": {
+                    "description": "Ramp start in seconds.",
+                    "x-arcani-tag": "loudness-relevant",
+                    "type": "number"
+                  },
+                  "duration_s": {
+                    "description": "Ramp length in seconds, at least 10 ms.",
+                    "x-arcani-tag": "loudness-relevant",
+                    "type": "number"
+                  },
+                  "to": {
+                    "description": "Gain at the ramp's end, linear, 0 to 1.",
+                    "x-arcani-tag": "loudness-relevant",
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }

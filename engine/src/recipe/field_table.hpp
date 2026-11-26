@@ -12,7 +12,9 @@
 
 namespace arcani::recipe {
 
-enum class FieldType { String, Number, Integer, Object };
+// Story 4.4: Array (gain ramps). The fields of an array's items are listed
+// with the path segment "*", for example "/master/gain/ramps/*/to".
+enum class FieldType { String, Number, Integer, Object, Array };
 
 enum class FieldTag { None, HashExcluded, LoudnessRelevant };
 

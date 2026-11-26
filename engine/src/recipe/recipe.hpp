@@ -17,6 +17,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace arcani::recipe {
 
@@ -48,12 +49,27 @@ struct RateCycle {
   double start_phase_deg = 0.0;
 };
 
+// Gain schedule (docs/signal-spec.md, Gain ramps; Story 4.4): an initial gain
+// and ramps in array order, as written. Compile applies the range checks and
+// the gain rules; parse keeps the values.
+struct GainRampField {
+  double start_s = 0.0;
+  double duration_s = 0.0;
+  double to = 0.0;
+};
+
+struct Gain {
+  double initial = 1.0;
+  std::vector<GainRampField> ramps;  // empty when ramps is absent or []
+};
+
 struct ThetaReference {
   double carrier_hz = 0.0;
   double rate_hz = 0.0;  // the cycle's center with a rate cycle
   double am_depth_percent = 0.0;
   ThetaShape shape = ThetaShape::Sine;
   std::optional<RateCycle> rate_cycle;  // Story 2.6; absent when the field is absent
+  std::optional<Gain> gain;             // Story 4.4; absent when the field is absent
 };
 
 // Gamma PAC carrier wave (docs/signal-spec.md, Gamma PAC layer). Triangle and
@@ -76,6 +92,7 @@ struct GammaPac {
   GammaCoupling coupling = GammaCoupling::Uncoupled;
   std::optional<double> coupling_phase_deg;  // degrees; absent when the field is absent
   std::optional<RateCycle> rate_cycle;       // Story 2.6; absent when the field is absent
+  std::optional<Gain> gain;                  // Story 4.4; absent when the field is absent
 };
 
 // Binaural waveform (docs/signal-spec.md, Binaural layer). Triangle is
@@ -91,6 +108,7 @@ struct Binaural {
   double beat_rate_hz = 0.0;                  // the cycle's center with a beat rate cycle
   std::optional<RateCycle> beat_rate_cycle;  // absent when the field is absent
   BinauralWaveform waveform = BinauralWaveform::Sine;  // absent means sine
+  std::optional<Gain> gain;                            // Story 4.4; one gain for both ears
 };
 
 // Looping session mode (docs/signal-spec.md, Loop, Story 2.7): it names the
@@ -109,6 +127,11 @@ struct Loop {
   double max_run_time_min = 0.0;
 };
 
+// The master chain settings (Story 4.4): only the master gain schedule.
+struct Master {
+  std::optional<Gain> gain;
+};
+
 struct Recipe {
   std::string schema_version;
   std::string engine_version;
@@ -124,6 +147,7 @@ struct Recipe {
   std::optional<GammaPac> gamma_pac;
   std::optional<Binaural> binaural;
   std::optional<Loop> loop;  // Story 2.7; absent when the field is absent
+  std::optional<Master> master;  // Story 4.4; absent when the field is absent
   std::string hash;  // recipe hash, 64 lowercase hex digits
   // Story 4.2: the loudness hash of this recipe (docs/signal-spec.md,
   // Loudness gain), 64 lowercase hex digits; not the stored loudness_hash.
