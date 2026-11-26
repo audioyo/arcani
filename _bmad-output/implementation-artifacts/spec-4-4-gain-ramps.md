@@ -2,7 +2,8 @@
 title: 'Story 4.4: Gain ramps'
 type: 'feature'
 created: '2026-11-26'
-status: 'ready-for-dev'
+status: 'in-progress'
+baseline_commit: '9ff038fd358f3196bd4d4d433561da13c05f0a61'
 route: 'dispatch'
 review_loop_iteration: 0
 context:
@@ -83,6 +84,82 @@ Decisions (planning, 2026-11-26; Audio can overrule any of them at approval):
 - Given every ramp fixture at 44.1 and 48 kHz, when the ramp tool and click tool check every layer tap and the master output, then no gain change completes in under 10 ms, no ramp edge exceeds -60 dBFS after the 8 kHz high-pass, and a harness-doctored 5 ms layer fade fails.
 - Given ramp renders, when compared with the Python reference, then taps and output differ by less than -100 dBFS.
 - Given the full suite on the dev PC and in CI, when it runs, then everything passes, existing pins are unchanged, and `tools/check_row_coverage.py` sees every new row in use.
+
+## Implementation Notes
+
+Everything below follows `docs/signal-spec.md`, Gain ramps (and the edits it makes to Stub chain, Output and taps; Coupling, Compile order; Loop, Compile order rule 8 and End at the cap; Loudness, Window, Report, and Agreement set; Loudness gain, Store step 4), and its vectors (`tests/data/signal_spec_vectors.json`, keys `gain_constants`, `gain_law`, `gain_fixture_ramps`, `gain_windows`, `gain_compile_cases`; C++ `kGain_*`, `kGainLaw`, `kGainFixtureRamps`, `kGainWindows`, `kGainCompileCases` in the generated `spec_tables.hpp`). Vector constants are cross-checked against the rows, never used in their place. Rows: `gain-ramp-min` (thresholds, 10 ms), `layer-gain` (ranges, 0 to 1, unit ratio), and `gain-ramp-count` (ranges, 0 to 8, unit ramps), all pending on this story; clear `pending` once a test reads each through `row()`.
+
+**Recipe shape.** `gain` is the last member of `theta_reference`, `gamma_pac`, and `binaural`; `master` (an object whose only member is an optional `gain`) is the last top-level member, after `loop`. `gain`: `initial` (required number), `ramps` (optional array of at most 8 ramp objects; empty allowed). Ramp: `start_s`, `duration_s`, `to`, all required numbers. Every object keeps `additionalProperties: false`; every member is tagged `loudness-relevant`. Not `maxItems` in the schema: the count is the compile range check on row `gain-ramp-count`.
+
+**Field table (`engine/src/recipe/field_table.{hpp,cpp}`).** `FieldType` gains `Array`. Array items are listed with a `*` path segment: `/theta_reference/gain` (Object), `/theta_reference/gain/initial` (Number, row `layer-gain`), `/theta_reference/gain/ramps` (Array, no row: the count is checked by name), `/theta_reference/gain/ramps/*/start_s` and `/duration_s` (Number, no row: bounded by the gain rules, on the range exemption list), `/theta_reference/gain/ramps/*/to` (Number, row `layer-gain`); the same under `/gamma_pac/gain`, `/binaural/gain`, and `/master/gain`, with `/master` (Object) first. The schema walk of `tests/cpp/test_recipe.cpp` follows `items` of an `array` property with the path segment `*`; the registration test fits `initial` and `to` (no unit suffix) to unit `ratio`. Parse: `ramps` not an array is rule `type`, limit `array`, at `/.../gain/ramps`; an element not an object is rule `type`, limit `object`, at `/.../gain/ramps/<i>`; unknown or missing members inside an element are named with the index (`/theta_reference/gain/ramps/0/to`, rule `required`, limit `present`).
+
+**Recipe (`engine/src/recipe/recipe.hpp`):**
+
+```
+struct GainRampField { double start_s = 0.0; double duration_s = 0.0; double to = 0.0; };
+struct Gain { double initial = 1.0; std::vector<GainRampField> ramps; };   // the parsed member
+// std::optional<Gain> gain in ThetaReference, GammaPac, and Binaural;
+// struct Master { std::optional<Gain> gain; }; std::optional<Master> master in Recipe.
+```
+
+**Validator (`engine/src/validate/validate.{hpp,cpp}`).** `range_rows()` gains `{"layer-gain", 0.0, 1.0, false, "ratio"}` and `{"gain-ramp-count", 0.0, 8.0, false, "ramps"}` (the range table test compares them with `ranges.tsv`). Constants: `kGainRampMinMs = 10.0` (threshold row `gain-ramp-min`, as `kCarrierRatio` is for `carrier-rule`), `kGainRampMinRule = "gain.ramp_min"`, `kGainOutsideRule = "gain.outside_session"`, `kGainOverlapRule = "gain.overlap"`, `kGainLoopBodyRule = "gain.loop_body"`, `kThetaSilentRule = "coupling.theta_silent"`, `kThetaSilentLimit` (the spec text). Order exactly as the spec's Compile order: range walk (initial, count, each `to`), loop rule 8 inside `check_loop()`, then rules 9 to 11 and 12 at the end of `check_rules()`. Every frame test runs at both native rates.
+
+**Plan and core (`engine/src/plan/plan.hpp`, `engine/src/core/gain.{hpp,cpp}`):**
+
+```
+namespace arcani::core {
+// Gain ramps, Law, engine: a + (b - a) * h, h = (1.0 - sine(ratio_to_phase(k / L) + 2^62)) * 0.5; 0 <= k < L.
+double gain_ramp(double a, double b, std::uint64_t k, std::uint64_t length) noexcept;
+}
+namespace arcani::plan {
+inline constexpr std::size_t kMaxGainRamps = 8;   // row gain-ramp-count
+struct GainRamp { std::uint64_t start_frame; std::uint64_t length_frames; std::uint64_t end_frame; double from; double to; };
+struct GainSchedule { double initial = 1.0; std::size_t count = 0; std::array<GainRamp, kMaxGainRamps> ramps{}; };
+double gain_at(const GainSchedule& s, std::uint64_t n) noexcept;   // Gain ramps, Law; 1.0 for a default schedule
+// Plan gains: GainSchedule theta_gain, gamma_gain, binaural_gain, master_ramp; master_gain stays the loudness gain.
+}
+```
+
+**Renderer and C API.** `render::Taps` and `arc_taps` gain, after `master` and in this order, `theta_reference_gained`, `gamma_pac_gained`, `binaural` (before gain), `binaural_gained`; the existing five keep their names and positions (the before-gain theta and gamma taps). Per sample in the spec's order; master = `(join * master_gain) * gM`. New C API for the command-line window:
+
+```
+typedef enum arc_gain_target { ARC_GAIN_THETA_REFERENCE = 0, ARC_GAIN_GAMMA_PAC = 1, ARC_GAIN_BINAURAL = 2, ARC_GAIN_MASTER = 3 } arc_gain_target;
+typedef struct arc_gain_ramp { arc_gain_target target; uint64_t start_frame; uint64_t end_frame; double from; double to; } arc_gain_ramp;
+size_t arc_plan_gain_ramp_count(const arc_plan* plan);   /* every ramp of every schedule; 0 for NULL */
+arc_status arc_plan_gain_ramp(const arc_plan* plan, size_t index, arc_gain_ramp* out_ramp, arc_error* error);
+/* schedule order theta, gamma, binaural, master, each in array order; ARC_ERR_INVALID_ARGUMENT for NULL or an index at or past the count */
+```
+
+**Tap dump (`tests/tapdump/main.cpp`).** Every rendering form that writes taps writes ten files: the six of today plus `theta_gained.f64`, `gamma_gained.f64`, `binaural.f64`, `binaural_gained.f64` (same layout). `--output-only` is unchanged. The printed line is unchanged.
+
+**Reference (`reference/gain.py`, `reference/stub_chain.py`).** `gain.frames(gain, fs)` returns `[(n0, L, n1, a, b)]`; `gain.values(gain, fs, n)` returns the binary64 gains of a uint64 frame index array (1.0 for `gain` None). `stub_chain.render` returns `KEYS = ("output", "theta", "gamma", "bus", "join", "master", "theta_gained", "gamma_gained", "binaural", "binaural_gained")`, each interleaved stereo; `theta`/`gamma` stay before gain.
+
+**Command-line window (`cli/loudness.{hpp,cpp}`, `cli/main.cpp`).**
+
+```
+struct FrameSpan { std::uint64_t start; std::uint64_t end; };   // one ramp [n0, n1)
+// LoudnessWindow gains std::uint64_t steady_frames: without a loop, the length of the longest steady
+// stretch, set whether accepted or not (N without ramps); 0 with a loop.
+LoudnessWindow loudness_window(const arc_loop_frames& loop, std::uint64_t end_frame, std::uint64_t min_frames,
+                               std::span<const FrameSpan> ramps) noexcept;   // the existing overload = no ramps
+```
+
+The window rule's rejection value is `steady_frames / fs`. `--loudness` with a non-looping window that is not `[0, N)` meters the window in its own pass by `arc_seek` (like a looping body, one repeat); the whole meter still reads `[0, N)`. `--store-gain` step 4 renders `[s, e)` by `arc_seek`. The report member shape is unchanged.
+
+**Ramp tool (`tests/assertions/gain_ramps.py`, NumPy and standard library):** `HOLD_TOL = 1e-9` (gain units), `MIN_DIVISOR = 2**-30`; `estimate(before, after)` (one channel, float64; NaN where `|before| < MIN_DIVISOR`); `changes(est, fs)` returns each completed change as `{"start": last frame at the old held value, "end": first frame of the new held value, "from", "to", "frames": end - start}`, a new value being held when every valid estimate in the next `round(0.010 * fs)` frames (or to the end) is within `HOLD_TOL` of it; `check(name, before, after, fs)` returns the assertion dict (name, row `gain-ramp-min`, threshold, unit `ms`, measured the shortest change in ms or None, result pass when every change lasts at least the row (inclusive) or there is none (note `no change`), a non-finite input fails with note `not finite`). The master is checked with `before = join * g` (the loudness gain `g`, 1.0 in measure mode) and `after = output`.
+
+**Fixtures.** `gain_fixture_text(name)` in `tools/signal_spec_vectors.py` gives each file's exact text: `gain-ramp-in-loop.json`, `gain-layer-ramp-10min.json`, `gain-master-fade.json`, `gain-end-fade-loop.json` (render fixtures) and `gain-theta-silent.json` (rejected, `coupling.theta_silent`), all in `recipes/fixtures/valid/`. `gain-layer-ramp-10min-stored.json` is the 10 min fixture with its loudness gain stored by `--store-gain` on the dev PC at 48 kHz (implementation phase; it is the final-mode render of the loudness checks). `tests/data/recipe_hash_vectors.json` gains every new file (`tools/recipe_hash.py --write-vectors`). Probe: `gain-ramps-44100` and `gain-ramps-48000` (scope `engine`), the four render fixtures embedded, windows per `gain_windows.probe_starts`, measure mode, output only, float32, pinned from the dev PC probe, confirmed by the next full run. Existing pins never move.
+
+**Test contracts (the QA agent may split differently; keep the added CI time to about 3 minutes of CPU per platform; delete each large file as soon as it is read; prefer windows (`--window`) to whole-session dumps for the 20 min fixtures):**
+
+- `tests/cpp/test_gain_ramps.cpp` (guarded by `__has_include("core/gain.hpp")` where it calls internal code): `core::gain_ramp` bit for bit on every `kGainLaw` row; `plan::gain_at` on every `kGainFixtureRamps` row at `n0 - 1`, `n0`, `n1 - 1`, `n1`, and after (holds exact); compile every `kGainCompileCases` recipe in both modes at both rates through `arc_compile` (accepted, or the exact four error texts); the `gain-*.json` fixtures through the C API: `arc_plan_gain_ramp_count`/`arc_plan_gain_ramp` equal `kGainFixtureRamps`; unity schedule (`initial` 1, no ramps) renders byte-identical output and before-gain taps equal after-gain taps; `gain-master-fade.json` output exactly 0 from the master fade's `n1`; seek into a ramp equals the continuous render.
+- `tests/cpp/test_api.cpp`, `tests/cpp/test_stages.cpp`: the four new taps exist, equal their before-gain partners bit for bit on every pre-4.4 fixture, the bus is the sum of the after-gain taps, the join adds the after-gain binaural tap, the master is `(join * g) * gM`; a muted ear stays `+0.0` before and after gain.
+- `tests/cpp/test_recipe.cpp`, `tests/cpp/test_validate.cpp`: the schema walk with arrays, the field table, registration (`initial`, `to` on `layer-gain`; `start_s`, `duration_s` exempt), the range table with the two new rows, and the parse errors above; invalid fixtures for the schema faults (`ramps` as an object, a ramp missing `to`, an unknown member in `gain`, `initial` as a string, a ramp element that is a number) with `recipes/fixtures/invalid-expected.json` entries.
+- `tests/python/test_gain_ramp_tool.py`: calibration on Python-synthesized signals (a 450 Hz sine times raised-cosine ramps of 441, 480, and 13230000 frames, linear ramps, and steps, with known change lengths; master through `join * g`): measured lengths as constructed, every 10 ms ramp passes at both rates; must-fail: a 5 ms raised-cosine fade (`gain_constants.must_fail_fade_s`) and a step fail; the click tool on 10 ms raised-cosine fades of a full-scale tone passes and on a step fails.
+- `tests/python/test_gain_ramps_reference.py`: every render fixture at both rates, windows around every ramp edge (and the loop join and seams for the looping ones): every tap (before and after gain, bus, join, master) and the output match `reference/stub_chain.py` below row `reference-match`; the ramp tool on every layer tap pair and the master; the click tool around every edge on each after-gain tap and the output; must-fail doctored in the harness: a 5 ms fade spliced into a layer tap fails the ramp tool.
+- `tests/python/test_gain_ramps_loudness.py`: both meters agree on each render fixture's window (`gain_windows`); `gain-layer-ramp-10min-stored.json` in final mode with `--loudness` passes `loudness` (window `[600 s, 720 s)`, within 1 LU) and `loudness_whole` (never above target + 1 LU); superseded-window must-fail: a gain computed in the harness from the reading over `[0, O + B)` of `gain-ramp-in-loop.json` and applied to the body reads above target + 1 LU (fails `check_loudness`); the reading over `[O, O + B)` differs from `[0, B)` by more than row `loudness-meter-agreement`; a non-looping window shorter than 60 s is refused with value `steady_frames / fs` (a harness recipe).
+- `tests/python/test_probe_gain_ramps.py` (or in an existing probe test): the `gain-ramps-<fs>` component's segments match `reference/stub_chain.py` windows below `reference-match`.
+- `tools/check_row_coverage.py` sees `gain-ramp-min`, `layer-gain`, and `gain-ramp-count` in use.
 
 ## Design Notes
 

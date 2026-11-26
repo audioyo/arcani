@@ -1,4 +1,4 @@
-"""Writes the worked test vectors of docs/signal-spec.md: core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer and rate curve, loop, components, spacing, preview, loudness, loudness gain, true peak, 24-bit rounding.
+"""Writes the worked test vectors of docs/signal-spec.md: core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer and rate curve, loop, components, spacing, preview, gain ramps, loudness, loudness gain, true peak, 24-bit rounding.
 
 Usage:
   python tools/signal_spec_vectors.py            write tests/data/signal_spec_vectors.json
@@ -126,6 +126,15 @@ engine or from binary64 library calls:
   2^-36, exact in binary64); dBTP and dBFS by decimal log10; the SHA-256 of
   the 24-bit little-endian interleaved samples; the store step with
   20 log10 in binary64 (math.log10) for the line text.
+- Gain ramps (Story 4.4): the ramp law in binary64 in the spec's operation
+  order (r = k / L, the ratio-to-phase rule, the engine cosine from the
+  engine sine bits, h, g), written as bits, with the ideal ramp at 25 digits
+  (exact ends, decimal cosine); the ramp frames by the seconds-to-samples
+  rule; the compile rules (ranges, loop rule 8, rules 9 to 12, every frame
+  test at both native rates, the silent theta reference by exact interval
+  arithmetic on the ideal zero frames) on generated recipe texts; the
+  loudness window as the longest ramp-free stretch by exact integer
+  arithmetic; the fixture texts (gain_fixture_text).
 - 24-bit rounding (Story 1.4): x = s * 2^23 in exact Fraction arithmetic,
   clamped to [-8388608, 8388607], else rounded to the nearest integer, ties
   to even; NaN gives 0. Written as 3 bytes, little-endian two's complement.
@@ -5031,9 +5040,545 @@ def true_peak_constants():
     }
 
 
+# ------------------------------------------------------------ gain ramps (Story 4.4)
+
+GAIN_RAMP_MIN_ROW = "gain-ramp-min"
+GAIN_RAMP_MIN_MS = 10.0             # row gain-ramp-min
+LAYER_GAIN_ROW = "layer-gain"
+LAYER_GAIN_MIN = 0.0                # row layer-gain: 0 (silence) to 1 (full), linear
+LAYER_GAIN_MAX = 1.0
+LAYER_GAIN_UNIT = "ratio"
+GAIN_RAMP_COUNT_ROW = "gain-ramp-count"
+GAIN_RAMP_COUNT_MAX = 8             # row gain-ramp-count
+GAIN_RAMP_COUNT_UNIT = "ramps"
+GAIN_SCHEDULES = ("theta_reference", "gamma_pac", "binaural", "master")
+GAIN_NEW_TAPS = ("theta_gained", "gamma_gained", "binaural", "binaural_gained")
+GAIN_RAMP_MIN_RULE = "gain.ramp_min"
+GAIN_OUTSIDE_RULE = "gain.outside_session"
+GAIN_OVERLAP_RULE = "gain.overlap"
+GAIN_LOOP_BODY_RULE = "gain.loop_body"
+GAIN_THETA_SILENT_RULE = "coupling.theta_silent"
+GAIN_THETA_SILENT_LIMIT = "theta_reference gain above 0 wherever gamma_pac gain is above 0"
+GAIN_FIXTURE_DATE = "2026-11-26"
+GAIN_PROBE_WINDOW_S = 1.0           # each hash probe window
+GAIN_PROBE_HALF_S = 0.5             # centered on a ramp start or end
+GAIN_MUST_FAIL_FADE_S = 0.005       # the doctored 5 ms layer fade of the ramp tool's must-fail
+GAIN_END_FADE_S = 300.0             # Focus and Learn: the 5 min end fade at the cap (Audio, 2026-11-26)
+
+_GAIN_THETA_4HZ = (450.0, 4.0, 75.0, "sine", None)
+_GAIN_SWELL = (250.0, 40.0, 100.0, "smooth_swell", 0.0, None)
+_GAIN_BURSTS = (250.0, 40.0, 100.0, "bursts", 0.0, None)
+_GAIN_THETA_DESC = ("Theta reference: a 450 Hz carrier amplitude-modulated by the sine envelope at a fixed 4 Hz "
+                    "theta rate, 75 percent AM depth")
+_GAIN_SWELL_DESC = ("gamma PAC layer: a 250 Hz sine carrier amplitude-modulated at 40 Hz with a smooth swell "
+                    "peaking at the 0 degree coupling phase, 100 percent AM depth")
+
+
+def _ramps(*ramps):
+    return [{"start_s": float(s), "duration_s": float(d), "to": float(to)} for s, d, to in ramps]
+
+
+def gain_member(initial, *ramps):
+    """A gain object: initial, and ramps when there are any."""
+    g = {"initial": float(initial)}
+    if ramps:
+        g["ramps"] = _ramps(*ramps)
+    return g
+
+
+# (name, rationale, length_s, loop (mode, opening_s, body_s, cap_min) or None, theta, gamma, binaural,
+#  {schedule: gain object}); layer tuples as in component_layer_objects.
+GAIN_FIXTURES = (
+    ("gain-ramp-in-loop.json",
+     "Gain ramp fixture (Story 4.4): learn mode, max run time 20 min, length 1200 s, opening 300 s, body 120 s. "
+     + _GAIN_THETA_DESC + "; " + _GAIN_SWELL_DESC + ". Both layers ramp in from silence over the first 5 min "
+     "(a raised cosine from 0 s for 300 s, gain 0 to 1), inside the opening, so the opening differs from the "
+     "body. Values are placeholders, not starter defaults. A test fixture, not for listening.",
+     1200.0, ("learn", 300.0, 120.0, 20.0), _GAIN_THETA_4HZ, _GAIN_SWELL, None,
+     {"theta_reference": gain_member(0.0, (0.0, 300.0, 1.0)), "gamma_pac": gain_member(0.0, (0.0, 300.0, 1.0))}),
+    ("gain-layer-ramp-10min.json",
+     "Gain ramp fixture (Story 4.4): no loop, length 720 s. " + _GAIN_THETA_DESC + ", ramped in from silence "
+     "over the first 10 min (a raised cosine from 0 s for 600 s, gain 0 to 1); gamma PAC layer: a 250 Hz sine "
+     "carrier amplitude-modulated at 40 Hz, uncoupled, 25 percent AM depth, ramped in from silence over the "
+     "first 2 min. Steady from 600 s. Values are placeholders, not starter defaults. A test fixture, not for "
+     "listening.",
+     720.0, None, _GAIN_THETA_4HZ, (250.0, 40.0, 25.0, "uncoupled", None, None), None,
+     {"theta_reference": gain_member(0.0, (0.0, 600.0, 1.0)), "gamma_pac": gain_member(0.0, (0.0, 120.0, 1.0))}),
+    ("gain-master-fade.json",
+     "Gain ramp fixture (Story 4.4): no loop, length 480 s. Theta reference: a 450 Hz carrier "
+     "amplitude-modulated by the sine envelope at a fixed 2 Hz theta rate, 75 percent AM depth; binaural "
+     "layer: a 100 Hz pure sine in the left ear and a 102 Hz pure sine in the right ear (a 2 Hz binaural "
+     "beat), ramped in from silence over exactly 10 ms at 0 s. The master gain fades from 1 to silence over "
+     "5 min from 120 s, so the output is exact zeros from 420 s. Values are placeholders, not starter "
+     "defaults. A test fixture, not for listening.",
+     480.0, None, (450.0, 2.0, 75.0, "sine", None), None, (100.0, 2.0, None),
+     {"binaural": gain_member(0.0, (0.0, 0.01, 1.0)), "master": gain_member(1.0, (120.0, 300.0, 0.0))}),
+    ("gain-end-fade-loop.json",
+     "Gain ramp fixture (Story 4.4): learn mode, max run time 20 min, length 1200 s, opening 0 s, body 120 s. "
+     + _GAIN_THETA_DESC + "; gamma PAC layer: a 250 Hz sine carrier amplitude-modulated at 40 Hz with its AM "
+     "depth opening to 100 percent for 50 ms bursts at the 0 degree coupling phase. The master gain fades "
+     "from 1 to silence over the last 5 min before the cap (a raised cosine from 900 s for 300 s, ending at "
+     "1200 s). Values are placeholders, not starter defaults. A test fixture, not for listening.",
+     1200.0, ("learn", 0.0, 120.0, 20.0), _GAIN_THETA_4HZ, _GAIN_BURSTS, None,
+     {"master": gain_member(1.0, (900.0, GAIN_END_FADE_S, 0.0))}),
+    ("gain-theta-silent.json",
+     "Gain ramp fixture (Story 4.4), rejected at compile (rule coupling.theta_silent): no loop, length 600 s. "
+     + _GAIN_THETA_DESC + ", fading to silence over 60 s from 240 s; " + _GAIN_SWELL_DESC + ", fading to "
+     "silence over 60 s from 360 s, so the theta reference is silent from 300 s while the coupled gamma "
+     "layer still sounds. A test fixture, not for listening.",
+     600.0, None, _GAIN_THETA_4HZ, _GAIN_SWELL, None,
+     {"theta_reference": gain_member(1.0, (240.0, 60.0, 0.0)), "gamma_pac": gain_member(1.0, (360.0, 60.0, 0.0))}),
+)
+GAIN_RENDER_FIXTURES = tuple(f[0] for f in GAIN_FIXTURES if f[0] != "gain-theta-silent.json")
+GAIN_REJECTED_FIXTURE = "gain-theta-silent.json"
+# The non-looping fixture whose loudness gain is stored on the dev PC (Loudness gain, Store) into a copy.
+GAIN_STORED_SOURCE = "gain-layer-ramp-10min.json"
+GAIN_STORED_FIXTURE = "gain-layer-ramp-10min-stored.json"
+# The fixture of the superseded-window must-fail and the window-starts-at-O check.
+GAIN_LOOP_WINDOW_FIXTURE = "gain-ramp-in-loop.json"
+# The fixture of the exact-zeros check, and its zero frames from the end of its master fade.
+GAIN_FADE_FIXTURE = "gain-master-fade.json"
+GAIN_END_FADE_FIXTURE = "gain-end-fade-loop.json"
+
+
+def gain_recipe(rationale, length, loop, theta, gamma, binaural, gains, date=GAIN_FIXTURE_DATE):
+    """A schema-valid recipe dict with gain members after each layer's last member and a master object last."""
+    recipe = spacing_recipe(rationale, length, loop, theta, gamma, binaural, date=date)
+    for layer in ("theta_reference", "gamma_pac", "binaural"):
+        if layer in gains:
+            recipe[layer]["gain"] = gains[layer]
+    if "master" in gains:
+        recipe["master"] = {"gain": gains["master"]}
+    return recipe
+
+
+def _plain_any(value):
+    """_plain_numbers with lists."""
+    if isinstance(value, list):
+        return [_plain_any(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _plain_any(v) for k, v in value.items()}
+    return _plain_numbers(value)
+
+
+def gain_fixture_recipe(fixture):
+    for name, rationale, length, loop, theta, gamma, binaural, gains in GAIN_FIXTURES:
+        if name == fixture:
+            return gain_recipe(rationale, length, loop, theta, gamma, binaural, gains), (theta, gamma, binaural)
+    raise KeyError(fixture)
+
+
+def gain_fixture_text(fixture):
+    """The text of one Story 4.4 fixture file in recipes/fixtures/valid/ (the stored copy excepted)."""
+    recipe, _ = gain_fixture_recipe(fixture)
+    return json.dumps(_plain_any(recipe), indent=2, ensure_ascii=False) + "\n"
+
+
+def gain_ramp_engine(a, b, k, length):
+    """Gain ramps, Law, engine: r, P, c, h, g in binary64 in the spec's operation order."""
+    r = float(k) / float(length)            # two exact conversions, one division
+    p, _ = ratio_to_phase(r)
+    c = engine_sine((p + QUARTER) % CYCLE)  # the engine cosine of pi * r
+    h = (1.0 - c) * 0.5
+    g = a + (b - a) * h
+    return r, p, c, h, g
+
+
+def gain_ramp_ideal(a, b, k, length):
+    """a + (b - a) * (1 - cos(pi k / L)) / 2, exact a and b, decimal cosine."""
+    with localcontext() as ctx:
+        ctx.prec = PREC + 10
+        da, db = exact_decimal(a), exact_decimal(b)
+        return da + (db - da) * (1 - decimal_cos_pi(k, length)) / 2
+
+
+def gain_schedules(recipe):
+    """{schedule: gain object} of a recipe dict, in schedule order."""
+    out = {}
+    for s in GAIN_SCHEDULES:
+        holder = recipe.get(s)
+        if holder is not None and "gain" in holder:
+            out[s] = holder["gain"]
+    return out
+
+
+def gain_ramp_frames(gain, fs):
+    """[(n0, L, n1, a, b)] of one schedule (Gain ramps, Ramp frames)."""
+    out = []
+    prev = float(gain["initial"])
+    for ramp in gain.get("ramps", []):
+        n0, _ = samples(float(ramp["start_s"]), fs)
+        length, _ = samples(float(ramp["duration_s"]), fs)
+        out.append((n0, length, n0 + length, prev, float(ramp["to"])))
+        prev = float(ramp["to"])
+    return out
+
+
+def gain_engine_at(gain, n, fs):
+    """The engine gain of a schedule at frame n (Gain ramps, Law); 1.0 without a gain member."""
+    if gain is None:
+        return 1.0
+    value = float(gain["initial"])
+    for n0, length, n1, a, b in gain_ramp_frames(gain, fs):
+        if n < n0:
+            return value
+        if n < n1:
+            return gain_ramp_engine(a, b, n - n0, length)[4]
+        value = b
+    return value
+
+
+def gain_zero_frames(gain, end, fs):
+    """The zero frames of a schedule (Gain ramps, Silent theta reference) as merged [start, stop) intervals."""
+    if gain is None:
+        return []
+    out = []
+    t = 0
+    value = float(gain["initial"])
+    for n0, length, n1, a, b in gain_ramp_frames(gain, fs):
+        if value == 0.0 and n0 > t:
+            out.append((t, n0))
+        if a == 0.0 and b == 0.0:
+            out.append((n0, n1))
+        elif a == 0.0:
+            out.append((n0, n0 + 1))
+        t, value = n1, b
+    if value == 0.0 and end > t:
+        out.append((t, end))
+    merged = []
+    for s, e in sorted(out):
+        if merged and s <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], e))
+        else:
+            merged.append((s, e))
+    return [(s, min(e, end)) for s, e in merged if s < end]
+
+
+def _covered(intervals, covers):
+    """Every frame of intervals lies in covers."""
+    for s, e in intervals:
+        at = s
+        for cs, ce in covers:
+            if cs <= at < ce:
+                at = ce
+            if at >= e:
+                break
+        if at < e:
+            return False
+    return True
+
+
+def _gain_error(parameter, value, rule, limit):
+    return {"parameter": parameter, "value": value, "rule": rule, "limit": limit}
+
+
+def _range_limit(op, bound, unit, row_id):
+    return f"{op} {js_number(bound)} {unit} (row {row_id})"
+
+
+def gain_compile_error(recipe):
+    """The first gain rule failure of a recipe whose every other field and rule passes (Gain ramps,
+    Compile order; Loop, Compile order, rule 8; Silent theta reference), or None."""
+    schedules = gain_schedules(recipe)
+    length = float(recipe["length_s"])
+    # Range walk, field order: each layer's gain after its other fields, the master gain after loop.
+    for s, gain in schedules.items():
+        base = f"/{s}/gain"
+        initial = float(gain["initial"])
+        if not (initial >= LAYER_GAIN_MIN):
+            return _gain_error(base + "/initial", js_number(initial), "range.min",
+                               _range_limit(">=", LAYER_GAIN_MIN, LAYER_GAIN_UNIT, LAYER_GAIN_ROW))
+        if not (initial <= LAYER_GAIN_MAX):
+            return _gain_error(base + "/initial", js_number(initial), "range.max",
+                               _range_limit("<=", LAYER_GAIN_MAX, LAYER_GAIN_UNIT, LAYER_GAIN_ROW))
+        ramps = gain.get("ramps", [])
+        if len(ramps) > GAIN_RAMP_COUNT_MAX:
+            return _gain_error(base + "/ramps", str(len(ramps)), "range.max",
+                               _range_limit("<=", GAIN_RAMP_COUNT_MAX, GAIN_RAMP_COUNT_UNIT, GAIN_RAMP_COUNT_ROW))
+        for i, ramp in enumerate(ramps):
+            to = float(ramp["to"])
+            if not (to >= LAYER_GAIN_MIN):
+                return _gain_error(f"{base}/ramps/{i}/to", js_number(to), "range.min",
+                                   _range_limit(">=", LAYER_GAIN_MIN, LAYER_GAIN_UNIT, LAYER_GAIN_ROW))
+            if not (to <= LAYER_GAIN_MAX):
+                return _gain_error(f"{base}/ramps/{i}/to", js_number(to), "range.max",
+                                   _range_limit("<=", LAYER_GAIN_MAX, LAYER_GAIN_UNIT, LAYER_GAIN_ROW))
+    # Loop rule 8.
+    loop = recipe.get("loop")
+    if loop is not None:
+        opening, body = float(loop["opening_s"]), float(loop["body_s"])
+        for s, gain in schedules.items():
+            for i, ramp in enumerate(gain.get("ramps", [])):
+                for fs in RATES:
+                    o, _ = samples(opening, fs)
+                    b, _ = samples(body, fs)
+                    n0, n_len, n1, _, _ = gain_ramp_frames(gain, fs)[i]
+                    if not (n1 <= o or n0 >= o + b):
+                        return _gain_error(f"/{s}/gain/ramps/{i}/start_s", js_number(float(ramp["start_s"])),
+                                           GAIN_LOOP_BODY_RULE,
+                                           f"ends <= {js_number(opening)} s or starts >= "
+                                           f"{js_number(opening + body)} s (first body pass)")
+    # Rules 9 to 11, per schedule and ramp.
+    min_s = GAIN_RAMP_MIN_MS / 1000.0
+    for s, gain in schedules.items():
+        ramps = gain.get("ramps", [])
+        for i, ramp in enumerate(ramps):
+            base = f"/{s}/gain/ramps/{i}"
+            start, duration = float(ramp["start_s"]), float(ramp["duration_s"])
+            if not (duration >= min_s):
+                return _gain_error(base + "/duration_s", js_number(duration), GAIN_RAMP_MIN_RULE,
+                                   f">= {js_number(GAIN_RAMP_MIN_MS)} ms (row {GAIN_RAMP_MIN_ROW})")
+            if not (start >= 0.0):
+                return _gain_error(base + "/start_s", js_number(start), GAIN_OUTSIDE_RULE, ">= 0 s")
+            end_s = start + duration
+            inside = end_s <= length
+            for fs in RATES:
+                n_end, _ = samples(length, fs)
+                inside = inside and gain_ramp_frames(gain, fs)[i][2] <= n_end
+            if not inside:
+                return _gain_error(base + "/duration_s", js_number(end_s), GAIN_OUTSIDE_RULE,
+                                   f"<= {js_number(length)} s (length_s)")
+            if i >= 1:
+                for fs in RATES:
+                    frames = gain_ramp_frames(gain, fs)
+                    if frames[i][0] < frames[i - 1][2]:
+                        prev = ramps[i - 1]
+                        prev_end = float(prev["start_s"]) + float(prev["duration_s"])
+                        return _gain_error(base + "/start_s", js_number(start), GAIN_OVERLAP_RULE,
+                                           f">= {js_number(prev_end)} s (end of ramp {i - 1})")
+    # Rule 12.
+    gamma = recipe.get("gamma_pac")
+    if gamma is not None and gamma["coupling"] in ("smooth_swell", "bursts") and float(gamma["am_depth_percent"]) > 0.0:
+        for fs in RATES:
+            end, _ = samples(length, fs)
+            theta_zero = gain_zero_frames(schedules.get("theta_reference"), end, fs)
+            gamma_zero = gain_zero_frames(schedules.get("gamma_pac"), end, fs)
+            if not _covered(theta_zero, gamma_zero):
+                return _gain_error("/gamma_pac/coupling", gamma["coupling"], GAIN_THETA_SILENT_RULE,
+                                   GAIN_THETA_SILENT_LIMIT)
+    return None
+
+
+def gain_steady_window(recipe, fs):
+    """Loudness, Window with ramps: (start, body, repeats, window frames, end N, W_min), start None when rejected."""
+    n, _ = samples(float(recipe["length_s"]), fs)
+    w_min, _ = samples(LOUDNESS_WINDOW_MIN_S, fs)
+    loop = recipe.get("loop")
+    if loop is not None:
+        o, _ = samples(float(loop["opening_s"]), fs)
+        b, _ = samples(float(loop["body_s"]), fs)
+        k = max(1, -(-w_min // b))
+        return o, b, k, k * b, n, w_min
+    active = sorted((n0, n1) for g in gain_schedules(recipe).values() for n0, _, n1, _, _ in gain_ramp_frames(g, fs))
+    best = None
+    at = 0
+    for n0, n1 in active + [(n, n)]:
+        if n0 > at and (best is None or n0 - at > best[1] - best[0]):
+            best = (at, n0)
+        at = max(at, n1)
+    if best is None or best[1] - best[0] < w_min:
+        return None, None, None, None, n, w_min
+    return best[0], best[1] - best[0], 1, best[1] - best[0], n, w_min
+
+
+# (case, base, change): the compile cases. base "plain" is a 600 s recipe with the three layers below and no
+# loop; base "loop" adds a learn loop (opening 60 s, body 120 s, cap 20 min, length 1200 s). change is
+# {schedule: gain object} plus optional "gamma" (a gamma tuple in place of the swell).
+_GAIN_CASE_THETA = _GAIN_THETA_4HZ
+_GAIN_CASE_GAMMA = _GAIN_SWELL
+_GAIN_CASE_BINAURAL = (100.0, 2.0, None)
+GAIN_COMPILE_CASES = (
+    ("unity schedule", "plain", {"theta_reference": gain_member(1.0)}),
+    ("empty ramps", "plain", {"theta_reference": {"initial": 1.0, "ramps": []}}),
+    ("ramp exactly 10 ms", "plain", {"theta_reference": gain_member(1.0, (10.0, 0.01, 0.5))}),
+    ("ramp 9.9 ms", "plain", {"theta_reference": gain_member(1.0, (10.0, 0.0099, 0.5))}),
+    ("ramp of zero length", "plain", {"master": gain_member(1.0, (10.0, 0.0, 0.5))}),
+    ("ramp starts before 0 s", "plain", {"binaural": gain_member(1.0, (-1.0, 2.0, 0.5))}),
+    ("ramp ends after the session", "plain", {"binaural": gain_member(1.0, (590.0, 20.0, 0.5))}),
+    ("ramp ends at the session end", "plain", {"master": gain_member(1.0, (300.0, 300.0, 0.0))}),
+    ("ramps overlap", "plain", {"gamma_pac": gain_member(1.0, (10.0, 10.0, 0.5), (15.0, 10.0, 1.0))}),
+    ("ramps out of order", "plain", {"gamma_pac": gain_member(1.0, (30.0, 10.0, 0.5), (10.0, 5.0, 1.0))}),
+    ("ramps adjacent", "plain", {"gamma_pac": gain_member(1.0, (10.0, 10.0, 0.5), (20.0, 10.0, 1.0))}),
+    ("eight ramps", "plain", {"binaural": gain_member(1.0, *[(10.0 * k, 1.0, 0.5 if k % 2 else 1.0)
+                                                             for k in range(1, 9)])}),
+    ("nine ramps", "plain", {"binaural": gain_member(1.0, *[(10.0 * k, 1.0, 0.5 if k % 2 else 1.0)
+                                                            for k in range(1, 10)])}),
+    ("initial above 1", "plain", {"master": gain_member(1.5)}),
+    ("initial below 0", "plain", {"theta_reference": gain_member(-0.5)}),
+    ("ramp to above 1", "plain", {"gamma_pac": gain_member(0.5, (10.0, 1.0, 1.01))}),
+    ("initial 0 and to 1", "plain", {"binaural": gain_member(0.0, (0.0, 1.0, 1.0))}),
+    ("ramp inside the first body pass", "loop", {"master": gain_member(1.0, (100.0, 10.0, 0.5))}),
+    ("ramp crosses the opening end", "loop", {"master": gain_member(0.0, (50.0, 20.0, 1.0))}),
+    ("ramp ends at the opening end", "loop", {"master": gain_member(0.0, (0.0, 60.0, 1.0))}),
+    ("ramp starts at the first seam", "loop", {"master": gain_member(1.0, (180.0, 60.0, 0.5))}),
+    ("end fade at the cap", "loop", {"master": gain_member(1.0, (900.0, 300.0, 0.0))}),
+    ("theta silent at the start", "plain", {"theta_reference": gain_member(0.0, (0.0, 10.0, 1.0))}),
+    ("theta and gamma ramp in together", "plain", {"theta_reference": gain_member(0.0, (0.0, 10.0, 1.0)),
+                                                   "gamma_pac": gain_member(0.0, (0.0, 10.0, 1.0))}),
+    ("theta fades before gamma", "plain", {"theta_reference": gain_member(1.0, (240.0, 60.0, 0.0)),
+                                           "gamma_pac": gain_member(1.0, (360.0, 60.0, 0.0))}),
+    ("theta and gamma fade together", "plain", {"theta_reference": gain_member(1.0, (240.0, 60.0, 0.0)),
+                                                "gamma_pac": gain_member(1.0, (240.0, 60.0, 0.0))}),
+    ("gamma fades before theta", "plain", {"theta_reference": gain_member(1.0, (360.0, 60.0, 0.0)),
+                                           "gamma_pac": gain_member(1.0, (240.0, 60.0, 0.0))}),
+    ("theta silent, master silent too", "plain", {"theta_reference": gain_member(1.0, (240.0, 60.0, 0.0)),
+                                                  "master": gain_member(1.0, (240.0, 60.0, 0.0))}),
+    ("theta silent, gamma depth 0", "plain", {"theta_reference": gain_member(1.0, (240.0, 60.0, 0.0)),
+                                              "gamma": (250.0, 40.0, 0.0, "smooth_swell", 0.0, None)}),
+    ("theta silent, gamma uncoupled", "plain", {"theta_reference": gain_member(1.0, (240.0, 60.0, 0.0)),
+                                                "gamma": (250.0, 40.0, 100.0, "uncoupled", None, None)}),
+    ("theta silent, bursts", "plain", {"theta_reference": gain_member(1.0, (240.0, 60.0, 0.0)),
+                                       "gamma": _GAIN_BURSTS}),
+    ("theta rises from silence after gamma", "plain", {"theta_reference": gain_member(1.0, (100.0, 10.0, 0.0),
+                                                                                      (200.0, 10.0, 1.0)),
+                                                       "gamma_pac": gain_member(1.0, (100.0, 10.0, 0.0),
+                                                                                (190.0, 10.0, 1.0))}),
+)
+
+
+def gain_case_recipe(case):
+    for name, base, change in GAIN_COMPILE_CASES:
+        if name != case:
+            continue
+        gains = {k: v for k, v in change.items() if k in GAIN_SCHEDULES}
+        gamma = change.get("gamma", _GAIN_CASE_GAMMA)
+        loop = ("learn", 60.0, 120.0, 20.0) if base == "loop" else None
+        length = 1200.0 if base == "loop" else 600.0
+        rationale = (f"Gain compile vector case {case} (Story 4.4). A test recipe, not for listening.")
+        return gain_recipe(rationale, length, loop, _GAIN_CASE_THETA, gamma, _GAIN_CASE_BINAURAL, gains)
+    raise KeyError(case)
+
+
+def _gain_json_text(value):
+    """Compact JSON with every number as its shortest round-trip text, lists included."""
+    if isinstance(value, dict):
+        return "{" + ",".join(f"{json.dumps(k)}:{_gain_json_text(v)}" for k, v in value.items()) + "}"
+    if isinstance(value, list):
+        return "[" + ",".join(_gain_json_text(v) for v in value) + "]"
+    if isinstance(value, float):
+        return js_number(value)
+    return json.dumps(value)
+
+
+def _assert_gain_recipe_passes_the_rest(recipe, layers):
+    """The other rules hold, so the gain rules decide: the spacing rule passes in both ears."""
+    theta, gamma, binaural = layers
+    assert spacing_result(theta, gamma, binaural)["failure"] is None, recipe["rationale"]
+
+
+GAIN_LAW_ENDS = ((0.0, 1.0), (1.0, 0.0), (0.75, 0.25))
+GAIN_LAW_LENGTHS = (441, 480, 13230000, 14400000)   # 10 ms and 5 min at 44.1 and 48 kHz
+
+
+def gain_law_rows():
+    rows = []
+    for a, b in GAIN_LAW_ENDS:
+        for length in GAIN_LAW_LENGTHS:
+            for k in sorted({0, 1, length // 4, length // 2, length - 1}):
+                r, p, c, h, g = gain_ramp_engine(a, b, k, length)
+                rows.append({"a": dec(a), "b": dec(b), "length": str(length), "k": str(k), "r_hex": hexf(r),
+                             "p": str(p), "c_bits": bits(c), "h_hex": hexf(h), "g_hex": hexf(g), "g_bits": bits(g),
+                             "ideal": format_ideal(gain_ramp_ideal(a, b, k, length))})
+    return rows
+
+
+def gain_fixture_rows():
+    """Per render fixture, rate, schedule, and ramp: the ramp frames (Gain ramps, Ramp frames)."""
+    rows = []
+    for fs in RATES:
+        for fixture in GAIN_RENDER_FIXTURES:
+            recipe, _ = gain_fixture_recipe(fixture)
+            for s, gain in gain_schedules(recipe).items():
+                for i, (n0, length, n1, a, b) in enumerate(gain_ramp_frames(gain, fs)):
+                    ramp = gain["ramps"][i]
+                    rows.append({"fixture": fixture, "fs": fs, "schedule": s, "ramp": i,
+                                 "start_s": dec(float(ramp["start_s"])), "duration_s": dec(float(ramp["duration_s"])),
+                                 "from": dec(a), "to": dec(b), "start_frame": str(n0), "length_frames": str(length),
+                                 "end_frame": str(n1)})
+    return rows
+
+
+def gain_window_rows():
+    """Per render fixture and rate: the loudness window (Loudness, Window) and the probe windows."""
+    rows = []
+    for fs in RATES:
+        for fixture in GAIN_RENDER_FIXTURES:
+            recipe, _ = gain_fixture_recipe(fixture)
+            start, body, k, frames, n, w_min = gain_steady_window(recipe, fs)
+            assert start is not None, fixture
+            half, _ = samples(GAIN_PROBE_HALF_S, fs)
+            one, _ = samples(GAIN_PROBE_WINDOW_S, fs)
+            probe = []
+            for g in gain_schedules(recipe).values():
+                for n0, _, n1, _, _ in gain_ramp_frames(g, fs):
+                    for edge in (n0, n1):
+                        probe.append(str(max(0, min(edge - half, n - one))))
+            rows.append({"fixture": fixture, "fs": fs, "looping": "yes" if "loop" in recipe else "no",
+                         "length_s": dec(float(recipe["length_s"])), "end_frame": str(n), "min_frames": str(w_min),
+                         "start_frame": str(start), "body_frames": str(body), "repeats": str(k),
+                         "window_frames": str(frames), "window_s": dec(frames / fs),
+                         "probe_window_frames": str(one), "probe_starts": probe})
+    return rows
+
+
+def gain_compile_rows():
+    rows = []
+    for name, *_ in GAIN_COMPILE_CASES:
+        recipe = gain_case_recipe(name)
+        layers = (_GAIN_CASE_THETA, GAIN_COMPILE_CASES_DICT[name].get("gamma", _GAIN_CASE_GAMMA),
+                  _GAIN_CASE_BINAURAL)
+        _assert_gain_recipe_passes_the_rest(recipe, layers)
+        err = gain_compile_error(recipe)
+        row = {"case": name, "recipe": _gain_json_text(recipe)}
+        if err is None:
+            row.update({"result": "accepted", "parameter": "none", "value": "none", "rule": "none", "limit": "none"})
+        else:
+            row.update({"result": "rejected", **err})
+        rows.append(row)
+    for fixture, *_ in GAIN_FIXTURES:
+        recipe, layers = gain_fixture_recipe(fixture)
+        _assert_gain_recipe_passes_the_rest(recipe, layers)
+        err = gain_compile_error(recipe)
+        expected_rejected = fixture == GAIN_REJECTED_FIXTURE
+        assert (err is not None) == expected_rejected, (fixture, err)
+        row = {"case": fixture, "recipe": "fixture"}
+        if err is None:
+            row.update({"result": "accepted", "parameter": "none", "value": "none", "rule": "none", "limit": "none"})
+        else:
+            row.update({"result": "rejected", **err})
+        rows.append(row)
+    return rows
+
+
+GAIN_COMPILE_CASES_DICT = {name: change for name, _, change in GAIN_COMPILE_CASES}
+
+
+def gain_constants():
+    return {
+        "ramp_min_row": GAIN_RAMP_MIN_ROW, "ramp_min_ms": dec(GAIN_RAMP_MIN_MS),
+        "ramp_min_s_hex": hexf(GAIN_RAMP_MIN_MS / 1000.0),
+        "layer_gain_row": LAYER_GAIN_ROW, "layer_gain_min": dec(LAYER_GAIN_MIN), "layer_gain_max": dec(LAYER_GAIN_MAX),
+        "layer_gain_unit": LAYER_GAIN_UNIT,
+        "ramp_count_row": GAIN_RAMP_COUNT_ROW, "ramp_count_max": GAIN_RAMP_COUNT_MAX,
+        "ramp_count_unit": GAIN_RAMP_COUNT_UNIT,
+        "schedules": list(GAIN_SCHEDULES), "new_taps": list(GAIN_NEW_TAPS),
+        "ramp_min_rule": GAIN_RAMP_MIN_RULE, "outside_rule": GAIN_OUTSIDE_RULE, "overlap_rule": GAIN_OVERLAP_RULE,
+        "loop_body_rule": GAIN_LOOP_BODY_RULE, "theta_silent_rule": GAIN_THETA_SILENT_RULE,
+        "theta_silent_limit": GAIN_THETA_SILENT_LIMIT,
+        "ramp_min_limit": f">= {js_number(GAIN_RAMP_MIN_MS)} ms (row {GAIN_RAMP_MIN_ROW})",
+        "fixtures": [f[0] for f in GAIN_FIXTURES], "render_fixtures": list(GAIN_RENDER_FIXTURES),
+        "rejected_fixture": GAIN_REJECTED_FIXTURE, "stored_source": GAIN_STORED_SOURCE,
+        "stored_fixture": GAIN_STORED_FIXTURE, "loop_window_fixture": GAIN_LOOP_WINDOW_FIXTURE,
+        "fade_fixture": GAIN_FADE_FIXTURE, "end_fade_fixture": GAIN_END_FADE_FIXTURE,
+        "end_fade_s": dec(GAIN_END_FADE_S), "must_fail_fade_s": dec(GAIN_MUST_FAIL_FADE_S),
+        "probe_window_s": dec(GAIN_PROBE_WINDOW_S), "probe_half_s": dec(GAIN_PROBE_HALF_S),
+        "start_cosine_bits": bits(engine_sine(QUARTER)),
+    }
+
+
 def build():
     return {
-        "spec": "docs/signal-spec.md (sections core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer, rate curve (the beat rate, Story 2.5; the theta and gamma rates, Story 2.6), loop (Story 2.7), components (Story 3.1), spacing (Story 3.2), preview (Story 3.3), loudness (Story 4.1), loudness gain (Story 4.2), true peak (Story 4.3), and 24-bit rounding)",
+        "spec": "docs/signal-spec.md (sections core, sine, internal block size, stub chain, theta reference, gamma PAC layer, coupling, bursts, binaural layer, rate curve (the beat rate, Story 2.5; the theta and gamma rates, Story 2.6), loop (Story 2.7), components (Story 3.1), spacing (Story 3.2), preview (Story 3.3), gain ramps (Story 4.4), loudness (Story 4.1), loudness gain (Story 4.2), true peak (Story 4.3), and 24-bit rounding)",
         "generator": "tools/signal_spec_vectors.py",
         "cycle": str(CYCLE),
         "sine_coefficients": sine_coefficients(),
@@ -5136,6 +5681,11 @@ def build():
         "preview_gains": preview_gain_rows(),
         "preview_layers": preview_layer_rows(),
         "preview_frames": preview_frame_rows(),
+        "gain_constants": gain_constants(),
+        "gain_law": gain_law_rows(),
+        "gain_fixture_ramps": gain_fixture_rows(),
+        "gain_windows": gain_window_rows(),
+        "gain_compile_cases": gain_compile_rows(),
         "loudness_constants": loudness_constants(),
         "loudness_prototype": loudness_prototype_rows(),
         "loudness_coefficients": loudness_coefficient_rows(),
@@ -5573,6 +6123,34 @@ def tables(data):
                    f"| {r['opening_end_frame']} | {r['first_seam_frame']} | {r['opening_end_s']} "
                    f"| {r['first_seam_s']} | {r['length_frames']} | {r['tail_frames']} | {r['preview_frames']} "
                    f"| {r['seconds']} | {r['layers_max']} | `{r['gain_hex']}` | `{r['gain_bits']}` |")
+    out.append("")
+    out.append("| Ends a to b | L | k | r = k / L (hex) | P | c (bits) | h (hex) | g (hex) | g bits | Ideal |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["gain_law"]:
+        out.append(f"| {r['a']} to {r['b']} | {r['length']} | {r['k']} | `{r['r_hex']}` | {r['p']} | `{r['c_bits']}` "
+                   f"| `{r['h_hex']}` | `{r['g_hex']}` | `{r['g_bits']}` | {r['ideal']} |")
+    out.append("")
+    out.append("| Fixture | fs | Schedule | Ramp | start_s | duration_s | From a | To b | n0 | L | n1 |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["gain_fixture_ramps"]:
+        out.append(f"| {r['fixture']} | {r['fs']} | {r['schedule']} | {r['ramp']} | {r['start_s']} | {r['duration_s']} "
+                   f"| {r['from']} | {r['to']} | {r['start_frame']} | {r['length_frames']} | {r['end_frame']} |")
+    out.append("")
+    out.append("| Fixture | fs | Looping | length_s | End N | W_min | Window start | Body | Repeats k | Window frames "
+               "| Window (s) | Probe window frames | Probe window starts |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["gain_windows"]:
+        out.append(f"| {r['fixture']} | {r['fs']} | {r['looping']} | {r['length_s']} | {r['end_frame']} "
+                   f"| {r['min_frames']} | {r['start_frame']} | {r['body_frames']} | {r['repeats']} "
+                   f"| {r['window_frames']} | {r['window_s']} | {r['probe_window_frames']} "
+                   f"| {', '.join(r['probe_starts'])} |")
+    out.append("")
+    out.append("| Case | Recipe | Result | Parameter | Value | Rule | Limit |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- |")
+    for r in data["gain_compile_cases"]:
+        recipe = r["recipe"] if r["recipe"] == "fixture" else f"`{r['recipe']}`"
+        out.append(f"| {r['case']} | {recipe} | {r['result']} | {r['parameter']} | {r['value']} | {r['rule']} "
+                   f"| {r['limit']} |")
     out.append("")
     out.append("| Stage | Parameter | Ideal | Binary64 (hex) |")
     out.append("| --- | --- | --- | --- |")

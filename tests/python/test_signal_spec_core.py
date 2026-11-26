@@ -296,13 +296,15 @@ def test_spec_tables_equal_json(vectors):
     # frames), components (3: component coefficients, component cases,
     # components), spacing (3: spacing cases, spacing margins, spacing
     # pairs), preview (3: preview gain, preview layers, preview frames),
+    # gain ramps (4: gain ramp law, gain fixture ramps, gain fixture windows,
+    # gain compile cases),
     # loudness (6: K-weighting prototype, K-weighting coefficients, gating
     # blocks, Tech 3341 cases, loudness window rule, loudness windows),
     # loudness gain (4: loudness hash, gain rounding, stored gain, file
     # rewrite), true peak (3: true-peak filter, true-peak signals, true-peak
     # step),
     # 24-bit rounding (1).
-    assert len(generated) == 63, generated
+    assert len(generated) == 67, generated
     assert len(in_doc) == len(generated), [b[0] for b in in_doc]
     assert not problems, "\n".join(problems)
 
