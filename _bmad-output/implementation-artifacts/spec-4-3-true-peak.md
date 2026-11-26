@@ -2,7 +2,7 @@
 title: 'Story 4.3: True peak'
 type: 'feature'
 created: '2026-11-25'
-status: 'in-progress'
+status: 'done'
 baseline_commit: '390dc6152f2db747cddb8fc172ac3d4ec214b89c'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -135,3 +135,23 @@ The line is exactly `rejected: parameter=/loudness_gain_db value=<gain_text> rul
 - `powershell -File tools/dev.ps1 cmake --workflow --preset windows-clang-cl`: expected build passes and ctest is green.
 - `uv run --locked pytest -n auto`: expected all pass.
 - `git status --porcelain -- recipes` after the suite: expected only the decision 3 fixture edit, committed.
+
+## Review Triage Log
+
+Pass 1 (2026-11-26): blind-hunter (B), edge-case-hunter (E), verification-gap (V).
+
+| # | Finding | Verdict | Evidence | Route |
+|---|---------|---------|----------|-------|
+| B1 | The meter can read below the sample peak, so a sample above -1 dBFS could pass | low | Real: phase 0's centre tap is 7964/8192, and case 15 reads 0.2 dB under its sample peak, the Annex 2 under-read Tech 3341 allows (-0.4 dB). Not met in use: every final render sits at -36 LUFS-I with peaks near -30 dBFS. The fix (max of true peak and sample peak) changes the BS.1770 measurement the row names. | reject |
+| B2/E6 | AC 1 parity is not checked on the 45 min stored final render | low | Real: that WAV is about 777 MB and only its report assertion is checked. Both meters are exact integer sums (spec, True peak, Exact) and agree bit for bit on every other final render at both rates; reading the WAV conflicts with the AC 2 CI budget. | reject |
+| V1/B3 | The store's step 8 refusal is never run through the binary | medium | Pre-verified gap: only `true_peak_step` is tested; a regression in `run_store` step 8 would pass. No real recipe reaches it (target -36, gain at most 0 dB); `ARCANI_CLI_TEST_EXTRA_SOURCE` needs its own configure and build and cannot replace a table row, so closing it needs a new test hook. | defer |
+| B4 | Spec, sprint status, and guidebook statuses disagree | false | In-flight states during review; sprint status and guidebook move at step 5, as in 4.2 (B10). | reject |
+| B5 | Guidebook acceptance criteria unticked; sprint status date stale | low | Criteria are ticked when CI confirms them, as in 4.1 and 4.2; the date moves with the next status change. | reject |
+| B6/E1/E2 | `true_peak_assertion` and `run()` do not validate the true-peak row up front; the store checks it only after rendering | low | Real only for a hand-mis-edited `thresholds.tsv`, which the table tests check; the fix adds a validation path in two places. | reject |
+| B7 | `stub-chain-1s-beat-6.json` rationale still says the output clips | low | Direct text correction; the rationale is hash-excluded. | patch |
+| B8/E5 | Re-pin task ticked before the four-platform run confirms the pins | low | The `ci/hash_expected.json` source and design log (ddd) say the confirmation waits for the full run, and the guidebook CI step tracks it, as in 4.2. | reject |
+| B9/E3 | Python `_channels` casts before its range check (uint64 wraps) and accepts shape (frames, 1) against its docstring | low | Real; direct correction: range-check before the cast and reject (frames, 1). | patch |
+| B10 | The exactness bound is stated as 2^38 and 2^39 | low | Real at `docs/signal-spec.md` True peak, Exact: the largest sum is 16571 * 2^23, below 2^38. Direct text correction. | patch |
+| B11 | No evidence for the CI-time criterion | false | CI timings are recorded from the PR run before merge, as in every story. | reject |
+| B12 | The meter calls `quantize_24` separately from the WAV writer | low | Same function, same sample; the Python meter reads the written WAV and equals the report bit for bit at both rates, so a divergence is caught. | reject |
+| E4 | `TruePeakMeter::add` accepts int32 values outside 24 bits | false | Every caller passes `quantize_24` output, which is in range by construction. | reject |
