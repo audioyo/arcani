@@ -227,6 +227,8 @@ std::string_view type_name(FieldType t) noexcept {
       return "integer";
     case FieldType::Object:
       return "object";
+    case FieldType::Array:
+      return "array";
   }
   return "";
 }
@@ -241,6 +243,8 @@ bool type_ok(FieldType t, const Value& v) noexcept {
       return v.kind() == Kind::Number && v.integral();
     case FieldType::Object:
       return v.kind() == Kind::Object;
+    case FieldType::Array:
+      return v.kind() == Kind::Array;
   }
   return false;
 }
@@ -307,42 +311,66 @@ std::optional<Error> check_value(const Field& f, const Value& v) {
   return std::nullopt;
 }
 
-std::optional<Error> check_object(const Value& obj, const std::string& prefix) {
+// Checks one object against its field table children. table_prefix is the
+// field table path of the object ("*" for an array element, Story 4.4);
+// pointer_prefix its JSON Pointer in the document (the element index there).
+std::optional<Error> check_object(const Value& obj, const std::string& table_prefix,
+                                  const std::string& pointer_prefix) {
   std::vector<const Field*> children;
   for (const auto& f : fields()) {
-    if (child_of(f.path, prefix)) {
+    if (child_of(f.path, table_prefix)) {
       children.push_back(&f);
     }
   }
+  const auto pointer_of = [&](std::string_view table_path) {
+    return pointer_prefix + std::string(table_path.substr(table_prefix.size()));
+  };
   for (const auto& [key, value] : obj.object()) {
-    const std::string pointer = prefix + "/" + pointer_part(key);
+    const std::string table_path = table_prefix + "/" + pointer_part(key);
     bool known = false;
     for (const Field* f : children) {
-      known = known || f->path == pointer;
+      known = known || f->path == table_path;
     }
     if (!known) {
       std::string allowed;
       for (const Field* f : children) {
         allowed += allowed.empty() ? "" : ", ";
-        allowed += f->path.substr(prefix.size() + 1);
+        allowed += f->path.substr(table_prefix.size() + 1);
       }
-      return make_error(pointer, key, "unknown_property", allowed);
+      return make_error(pointer_prefix + "/" + pointer_part(key), key, "unknown_property", allowed);
     }
   }
   for (const Field* f : children) {
-    const std::string_view name = f->path.substr(prefix.size() + 1);
+    const std::string_view name = f->path.substr(table_prefix.size() + 1);
     const Value* v = obj.find(name);
+    const std::string pointer = pointer_of(f->path);
     if (v == nullptr) {
       if (f->required) {
-        return make_error(std::string(f->path), "", "required", "present");
+        return make_error(pointer, "", "required", "present");
       }
       continue;
     }
     if (!type_ok(f->type, *v)) {
-      return make_error(std::string(f->path), as_text(*v), "type", type_name(f->type));
+      return make_error(pointer, as_text(*v), "type", type_name(f->type));
     }
-    std::optional<Error> err =
-        f->type == FieldType::Object ? check_object(*v, std::string(f->path)) : check_value(*f, *v);
+    std::optional<Error> err;
+    if (f->type == FieldType::Object) {
+      err = check_object(*v, std::string(f->path), pointer);
+    } else if (f->type == FieldType::Array) {
+      // Story 4.4: every element is an object checked against the "*" rows.
+      const std::string items = std::string(f->path) + "/*";
+      const auto& elements = v->array();
+      for (std::size_t i = 0; i < elements.size() && !err; ++i) {
+        const std::string at = pointer + "/" + std::to_string(i);
+        if (elements[i].kind() != Kind::Object) {
+          err = make_error(at, as_text(elements[i]), "type", "object");
+        } else {
+          err = check_object(elements[i], items, at);
+        }
+      }
+    } else {
+      err = check_value(*f, *v);
+    }
     if (err) {
       return err;
     }
@@ -401,6 +429,22 @@ std::optional<RateCycle> rate_cycle_at(const Value& obj, std::string_view key) {
                    number_at(*cycle, "start_phase_deg")};
 }
 
+// A gain member (Story 4.4), or nothing when absent.
+std::optional<Gain> gain_at(const Value& obj) {
+  const Value* g = obj.find("gain");
+  if (g == nullptr) {
+    return std::nullopt;
+  }
+  Gain out;
+  out.initial = number_at(*g, "initial");
+  if (const Value* ramps = g->find("ramps")) {
+    for (const Value& r : ramps->array()) {
+      out.ramps.push_back(GainRampField{number_at(r, "start_s"), number_at(r, "duration_s"), number_at(r, "to")});
+    }
+  }
+  return out;
+}
+
 }  // namespace
 
 ParseResult parse(std::string_view utf8) {
@@ -416,7 +460,7 @@ ParseResult parse(std::string_view utf8) {
     result.error = make_error("", as_text(root), "type", "object");
     return result;
   }
-  if (auto err = check_object(root, "")) {
+  if (auto err = check_object(root, "", "")) {
     result.error = std::move(*err);
     return result;
   }
@@ -443,6 +487,7 @@ ParseResult parse(std::string_view utf8) {
     t.am_depth_percent = number_at(*theta, "am_depth_percent");
     t.shape = shape_named(string_at(*theta, "shape"))->shape;  // checked: an enum member
     t.rate_cycle = rate_cycle_at(*theta, "rate_cycle");
+    t.gain = gain_at(*theta);
     r.theta_reference = t;
   }
   if (const Value* gamma = root.find("gamma_pac")) {
@@ -456,6 +501,7 @@ ParseResult parse(std::string_view utf8) {
       g.coupling_phase_deg = number_at(*gamma, "coupling_phase_deg");
     }
     g.rate_cycle = rate_cycle_at(*gamma, "rate_cycle");
+    g.gain = gain_at(*gamma);
     r.gamma_pac = g;
   }
   if (const Value* bin = root.find("binaural")) {
@@ -466,6 +512,7 @@ ParseResult parse(std::string_view utf8) {
     if (bin->find("waveform") != nullptr) {
       b.waveform = waveform_named(string_at(*bin, "waveform"))->waveform;  // checked: an enum member
     }
+    b.gain = gain_at(*bin);
     r.binaural = b;
   }
   if (const Value* loop = root.find("loop")) {
@@ -475,6 +522,9 @@ ParseResult parse(std::string_view utf8) {
     l.body_s = number_at(*loop, "body_s");
     l.max_run_time_min = number_at(*loop, "max_run_time_min");
     r.loop = l;
+  }
+  if (const Value* master = root.find("master")) {
+    r.master = Master{gain_at(*master)};
   }
   r.hash = crypto::sha256_hex(json::canonicalize(strip_hash_excluded(root, "")));
   r.loudness_hash_computed = crypto::sha256_hex(json::canonicalize(loudness_relevant_members(root)));

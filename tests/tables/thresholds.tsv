@@ -28,7 +28,7 @@ click-level	-60	dBFS	Clicks	thresholds-and-ranges.md, Test thresholds; Plan Test
 click-highpass	8	kHz	Clicks	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds	
 dropout-length	1	ms	Dropouts	thresholds-and-ranges.md, Test thresholds; design log 2026-10-27 (i)	5-2-clicks-dropouts-nan-and-infinite-values
 invalid-samples	0	NaN or infinite samples	NaN or infinite values	thresholds-and-ranges.md, Test thresholds; FR-13	5-2-clicks-dropouts-nan-and-infinite-values
-gain-ramp-min	10	ms	Gain ramps	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-5	4-4-gain-ramps
+gain-ramp-min	10	ms	Gain ramps	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-5	
 limiter-idle	0	samples with gain reduction	Limiter idle	thresholds-and-ranges.md, Test thresholds; AD-4; design log 2026-10-27 (k), 2026-10-28 (p)	4-5-limiter-idle
 loudness-tolerance	1	LU	Loudness	thresholds-and-ranges.md, Test thresholds; Plan Test thresholds; FR-5	
 loudness-meter-calibration	0.1	LU		Design log 2026-11-20 (zz): EBU Tech 3341 v4.0 (November 2023), Table 1: the tolerance of every integrated loudness case (cases 1 to 5); each meter reads the cases, synthesized in the harness, within it; docs/signal-spec.md, Loudness, Calibration	

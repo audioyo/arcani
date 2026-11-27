@@ -109,6 +109,20 @@ RATE_CYCLE_FIXTURES = ["theta-cycle-sine.json", "theta-cycle-smoothed-on-off.jso
 # looping swell fixture; a recipe without loop keeps its hash (PINNED_HASHES).
 LOOP_BASE = "loop-swell-theta-cycle.json"
 LOOP_IN_HASH = ["/loop/mode", "/loop/opening_s", "/loop/body_s", "/loop/max_run_time_min"]
+# Story 4.4: every gain member is in the hash (docs/signal-spec.md, Gain
+# ramps, Recipe fields), checked against the fixture that carries it; the
+# tool reads each ramps array as one leaf.
+GAIN_IN_HASH = {
+    "/theta_reference/gain/initial": "gain-ramp-in-loop.json",
+    "/theta_reference/gain/ramps": "gain-ramp-in-loop.json",
+    "/gamma_pac/gain/initial": "gain-ramp-in-loop.json",
+    "/gamma_pac/gain/ramps": "gain-ramp-in-loop.json",
+    "/binaural/gain/initial": "gain-master-fade.json",
+    "/binaural/gain/ramps": "gain-master-fade.json",
+    "/master/gain/initial": "gain-master-fade.json",
+    "/master/gain/ramps": "gain-master-fade.json",
+}
+GAIN_OBJECTS = ("/theta_reference/gain", "/gamma_pac/gain", "/binaural/gain", "/master", "/master/gain")
 # Hashes committed before Story 2.6 (tests/data/recipe_hash_vectors.json at
 # the story's baseline): a recipe without a rate_cycle keeps its hash.
 PINNED_HASHES = {
@@ -256,9 +270,23 @@ def test_excluded_and_in_hash_lists_cover_every_leaf_tag():
     assert sorted(p for p, t in tags.items() if t == "hash-excluded") == sorted(HASH_EXCLUDED)
     leaves = {p for p in tags if p not in ("/theta_reference", "/gamma_pac", "/binaural",
                                            "/binaural/beat_rate_cycle", "/theta_reference/rate_cycle",
-                                           "/gamma_pac/rate_cycle", "/loop")}
+                                           "/gamma_pac/rate_cycle", "/loop") + GAIN_OBJECTS}
     assert leaves == (set(HASH_EXCLUDED) | set(IN_HASH) | set(GAMMA_IN_HASH) | set(SWELL_IN_HASH)
-                      | set(BINAURAL_IN_HASH) | set(RATE_CYCLE_IN_HASH) | set(LOOP_IN_HASH))
+                      | set(BINAURAL_IN_HASH) | set(RATE_CYCLE_IN_HASH) | set(LOOP_IN_HASH) | set(GAIN_IN_HASH))
+
+
+@pytest.mark.parametrize("pointer", sorted(GAIN_IN_HASH))
+def test_every_gain_field_changes_the_hash(pointer):
+    tool = load_tool()
+    value = json.loads(fixture(GAIN_IN_HASH[pointer]).decode("utf-8"))
+    old = get(value, pointer)
+    if isinstance(old, list):
+        new = [dict(r, to=0.5 if r["to"] != 0.5 else 0.25) for r in old] if old else [{"start_s": 1, "duration_s": 1, "to": 0.5}]
+    else:
+        new = 0.5 if old != 0.5 else 0.25
+    assert tool.hash_value(put(value, pointer, new)) != tool.hash_value(value)
+    holder = pointer.rsplit("/gain", 1)[0] + "/gain"
+    assert tool.hash_value(drop(value, holder)) != tool.hash_value(value)
 
 
 @pytest.mark.parametrize("pointer", LOOP_IN_HASH)

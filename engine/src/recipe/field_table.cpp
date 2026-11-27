@@ -40,6 +40,15 @@ constexpr Field kFields[] = {
     {"/theta_reference/rate_cycle/swing_hz", Number, LoudnessRelevant, true, "", 1.0},
     {"/theta_reference/rate_cycle/period_s", Number, LoudnessRelevant, true, "rate-cycle-period", 1.0},
     {"/theta_reference/rate_cycle/start_phase_deg", Number, LoudnessRelevant, true, "rate-cycle-start-phase", 1.0},
+    // Story 4.4 (docs/signal-spec.md, Gain ramps): the gain schedule, last in
+    // its object. The ramp count is checked by name against row
+    // gain-ramp-count; start_s and duration_s are bounded by the gain rules.
+    {"/theta_reference/gain", Object, LoudnessRelevant, false, "", 1.0},
+    {"/theta_reference/gain/initial", Number, LoudnessRelevant, true, "layer-gain", 1.0},
+    {"/theta_reference/gain/ramps", Array, LoudnessRelevant, false, "", 1.0},
+    {"/theta_reference/gain/ramps/*/start_s", Number, LoudnessRelevant, true, "", 1.0},
+    {"/theta_reference/gain/ramps/*/duration_s", Number, LoudnessRelevant, true, "", 1.0},
+    {"/theta_reference/gain/ramps/*/to", Number, LoudnessRelevant, true, "layer-gain", 1.0},
     // Story 2.2, uncoupled only. The carrier rule (carrier_hz >= 4 x rate_hz)
     // and the carrier wave rule run after every range check; see
     // validate/validate.hpp.
@@ -63,6 +72,15 @@ constexpr Field kFields[] = {
     {"/gamma_pac/rate_cycle/swing_hz", Number, LoudnessRelevant, true, "", 1.0},
     {"/gamma_pac/rate_cycle/period_s", Number, LoudnessRelevant, true, "rate-cycle-period", 1.0},
     {"/gamma_pac/rate_cycle/start_phase_deg", Number, LoudnessRelevant, true, "rate-cycle-start-phase", 1.0},
+    // Story 4.4 (docs/signal-spec.md, Gain ramps): the gain schedule, last in
+    // its object. The ramp count is checked by name against row
+    // gain-ramp-count; start_s and duration_s are bounded by the gain rules.
+    {"/gamma_pac/gain", Object, LoudnessRelevant, false, "", 1.0},
+    {"/gamma_pac/gain/initial", Number, LoudnessRelevant, true, "layer-gain", 1.0},
+    {"/gamma_pac/gain/ramps", Array, LoudnessRelevant, false, "", 1.0},
+    {"/gamma_pac/gain/ramps/*/start_s", Number, LoudnessRelevant, true, "", 1.0},
+    {"/gamma_pac/gain/ramps/*/duration_s", Number, LoudnessRelevant, true, "", 1.0},
+    {"/gamma_pac/gain/ramps/*/to", Number, LoudnessRelevant, true, "layer-gain", 1.0},
     {"/binaural", Object, LoudnessRelevant, false, "", 1.0},
     {"/binaural/carrier_left_hz", Number, LoudnessRelevant, true, "binaural-carrier", 1.0},
     // The derived right carrier (carrier_left_hz + beat_rate_hz, row
@@ -79,6 +97,15 @@ constexpr Field kFields[] = {
     // One of the schema enum members (recipe::kBinauralWaveformEnum); triangle
     // is schema-valid and rejected at compile.
     {"/binaural/waveform", String, LoudnessRelevant, false, "", 1.0},
+    // Story 4.4 (docs/signal-spec.md, Gain ramps): the gain schedule, last in
+    // its object. The ramp count is checked by name against row
+    // gain-ramp-count; start_s and duration_s are bounded by the gain rules.
+    {"/binaural/gain", Object, LoudnessRelevant, false, "", 1.0},
+    {"/binaural/gain/initial", Number, LoudnessRelevant, true, "layer-gain", 1.0},
+    {"/binaural/gain/ramps", Array, LoudnessRelevant, false, "", 1.0},
+    {"/binaural/gain/ramps/*/start_s", Number, LoudnessRelevant, true, "", 1.0},
+    {"/binaural/gain/ramps/*/duration_s", Number, LoudnessRelevant, true, "", 1.0},
+    {"/binaural/gain/ramps/*/to", Number, LoudnessRelevant, true, "layer-gain", 1.0},
     // Story 2.7 (docs/signal-spec.md, Loop). No member names a row: the mode
     // picks max-run-time-focus or max-run-time-learn for max_run_time_min,
     // and the loop rules run after every range check (validate/validate.hpp).
@@ -88,6 +115,14 @@ constexpr Field kFields[] = {
     {"/loop/opening_s", Number, LoudnessRelevant, true, "", 1.0},
     {"/loop/body_s", Number, LoudnessRelevant, true, "", 1.0},
     {"/loop/max_run_time_min", Number, LoudnessRelevant, true, "", 1.0},
+    // Story 4.4: the master gain schedule, after the loudness gain.
+    {"/master", Object, LoudnessRelevant, false, "", 1.0},
+    {"/master/gain", Object, LoudnessRelevant, false, "", 1.0},
+    {"/master/gain/initial", Number, LoudnessRelevant, true, "layer-gain", 1.0},
+    {"/master/gain/ramps", Array, LoudnessRelevant, false, "", 1.0},
+    {"/master/gain/ramps/*/start_s", Number, LoudnessRelevant, true, "", 1.0},
+    {"/master/gain/ramps/*/duration_s", Number, LoudnessRelevant, true, "", 1.0},
+    {"/master/gain/ramps/*/to", Number, LoudnessRelevant, true, "layer-gain", 1.0},
 };
 
 }  // namespace

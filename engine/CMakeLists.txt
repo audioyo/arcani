@@ -11,6 +11,7 @@ set(_arcani_engine_sources
   src/version.cpp
   src/api/api.cpp
   src/core/envelope.cpp
+  src/core/gain.cpp
   src/core/phase.cpp
   src/core/rate_cycle.cpp
   src/core/sine.cpp

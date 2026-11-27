@@ -14,7 +14,8 @@
 // --loudness (Story 4.1; docs/signal-spec.md, Loudness) measures the BS.1770
 // integrated loudness of the binary64 output over the window and over the
 // whole render, and adds the report member "loudness". The WAV is unchanged.
-// A non-looping recipe shorter than row loudness-window-min is rejected
+// A non-looping recipe whose steady part (the longest stretch with no gain
+// ramp, Story 4.4) is shorter than row loudness-window-min is rejected
 // (exit 1, nothing written). Not with --preview.
 //
 // In final mode, --loudness also adds the assertions loudness and
@@ -379,9 +380,15 @@ int run_store(const Args& args) {
   if (arc_plan_loop(plan.plan, &loop, &error) != ARC_OK) {
     return file_error(std::string("loop frames failed: rule=") + error.rule);
   }
-  const cli::LoudnessWindow window = cli::loudness_window(loop, frames, window_min_frames);
+  // Story 4.4: the non-looping window is the longest stretch with no ramp.
+  std::vector<cli::FrameSpan> ramps;
+  std::string ramps_rule;
+  if (!cli::gain_ramp_spans(plan.plan, ramps, ramps_rule)) {
+    return file_error("gain ramps failed: rule=" + ramps_rule);
+  }
+  const cli::LoudnessWindow window = cli::loudness_window(loop, frames, window_min_frames, ramps);
   if (!window.accepted) {
-    const double length_s = static_cast<double>(frames) / static_cast<double>(args.rate);
+    const double length_s = static_cast<double>(window.steady_frames) / static_cast<double>(args.rate);
     std::fprintf(stderr, "rejected: parameter=/length_s value=%s rule=loudness_window_rule limit=%s\n",
                  cli::json_number(length_s).c_str(), window_limit.c_str());
     return kExitRejected;
@@ -582,15 +589,23 @@ int run(const Args& args) {
   std::optional<cli::LoudnessMeter> whole_meter;
   std::optional<cli::LoudnessMeter> window_meter;
   if (args.loudness) {
-    window = cli::loudness_window(loop, frames, window_min_frames);
+    // Story 4.4: the non-looping window is the longest stretch with no ramp.
+    std::vector<cli::FrameSpan> ramps;
+    std::string ramps_rule;
+    if (!cli::gain_ramp_spans(plan.plan, ramps, ramps_rule)) {
+      return file_error("gain ramps failed: rule=" + ramps_rule);
+    }
+    window = cli::loudness_window(loop, frames, window_min_frames, ramps);
     if (!window.accepted) {
-      const double length_s = static_cast<double>(frames) / static_cast<double>(args.rate);
+      const double length_s = static_cast<double>(window.steady_frames) / static_cast<double>(args.rate);
       std::fprintf(stderr, "rejected: parameter=/length_s value=%s rule=loudness_window_rule limit=%s\n",
                    cli::json_number(length_s).c_str(), window_limit.c_str());
       return kExitRejected;
     }
     whole_meter.emplace(args.rate);
-    if (loop.looping != 0) {
+    // A looping body, or (Story 4.4) a non-looping steady stretch that is
+    // not the whole session, has a meter of its own.
+    if (loop.looping != 0 || window.start_frame != 0 || window.body_frames != frames) {
       window_meter.emplace(args.rate);
     }
   }
@@ -650,7 +665,7 @@ int run(const Args& args) {
       whole_meter->add(std::span<const double>(samples.data(), n * 2));
     }
     if (window_meter) {
-      // The first window pass is frames [O, O + B) of this render.
+      // The first window pass is frames [O, O + B) (or [s, e)) of this render.
       const std::uint64_t lo = window.start_frame > done ? window.start_frame : done;
       const std::uint64_t end = window.start_frame + window.body_frames;
       const std::uint64_t hi = end < done + n ? end : done + n;

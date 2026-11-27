@@ -234,6 +234,44 @@ arc_status arc_plan_loop(const arc_plan* plan, arc_loop_frames* out_loop, arc_er
   return ARC_OK;
 }
 
+size_t arc_plan_gain_ramp_count(const arc_plan* plan) {
+  if (plan == nullptr) {
+    return 0;
+  }
+  const arcani::plan::Plan& p = plan->plan;
+  return p.theta_gain.count + p.gamma_gain.count + p.binaural_gain.count + p.master_ramp.count;
+}
+
+arc_status arc_plan_gain_ramp(const arc_plan* plan, size_t index, arc_gain_ramp* out_ramp, arc_error* error) {
+  if (plan == nullptr) {
+    return null_argument(error, "plan");
+  }
+  if (out_ramp == nullptr) {
+    return null_argument(error, "out_ramp");
+  }
+  const arcani::plan::Plan& p = plan->plan;
+  const arcani::plan::GainSchedule* schedules[] = {&p.theta_gain, &p.gamma_gain, &p.binaural_gain, &p.master_ramp};
+  const std::size_t count = arc_plan_gain_ramp_count(plan);
+  if (index >= count) {
+    return bad_index(error, index, count);
+  }
+  std::size_t at = index;
+  for (int s = 0; s < 4; ++s) {
+    if (at < schedules[s]->count) {
+      const arcani::plan::GainRamp& r = schedules[s]->ramps[at];
+      std::memset(out_ramp, 0, sizeof *out_ramp);
+      out_ramp->target = static_cast<arc_gain_target>(s);
+      out_ramp->start_frame = r.start_frame;
+      out_ramp->end_frame = r.end_frame;
+      out_ramp->from = r.from;
+      out_ramp->to = r.to;
+      return ARC_OK;
+    }
+    at -= schedules[s]->count;
+  }
+  return bad_index(error, index, count);  // not reached
+}
+
 arc_status arc_plan_loudness_hash(const arc_plan* plan, char out_hash[65], arc_error* error) {
   if (plan == nullptr) {
     return null_argument(error, "plan");
@@ -356,6 +394,10 @@ arc_status arc_render(arc_renderer* renderer, double* out, size_t frames, const 
     t.stereo_bus = taps->stereo_bus;
     t.binaural_join = taps->binaural_join;
     t.master = taps->master;
+    t.theta_reference_gained = taps->theta_reference_gained;
+    t.gamma_pac_gained = taps->gamma_pac_gained;
+    t.binaural = taps->binaural;
+    t.binaural_gained = taps->binaural_gained;
   }
   renderer->renderer.render(out, frames, t);
   return ARC_OK;

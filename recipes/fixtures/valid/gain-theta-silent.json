@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-26",
+  "rationale": "Gain ramp fixture (Story 4.4), rejected at compile (rule coupling.theta_silent): no loop, length 600 s. Theta reference: a 450 Hz carrier amplitude-modulated by the sine envelope at a fixed 4 Hz theta rate, 75 percent AM depth, fading to silence over 60 s from 240 s; gamma PAC layer: a 250 Hz sine carrier amplitude-modulated at 40 Hz with a smooth swell peaking at the 0 degree coupling phase, 100 percent AM depth, fading to silence over 60 s from 360 s, so the theta reference is silent from 300 s while the coupled gamma layer still sounds. A test fixture, not for listening.",
+  "length_s": 600,
+  "loudness_target_lufs": -36,
+  "theta_reference": {
+    "carrier_hz": 450,
+    "rate_hz": 4,
+    "am_depth_percent": 75,
+    "shape": "sine",
+    "gain": {
+      "initial": 1,
+      "ramps": [
+        {
+          "start_s": 240,
+          "duration_s": 60,
+          "to": 0
+        }
+      ]
+    }
+  },
+  "gamma_pac": {
+    "carrier_hz": 250,
+    "rate_hz": 40,
+    "am_depth_percent": 100,
+    "carrier_wave": "sine",
+    "coupling": "smooth_swell",
+    "coupling_phase_deg": 0,
+    "gain": {
+      "initial": 1,
+      "ramps": [
+        {
+          "start_s": 360,
+          "duration_s": 60,
+          "to": 0
+        }
+      ]
+    }
+  }
+}

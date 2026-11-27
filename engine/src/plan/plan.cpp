@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "core/envelope.hpp"
+#include "core/gain.hpp"
 #include "core/phase.hpp"
 #include "core/rate_cycle.hpp"
 #include "validate/validate.hpp"
@@ -85,7 +86,45 @@ core::EnvelopeShape envelope_shape(recipe::ThetaShape s) noexcept {
   return core::EnvelopeShape::Sine;
 }
 
+// Gain ramps, Ramp frames: a recipe gain member as a schedule at fs. The
+// validator has checked the count, the ramp lengths, and the order.
+GainSchedule schedule_of(const std::optional<recipe::Gain>& g, std::uint32_t sample_rate) {
+  GainSchedule s;
+  if (!g) {
+    return s;
+  }
+  s.initial = g->initial;
+  s.count = g->ramps.size() < kMaxGainRamps ? g->ramps.size() : kMaxGainRamps;
+  double before = g->initial;
+  for (std::size_t i = 0; i < s.count; ++i) {
+    const recipe::GainRampField& r = g->ramps[i];
+    GainRamp& out = s.ramps[i];
+    out.start_frame = core::seconds_to_samples(r.start_s, sample_rate);
+    out.length_frames = core::seconds_to_samples(r.duration_s, sample_rate);
+    out.end_frame = out.start_frame + out.length_frames;
+    out.from = before;
+    out.to = r.to;
+    before = r.to;
+  }
+  return s;
+}
+
 }  // namespace
+
+double gain_at(const GainSchedule& s, std::uint64_t n) noexcept {
+  double value = s.initial;
+  for (std::size_t i = 0; i < s.count; ++i) {
+    const GainRamp& r = s.ramps[i];
+    if (n < r.start_frame) {
+      return value;
+    }
+    if (n < r.end_frame) {
+      return core::gain_ramp(r.from, r.to, n - r.start_frame, r.length_frames);
+    }
+    value = r.to;
+  }
+  return value;
+}
 
 std::span<const StageDescriptor> stage_descriptors() noexcept { return kStages; }
 
@@ -161,6 +200,19 @@ CompileResult compile(std::string_view utf8, Mode mode, std::uint32_t sample_rat
   p.recipe_hash = rec.hash;
   p.loudness_hash = rec.loudness_hash_computed;
   p.master_gain = mode == Mode::Final ? linear_gain(*rec.loudness_gain_db) : 1.0;
+  // Story 4.4: the gain schedules (each 1.0 without its gain member).
+  if (rec.theta_reference) {
+    p.theta_gain = schedule_of(rec.theta_reference->gain, sample_rate);
+  }
+  if (rec.gamma_pac) {
+    p.gamma_gain = schedule_of(rec.gamma_pac->gain, sample_rate);
+  }
+  if (rec.binaural) {
+    p.binaural_gain = schedule_of(rec.binaural->gain, sample_rate);
+  }
+  if (rec.master) {
+    p.master_ramp = schedule_of(rec.master->gain, sample_rate);
+  }
   p.components = std::move(components.components);
   p.spacing = spacing.ears;
   p.seed = rec.seed;

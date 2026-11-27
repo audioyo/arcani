@@ -31,6 +31,11 @@ struct Taps {
   double* stereo_bus = nullptr;
   double* binaural_join = nullptr;
   double* master = nullptr;
+  // Story 4.4 (docs/signal-spec.md, Gain ramps, Taps).
+  double* theta_reference_gained = nullptr;
+  double* gamma_pac_gained = nullptr;
+  double* binaural = nullptr;
+  double* binaural_gained = nullptr;
 };
 
 class Renderer {
@@ -65,6 +70,10 @@ class Renderer {
   Block bus_{};
   Block join_{};
   Block master_{};
+  Block theta_gained_{};     // Story 4.4
+  Block gamma_gained_{};
+  Block binaural_{};
+  Block binaural_gained_{};
 };
 
 }  // namespace arcani::render

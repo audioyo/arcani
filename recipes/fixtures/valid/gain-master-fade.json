@@ -1,0 +1,42 @@
+{
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-26",
+  "rationale": "Gain ramp fixture (Story 4.4): no loop, length 480 s. Theta reference: a 450 Hz carrier amplitude-modulated by the sine envelope at a fixed 2 Hz theta rate, 75 percent AM depth; binaural layer: a 100 Hz pure sine in the left ear and a 102 Hz pure sine in the right ear (a 2 Hz binaural beat), ramped in from silence over exactly 10 ms at 0 s. The master gain fades from 1 to silence over 5 min from 120 s, so the output is exact zeros from 420 s. Values are placeholders, not starter defaults. A test fixture, not for listening.",
+  "length_s": 480,
+  "loudness_target_lufs": -36,
+  "theta_reference": {
+    "carrier_hz": 450,
+    "rate_hz": 2,
+    "am_depth_percent": 75,
+    "shape": "sine"
+  },
+  "binaural": {
+    "carrier_left_hz": 100,
+    "beat_rate_hz": 2,
+    "gain": {
+      "initial": 0,
+      "ramps": [
+        {
+          "start_s": 0,
+          "duration_s": 0.01,
+          "to": 1
+        }
+      ]
+    }
+  },
+  "master": {
+    "gain": {
+      "initial": 1,
+      "ramps": [
+        {
+          "start_s": 120,
+          "duration_s": 300,
+          "to": 0
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-26",
+  "rationale": "Invalid gain fixture (Story 4.4): the gain compile base recipe with its theta_reference gain ramps written as an object, not an array. Schema rejects it.",
+  "length_s": 600,
+  "loudness_target_lufs": -36,
+  "theta_reference": {
+    "carrier_hz": 450,
+    "rate_hz": 4,
+    "am_depth_percent": 75,
+    "shape": "sine",
+    "gain": {
+      "initial": 0,
+      "ramps": {
+        "start_s": 0,
+        "duration_s": 10,
+        "to": 1
+      }
+    }
+  },
+  "gamma_pac": {
+    "carrier_hz": 250,
+    "rate_hz": 40,
+    "am_depth_percent": 100,
+    "carrier_wave": "sine",
+    "coupling": "smooth_swell",
+    "coupling_phase_deg": 0
+  },
+  "binaural": {
+    "carrier_left_hz": 100,
+    "beat_rate_hz": 2
+  }
+}

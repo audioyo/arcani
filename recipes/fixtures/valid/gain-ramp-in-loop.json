@@ -1,0 +1,50 @@
+{
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-26",
+  "rationale": "Gain ramp fixture (Story 4.4): learn mode, max run time 20 min, length 1200 s, opening 300 s, body 120 s. Theta reference: a 450 Hz carrier amplitude-modulated by the sine envelope at a fixed 4 Hz theta rate, 75 percent AM depth; gamma PAC layer: a 250 Hz sine carrier amplitude-modulated at 40 Hz with a smooth swell peaking at the 0 degree coupling phase, 100 percent AM depth. Both layers ramp in from silence over the first 5 min (a raised cosine from 0 s for 300 s, gain 0 to 1), inside the opening, so the opening differs from the body. Values are placeholders, not starter defaults. A test fixture, not for listening.",
+  "length_s": 1200,
+  "loudness_target_lufs": -36,
+  "theta_reference": {
+    "carrier_hz": 450,
+    "rate_hz": 4,
+    "am_depth_percent": 75,
+    "shape": "sine",
+    "gain": {
+      "initial": 0,
+      "ramps": [
+        {
+          "start_s": 0,
+          "duration_s": 300,
+          "to": 1
+        }
+      ]
+    }
+  },
+  "gamma_pac": {
+    "carrier_hz": 250,
+    "rate_hz": 40,
+    "am_depth_percent": 100,
+    "carrier_wave": "sine",
+    "coupling": "smooth_swell",
+    "coupling_phase_deg": 0,
+    "gain": {
+      "initial": 0,
+      "ramps": [
+        {
+          "start_s": 0,
+          "duration_s": 300,
+          "to": 1
+        }
+      ]
+    }
+  },
+  "loop": {
+    "mode": "learn",
+    "opening_s": 300,
+    "body_s": 120,
+    "max_run_time_min": 20
+  }
+}

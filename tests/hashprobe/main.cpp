@@ -799,6 +799,271 @@ bool write_f32(const std::string& path, const std::vector<float>& samples) {
   return written == bytes.size() && closed;
 }
 
+// Story 4.4 (docs/signal-spec.md, Gain ramps, Vectors: gain fixtures): the
+// four gain ramp render fixtures, embedded with the fixture files' text.
+// gain-ramp-in-loop.json, as committed.
+constexpr char kGainFixture0[] = R"({
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-26",
+  "rationale": "Gain ramp fixture (Story 4.4): learn mode, max run time 20 min, length 1200 s, opening 300 s, body 120 s. Theta reference: a 450 Hz carrier amplitude-modulated by the sine envelope at a fixed 4 Hz theta rate, 75 percent AM depth; gamma PAC layer: a 250 Hz sine carrier amplitude-modulated at 40 Hz with a smooth swell peaking at the 0 degree coupling phase, 100 percent AM depth. Both layers ramp in from silence over the first 5 min (a raised cosine from 0 s for 300 s, gain 0 to 1), inside the opening, so the opening differs from the body. Values are placeholders, not starter defaults. A test fixture, not for listening.",
+  "length_s": 1200,
+  "loudness_target_lufs": -36,
+  "theta_reference": {
+    "carrier_hz": 450,
+    "rate_hz": 4,
+    "am_depth_percent": 75,
+    "shape": "sine",
+    "gain": {
+      "initial": 0,
+      "ramps": [
+        {
+          "start_s": 0,
+          "duration_s": 300,
+          "to": 1
+        }
+      ]
+    }
+  },
+  "gamma_pac": {
+    "carrier_hz": 250,
+    "rate_hz": 40,
+    "am_depth_percent": 100,
+    "carrier_wave": "sine",
+    "coupling": "smooth_swell",
+    "coupling_phase_deg": 0,
+    "gain": {
+      "initial": 0,
+      "ramps": [
+        {
+          "start_s": 0,
+          "duration_s": 300,
+          "to": 1
+        }
+      ]
+    }
+  },
+  "loop": {
+    "mode": "learn",
+    "opening_s": 300,
+    "body_s": 120,
+    "max_run_time_min": 20
+  }
+}
+)";
+
+// gain-layer-ramp-10min.json, as committed.
+constexpr char kGainFixture1[] = R"({
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-26",
+  "rationale": "Gain ramp fixture (Story 4.4): no loop, length 720 s. Theta reference: a 450 Hz carrier amplitude-modulated by the sine envelope at a fixed 4 Hz theta rate, 75 percent AM depth, ramped in from silence over the first 10 min (a raised cosine from 0 s for 600 s, gain 0 to 1); gamma PAC layer: a 250 Hz sine carrier amplitude-modulated at 40 Hz, uncoupled, 25 percent AM depth, ramped in from silence over the first 2 min. Steady from 600 s. Values are placeholders, not starter defaults. A test fixture, not for listening.",
+  "length_s": 720,
+  "loudness_target_lufs": -36,
+  "theta_reference": {
+    "carrier_hz": 450,
+    "rate_hz": 4,
+    "am_depth_percent": 75,
+    "shape": "sine",
+    "gain": {
+      "initial": 0,
+      "ramps": [
+        {
+          "start_s": 0,
+          "duration_s": 600,
+          "to": 1
+        }
+      ]
+    }
+  },
+  "gamma_pac": {
+    "carrier_hz": 250,
+    "rate_hz": 40,
+    "am_depth_percent": 25,
+    "carrier_wave": "sine",
+    "coupling": "uncoupled",
+    "gain": {
+      "initial": 0,
+      "ramps": [
+        {
+          "start_s": 0,
+          "duration_s": 120,
+          "to": 1
+        }
+      ]
+    }
+  }
+}
+)";
+
+// gain-master-fade.json, as committed.
+constexpr char kGainFixture2[] = R"({
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-26",
+  "rationale": "Gain ramp fixture (Story 4.4): no loop, length 480 s. Theta reference: a 450 Hz carrier amplitude-modulated by the sine envelope at a fixed 2 Hz theta rate, 75 percent AM depth; binaural layer: a 100 Hz pure sine in the left ear and a 102 Hz pure sine in the right ear (a 2 Hz binaural beat), ramped in from silence over exactly 10 ms at 0 s. The master gain fades from 1 to silence over 5 min from 120 s, so the output is exact zeros from 420 s. Values are placeholders, not starter defaults. A test fixture, not for listening.",
+  "length_s": 480,
+  "loudness_target_lufs": -36,
+  "theta_reference": {
+    "carrier_hz": 450,
+    "rate_hz": 2,
+    "am_depth_percent": 75,
+    "shape": "sine"
+  },
+  "binaural": {
+    "carrier_left_hz": 100,
+    "beat_rate_hz": 2,
+    "gain": {
+      "initial": 0,
+      "ramps": [
+        {
+          "start_s": 0,
+          "duration_s": 0.01,
+          "to": 1
+        }
+      ]
+    }
+  },
+  "master": {
+    "gain": {
+      "initial": 1,
+      "ramps": [
+        {
+          "start_s": 120,
+          "duration_s": 300,
+          "to": 0
+        }
+      ]
+    }
+  }
+}
+)";
+
+// gain-end-fade-loop.json, as committed.
+constexpr char kGainFixture3[] = R"({
+  "schema_version": "1.0",
+  "engine_version": "0.0.1",
+  "seed": 42,
+  "author": "Arcani test fixtures",
+  "date": "2026-11-26",
+  "rationale": "Gain ramp fixture (Story 4.4): learn mode, max run time 20 min, length 1200 s, opening 0 s, body 120 s. Theta reference: a 450 Hz carrier amplitude-modulated by the sine envelope at a fixed 4 Hz theta rate, 75 percent AM depth; gamma PAC layer: a 250 Hz sine carrier amplitude-modulated at 40 Hz with its AM depth opening to 100 percent for 50 ms bursts at the 0 degree coupling phase. The master gain fades from 1 to silence over the last 5 min before the cap (a raised cosine from 900 s for 300 s, ending at 1200 s). Values are placeholders, not starter defaults. A test fixture, not for listening.",
+  "length_s": 1200,
+  "loudness_target_lufs": -36,
+  "theta_reference": {
+    "carrier_hz": 450,
+    "rate_hz": 4,
+    "am_depth_percent": 75,
+    "shape": "sine"
+  },
+  "gamma_pac": {
+    "carrier_hz": 250,
+    "rate_hz": 40,
+    "am_depth_percent": 100,
+    "carrier_wave": "sine",
+    "coupling": "bursts",
+    "coupling_phase_deg": 0
+  },
+  "loop": {
+    "mode": "learn",
+    "opening_s": 0,
+    "body_s": 120,
+    "max_run_time_min": 20
+  },
+  "master": {
+    "gain": {
+      "initial": 1,
+      "ramps": [
+        {
+          "start_s": 900,
+          "duration_s": 300,
+          "to": 0
+        }
+      ]
+    }
+  }
+}
+)";
+
+constexpr double kGainProbeWindowSeconds = 1.0;  // gain_constants probe_window_s
+constexpr double kGainProbeHalfSeconds = 0.5;    // gain_constants probe_half_s
+
+// One gain fixture: for every ramp (arc_plan_gain_ramp order), a window of
+// 1 s from max(0, min(edge - 0.5 s, N - 1 s)) at its start and then at its
+// end, each by arc_seek and one arc_render, output only, float32; empty on
+// any API failure.
+std::vector<float> render_gain_windows(const std::string& recipe, std::uint32_t fs) {
+  arc_compile_options options;
+  std::memset(&options, 0, sizeof options);
+  options.mode = ARC_MODE_MEASURE;
+  options.sample_rate = fs;
+  options.mute_binaural_ear = ARC_MUTE_NONE;
+  arc_error error;
+  arc_plan* plan = nullptr;
+  if (arc_compile(recipe.data(), recipe.size(), &options, &plan, &error) != ARC_OK) {
+    std::fprintf(stderr, "arcani-hashprobe: compile failed: %s %s %s %s\n", error.parameter, error.value,
+                 error.rule, error.limit);
+    return {};
+  }
+  const std::uint64_t end = arc_plan_frame_count(plan);
+  const std::uint64_t one = arcani::core::seconds_to_samples(kGainProbeWindowSeconds, fs);
+  const std::uint64_t half = arcani::core::seconds_to_samples(kGainProbeHalfSeconds, fs);
+  std::vector<std::uint64_t> starts;
+  const std::size_t count = arc_plan_gain_ramp_count(plan);
+  bool ok = true;
+  for (std::size_t i = 0; i < count && ok; ++i) {
+    arc_gain_ramp ramp;
+    ok = arc_plan_gain_ramp(plan, i, &ramp, &error) == ARC_OK;
+    for (const std::uint64_t edge : {ramp.start_frame, ramp.end_frame}) {
+      if (!ok) {
+        break;
+      }
+      const std::uint64_t latest = end - one;
+      const std::uint64_t lead = edge > half ? edge - half : 0;
+      starts.push_back(lead < latest ? lead : latest);
+    }
+  }
+  arc_renderer* renderer = nullptr;
+  ok = ok && arc_renderer_create(plan, &renderer, &error) == ARC_OK;
+  std::vector<double> stereo(2 * one * starts.size());
+  for (std::size_t w = 0; w < starts.size() && ok; ++w) {
+    ok = arc_seek(renderer, starts[w], &error) == ARC_OK &&
+         arc_render(renderer, stereo.data() + 2 * one * w, static_cast<std::size_t>(one), nullptr, &error) == ARC_OK;
+  }
+  arc_renderer_destroy(renderer);
+  arc_plan_release(plan);
+  if (!ok) {
+    std::fprintf(stderr, "arcani-hashprobe: gain render failed: %s\n", error.rule);
+    return {};
+  }
+  std::vector<float> out(stereo.size());
+  for (std::size_t i = 0; i < stereo.size(); ++i) {
+    out[i] = static_cast<float>(stereo[i]);
+  }
+  return out;
+}
+
+// The four gain fixtures in turn; empty if any one fails.
+std::vector<float> probe_gain_ramps(std::uint32_t fs) {
+  std::vector<float> out;
+  for (const std::string& recipe : {std::string(kGainFixture0, sizeof kGainFixture0 - 1),
+                                   std::string(kGainFixture1, sizeof kGainFixture1 - 1),
+                                   std::string(kGainFixture2, sizeof kGainFixture2 - 1),
+                                   std::string(kGainFixture3, sizeof kGainFixture3 - 1)}) {
+    const std::vector<float> part = render_gain_windows(recipe, fs);
+    if (part.empty()) {
+      return {};
+    }
+    out.insert(out.end(), part.begin(), part.end());
+  }
+  return out;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -836,6 +1101,8 @@ int main(int argc, char** argv) {
       {"components", probe_components()},
       {"stub-chain-final-44100", probe_stub_chain_final(44100)},  // Story 4.2
       {"stub-chain-final-48000", probe_stub_chain_final(48000)},
+      {"gain-ramps-44100", probe_gain_ramps(44100)},  // Story 4.4
+      {"gain-ramps-48000", probe_gain_ramps(48000)},
   };
   for (const Component& c : components) {
     if (c.samples.empty()) {

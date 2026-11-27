@@ -100,6 +100,19 @@ inline constexpr std::string_view kLoopWholeSamplesLimit =
 inline constexpr std::string_view kLoopWholeCyclesRule = "loop body not whole rate cycles";
 inline constexpr std::string_view kLoopExceedsRule = "loop opening and body exceed the session";
 
+// Story 4.4 (docs/signal-spec.md, Gain ramps, Compile order): loop rule 8,
+// and rules 9 to 12, which check_rules() runs last, after the binaural
+// waveform rule, per schedule (theta reference, gamma PAC, binaural,
+// master) and ramp in array order; every frame test at both native rates.
+inline constexpr double kGainRampMinMs = 10.0;  // threshold row gain-ramp-min
+inline constexpr std::string_view kGainRampMinRule = "gain.ramp_min";
+inline constexpr std::string_view kGainOutsideRule = "gain.outside_session";
+inline constexpr std::string_view kGainOverlapRule = "gain.overlap";
+inline constexpr std::string_view kGainLoopBodyRule = "gain.loop_body";
+inline constexpr std::string_view kThetaSilentRule = "coupling.theta_silent";
+inline constexpr std::string_view kThetaSilentLimit =
+    "theta_reference gain above 0 wherever gamma_pac gain is above 0";
+
 // Rules after the ranges (Stories 2.1 and 2.2), run by compile after
 // check_ranges() and before final.required, first failure wins:
 // 1. carrier rule on the theta reference: carrier_hz against rate_hz, or

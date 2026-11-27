@@ -60,6 +60,19 @@ Contract with recipes/recipe.schema.json (JSON Schema draft 2020-12):
   included, is `loudness-relevant`. `_min` (minutes) joins the unit
   suffixes. The max run time rows and the loop rules live in the tables and
   the validator, not the schema.
+- Story 4.4 (docs/signal-spec.md, Gain ramps, Recipe fields):
+  `theta_reference`, `gamma_pac`, and `binaural` each gain an optional
+  `gain` as their last property, and the root gains an optional `master`
+  after `loop` (the last root property), an object whose only property is
+  an optional `gain`. A `gain` object (additionalProperties false) requires
+  `initial` (number) and has the optional `ramps`, an array whose items are
+  objects (additionalProperties false) that require `start_s`,
+  `duration_s`, and `to` (numbers). No maxItems: the count is the compile
+  check on row gain-ramp-count. Every new property is `loudness-relevant`.
+  Gains are linear ratios, so `initial` and `to` are the only numbers
+  without a unit suffix (Story 4.4 decision 1). Array items are walked
+  under the path segment `*`, as the engine field table lists them; the
+  items object itself is no property.
 - The schema holds structure and types only. The only numeric bounds allowed
   are the seed bounds 0 and 2^53 - 1; locked ranges live in
   tests/tables/ranges.tsv (Story 1.3).
@@ -135,7 +148,24 @@ FIELDS = {
     "/loop/opening_s": ("number", "loudness-relevant", True),
     "/loop/body_s": ("number", "loudness-relevant", True),
     "/loop/max_run_time_min": ("number", "loudness-relevant", True),
+    "/master": ("object", "loudness-relevant", False),                                # Story 4.4
 }
+
+# Story 4.4: the six rows of a gain member under each schedule, in order.
+GAIN_ROWS = (
+    ("/gain", ("object", "loudness-relevant", False)),
+    ("/gain/initial", ("number", "loudness-relevant", True)),
+    ("/gain/ramps", ("array", "loudness-relevant", False)),
+    ("/gain/ramps/*/start_s", ("number", "loudness-relevant", True)),
+    ("/gain/ramps/*/duration_s", ("number", "loudness-relevant", True)),
+    ("/gain/ramps/*/to", ("number", "loudness-relevant", True)),
+)
+GAIN_SCHEDULES = ("/theta_reference", "/gamma_pac", "/binaural", "/master")
+for _schedule in GAIN_SCHEDULES:
+    for _suffix, _value in GAIN_ROWS:
+        FIELDS[_schedule + _suffix] = _value
+# The linear gains (Story 4.4 decision 1): ratios, no unit suffix.
+RATIO_FIELDS = {s + suffix for s in GAIN_SCHEDULES for suffix in ("/gain/initial", "/gain/ramps/*/to")}
 
 
 def _no_duplicates(pairs):
@@ -170,15 +200,19 @@ def resolve(schema, node):
 
 
 def walk(schema):
-    """Yields (pointer, property node, required) for every property."""
+    """Yields (pointer, property node, required) for every property; an
+    array's item properties are under the segment `*` (Story 4.4)."""
     def objects(node, prefix):
         node = resolve(schema, node)
         required = set(node.get("required", []))
         for name, prop in node.get("properties", {}).items():
             pointer = f"{prefix}/{name}"
             yield pointer, prop, name in required
-            if resolve(schema, prop).get("type") == "object":
+            target = resolve(schema, prop)
+            if target.get("type") == "object":
                 yield from objects(prop, pointer)
+            elif target.get("type") == "array":
+                yield from objects(target["items"], pointer + "/*")
     yield from objects(schema, "")
 
 
@@ -204,6 +238,14 @@ def test_schema_is_draft_2020_12_and_valid():
     assert schema.get("$schema") == "https://json-schema.org/draft/2020-12/schema"
     jsonschema.Draft202012Validator.check_schema(schema)
     assert schema.get("type") == "object"
+
+
+def test_every_property_is_snake_case_rejects_a_unitless_quantity_outside_the_gains():
+    # Must-fail for the rule above: a number named like a gain outside a
+    # gain member has no exemption.
+    assert "/theta_reference/initial" not in RATIO_FIELDS
+    assert "/master/gain/ramps/*/to" in RATIO_FIELDS
+    assert not "initial".endswith(UNIT_SUFFIXES)
 
 
 def test_every_object_rejects_unknown_properties():
@@ -232,7 +274,11 @@ def test_every_property_is_snake_case_with_unit_suffix_for_quantities():
     for pointer, prop, _ in walk(schema):
         name = pointer.rsplit("/", 1)[1]
         assert SNAKE.fullmatch(name), f"{pointer}: not snake_case"
-        if prop_type(schema, prop) == "number":
+        if pointer in RATIO_FIELDS:
+            # Story 4.4: a linear gain is a ratio, not a quantity with a unit.
+            assert prop_type(schema, prop) == "number", pointer
+            assert not name.endswith(UNIT_SUFFIXES), pointer
+        elif prop_type(schema, prop) == "number":
             assert name.endswith(UNIT_SUFFIXES), f"{pointer}: quantity without a unit suffix"
 
 
@@ -304,7 +350,9 @@ def test_tool_reads_the_same_tags_from_the_schema():
     schema = tool.load_schema()
     assert schema == load_schema_strict()
     got = tool.load_tags(schema)
-    want = {pointer: prop["x-arcani-tag"] for pointer, prop, _ in walk(schema)}
+    # The tool walks objects only; the ramp members inside the gain arrays
+    # (Story 4.4) are read with their array, which carries the same tag.
+    want = {pointer: prop["x-arcani-tag"] for pointer, prop, _ in walk(schema) if "/*/" not in pointer}
     assert got == want
 
 
@@ -347,7 +395,7 @@ def test_theta_shape_enum_accepts_custom_and_rejects_other_text():
 
 GAMMA_REQUIRED = ["carrier_hz", "rate_hz", "am_depth_percent", "carrier_wave", "coupling"]
 # Story 2.3: coupling_phase_deg optional, after coupling; Story 2.6: rate_cycle optional, last.
-GAMMA_PROPERTIES = GAMMA_REQUIRED + ["coupling_phase_deg", "rate_cycle"]
+GAMMA_PROPERTIES = GAMMA_REQUIRED + ["coupling_phase_deg", "rate_cycle", "gain"]  # Story 4.4 adds gain, last
 GAMMA_CARRIER_WAVE_ENUM = ["sine", "triangle", "softened_square"]
 GAMMA_COUPLING_ENUM = ["uncoupled", "smooth_swell", "bursts"]  # Story 2.3 adds smooth_swell, 2.4 bursts
 
@@ -464,7 +512,7 @@ def test_coupling_phase_accepts_numbers_and_rejects_text():
 
 # ------------------------------------------- binaural layer (Story 2.5)
 
-BINAURAL_PROPERTIES = ["carrier_left_hz", "beat_rate_hz", "beat_rate_cycle", "waveform"]
+BINAURAL_PROPERTIES = ["carrier_left_hz", "beat_rate_hz", "beat_rate_cycle", "waveform", "gain"]  # Story 4.4
 CYCLE_PROPERTIES = ["swing_hz", "period_s", "start_phase_deg"]
 BINAURAL_WAVEFORM_ENUM = ["sine", "triangle"]
 
@@ -491,7 +539,7 @@ def test_binaural_gains_the_cycle_and_the_waveform_in_order():
     node = binaural_node(schema)
     assert list(node["properties"]) == BINAURAL_PROPERTIES
     assert sorted(node.get("required", [])) == ["beat_rate_hz", "carrier_left_hz"]
-    for name in ("beat_rate_cycle", "waveform"):
+    for name in ("beat_rate_cycle", "waveform", "gain"):
         assert node["properties"][name].get("x-arcani-tag") == "loudness-relevant", name
     cycle = resolve(schema, node["properties"]["beat_rate_cycle"])
     assert cycle.get("type") == "object"
@@ -544,7 +592,7 @@ def test_binaural_cycle_and_waveform_accept_and_reject():
 
 # ------------------------------------------- rate curves on theta and gamma (Story 2.6)
 
-THETA_PROPERTIES = ["carrier_hz", "rate_hz", "am_depth_percent", "shape", "rate_cycle"]
+THETA_PROPERTIES = ["carrier_hz", "rate_hz", "am_depth_percent", "shape", "rate_cycle", "gain"]  # Story 4.4
 THETA_CYCLE = {"swing_hz": 2.5, "period_s": 60, "start_phase_deg": 0}
 GAMMA_CYCLE = {"swing_hz": 15, "period_s": 60, "start_phase_deg": 0}
 REPO_FIXTURES = REPO_ROOT / "recipes" / "fixtures"
@@ -663,10 +711,11 @@ def loop_recipe(loop):
     return r
 
 
-def test_loop_is_the_last_root_property_an_object_with_four_required_members():
+def test_loop_follows_binaural_an_object_with_four_required_members():
     schema = load_schema_strict()
     names = list(schema["properties"])
-    assert names[-2:] == ["binaural", "loop"], names
+    # Story 4.4: master follows loop and is the last root property.
+    assert names[-3:] == ["binaural", "loop", "master"], names
     assert "loop" not in schema.get("required", [])
     prop = schema["properties"]["loop"]
     assert prop.get("x-arcani-tag") == "loudness-relevant"
@@ -734,3 +783,114 @@ def test_invalid_loop_fixtures_fail_the_schema_with_their_keyword():
         errors = list(validator.iter_errors(json.loads(path.read_text(encoding="utf-8"))))
         assert {e.validator for e in errors} == {keyword}, (name, [e.message for e in errors])
         assert {"/".join(str(p) for p in e.absolute_path) for e in errors} == {where}, name
+
+
+# ------------------------------------------------- gain schedules (Story 4.4)
+
+GAIN_PROPERTIES = ["initial", "ramps"]
+RAMP_PROPERTIES = ["start_s", "duration_s", "to"]
+NO_BOUNDS = {"minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf", "maxItems", "minItems"}
+
+
+def gain_nodes(schema):
+    """{schedule: (holder node, gain property)} for the four schedules."""
+    out = {}
+    for name in ("theta_reference", "gamma_pac", "binaural", "master"):
+        holder = resolve(schema, schema["properties"][name])
+        assert "gain" in holder["properties"], f"no {name}.gain property (Story 4.4)"
+        out[name] = (holder, holder["properties"]["gain"])
+    return out
+
+
+def test_master_is_the_last_root_property_an_object_with_only_a_gain():
+    schema = load_schema_strict()
+    names = list(schema["properties"])
+    assert names[-1] == "master", names
+    assert "master" not in schema.get("required", [])
+    prop = schema["properties"]["master"]
+    assert prop.get("x-arcani-tag") == "loudness-relevant"
+    node = resolve(schema, prop)
+    assert node.get("type") == "object"
+    assert node.get("additionalProperties") is False
+    assert list(node["properties"]) == ["gain"]
+    assert node.get("required", []) == []
+
+
+def test_every_gain_member_is_last_and_shaped_exactly():
+    schema = load_schema_strict()
+    for name, (holder, prop) in gain_nodes(schema).items():
+        assert list(holder["properties"])[-1] == "gain", name
+        assert "gain" not in holder.get("required", []), name
+        assert prop.get("x-arcani-tag") == "loudness-relevant", name
+        gain = resolve(schema, prop)
+        assert gain.get("type") == "object", name
+        assert gain.get("additionalProperties") is False, name
+        assert list(gain["properties"]) == GAIN_PROPERTIES, name
+        assert gain.get("required") == ["initial"], name
+        initial = gain["properties"]["initial"]
+        assert initial.get("x-arcani-tag") == "loudness-relevant", name
+        assert resolve(schema, initial).get("type") == "number", name
+        assert not NO_BOUNDS & set(resolve(schema, initial)), name
+        ramps_prop = gain["properties"]["ramps"]
+        assert ramps_prop.get("x-arcani-tag") == "loudness-relevant", name
+        ramps = resolve(schema, ramps_prop)
+        assert ramps.get("type") == "array", name
+        assert not NO_BOUNDS & set(ramps), name  # the count is the compile check, row gain-ramp-count
+        item = resolve(schema, ramps["items"])
+        assert item.get("type") == "object", name
+        assert item.get("additionalProperties") is False, name
+        assert list(item["properties"]) == RAMP_PROPERTIES, name
+        assert sorted(item.get("required", [])) == sorted(RAMP_PROPERTIES), name
+        for member in RAMP_PROPERTIES:
+            m = item["properties"][member]
+            assert m.get("x-arcani-tag") == "loudness-relevant", (name, member)
+            assert resolve(schema, m).get("type") == "number", (name, member)
+            assert not NO_BOUNDS & set(resolve(schema, m)), (name, member)
+
+
+def gain_recipe(where, gain):
+    r = {
+        "schema_version": "1.0", "engine_version": "0.0.1", "seed": 42,
+        "author": "Arcani test", "date": "2026-11-26", "rationale": "Schema gain test.",
+        "length_s": 600, "loudness_target_lufs": -36,
+        "theta_reference": {"carrier_hz": 450, "rate_hz": 4, "am_depth_percent": 75, "shape": "sine"},
+        "gamma_pac": {"carrier_hz": 250, "rate_hz": 40, "am_depth_percent": 100, "carrier_wave": "sine",
+                      "coupling": "smooth_swell", "coupling_phase_deg": 0},
+        "binaural": {"carrier_left_hz": 100, "beat_rate_hz": 2},
+    }
+    if where == "master":
+        r["master"] = {"gain": gain}
+    else:
+        r[where]["gain"] = gain
+    return r
+
+
+def test_gains_accept_and_reject_by_schema_keyword():
+    import jsonschema
+
+    validator = jsonschema.Draft202012Validator(load_schema_strict())
+    ramp = {"start_s": 10, "duration_s": 0.01, "to": 0.5}
+
+    def keywords(where, gain):
+        errors = list(validator.iter_errors(gain_recipe(where, gain)))
+        return {e.validator for e in errors}, {"/".join(str(p) for p in e.absolute_path) for e in errors}
+
+    for where in ("theta_reference", "gamma_pac", "binaural", "master"):
+        for gain in ({"initial": 1}, {"initial": 0, "ramps": []}, {"initial": 1, "ramps": [ramp] * 9},
+                     {"initial": 1.5, "ramps": [{"start_s": -1, "duration_s": 0, "to": -2}]}):
+            # Out of the rows and the gain rules is still schema-valid.
+            assert keywords(where, gain) == (set(), set()), (where, gain)
+        assert keywords(where, {}) == ({"required"}, {f"{where}/gain"}), where
+        assert keywords(where, {"initial": "1"}) == ({"type"}, {f"{where}/gain/initial"}), where
+        assert keywords(where, {"initial": 1, "fade_s": 5}) == ({"additionalProperties"}, {f"{where}/gain"}), where
+        assert keywords(where, {"initial": 1, "ramps": {}}) == ({"type"}, {f"{where}/gain/ramps"}), where
+        assert keywords(where, {"initial": 1, "ramps": [5]}) == ({"type"}, {f"{where}/gain/ramps/0"}), where
+        missing = {"start_s": 10, "duration_s": 1}
+        assert keywords(where, {"initial": 1, "ramps": [ramp, missing]}) == (
+            {"required"}, {f"{where}/gain/ramps/1"}), where
+        extra = dict(ramp, shape="cos")
+        assert keywords(where, {"initial": 1, "ramps": [extra]}) == (
+            {"additionalProperties"}, {f"{where}/gain/ramps/0"}), where
+    errors = list(validator.iter_errors(dict(gain_recipe("master", {"initial": 1}), master={"gain": {"initial": 1},
+                                                                                              "fade": 1})))
+    assert {e.validator for e in errors} == {"additionalProperties"}, [e.message for e in errors]
