@@ -651,11 +651,11 @@ var EPICS = [
       ["x","Every final 24-bit render at or below -1 dBTP"],
       ["x","Measure command writes no gain if true peak would exceed the ceiling"]
     ] },
-  { id:"4.4", title:"Gain ramps", status:"in-progress",
+  { id:"4.4", title:"Gain ramps", status:"review",
     plain:"Per-layer and master gain ramps, none faster than 10 ms, so fades and ramp-ins are smooth.",
     spec:["spec-4-4-gain-ramps.md"],
-    steps:[true,true,false,false,false,false,false],
-    stepNotes:["29e2e2c: spec approved 2026-11-26 by Audio; optional gain schedules on each layer and the master, raised-cosine ramps (Audio's pick), none under 10 ms; taps before and after layer gain; ramp-free loudness window; coupled gamma rejected at silent theta; 5 min end fade at the Focus and Learn cap; 729c996 signal spec Gain ramps section, 4 vector tables (67 in all), rows layer-gain and gain-ramp-count, design log (eee)","4043edb: failing tests by a fresh QA agent; ctest 42 of 551 cases red, pytest 124 failed and 12 errors, all Story 4.4"],
+    steps:[true,true,true,true,false,false,false],
+    stepNotes:["29e2e2c: spec approved 2026-11-26 by Audio; optional gain schedules on each layer and the master, raised-cosine ramps (Audio's pick), none under 10 ms; taps before and after layer gain; ramp-free loudness window; coupled gamma rejected at silent theta; 5 min end fade at the Focus and Learn cap; 729c996 signal spec Gain ramps section, 4 vector tables (67 in all), rows layer-gain and gain-ramp-count, design log (eee)","4043edb: failing tests by a fresh QA agent; ctest 42 of 551 cases red, pytest 124 failed and 12 errors, all Story 4.4","ca152a5..8ce0271: schema, validator, engine gains and taps, reference, ramp tool, CLI window, stored 10 min fixture; ad8e16d: 11 stale tests updated by the QA agent; ctest green, pytest 3949 pass","79c4c10: review pass 1, 4 patches (fb1a647..337a00f), 18 rejected, none deferred; ctest green, pytest 3952 pass"],
     acs:[
       ["x","signal-spec ramps section with worked vectors"],
       [" ","Tap before and after layer gain; bit-identical at unity"],
@@ -770,6 +770,7 @@ var EPICS = [
 // Running timeline: add newest entries at the TOP.
 var UPDATE_LOG = [
   ["2026-11-26","8ce0271","4.4","Implementation committed (ca152a5..8ce0271): schema and parser, validator rules, ramp law and four taps, ten-file tap dump, gain-ramps probe pins (wait on the full run), reference gains, ramp tool, ramp-free loudness window, stored 10 min fixture (-36.13 dB); ctest 551 of 553 and pytest all but 10 pass; the 12 remaining failures are tests that need updating for the gain fields, held for a decision; not pushed"],
+  ["2026-11-26","79c4c10","4.4","Code review pass 1: 4 patches (store-gain on a ramped recipe test, fixed-size window scan, ramp tool hold window at the signal end, design log status), 18 findings rejected with reasons in the spec, none deferred; ctest green, pytest 3952 pass; sprint-status.yaml review; not pushed"],
   ["2026-11-26","4043edb","4.4","Failing tests (fresh QA agent, tests-only): 5 valid and 5 invalid gain fixtures, C++ gain tests, ramp tool, reference, loudness, and probe tests; ctest 42 of 551 cases red, pytest 124 failed and 12 errors, all Story 4.4, rest green; not pushed"],
   ["2026-11-26","729c996","4.4","Signal spec Gain ramps section: raised-cosine ramp law with exact binary64 order, compile rules (10 ms minimum, inside the session, no overlap, out of the first body pass, coupled gamma never over a silent theta reference), before- and after-gain taps, ramp-free loudness window; 4 vector tables; rows layer-gain and gain-ramp-count; sprint-status.yaml in-progress; ctest and pytest green; not pushed"],
   ["2026-11-26","29e2e2c","4.4","Spec approved by Audio: optional per-layer and master gain schedules with raised-cosine ramps (none under 10 ms), taps before and after layer gain, ramp-free loudness window, coupled gamma rejected at silent theta, 5 min end fade at the Focus and Learn cap; sprint-status.yaml ready-for-dev; branch story/4-4-gain-ramps; not pushed"],
