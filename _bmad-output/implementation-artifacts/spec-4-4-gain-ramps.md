@@ -2,7 +2,7 @@
 title: 'Story 4.4: Gain ramps'
 type: 'feature'
 created: '2026-11-26'
-status: 'in-progress'
+status: 'done'
 baseline_commit: '9ff038fd358f3196bd4d4d433561da13c05f0a61'
 route: 'dispatch'
 review_loop_iteration: 0
@@ -75,10 +75,10 @@ Decisions (planning, 2026-11-26; Audio can overrule any of them at approval):
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `docs/signal-spec.md`, `tools/signal_spec_vectors.py`, `tests/tables/*.tsv`, `docs/design-log.md`: Gain ramps section, vectors, rows, and log entries. Merged before code.
-- [ ] Failing tests (QA agent, tests-only commit): `tests/cpp/test_gain_ramps.cpp`, `tests/python/test_gain_ramp_tool.py`, `test_gain_ramps_reference.py`, `test_gain_ramps_loudness.py`, invalid fixtures plus `invalid-expected.json`, and taps in `test_api.cpp`/`test_stages.cpp`.
-- [ ] Schema, parser, validator, plan, renderer, API taps, tapdump, Python reference, CLI window.
-- [ ] Fixtures `recipes/fixtures/valid/gain-*.json`: 5 min ramp-in (looping, opening differs from body), 10 min layer ramp from silence (non-looping), 5 min master fade to silence, and a looping end fade at the cap. Probe pins.
+- [x] `docs/signal-spec.md`, `tools/signal_spec_vectors.py`, `tests/tables/*.tsv`, `docs/design-log.md`: Gain ramps section, vectors, rows, and log entries. Merged before code.
+- [x] Failing tests (QA agent, tests-only commit): `tests/cpp/test_gain_ramps.cpp`, `tests/python/test_gain_ramp_tool.py`, `test_gain_ramps_reference.py`, `test_gain_ramps_loudness.py`, invalid fixtures plus `invalid-expected.json`, and taps in `test_api.cpp`/`test_stages.cpp`.
+- [x] Schema, parser, validator, plan, renderer, API taps, tapdump, Python reference, CLI window.
+- [x] Fixtures `recipes/fixtures/valid/gain-*.json`: 5 min ramp-in (looping, opening differs from body), 10 min layer ramp from silence (non-looping), 5 min master fade to silence, and a looping end fade at the cap. Probe pins.
 
 **Acceptance Criteria:**
 - Given every ramp fixture at 44.1 and 48 kHz, when the ramp tool and click tool check every layer tap and the master output, then no gain change completes in under 10 ms, no ramp edge exceeds -60 dBFS after the 8 kHz high-pass, and a harness-doctored 5 ms layer fade fails.
@@ -179,3 +179,28 @@ The window rule's rejection value is `steady_frames / fs`. `--loudness` with a n
 - `powershell -File tools/dev.ps1 cmake --workflow --preset windows-clang-cl`: expected build passes and ctest is green.
 - `uv run --locked pytest -n auto`: expected all pass.
 - `git status --porcelain -- recipes` after the suite: expected only committed fixture edits.
+
+## Review Triage Log
+
+Pass 1 (2026-11-26): blind-hunter (B), edge-case-hunter (E), verification-gap (V).
+
+| # | Finding | Verdict | Evidence | Route |
+|---|---------|---------|----------|-------|
+| V1/B2 | `--store-gain` never runs on a ramped recipe | medium | Pre-verified: every store test uses a ramp-free recipe; the stored 10 min fixture is only read in final mode, so dropping the spans in `run_store` passes the suite. | patch |
+| B4/E4/V2 | `loudness_window` allocates a `std::vector<bool>` inside `noexcept` | low | Real at `cli/loudness.cpp` (non-looping branch); direct correction to a fixed array of 32. | patch |
+| E1 | Ramp tool reads the last frames as held, so a signal cut mid-ramp closes a change at its end | medium | Real: `_forward_window` pads past the end with -inf/inf, so the hold window at the last frame holds only itself; contradicts the Implementation Notes claim that an unfinished change is not counted. | patch |
+| B9 | Design log table says `proposed` for the non-looping window; entry (eee) says engineering default | low | Real at `docs/design-log.md` Current state; direct correction. | patch |
+| B1/E3 | The longest ramp-free stretch may be a quiet or silent hold, so the gain is measured on it | low | Real in principle, but it is frozen decision 4 and design log (x) ("longest stretch with no gain ramp"); no fixture or planned starter holds a low gain longer than its main part (Sleep's fade ends at the session end). A rule against it would change the approved window. | reject |
+| B3 | The window refusal still names `/length_s` while the value is the steady stretch | low | Matches `docs/signal-spec.md` Loudness, Window rule (parameter `/length_s`, value `(e - s) / fs`); changing it edits the spec. | reject |
+| B5 | Loop rule 8 runs before rules 9 to 11, so a doubly bad looping ramp is reported as `gain.loop_body` | low | Follows the spec's compile order; the recipe is still rejected with a named rule. | reject |
+| B6/E6 | `coupling.theta_silent` only fires at gain exactly 0 (or a subnormal) | false | Frozen decision 6 and design log 2026-11-04 (ee) (Audio): zero level is the same test as zero depth; no level threshold was approved. | reject |
+| B7 | Spec, sprint status, and guidebook statuses disagree | false | In-flight states during review; they move at step 5, as in 4.2 and 4.3. | reject |
+| B8 | Post-implementation test edits have no recorded approval; tag check skips ramp members; `MATCHED` lists five taps | low | The 11 edits (ad8e16d) were directed by the orchestrator to the test owner (QA agent) after the implementation agent stopped on them; every one was a stale hard-coded list or a wrong frame expectation, and no threshold moved. Ramp members' tags are still checked by `test_every_property_carries_exactly_one_valid_tag`; the new taps are matched in `test_gain_ramps_reference.py`. | reject |
+| B10 | CI cost not reported | false | Dev PC: the four new Python gain files take 132 s serial; full `pytest -n auto` 711 s to 846 s wall; ctest about the same (227 s). CI timings are recorded from the PR run, as in every story. | reject |
+| B11 | No render-speed evidence for four `gain_at` calls per frame | low | A default schedule has count 0, so `gain_at` returns at once; the render speed assertion runs on the reference machine as before. | reject |
+| B12 | Engine version not bumped for new taps and recipe fields | low | Precedent: every v0.1 story extended the C API and schema at 0.0.1; versioning is set at the v0.1 release. | reject |
+| B13 | Reference-match bound only 2.5 dB under the row | low | It is a worst-case analytic bound; measured matches stay far lower, and the reference tests check every edge against the row. | reject |
+| B14 | Law vector Ideal column written in several forms | low | Cosmetic in generated vectors; values parse equal. | reject |
+| E0 | Edge-case reviewer read the claims file early | low | Process note only; its findings were verified here on the code. | reject |
+| E2 | Ramp tool passes empty arrays as no change | low | No caller passes an empty window; the fix adds a guard. | reject |
+| E5 | A `-0` gain in JSON passes the range check and flips a muted ear's sign | low | Writes as 0 in the 24-bit output; no recipe writes -0; the fix adds normalization. | reject |
