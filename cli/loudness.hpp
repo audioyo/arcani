@@ -93,6 +93,8 @@ struct FrameSpan {
 // ramp-free, so the ramps are not read). A rejected window has every number
 // 0 but steady_frames, the length of the longest steady stretch (Story 4.4),
 // which is set without a loop whether accepted or not, and 0 with one.
+// Without a loop, more than 32 spans (4 schedules of 8 ramps) is refused
+// with every number 0.
 struct LoudnessWindow {
   bool accepted = false;
   std::uint64_t start_frame = 0;

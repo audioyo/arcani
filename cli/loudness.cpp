@@ -5,6 +5,7 @@
 
 #include "preview.hpp"
 
+#include <array>
 #include <cmath>
 #include <limits>
 #include <numbers>
@@ -164,11 +165,17 @@ LoudnessWindow loudness_window(const arc_loop_frames& loop, std::uint64_t end_fr
   if (loop.looping == 0) {
     // The longest run of [0, end_frame) inside no ramp, the earliest on a
     // tie. A frame is steady unless some span covers it; walk the spans'
-    // starts in time order (insertion order of at most 32 spans).
+    // starts in time order (at most 32 spans, any order).
     std::uint64_t best_start = 0;
     std::uint64_t best_len = 0;
     std::uint64_t at = 0;  // the first frame not yet known to be in a ramp
-    std::vector<bool> used(ramps.size(), false);
+    // At most 4 schedules of kMaxGainRamps (8) ramps each; a larger count is
+    // no plan's and is refused without allocating.
+    constexpr std::size_t kMaxSpans = 4 * 8;
+    if (ramps.size() > kMaxSpans) {
+      return w;
+    }
+    std::array<bool, kMaxSpans> used{};
     for (;;) {
       // The next span (smallest start) not yet used.
       std::size_t next = ramps.size();
