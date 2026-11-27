@@ -203,3 +203,28 @@ def test_a_steady_stretch_shorter_than_60_s_is_refused(render, tmp_path, fs):
     assert member["window_start_frame"] == lc.seconds_to_samples(60, fs)
     assert member["window_body_frames"] == lc.seconds_to_samples(60, fs)
     assert math.isfinite(member["window_lufs_i"])
+
+
+def test_store_gain_on_a_ramped_recipe_measures_the_steady_stretch(render, tmp_path):
+    """--store-gain on a temp copy of gain-layer-ramp-10min.json at 48 kHz
+    gives the committed stored fixture byte for byte (it meters [600 s,
+    720 s), not the whole session); a 50 s steady stretch is refused with the
+    window rule and the file is left unchanged."""
+    source = gc.FIXTURES_VALID / gc.constants()["stored_source"]
+    stored = gc.FIXTURES_VALID / gc.constants()["stored_fixture"]
+    copy = tmp_path / "store" / stored.name
+    copy.parent.mkdir()
+    copy.write_bytes(source.read_bytes())
+    r = common.run(render, [copy, "--store-gain", "--rate", 48000], timeout=900, env=lc.clean_env())
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert copy.read_bytes() == stored.read_bytes()
+
+    short = short_steady_recipe(tmp_path / "short.json", 70)
+    before = short.read_bytes()
+    r2 = common.run(render, [short, "--store-gain", "--rate", 48000], timeout=900, env=lc.clean_env())
+    assert r2.returncode == 1, r2.stdout + r2.stderr
+    want = (f"rejected: parameter={lc.constants()['window_parameter']} value=50 "
+            f"rule={lc.constants()['window_rule']} limit={lc.constants()['window_limit']}")
+    assert r2.stderr.splitlines() == [want], r2.stderr
+    assert short.read_bytes() == before
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["short.json", "store"]
