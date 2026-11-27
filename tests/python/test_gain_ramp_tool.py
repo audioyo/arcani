@@ -194,6 +194,21 @@ def test_five_minute_raised_cosine_is_most_of_its_length():
     assert r["measured"] == pytest.approx(1000.0 * (end - start) / fs, abs=1e-9), r
 
 
+@pytest.mark.parametrize("fs", SAMPLE_RATES)
+def test_a_ramp_cut_5_ms_after_its_start_is_no_change(fs):
+    """A signal that ends inside a ramp closes no change: a 10 ms raised cosine
+    cut 5 ms after n0 gives none, and the check passes with note no change."""
+    m = tool()
+    ten = ten_ms_frames(fs)
+    five = gc.seconds_to_samples(float(gc.constants()["must_fail_fade_s"]), fs)
+    total = N0 + five
+    ramp = gc.raised_cosine(1.0, 0.0, ten)[:five]
+    before, after, _ = signal(fs, 1.0, [(N0, ramp, float(ramp[-1]))], total)
+    assert m.changes(m.estimate(before, after), fs) == []
+    r = m.check("cut ramp", before, after, fs)
+    assert (r["result"], r["measured"], r["note"]) == ("pass", None, "no change"), r
+
+
 # ------------------------------------------------------------ the assertion
 
 

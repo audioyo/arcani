@@ -9,8 +9,8 @@ times the loudness gain. Calibrated on Python-synthesized signals first
 - MIN_DIVISOR: samples whose before-gain value is smaller in magnitude are
   not read (the zero crossings of a carrier).
 - HOLD_S: a value is held when every valid estimate in the next
-  round(HOLD_S * fs) frames (or to the end of the signal) is within HOLD_TOL
-  of it.
+  round(HOLD_S * fs) frames is within HOLD_TOL of it; a frame closer than
+  that to the signal end is never held.
 - estimate(before, after): one channel, float64, after / before, NaN where
   |before| < MIN_DIVISOR.
 - changes(est, fs): every completed change in time order, as {"start": the
@@ -79,8 +79,11 @@ def _held(est, fs):
     width = max(1, int(round(HOLD_S * fs)))
     hi = _forward_window(np.where(valid, est, -np.inf), width, np.maximum, -np.inf)
     lo = _forward_window(np.where(valid, est, np.inf), width, np.minimum, np.inf)
+    # Only a frame whose whole hold window lies inside the signal can be
+    # held, so a signal cut mid-change never closes that change.
+    fits = np.arange(est.size) + width <= est.size
     with np.errstate(invalid="ignore"):
-        return valid & (hi - est <= HOLD_TOL) & (est - lo <= HOLD_TOL), valid
+        return valid & fits & (hi - est <= HOLD_TOL) & (est - lo <= HOLD_TOL), valid
 
 
 def _floor():
