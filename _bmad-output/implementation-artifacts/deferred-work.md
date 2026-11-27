@@ -133,3 +133,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-3-true-peak.md`
   summary: Run the `--store-gain` true-peak refusal (store step 8) end to end through the binary, checking exit 1, the `rule=true_peak` line, unchanged recipe bytes, and no `RECIPE.partial`.
   evidence: Story 4.3 review V1 (medium, pre-verified): only the pure `true_peak_step` is tested; no real recipe exceeds the ceiling at -36 LUFS-I with a gain at most 0 dB, and tables are compiled in, so a test hook is needed.
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-4-gain-ramps.md`
+  summary: At the start of Story 4.5, settle the CI wall-time headroom before adding tests. Full macos-arm64 ran 26.1 of its 30 min budget after Story 4.4 (from 14.8), and fast windows-x64 ran 34.0 of 45 (from 29.8). Either trim Story 4.4 test time, raise a budget with a design log entry, or both. Trimming options: dump only `[0, O + B)` with `--window` in the superseded-window test, not the whole 20 min session (847 MB at 44.1 kHz), and reuse long fixture renders across the gain loudness tests.
+  evidence: PR #26 fast run 45940061561 and full run 45940067719 (design log 2026-11-26 (eee), CI line); budgets in `ci/wall_time_budget.json`, timeout twice the budget. The repo is public, so hosted minutes are free; the limit is job wall time. 4.5 adds limiter checks on every render.
