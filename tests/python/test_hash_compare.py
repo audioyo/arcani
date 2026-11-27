@@ -839,7 +839,7 @@ def real_rates():
 
 
 def test_real_expected_file_has_every_component_with_its_scope():
-    """Stories 1.6 to 4.2: the sine, stub chain, theta, gamma, swell, binaural, burst, rate-curve, loop, component table, and final-mode stub chain entries, scoped; probe-arith is the only probe entry."""
+    """Stories 1.6 to 4.4: the sine, stub chain, theta, gamma, swell, binaural, burst, rate-curve, loop, component table, final-mode stub chain, and gain ramp entries, scoped; probe-arith is the only probe entry."""
     components = load_ci("hash_expected.json")["components"]
     rates = real_rates()
     want = {"probe-arith": ("probe", 4096), "components": ("engine", 6600)}  # components: Story 3.1
@@ -855,6 +855,9 @@ def test_real_expected_file_has_every_component_with_its_scope():
         want[f"rate-curves-{fs}"] = ("engine", 2 * 2 * 10 * fs)  # Story 2.6
         want[f"loop-{fs}"] = ("engine", 2 * 2 * 5 * fs)  # Story 2.7
         want[f"stub-chain-final-{fs}"] = ("engine", 2 * fs)  # Story 4.2
+        # Story 4.4: 1 s around each of the 14 ramp edges of the four gain
+        # fixtures (gain_windows probe_starts), stereo.
+        want[f"gain-ramps-{fs}"] = ("engine", 2 * 14 * fs)
     assert set(components) == set(want), sorted(components)
     for name, (scope, samples) in want.items():
         entry = components[name]
@@ -865,6 +868,7 @@ def test_real_expected_file_has_every_component_with_its_scope():
         assert components[f"stub-chain-blocks-{fs}"]["sha256"] == components[f"stub-chain-{fs}"]["sha256"]
     assert components["sine-44100"]["sha256"] != components["sine-48000"]["sha256"]
     assert components["stub-chain-44100"]["sha256"] != components["stub-chain-48000"]["sha256"]
+    assert components["gain-ramps-44100"]["sha256"] != components["gain-ramps-48000"]["sha256"]
     assert components["theta-envelopes-44100"]["sha256"] != components["theta-envelopes-48000"]["sha256"]
     assert components["gamma-uncoupled-44100"]["sha256"] != components["gamma-uncoupled-48000"]["sha256"]
     assert components["gamma-swell-44100"]["sha256"] != components["gamma-swell-48000"]["sha256"]

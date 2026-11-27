@@ -350,7 +350,14 @@ TEST_CASE("plan::gain_at: every fixture ramp at its edges and after; ends held e
             CHECK(bits(plan::gain_at(s, n)) == bits(gain::harness_gain_at(h, n)));
           }
           CHECK(bits(plan::gain_at(s, r.n1)) == bits(r.b));
-          CHECK(bits(plan::gain_at(s, end - 1)) == bits(h.ramps.back().b));
+          // Gain ramps, Law: b of the last ramp from its n1 on. A ramp that
+          // ends at N (the end fade at the cap) is still ramping at N - 1.
+          if (h.ramps.back().n1 <= end - 1) {
+            CHECK(bits(plan::gain_at(s, end - 1)) == bits(h.ramps.back().b));
+          } else {
+            CHECK(h.ramps.back().n1 == end);
+            CHECK(bits(plan::gain_at(s, end - 1)) != bits(h.ramps.back().b));
+          }
           if (r.n0 > 0) {
             CHECK(bits(plan::gain_at(s, r.n0 - 1)) == bits(r.a));
           }

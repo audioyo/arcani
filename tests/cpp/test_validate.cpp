@@ -863,7 +863,30 @@ TEST_CASE("valid/ means schema-valid: the out-of-range hash fixture is rejected 
       "loop-gamma-body-off-cycle.json", "loop-binaural-body-off-cycle.json", "loop-exceeds-session.json",
       // Story 3.2: the spacing must-fail fixture, the only fixture the signal
       // spec names as a collision (checked below and in test_spacing.cpp).
-      "spacing-binaural-250-256-gamma-260.json"};
+      "spacing-binaural-250-256-gamma-260.json",
+      // Story 4.4: the coupling.theta_silent must-fail fixture (Gain ramps,
+      // Silent theta reference), checked below and in test_gain_ramps.cpp.
+      "gain-theta-silent.json"};
+  // Story 4.4: gain-theta-silent.json is rejected with the four texts of its
+  // compile case vector, in both modes.
+  for (const auto& v : spec::kGainCompileCases) {
+    if (std::string(v.name) != spec::kGain_rejected_fixture) {
+      continue;
+    }
+    REQUIRE_FALSE(v.accepted);
+    for (const arc_mode mode : kModes) {
+      INFO("theta silent fixture, mode " << mode);
+      const api::Compiled c = api::compile(api::valid(v.name), api::options(mode, 48000));
+      INFO(api::describe(c.error));
+      CHECK(c.status == ARC_ERR_REJECTED);
+      CHECK(c.plan == nullptr);
+      REQUIRE(api::all_written(c.error));
+      CHECK(std::string(c.error.parameter) == v.parameter);
+      CHECK(std::string(c.error.value) == v.value);
+      CHECK(std::string(c.error.rule) == v.rule);
+      CHECK(std::string(c.error.limit) == v.limit);
+    }
+  }
   // Story 3.2: the spacing must-fail fixture is rejected by the spacing rule
   // in the right ear, 4 Hz, in both modes (the rule runs before
   // final.required).
